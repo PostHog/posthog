@@ -171,6 +171,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         assert v1_flag.active is True
         assert failing.failure_reason is not None
         assert json.loads(failing.failure_reason)["error_type"] == "ConfigFormatError"
+        assert failing.executed_at is not None
         assert applying.failure_reason is None
         assert applying.executed_at is not None
 

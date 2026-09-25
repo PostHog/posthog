@@ -45,9 +45,7 @@ def _flag_dependency_filters(dependency_flag_id: int | str) -> dict:
 
 
 def _other_format_filters(referenced: dict) -> dict:
-    """A config version 2 document whose rule predicate references a cohort or flag.
-
-    It matches the jsonb prefilters the receivers use, so it reaches the v1 reads."""
+    # A v2 document whose predicate matches the receivers' jsonb prefilters, so it reaches the v1 reads.
     return {
         "version": 2,
         "return_type": "boolean",

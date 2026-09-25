@@ -9373,6 +9373,19 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual((cohort.count, cohort.is_calculating, cohort.errors_calculating), (None, False, 1))
 
     @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
+    def test_inactive_flag_in_another_config_format_is_a_clean_no_op(self, mock_batch_evaluate):
+        self._create_flag(
+            active=False, filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        )
+        cohort = self._create_static_cohort()
+
+        get_cohort_actors_for_feature_flag(cohort.pk, "some-feature", self.team.pk)
+
+        mock_batch_evaluate.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual((cohort.count, cohort.is_calculating, cohort.errors_calculating), (None, False, 0))
+
+    @patch("posthog.api.cohort.batch_evaluate_flag_for_team")
     def test_group_flag_returns_empty_without_calling_service(self, mock_batch_evaluate):
         self._create_flag(
             filters={

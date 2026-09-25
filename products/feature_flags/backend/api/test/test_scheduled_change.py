@@ -64,7 +64,11 @@ class TestScheduledChange(APIBaseTest):
         )
         base = {"record_id": str(flag.id), "model_name": "FeatureFlag", "scheduled_at": "2030-01-01T00:00:00Z"}
 
-        for operation, value in (("add_release_condition", {"groups": []}), ("update_variants", {"variants": []})):
+        merges: list[tuple[str, dict]] = [
+            ("add_release_condition", {"groups": []}),
+            ("update_variants", {"variants": []}),
+        ]
+        for operation, value in merges:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/scheduled_changes/",
                 data={**base, "payload": {"operation": operation, "value": value}},

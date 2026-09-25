@@ -1645,17 +1645,18 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
     )
 
 
-def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
+def _v1_flags(flags: Iterable[FeatureFlag]) -> Iterator[FeatureFlag]:
     """Rows whose document carries the v1 release groups the cohort walks below read.
 
     A flag in another config format references cohorts in its own shape; until those reads
-    exist it is skipped here rather than read as a flag with no conditions.
+    exist it is skipped here rather than read as a flag with no conditions. Lazy, so a caller
+    that short-circuits on the first match reads no further than it did before.
     """
-    return [
+    return (
         flag
         for flag in flags
         if flag.filters is None or (isinstance(flag.filters, dict) and detect_config_format(flag.filters).kind == "v1")
-    ]
+    )
 
 
 def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:
@@ -1684,7 +1685,7 @@ def _filter_flags_referencing_cohort(
     target still resolves: ``used_in`` reports flags referencing a deleted cohort, which
     matches the insights and cohorts blocks (neither checks the target's deleted state).
     """
-    flag_list = _v1_flags(flags)
+    flag_list = list(_v1_flags(flags))
     seen_cohorts_cache: dict[int, CohortOrEmpty] = {cohort.id: cohort}
     direct_ids = _directly_referenced_cohort_ids(flag_list) - seen_cohorts_cache.keys()
     if direct_ids:
@@ -2396,6 +2397,10 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 
+    if not feature_flag.active:
+        cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
+        return
+
     try:
         aggregates_by_group = feature_flag.aggregation_group_type_index is not None
     except ConfigFormatError:
@@ -2404,7 +2409,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         )
         return
 
-    if not feature_flag.active or aggregates_by_group:
+    if aggregates_by_group:
         cohort._safe_save_cohort_state(team_id=team_id, processing_error=None)
         return
 

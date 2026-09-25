@@ -495,20 +495,18 @@ class OrganizationFeatureFlagView(
                 return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         copy_source_flags = [*dependency_graph.dependency_flags, flag_to_copy]
-        try:
-            copy_source_contexts = {
-                source_flag.id: self._get_feature_flag_copy_source_context(
-                    source_flag,
-                    copy_schedule,
-                    user,
+        copy_source_contexts: dict[int, FeatureFlagCopySourceContext] = {}
+        for source_flag in copy_source_flags:
+            try:
+                copy_source_contexts[source_flag.id] = self._get_feature_flag_copy_source_context(
+                    source_flag, copy_schedule, user
                 )
-                for source_flag in copy_source_flags
-            }
-        except ConfigFormatError:
-            return Response(
-                {"error": "This flag uses a configuration format that cannot be copied yet."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            except ConfigFormatError:
+                subject = "This flag" if source_flag.id == flag_to_copy.id else f"Dependency flag '{source_flag.key}'"
+                return Response(
+                    {"error": f"{subject} uses a configuration format that cannot be copied yet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         successful_projects = []
         failed_projects = []
