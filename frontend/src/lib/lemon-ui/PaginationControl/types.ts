@@ -19,6 +19,8 @@ export interface PaginationManual extends PaginationBase {
     currentPage?: number
     /** Total entry count for determining current position using `currentPage`. If not set, position is not shown. */
     entryCount?: number
+    /** Set when the count stopped at a cap, so `entryCount` is a lower bound and renders as `N+`. */
+    entryCountIsLowerBound?: boolean
     /** Next page navigation handler. */
     onForward?: () => void
     /** Previous page navigation handler. */
@@ -42,4 +44,5 @@ export type PaginationState<T> = {
     pageCount: number | null
     /** Number of entries in total. */
     entryCount: number | null
+    entryCountIsLowerBound?: boolean
 }

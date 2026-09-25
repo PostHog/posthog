@@ -228,6 +228,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     controlled: true,
                     currentPage: eventDefinitions?.page ?? 1,
                     entryCount: eventDefinitions?.count ?? 0,
+                    entryCountIsLowerBound: eventDefinitions?.count_is_capped === true,
                     pageSize: EVENT_DEFINITIONS_PER_PAGE,
                     onForward: eventDefinitions.next
                         ? () => {
