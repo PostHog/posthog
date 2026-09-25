@@ -214,6 +214,7 @@ export const logsSourcesLogic = kea<logsSourcesLogicType>([
                     // toasting on every poll.
                     try {
                         const health = await logsSourcesHealthRetrieve(String(values.currentTeamId))
+                        actions.setHealthUnavailable(false)
                         return health.sources
                     } catch {
                         actions.setHealthUnavailable(true)
@@ -254,7 +255,8 @@ export const logsSourcesLogic = kea<logsSourcesLogicType>([
         healthUnavailable: [
             false,
             {
-                loadHealthSuccess: () => false,
+                // Not `loadHealthSuccess`: the loader catches its own failure and returns the last
+                // known map, so a failed poll still reports success.
                 setHealthUnavailable: (_, { unavailable }) => unavailable,
             },
         ],
