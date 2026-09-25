@@ -25,6 +25,15 @@ export function BroadcastContentStep(): JSX.Element {
     const hasSenders = !!integrations?.some((integration) => integration.kind === 'email')
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
 
+    // Closing the modal after Continue also keeps the sender it created or verified.
+    const closeSenderSetup = (integrationId?: number): void => {
+        setSenderSetup(null)
+        if (integrationId) {
+            loadIntegrations()
+            setEmail({ ...email, from: { ...email.from, integrationId } })
+        }
+    }
+
     const errors = stepValidationErrors.content
     const fieldErrors: EmailFieldErrors = {
         from: errors.find((error) => error.includes('sender')),
@@ -77,14 +86,8 @@ export function BroadcastContentStep(): JSX.Element {
             {senderSetup ? (
                 <EmailSetupModal
                     integration={senderSetup === 'new' ? undefined : senderSetup}
-                    onClose={() => setSenderSetup(null)}
-                    onComplete={(integrationId) => {
-                        setSenderSetup(null)
-                        loadIntegrations()
-                        if (integrationId) {
-                            setEmail({ ...email, from: { ...email.from, integrationId } })
-                        }
-                    }}
+                    onClose={closeSenderSetup}
+                    onComplete={closeSenderSetup}
                 />
             ) : null}
             <EmailTemplater

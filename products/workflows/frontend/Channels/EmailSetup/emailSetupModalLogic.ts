@@ -14,7 +14,7 @@ import type { EmailSenderDomainStatus } from '../../../../../frontend/src/types'
 export interface EmailSetupModalLogicProps {
     integration?: IntegrationType | null
     onComplete: (integrationId?: number) => void
-    onClose: () => void
+    onClose: (savedIntegrationId?: number) => void
 }
 
 export interface ApiDnsRecord {

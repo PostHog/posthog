@@ -1,12 +1,13 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
-import { broadcastWizardLogic } from '../broadcastWizardLogic'
+import { SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function ReviewRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
@@ -29,6 +30,8 @@ export function BroadcastReviewStep(): JSX.Element {
         rateLimitedSendDuration,
         stepValidationErrors,
     } = useValues(broadcastWizardLogic)
+    const { integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
 
     const goalEventNames: string[] = goalEnabled
         ? (conversion.events?.[0]?.filters?.events ?? []).map(
@@ -95,6 +98,19 @@ export function BroadcastReviewStep(): JSX.Element {
                             {error}
                         </div>
                     ))}
+                    {stepValidationErrors.review.includes(SENDERS_LOAD_FAILED_ERROR) && (
+                        <div>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => loadIntegrations()}
+                                loading={integrationsLoading}
+                                data-attr="broadcast-reload-senders"
+                            >
+                                Reload email senders
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
