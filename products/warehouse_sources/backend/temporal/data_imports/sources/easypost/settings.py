@@ -22,6 +22,13 @@ class EasypostEndpointConfig:
     # later mutations to an existing row are only picked up by a full refresh.
     append_only: bool = False
     should_sync_default: bool = True
+    # Cursor pagination (before_id + has_more). The lookup endpoints answer with the whole
+    # collection in one response and carry no cursor.
+    paginated: bool = True
+    # Server-side `created_at` filter. Absent from /end_shippers and the lookup endpoints.
+    supports_start_datetime: bool = True
+    # /carrier_accounts answers with a bare JSON array instead of the usual {"<name>": [...]}.
+    returns_bare_list: bool = False
 
 
 def _created_at_fields() -> list[IncrementalField]:
@@ -37,8 +44,9 @@ def _created_at_fields() -> list[IncrementalField]:
 
 # Cursor-paginated list endpoints (before_id/after_id + has_more) that all share the EasyPost
 # object shape: a globally-unique prefixed `id`, plus `created_at` / `updated_at` ISO-8601
-# timestamps. `start_datetime` filters server-side on `created_at`. `/parcels` has no list
-# endpoint and `/webhooks` is unpaginated, so neither is exposed as a sync table here.
+# timestamps. `start_datetime` filters server-side on `created_at`. `/carrier_accounts` and
+# `/metadata/carriers` are lookups answered in a single unpaginated response. `/parcels` has no
+# list endpoint and `/webhooks` is unpaginated, so neither is exposed as a sync table here.
 EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
     "addresses": EasypostEndpointConfig(
         name="addresses",
@@ -49,6 +57,42 @@ EASYPOST_ENDPOINTS: dict[str, EasypostEndpointConfig] = {
         name="batches",
         path="/batches",
         incremental_fields=_created_at_fields(),
+    ),
+    "carrier_accounts": EasypostEndpointConfig(
+        name="carrier_accounts",
+        path="/carrier_accounts",
+        # No cursor and no time filter, so full refresh only. EasyPost serves this endpoint to
+        # production API keys only; a test key is rejected.
+        incremental_fields=[],
+        partition_key=None,
+        paginated=False,
+        supports_start_datetime=False,
+        returns_bare_list=True,
+    ),
+    "carriers": EasypostEndpointConfig(
+        name="carriers",
+        path="/metadata/carriers",
+        # Platform-wide carrier metadata (service levels, predefined packages, supported
+        # options), keyed by the single-word carrier name. It carries no id and no timestamps,
+        # so full refresh only.
+        incremental_fields=[],
+        partition_key=None,
+        primary_keys=["name"],
+        paginated=False,
+        supports_start_datetime=False,
+    ),
+    "claims": EasypostEndpointConfig(
+        name="claims",
+        path="/claims",
+        incremental_fields=_created_at_fields(),
+    ),
+    "end_shippers": EasypostEndpointConfig(
+        name="end_shippers",
+        path="/end_shippers",
+        # /end_shippers paginates by cursor but takes no start_datetime, so the descending
+        # client-side watermark stop is what bounds an incremental run.
+        incremental_fields=_created_at_fields(),
+        supports_start_datetime=False,
     ),
     "events": EasypostEndpointConfig(
         name="events",

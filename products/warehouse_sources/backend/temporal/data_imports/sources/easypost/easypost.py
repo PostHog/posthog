@@ -58,9 +58,7 @@ def _format_datetime(value: datetime) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(
-    session: requests.Session, url: str, params: dict[str, Any], logger: FilteringBoundLogger
-) -> dict[str, Any]:
+def _fetch_page(session: requests.Session, url: str, params: dict[str, Any], logger: FilteringBoundLogger) -> Any:
     response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -102,6 +100,16 @@ def get_rows(
 
     session = make_tracked_session(redact_values=(api_key,))
     session.auth = (api_key, "")
+    url = f"{EASYPOST_BASE_URL}{config.path}"
+
+    if not config.paginated:
+        # Lookup endpoints answer with the whole collection in one response — no cursor and no
+        # `has_more`, so there is nothing to resume from or to watermark against.
+        data = _fetch_page(session, url, {}, logger)
+        collection = data if config.returns_bare_list else data.get(config.name, [])
+        if collection:
+            yield collection
+        return
 
     # Incremental cursor: EasyPost returns newest-first, so we walk backwards (via `before_id`) and
     # stop once a page reaches the watermark. `start_datetime` filters server-side on `created_at`
@@ -111,7 +119,7 @@ def get_rows(
     start_datetime: str | None = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         last_value_dt = _parse_datetime(db_incremental_field_last_value)
-        if last_value_dt is not None:
+        if last_value_dt is not None and config.supports_start_datetime:
             start_datetime = _format_datetime(last_value_dt)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -126,7 +134,7 @@ def get_rows(
         if start_datetime:
             params["start_datetime"] = start_datetime
 
-        data = _fetch_page(session, f"{EASYPOST_BASE_URL}{config.path}", params, logger)
+        data = _fetch_page(session, url, params, logger)
         items = data.get(config.name, [])
         if not items:
             break

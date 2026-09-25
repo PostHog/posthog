@@ -4,7 +4,10 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import (
+    EASYPOST_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.source import EasypostSource
 
 
@@ -23,12 +26,22 @@ class TestGetSchemas:
         schemas = EasypostSource().get_schemas(_config(), team_id=1, names=["shipments", "events"])
         assert {s.name for s in schemas} == {"shipments", "events"}
 
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_every_schema_advertises_created_at(self, endpoint: str) -> None:
+    @parameterized.expand([(name,) for name, c in EASYPOST_ENDPOINTS.items() if c.incremental_fields])
+    def test_every_syncable_schema_advertises_created_at(self, endpoint: str) -> None:
         schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
         schema = schemas[endpoint]
         assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
         assert schema.supports_append is True
+
+    @parameterized.expand([("carrier_accounts",), ("carriers",)])
+    def test_lookup_schemas_are_full_refresh_only(self, endpoint: str) -> None:
+        # These endpoints expose no cursor at all, so offering incremental or append would let a
+        # user pick a sync type that silently re-reads the whole collection every run.
+        schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
+        schema = schemas[endpoint]
+        assert schema.incremental_fields == []
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
 
     def test_events_are_append_only(self) -> None:
         # Events are immutable, so they're append-only (no incremental updates to existing rows).

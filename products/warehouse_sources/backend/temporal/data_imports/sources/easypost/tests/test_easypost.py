@@ -39,6 +39,18 @@ def _patch_pages(monkeypatch: Any, pages_by_before_id: dict[Any, dict[str, Any]]
     monkeypatch.setattr(easypost, "_fetch_page", fake_fetch)
 
 
+def _patch_response(monkeypatch: Any, payload: Any) -> list[dict[str, Any]]:
+    """Answer every request with `payload`, returning the list of params each request sent."""
+    requests: list[dict[str, Any]] = []
+
+    def fake_fetch(session: Any, url: str, params: dict[str, Any], logger: Any) -> Any:
+        requests.append({"url": url, **params})
+        return payload
+
+    monkeypatch.setattr(easypost, "_fetch_page", fake_fetch)
+    return requests
+
+
 def _collect(manager: _FakeResumableManager, endpoint: str = "shipments", **kwargs: Any) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for batch in get_rows("k", endpoint, MagicMock(), manager, **kwargs):  # type: ignore[arg-type]
@@ -156,6 +168,62 @@ class TestGetRows:
         assert "before_id" not in captured
 
 
+class TestUnpaginatedEndpoints:
+    def test_bare_list_response_is_yielded_whole(self, monkeypatch: Any) -> None:
+        # /carrier_accounts answers with a bare JSON array, not the {"<name>": [...]} wrapper every
+        # other endpoint uses, so extraction has to branch on the endpoint rather than the payload.
+        requests = _patch_response(monkeypatch, [{"id": "ca_1"}, {"id": "ca_2"}])
+        rows = _collect(_FakeResumableManager(), endpoint="carrier_accounts")
+        assert [r["id"] for r in rows] == ["ca_1", "ca_2"]
+        assert requests == [{"url": "https://api.easypost.com/v2/carrier_accounts"}]
+
+    def test_wrapped_response_is_unwrapped(self, monkeypatch: Any) -> None:
+        requests = _patch_response(monkeypatch, {"carriers": [{"name": "usps"}]})
+        rows = _collect(_FakeResumableManager(), endpoint="carriers")
+        assert [r["name"] for r in rows] == ["usps"]
+        assert requests == [{"url": "https://api.easypost.com/v2/metadata/carriers"}]
+
+    def test_does_not_paginate_or_save_resume_state(self, monkeypatch: Any) -> None:
+        # There is no cursor in the response, so looping on a truthy `has_more` — or resuming from
+        # a stale saved cursor — would re-request the same page forever.
+        manager = _FakeResumableManager(EasypostResumeConfig(before_id="ca_9"))
+        requests = _patch_response(monkeypatch, {"carriers": [{"name": "usps"}], "has_more": True})
+        _collect(manager, endpoint="carriers")
+        assert len(requests) == 1
+        assert "before_id" not in requests[0]
+        assert manager.saved == []
+
+    def test_empty_response_yields_nothing(self, monkeypatch: Any) -> None:
+        _patch_response(monkeypatch, [])
+        assert _collect(_FakeResumableManager(), endpoint="carrier_accounts") == []
+
+
+class TestEndpointsWithoutServerSideTimeFilter:
+    def test_incremental_omits_start_datetime_but_still_stops_at_watermark(self, monkeypatch: Any) -> None:
+        # /end_shippers paginates by cursor but documents no start_datetime, so the descending
+        # client-side stop is the only thing bounding an incremental run.
+        requests = _patch_response(
+            monkeypatch,
+            {
+                "end_shippers": [
+                    {"id": "es_2", "created_at": "2024-01-03T00:00:00Z"},
+                    {"id": "es_1", "created_at": "2024-01-01T00:00:00Z"},
+                ],
+                "has_more": True,
+            },
+        )
+        rows = _collect(
+            _FakeResumableManager(),
+            endpoint="end_shippers",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+        assert [r["id"] for r in rows] == ["es_2"]
+        assert len(requests) == 1
+        assert "start_datetime" not in requests[0]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [("ok", 200, True), ("unauthorized", 401, False), ("inactive", 403, False), ("server", 500, False)]
@@ -198,8 +266,19 @@ class TestEasypostSource:
     def test_source_response_shape(self, endpoint: str) -> None:
         response = easypost_source("k", endpoint, MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys
         # EasyPost returns newest-first; the watermark logic depends on this being declared.
         assert response.sort_mode == "desc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == ["created_at"]
+
+    def test_partition_settings_follow_the_partition_key(self) -> None:
+        # The lookup tables carry no stable creation timestamp, so an unset partition key has to
+        # switch every partition_* field off together — a stray mode or format would partition on
+        # a column that isn't there.
+        shipments = easypost_source("k", "shipments", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
+        assert shipments.partition_mode == "datetime"
+        assert shipments.partition_keys == ["created_at"]
+
+        carriers = easypost_source("k", "carriers", MagicMock(), _FakeResumableManager())  # type: ignore[arg-type]
+        assert carriers.partition_mode is None
+        assert carriers.partition_format is None
+        assert carriers.partition_keys is None
