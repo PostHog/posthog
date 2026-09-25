@@ -52,10 +52,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         // `dashboardItemId` is legacy naming for the insight's own short_id — this is true when the insight is saved, not when it's on a dashboard
         hasDashboardItemId: isSavedInsight,
         insightLoading,
-        titleSuggestionLoading,
-        metadataSuggestionsAvailable,
     } = useValues(insightLogic(insightLogicProps))
-    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight, suggestTitle } = useActions(
+    const { setInsightMetadata, setInsightMetadataLocal, saveAs, saveInsight } = useActions(
         insightLogic(insightLogicProps)
     )
     const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
@@ -144,17 +142,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         setInsightMetadata({ description })
                     }
                 }}
-                // With suggestions on, the title button takes the place of the generate button, so the name field shows one sparkle.
-                onGenerateMetadata={
-                    supportsMetadataGeneration(insightQuery) && !metadataSuggestionsAvailable
-                        ? generateInsightMetadata
-                        : undefined
-                }
+                onGenerateMetadata={supportsMetadataGeneration(insightQuery) ? generateInsightMetadata : undefined}
                 isGeneratingMetadata={generatedInsightMetadataLoading}
-                onSuggestName={
-                    metadataSuggestionsAvailable && supportsMetadataGeneration(insightQuery) ? suggestTitle : undefined
-                }
-                isSuggestingName={titleSuggestionLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}

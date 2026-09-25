@@ -7,7 +7,7 @@ const meta: Meta<SuggestMetadataButtonProps> = {
     title: 'Components/SuggestMetadataButton',
     component: SuggestMetadataButton,
     args: {
-        label: 'Suggest a title',
+        label: 'Suggest tags',
         dataAttr: 'story-suggest-metadata',
         onClick: () => {},
     },

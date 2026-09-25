@@ -54204,15 +54204,15 @@ export namespace Schemas {
     }
 
     export interface InsightMetadataSuggestionRequest {
-      /** The insight's query as a JSON object with kind `InsightVizNode`, `ActorsQuery`, `EventsQuery` or `GroupsQuery`. Candidates are built from it server-side. The model sees only a plain-language outline, and filter values that look like personal data are left out. */
+      /** The insight's query as a JSON object with kind `InsightVizNode`. The model sees only a plain-language outline of it, never the raw query. */
       query: unknown;
       /**
-         * The current name. Given to the model as context and offered as one of the candidates.
+         * The current name. Given to the model as context.
          * @maxLength 400
          */
       name?: string;
       /**
-         * The current description. Given to the model as context only.
+         * The current description. Given to the model as context.
          * @maxLength 2000
          */
       description?: string;
@@ -54228,20 +54228,6 @@ export namespace Schemas {
       tags: string[];
       /** The model's probability that each considered tag applies, keyed by tag name. */
       scores: InsightTagSuggestionScores;
-    }
-
-    export interface InsightTitleSuggestion {
-      /** The candidate title the model picked. */
-      value: string;
-      /** How concentrated the model's probability was on the pick, 0 to 1. */
-      confidence: number;
-      /** Every candidate the model chose between, in the order sent. */
-      candidates: string[];
-      /**
-         * The second most likely candidate, or null when there was only one.
-         * @nullable
-         */
-      runner_up: string | null;
     }
 
     /**

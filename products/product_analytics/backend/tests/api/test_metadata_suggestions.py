@@ -9,7 +9,7 @@ import httpx
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.llm.system_one import Answer, ChoiceAnswer, NoulAnswer, SystemOneRequestFailed, SystemOneResult
+from posthog.llm.system_one import Answer, NoulAnswer, SystemOneRequestFailed, SystemOneResult
 from posthog.models import Organization, Tag, Team
 
 from products.product_analytics.backend.facade.models import Insight
@@ -63,22 +63,10 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         self.organization.save()
 
         with patch(FLAG, return_value=flag), patch(CONFIGURED, return_value=configured), patch(BUILD) as build:
-            response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY}, format="json")
+            response = self.client.post(f"{self.base_url}/tags/", {"query": _QUERY}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         build.assert_not_called()
-
-    @patch(CONFIGURED, return_value=True)
-    @patch(FLAG, return_value=True)
-    def test_title_returns_one_of_the_candidates(self, _flag: MagicMock, _configured: MagicMock) -> None:
-        with _jev(return_value=_result({"title": ChoiceAnswer(choice="c0", confidence=0.9, probabilities={})})):
-            response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY, "name": "Current"}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        body = response.json()
-        assert body["value"] == "Current"
-        assert body["value"] in body["candidates"]
-        assert body["confidence"] == 0.9
 
     @patch(CONFIGURED, return_value=True)
     @patch(FLAG, return_value=True)
@@ -113,7 +101,7 @@ class TestMetadataSuggestionsApi(APIBaseTest):
     def test_request_without_a_valid_query_is_a_400(
         self, _name: str, query: dict | None, _flag: MagicMock, _configured: MagicMock
     ) -> None:
-        response = self.client.post(f"{self.base_url}/title/", {"query": query}, format="json")
+        response = self.client.post(f"{self.base_url}/tags/", {"query": query}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -129,7 +117,8 @@ class TestMetadataSuggestionsApi(APIBaseTest):
     def test_gateway_errors_map_to_a_retryable_or_a_server_error(
         self, _name: str, failure: SystemOneRequestFailed, expected: int, _flag: MagicMock, _configured: MagicMock
     ) -> None:
+        Tag.objects.create(name="growth", team=self.team)
         with _jev(side_effect=failure):
-            response = self.client.post(f"{self.base_url}/title/", {"query": _QUERY}, format="json")
+            response = self.client.post(f"{self.base_url}/tags/", {"query": _QUERY}, format="json")
 
         assert response.status_code == expected

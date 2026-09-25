@@ -1,372 +1,111 @@
 import json
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import NamedTuple
 
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized
-
-from posthog.schema import (
-    BaseMathType,
-    CountPerActorMathType,
-    FunnelMathType,
-    InsightVizNode,
-    PropertyMathType,
-    TrendsQuery,
-)
-
-from posthog.llm.system_one import Answer, ChoiceAnswer, NoulAnswer, Question, SystemOneResult
+from posthog.llm.system_one import Answer, NoulAnswer, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS
+from posthog.models import Team
 
 from products.product_analytics.backend.presentation.metadata_suggestions import (
-    GROUP_WORDS,
     JEV_MODEL,
     MAX_STATE_CHARS,
     MAX_TAGS,
-    PERSON_WORDS,
-    ActorWords,
     InsightContext,
     InsightTooLargeForSuggestions,
-    humanize_date_range,
-    math_reading,
+    build_insight_context,
     suggest_tags,
-    suggest_title,
-    title_candidates,
 )
 
 BUILD = "products.product_analytics.backend.presentation.metadata_suggestions.build_system_one_client"
 
-
-def _viz(source: dict) -> InsightVizNode:
-    return InsightVizNode.model_validate({"kind": "InsightVizNode", "source": source})
-
-
-def _trends(**kwargs: object) -> InsightVizNode:
-    return _viz({"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}], **kwargs})
+_CONTEXT = InsightContext(summary="Type: TrendsQuery\nSeries: $pageview", name="Signups by country")
 
 
 def _result(answers: Mapping[str, Answer]) -> SystemOneResult:
     return SystemOneResult(model=JEV_MODEL, answers=answers, input_tokens=10)
 
 
+def _answer_all(probability: float) -> MagicMock:
+    return MagicMock(
+        side_effect=lambda **request: _result(
+            {key: NoulAnswer(probability=probability) for key in request["questions"]}
+        )
+    )
+
+
 @contextmanager
-def _jev() -> Iterator[MagicMock]:
+def _jev(decide: MagicMock) -> Iterator[MagicMock]:
     with patch(BUILD) as build:
-        yield build.return_value.decide
+        build.return_value.decide = decide
+        yield build
 
 
-class _Sent(NamedTuple):
-    state: str
-    questions: Mapping[str, Question]
-
-
-def _all_sent(decide: MagicMock) -> list[_Sent]:
-    return [
-        _Sent(state=json.dumps(call.kwargs["state"], ensure_ascii=False), questions=call.kwargs["questions"])
-        for call in decide.call_args_list
-    ]
-
-
-def _sent(decide: MagicMock) -> _Sent:
-    return _all_sent(decide)[-1]
-
-
-def _every_series_math() -> list[tuple[str]]:
-    values = {
-        str(member.value)
-        for enum in (BaseMathType, PropertyMathType, CountPerActorMathType, FunnelMathType)
-        for member in enum
-    }
-    values.update({"hogql", "unique_group"})
-    return sorted((value,) for value in values if value != "total")
-
-
-def _series_with(math: str) -> dict:
-    node: dict = {"kind": "EventsNode", "event": "$pageview", "math": math}
-    if math in {"avg", "sum", "min", "max", "median", "p75", "p90", "p95", "p99"}:
-        node["math_property"] = "$session_duration"
-    if math == "hogql":
-        node["math_hogql"] = "count()"
-    if math == "unique_group":
-        node["math_group_type_index"] = 0
-    return node
-
-
-class TestMetadataSuggestionCandidates(SimpleTestCase):
-    @parameterized.expand(_every_series_math())
-    def test_every_math_reads_in_a_title(self, math: str) -> None:
-        # The schema is the source of truth for maths a series can carry. A math with no reading
-        # would fall back to a bare event name and describe a different chart.
-        query = _viz({"kind": "TrendsQuery", "series": [_series_with(math)]})
-        actors = GROUP_WORDS if math == "unique_group" else PERSON_WORDS
-        assert isinstance(query.source, TrendsQuery)
-        reading = math_reading(query.source.series[0], "pageviews", actors)
-        assert reading.title_base, math
-        assert "pageviews" in reading.title_base
-        assert reading.summary and "{" not in reading.summary
-        assert reading.title_base in title_candidates(InsightContext(query=query))
-
-    def test_group_aggregation_names_the_group_type(self) -> None:
-        names = {0: ActorWords(singular="organization", plural="organizations")}
-        by_series = InsightContext(
-            query=_viz({"kind": "TrendsQuery", "series": [_series_with("unique_group")]}),
-            group_type_names=names,
-        )
-        by_query = InsightContext(
-            query=_viz({"kind": "TrendsQuery", "series": [_series_with("dau")], "aggregation_group_type_index": 0}),
-            group_type_names=names,
-        )
-        assert title_candidates(by_series)[0] == "Unique organizations with pageviews"
-        assert title_candidates(by_query)[0] == "Unique organizations with pageviews"
-
-    def test_trends_title_candidates_humanize_the_series_and_include_the_current_name(self) -> None:
-        context = InsightContext(
-            name="My weird name",
-            query=_trends(
-                interval="day",
-                breakdownFilter={"breakdown": "$browser"},
-                dateRange={"date_from": "-7d"},
-            ),
-        )
-        candidates = title_candidates(context)
-
-        assert candidates[0] == "My weird name"
-        assert "Pageviews by browser" in candidates
-        assert "Daily pageviews" in candidates
-        assert "Pageviews over the last 7 days" in candidates
-        assert len(candidates) == len({c.lower() for c in candidates})
-
-    def test_single_series_math_lands_in_the_title_base(self) -> None:
-        context = InsightContext(
-            query=_viz(
-                {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$autocapture", "math": "first_time_for_user"}],
-                    "breakdownFilter": {"breakdown": "$current_url"},
-                }
-            ),
-        )
-        titles = title_candidates(context)
-
-        assert titles[0] == "First-ever autocaptured interactions per user"
-        assert "First-ever autocaptured interactions per user by current URL" in titles
-        assert "Autocaptured interactions by current URL" in titles
-
-    def test_formula_trends_lead_with_the_ratio_and_keep_series_distinct(self) -> None:
-        context = InsightContext(
-            query=_viz(
-                {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                        {"kind": "EventsNode", "event": "$pageview", "math": "dau"},
-                    ],
-                    "trendsFilter": {"formulaNodes": [{"formula": "A/B"}]},
-                }
-            ),
-        )
-        titles = title_candidates(context)
-
-        assert titles[0] == "Total pageviews per user"
-        assert "Pageviews and pageviews" not in titles
-        assert "Total pageviews and unique users for pageviews" in titles
-        assert not any(candidate.startswith("Unique users for total pageviews") for candidate in titles)
-
-    @parameterized.expand(
-        [
-            ("-7d", "the last 7 days"),
-            ("-1m", "the last month"),
-            ("mStart", "this month"),
-            ("all", "all time"),
-            ("2024-01-15T00:00:00Z", "since 2024-01-15"),
-            (None, None),
-        ]
-    )
-    def test_humanize_date_range(self, date_from: str | None, expected: str | None) -> None:
-        assert humanize_date_range(date_from) == expected
-
-
-class TestMetadataSuggestionRanking(SimpleTestCase):
-    def test_title_returns_the_candidate_jev_picked(self) -> None:
-        context = InsightContext(query=_trends())
-        candidates = title_candidates(context)
-        picked_key = f"c{candidates.index('Pageviews over time')}"
-        with patch(BUILD) as build:
-            decide = build.return_value.decide
-            decide.return_value = _result({"title": ChoiceAnswer(choice=picked_key, confidence=0.7, probabilities={})})
-            suggestion = suggest_title(1, context)
-
-        assert suggestion.value == "Pageviews over time"
-        assert suggestion.confidence == 0.7
-        # The current name is user text: it must travel in state, never in the instructions.
-        sent = _sent(decide)
-        state = json.loads(sent.state)
-        # No TypeSafe fallback: this metadata must never reach a third party.
-        assert build.call_args.kwargs == {
-            "model": JEV_MODEL,
-            "ai_product": "product_analytics",
-            "distinct_id": "team-1",
-        }
-        assert state["subject"]["name"] == ""
-        assert state["subject"]["summary"][0] == "Type: Trends"
-        assert "query" not in state["subject"]
-        assert "Pageviews" not in str(sent.questions["title"].instructions)
-
-    @parameterized.expand(
-        [
-            (
-                "paths_start_and_end_points",
-                {"kind": "PathsQuery", "pathsFilter": {"startPoint": "/users/secret", "endPoint": "/users/secret"}},
-            ),
-            (
-                "hogql_math_with_a_literal",
-                {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "$pageview",
-                            "math": "hogql",
-                            "math_hogql": "countIf(person.properties.email = 'secret@example.com')",
-                        }
-                    ],
-                },
-            ),
-            (
-                "formula_with_a_literal",
-                {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"formulaNodes": [{"formula": "if(A > 0, 'secret', 'none')"}]},
-                },
-            ),
-        ]
-    )
-    def test_typed_values_never_reach_the_model(self, _name: str, source: dict) -> None:
-        with _jev() as decide:
-            decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
-            suggest_title(1, InsightContext(query=_viz(source)))
-
-        assert "secret" not in repr(_sent(decide))
-
-    def test_state_stays_inside_the_model_window(self) -> None:
-        long_series = [{"kind": "EventsNode", "event": "$pageview", "custom_name": "x" * 1000} for _ in range(40)]
-        with _jev() as decide:
-            decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
-            suggest_title(1, InsightContext(query=_trends(series=long_series)))
-        assert len(_sent(decide).state) <= MAX_STATE_CHARS
-
-        with _jev() as decide, self.assertRaises(InsightTooLargeForSuggestions):
-            suggest_title(1, InsightContext(query=_trends(), description="y" * (MAX_STATE_CHARS + 1)))
-        decide.assert_not_called()
-
-        long_tags = [f"{i:03d}" + "z" * 252 for i in range(MAX_TAGS)]
-        with _jev() as decide:
-            decide.side_effect = lambda **request: _result(
-                {key: NoulAnswer(probability=0.95) for key in request["questions"]}
-            )
-            suggestion = suggest_tags(
-                1, InsightContext(query=_trends(series=long_series), name="n" * 400, description="d" * 2000), long_tags
-            )
-        assert decide.call_count == MAX_TAGS // GATEWAY_MAX_QUESTIONS
-        assert all(len(sent.state) <= MAX_STATE_CHARS for sent in _all_sent(decide))
-        assert set(suggestion.tags) == set(long_tags)
-
-    def test_state_carries_filter_keys_but_never_filter_values(self) -> None:
-        context = InsightContext(
-            query=_trends(
-                properties=[
-                    {
-                        "type": "event",
-                        "key": "$current_url",
-                        "operator": "icontains",
-                        "value": "secret-customer@example.com",
-                    }
-                ],
-                trendsFilter={"display": "ActionsBar"},
-            ),
-        )
-        with _jev() as decide:
-            decide.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
-            suggest_title(1, context)
-
-        state = _sent(decide).state
-        assert "secret-customer" not in state
-        assert "Filtered to: current URL contains a specific value" in state
-        assert "Chart: bar" in state
-
-    @parameterized.expand(
-        [
-            ("plain_value", "$current_url", "icontains", "tomato", "current URL contains tomato"),
-            ("email_key", "email", "exact", "someone@example.com", "email is a specific value"),
-            ("username_key", "username", "exact", "jdoe123", "username is a specific value"),
-            ("hostname_is_not_personal", "hostname", "exact", "shop", "hostname is shop"),
-            ("camel_case_name_key", "fullName", "exact", "Jane Doe", "fullName is a specific value"),
-            ("email_value", "note", "exact", "someone@example.com", "note is a specific value"),
-            ("long_token", "token", "exact", "a" * 61, "token is a specific value"),
-            ("is_set", "$browser", "is_set", None, "browser is set"),
-        ]
-    )
-    def test_filter_phrases_quote_plain_values_and_redact_personal_ones(
-        self, _name: str, key: str, operator: str, value: object, expected: str
-    ) -> None:
-        context = InsightContext(
-            query=_trends(
-                series=[
-                    {
-                        "kind": "EventsNode",
-                        "event": "$autocapture",
-                        "math": "dau",
-                        "properties": [{"type": "event", "key": key, "operator": operator, "value": value}],
-                    }
-                ]
-            ),
-        )
-        titles = title_candidates(context)
-        assert titles[0] == f"Unique users with autocaptured interactions where {expected}"
-        if value is not None:
-            assert any(str(value) in title for title in titles) == ("a specific value" not in expected)
-
-    def test_runner_up_is_the_second_most_likely_candidate(self) -> None:
-        context = InsightContext(query=_trends())
-        with _jev() as decide:
-            decide.return_value = _result(
-                {"title": ChoiceAnswer(choice="c0", confidence=0.5, probabilities={"c0": 0.5, "c1": 0.1, "c2": 0.4})}
-            )
-            suggestion = suggest_title(1, context)
-        assert suggestion.runner_up == suggestion.candidates[2]
-
+class TestMetadataSuggestions(SimpleTestCase):
     def test_tags_keep_only_confident_matches_and_never_invent_one(self) -> None:
-        context = InsightContext(name="Signups by country", query=_trends())
-        with _jev() as decide:
-            decide.return_value = _result(
+        decide = MagicMock(
+            return_value=_result(
                 {
                     "t0": NoulAnswer(probability=0.9),
                     "t1": NoulAnswer(probability=0.2),
                     "t2": NoulAnswer(probability=0.6),
                 }
             )
-            suggestion = suggest_tags(1, context, ["growth", "billing", "marketing"])
+        )
+        with _jev(decide) as build:
+            suggestion = suggest_tags(1, _CONTEXT, ["growth", "billing", "marketing"])
 
         assert suggestion.tags == ("growth", "marketing")
-        assert json.loads(_sent(decide).state)["tags"] == {"t0": "growth", "t1": "billing", "t2": "marketing"}
+        # No TypeSafe fallback: this metadata must never reach a third party.
+        assert build.call_args.kwargs == {
+            "model": JEV_MODEL,
+            "ai_product": "product_analytics",
+            "distinct_id": "team-1",
+        }
+        sent = decide.call_args.kwargs
+        assert sent["state"]["tags"] == {"t0": "growth", "t1": "billing", "t2": "marketing"}
+        assert sent["state"]["subject"]["name"] == "Signups by country"
+        # User text travels in state, never in the instructions.
+        assert all("Signups" not in str(question.instructions) for question in sent["questions"].values())
 
     def test_tags_split_into_requests_the_gateway_accepts(self) -> None:
         tags = [f"tag {index}" for index in range(GATEWAY_MAX_QUESTIONS + 8)]
-        with _jev() as decide:
-            decide.side_effect = lambda **request: _result(
-                {key: NoulAnswer(probability=0.9) for key in request["questions"]}
-            )
-            suggestion = suggest_tags(1, InsightContext(query=_trends()), tags)
+        decide = _answer_all(0.9)
+        with _jev(decide):
+            suggestion = suggest_tags(1, _CONTEXT, tags)
 
-        sizes = [len(sent.questions) for sent in _all_sent(decide)]
-        assert sizes == [GATEWAY_MAX_QUESTIONS, 8]
+        assert [len(call.kwargs["questions"]) for call in decide.call_args_list] == [GATEWAY_MAX_QUESTIONS, 8]
         assert set(suggestion.tags) == set(tags)
 
     def test_tags_without_any_existing_tag_skip_the_call(self) -> None:
-        with _jev() as decide:
-            assert suggest_tags(1, InsightContext(query=_trends()), []).tags == ()
+        decide = MagicMock()
+        with _jev(decide):
+            assert suggest_tags(1, _CONTEXT, []).tags == ()
         decide.assert_not_called()
+
+    def test_state_stays_inside_the_model_window(self) -> None:
+        long_tags = [f"{i:03d}" + "z" * 252 for i in range(MAX_TAGS)]
+        long_context = InsightContext(summary="s" * 5000, name="n" * 400, description="d" * 2000)
+        decide = _answer_all(0.95)
+        with _jev(decide):
+            suggestion = suggest_tags(1, long_context, long_tags)
+        assert all(len(json.dumps(call.kwargs["state"])) <= MAX_STATE_CHARS for call in decide.call_args_list)
+        assert set(suggestion.tags) == set(long_tags)
+
+        decide = MagicMock()
+        with _jev(decide), self.assertRaises(InsightTooLargeForSuggestions):
+            suggest_tags(1, InsightContext(summary="", description="y" * (MAX_STATE_CHARS + 1)), ["growth"])
+        decide.assert_not_called()
+
+    def test_path_points_never_reach_the_model(self) -> None:
+        query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "PathsQuery", "pathsFilter": {"startPoint": "/users/secret", "endPoint": "/secret"}},
+        }
+        context = build_insight_context(MagicMock(spec=Team), query, name="", description="")
+
+        assert "secret" not in context.summary
+        assert "PathsQuery" in context.summary

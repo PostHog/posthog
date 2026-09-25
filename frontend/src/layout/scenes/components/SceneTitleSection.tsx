@@ -16,7 +16,6 @@ import {
 } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { SuggestMetadataButton } from 'lib/components/MetadataSuggest/SuggestMetadataButton'
 import { ProductSetupButton } from 'lib/components/ProductSetup'
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -236,9 +235,6 @@ type SceneMainTitleProps = {
      * Whether metadata generation is currently in progress
      */
     isGeneratingMetadata?: boolean
-    /** Optional callback that asks the Jev decision model to pick a name. Renders a sparkle button next to the name field. */
-    onSuggestName?: () => void
-    isSuggestingName?: boolean
     /**
      * Props for MaxTool registration - when provided,
      * the AI button in the title section registers the tool with Max
@@ -272,8 +268,6 @@ export function SceneTitleSection({
     className,
     onGenerateMetadata,
     isGeneratingMetadata,
-    onSuggestName,
-    isSuggestingName,
     maxToolProps,
     maxButtonLabel,
     descriptionMaxLength,
@@ -384,8 +378,6 @@ export function SceneTitleSection({
                                     saveOnBlur={saveOnBlur}
                                     onGenerateMetadata={onGenerateMetadata}
                                     isGeneratingMetadata={isGeneratingMetadata}
-                                    onSuggestName={onSuggestName}
-                                    isSuggestingName={isSuggestingName}
                                     suffix={
                                         <>
                                             {nameSuffix}
@@ -463,8 +455,6 @@ type SceneNameProps = {
     saveOnBlur?: boolean
     onGenerateMetadata?: () => void
     isGeneratingMetadata?: boolean
-    onSuggestName?: () => void
-    isSuggestingName?: boolean
     suffix?: React.ReactNode
 }
 
@@ -478,8 +468,6 @@ export function SceneName({
     saveOnBlur = false,
     onGenerateMetadata,
     isGeneratingMetadata = false,
-    onSuggestName,
-    isSuggestingName = false,
     suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
@@ -560,7 +548,7 @@ export function SceneName({
                             variant="default"
                             name="name"
                             value={name || ''}
-                            readOnly={isGeneratingMetadata || isSuggestingName}
+                            readOnly={isGeneratingMetadata}
                             onChange={(e) => {
                                 latestNameRef.current = e.target.value
                                 setName(e.target.value)
@@ -578,7 +566,7 @@ export function SceneName({
                                     autoHeight: true,
                                 }),
                                 '[&_.LemonIcon]:size-4 input-like',
-                                (isGeneratingMetadata || isSuggestingName) && 'cursor-not-allowed opacity-80'
+                                isGeneratingMetadata && 'cursor-not-allowed opacity-80'
                             )}
                             wrapperClassName="flex-1 min-w-0"
                             placeholder="Enter name"
@@ -595,23 +583,15 @@ export function SceneName({
                             }}
                         />
                         {onGenerateMetadata && (
-                            <Tooltip
-                                title={
-                                    isGeneratingMetadata
-                                        ? 'Thinking...'
-                                        : isSuggestingName
-                                          ? 'Wait for the title suggestion to finish'
-                                          : 'Generate name and description'
-                                }
-                            >
+                            <Tooltip title={isGeneratingMetadata ? 'Thinking...' : 'Generate name and description'}>
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (!isGeneratingMetadata && !isSuggestingName) {
+                                        if (!isGeneratingMetadata) {
                                             onGenerateMetadata()
                                         }
                                     }}
-                                    disabled={isGeneratingMetadata || isSuggestingName}
+                                    disabled={isGeneratingMetadata}
                                     className="shrink-0 transition duration-50 cursor-pointer hover:scale-110 rounded-md border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)] disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <AnimatedSparkles
@@ -620,19 +600,6 @@ export function SceneName({
                                     />
                                 </button>
                             </Tooltip>
-                        )}
-                        {onSuggestName && (
-                            <SuggestMetadataButton
-                                label="Suggest a title"
-                                onClick={onSuggestName}
-                                loading={isSuggestingName}
-                                disabledReason={
-                                    isGeneratingMetadata
-                                        ? 'Wait for the name and description to finish generating'
-                                        : undefined
-                                }
-                                dataAttr="scene-name-suggest-title"
-                            />
                         )}
                     </div>
                 ) : (

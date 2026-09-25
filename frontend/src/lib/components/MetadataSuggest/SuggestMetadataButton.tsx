@@ -4,10 +4,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export const METADATA_SUGGESTION_DATA_NOTICE =
-    "A PostHog-hosted AI model picks from options built from this insight. It reads the name, the description, your project's tags and a plain outline of the query. Filter values that look like personal data are left out."
+    "A PostHog-hosted AI model checks which of your project's existing tags fit this insight. It reads the name, the description, the tag names and a plain outline of the query, without filter values."
 
 export interface SuggestMetadataButtonProps {
-    /** What the button fills in, shown as the tooltip title. Example: "Suggest a title". */
+    /** What the button fills in, shown as the tooltip title. Example: "Suggest tags". */
     label: string
     onClick: () => void
     loading?: boolean

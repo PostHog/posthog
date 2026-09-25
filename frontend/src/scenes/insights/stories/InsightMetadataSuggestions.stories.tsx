@@ -11,8 +11,6 @@ import { mswDecorator } from '~/mocks/browser'
 
 import __trendsLine from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 
-const SUGGESTED_TITLE = 'Unique users with pageviews by browser'
-
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Metadata Suggestions',
@@ -35,12 +33,6 @@ const meta: Meta = {
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
-                '/api/projects/:team_id/metadata_suggestions/title/': {
-                    value: SUGGESTED_TITLE,
-                    confidence: 0.82,
-                    candidates: ['Pageviews', SUGGESTED_TITLE, 'Daily pageviews'],
-                    runner_up: 'Pageviews',
-                },
                 '/api/projects/:team_id/metadata_suggestions/tags/': {
                     tags: ['growth'],
                     scores: { growth: 0.91, marketing: 0.34, billing: 0.05 },
@@ -72,24 +64,7 @@ async function clickWhenReady(canvasElement: HTMLElement, selector: string): Pro
 export const FlagOff: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
 
 export const FlagOn: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
-FlagOn.parameters = { ...flagOn, testOptions: { waitForSelector: '[data-attr="scene-name-suggest-title"]' } }
-
-export const TitleSuggested: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
-TitleSuggested.parameters = flagOn
-TitleSuggested.play = async ({ canvasElement }) => {
-    await clickWhenReady(canvasElement, '[data-attr="scene-name-suggest-title"]')
-    await waitFor(
-        () => {
-            const nameField = canvasElement.querySelector<HTMLTextAreaElement>(
-                '[data-attr="scene-name-edit-row"] textarea'
-            )
-            if (nameField?.value !== SUGGESTED_TITLE) {
-                throw new Error('Suggested title not applied yet')
-            }
-        },
-        { timeout: 10_000 }
-    )
-}
+FlagOn.parameters = { ...flagOn, testOptions: { waitForSelector: '[data-attr="insight-tags-suggest"]' } }
 
 export const TagsSuggested: Story = createInsightStory(__trendsLine as any, 'edit', false, { openSidePanel: true })
 TagsSuggested.parameters = flagOn

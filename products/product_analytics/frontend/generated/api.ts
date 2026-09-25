@@ -29,7 +29,6 @@ import type {
     InsightBulkSetTestAccountFilterResponseApi,
     InsightMetadataSuggestionRequestApi,
     InsightTagSuggestionApi,
-    InsightTitleSuggestionApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -939,27 +938,6 @@ export const metadataSuggestionsTagsCreate = async (
     options?: RequestInit
 ): Promise<InsightTagSuggestionApi> => {
     return apiMutator<InsightTagSuggestionApi>(getMetadataSuggestionsTagsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightMetadataSuggestionRequestApi),
-    })
-}
-
-export const getMetadataSuggestionsTitleCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/metadata_suggestions/title/`
-}
-
-/**
- * Builds candidate titles from the query and asks the Jev decision model to pick the best one. Jev only picks; it never writes text.
- * @summary Suggest an insight title
- */
-export const metadataSuggestionsTitleCreate = async (
-    projectId: string,
-    insightMetadataSuggestionRequestApi: InsightMetadataSuggestionRequestApi,
-    options?: RequestInit
-): Promise<InsightTitleSuggestionApi> => {
-    return apiMutator<InsightTitleSuggestionApi>(getMetadataSuggestionsTitleCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
