@@ -1,7 +1,8 @@
+import pytest
 from posthog.test.base import BaseTest
 
-import pytest
 from django.db import IntegrityError, transaction
+
 from parameterized import parameterized
 
 from posthog.models.team.team_data_management_config import TeamDataManagementConfig
