@@ -87,6 +87,7 @@ def _depot_attempt_row(**overrides: Any) -> dict[str, Any]:
             "run_workflow_count": 1,
             "repo": "PostHog/posthog",
             "workflow_id": "6n4tghls33",
+            "job_id": "p4kd9tq2xs",
             "attempt_id": "zf6sbbn2wh",
             "attempt": 1,
         }

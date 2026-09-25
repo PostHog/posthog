@@ -21,7 +21,7 @@ to read a specific source; otherwise the oldest source's repos are tried first, 
 
 import re
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
@@ -205,10 +205,12 @@ def resolve_github_tables(
 
 @dataclass(frozen=True)
 class JobSourceTables:
-    """One qualifying repo's job-level warehouse tables, for the exposed per-job views."""
+    """One qualifying repo's job-level warehouse tables, for the exposed per-job views. Read runs and
+    jobs through ``runs_source`` and ``jobs_source``, which add the repo's Depot CI; the ``github_``
+    tables hold GitHub Actions alone."""
 
-    workflow_jobs: str
-    workflow_runs: str
+    github_workflow_jobs: str
+    github_workflow_runs: str
     # Optional: these views qualify on jobs + runs alone, so a repo can reach them with no PR
     # snapshot. Consumers that enrich from it (default-branch PR attribution) degrade without it.
     pull_requests: str | None = None
@@ -220,12 +222,12 @@ class JobSourceTables:
     @property
     def runs_source(self) -> str:
         """The runs to read: the GitHub runs table plus this repo's Depot CI runs when synced."""
-        return depot_ci.with_depot_runs(self.workflow_runs, self.depot_job_attempts, self.pull_requests)
+        return depot_ci.with_depot_runs(self.github_workflow_runs, self.depot_job_attempts, self.pull_requests)
 
     @property
     def jobs_source(self) -> str:
         """The jobs to read: the GitHub jobs table plus this repo's Depot CI job attempts when synced."""
-        return depot_ci.with_depot_jobs(self.workflow_jobs, self.depot_job_attempts)
+        return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts)
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
@@ -239,29 +241,28 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     one source syncs several repos. Userless (the view sync runs in a system/Temporal context);
     team scoping is the boundary.
     """
-    resolved: list[JobSourceTables] = []
-    depot_tables = resolve_depot_job_attempts_tables(team)
+    entries: list[tuple[str, JobSourceTables]] = []
     for source in _github_sources(team):
         for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
             tables = repo_tables.names
             runs = tables.get(WORKFLOW_RUNS_SCHEMA)
             jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
             if runs and jobs:
-                resolved.append(
-                    JobSourceTables(
-                        workflow_jobs=jobs,
-                        workflow_runs=runs,
-                        pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
-                        issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
-                        reviews=tables.get(REVIEWS_SCHEMA),
-                        source_id=str(source.id),
-                        # The views union every entry, so a repository that two GitHub sources sync
-                        # takes its Depot table on the first entry only. Otherwise every Depot job
-                        # and its cost would count twice.
-                        depot_job_attempts=depot_tables.pop(repository, None),
-                    )
+                entry = JobSourceTables(
+                    github_workflow_jobs=jobs,
+                    github_workflow_runs=runs,
+                    pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
+                    issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
+                    reviews=tables.get(REVIEWS_SCHEMA),
+                    source_id=str(source.id),
                 )
-    return resolved
+                entries.append((repository, entry))
+    # The views union every entry, so a repository that two GitHub sources sync takes its Depot table on
+    # one entry only, or every Depot job and its cost would count twice. Entries with the PR snapshot go
+    # first, because the friction view reads only those entries.
+    entries.sort(key=lambda repository_entry: repository_entry[1].pull_requests is None)
+    depot_tables = resolve_depot_job_attempts_tables(team)
+    return [replace(entry, depot_job_attempts=depot_tables.pop(repository, None)) for repository, entry in entries]
 
 
 @dataclass(frozen=True)

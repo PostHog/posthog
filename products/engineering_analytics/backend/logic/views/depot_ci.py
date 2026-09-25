@@ -122,6 +122,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             a.workflow_created_at AS workflow_created_at,
             a.workflow_started_at AS workflow_started_at,
             a.workflow_finished_at AS workflow_finished_at,
+            a.job_id AS depot_job_id,
             a.job_key AS job_key,
             a.job_display_name AS job_display_name,
             a.attempt AS attempt,
@@ -163,26 +164,40 @@ def _runs(attempts: str) -> str:
 
 
 def _jobs(attempts: str) -> str:
+    # GitHub lists every job of a run under each run attempt. A job that a run attempt did not re-run keeps
+    # the timestamps of the attempt that ran, and the jobs builder flags that row as a copy. Depot numbers
+    # attempts per job, so each job's last attempt is listed again under every later attempt of its run.
     return f"""
         SELECT
-            github_job_id AS id,
-            github_run_id AS run_id,
-            attempt AS run_attempt,
-            if(ifNull(job_display_name, '') != '', job_display_name, job_key) AS name,
-            workflow_name,
-            if(ifNull(attempt_finished_at, '') != '', 'completed', 'in_progress') AS status,
-            {_conclusion("attempt_status")} AS conclusion,
-            head_sha,
-            head_branch,
+            a.github_job_id AS id,
+            a.github_run_id AS run_id,
+            toInt(arrayJoin(range(a.attempt, if(a.attempt = last.job_attempt, last.run_attempt, a.attempt) + 1))) AS run_attempt,
+            if(ifNull(a.job_display_name, '') != '', a.job_display_name, a.job_key) AS name,
+            a.workflow_name AS workflow_name,
+            if(ifNull(a.attempt_finished_at, '') != '', 'completed', 'in_progress') AS status,
+            {_conclusion("a.attempt_status")} AS conclusion,
+            a.head_sha AS head_sha,
+            a.head_branch AS head_branch,
             '{_DEFAULT_SANDBOX_LABELS}' AS labels,
-            sandbox_id AS runner_name,
+            a.sandbox_id AS runner_name,
             NULL AS runner_group_name,
             -- Depot reports no queue time for an attempt, so it counts as created when it starts.
-            attempt_started_at AS created_at,
-            attempt_started_at AS started_at,
-            attempt_finished_at AS completed_at,
+            a.attempt_started_at AS created_at,
+            a.attempt_started_at AS started_at,
+            a.attempt_finished_at AS completed_at,
             NULL AS steps
-        FROM {attempts}
+        FROM {attempts} AS a
+        INNER JOIN (
+            SELECT jobs.depot_job_id AS depot_job_id, jobs.job_attempt AS job_attempt, runs.run_attempt AS run_attempt
+            FROM (
+                SELECT github_run_id, depot_job_id, max(attempt) AS job_attempt
+                FROM {attempts}
+                GROUP BY github_run_id, depot_job_id
+            ) AS jobs
+            INNER JOIN (
+                SELECT github_run_id, max(attempt) AS run_attempt FROM {attempts} GROUP BY github_run_id
+            ) AS runs ON jobs.github_run_id = runs.github_run_id
+        ) AS last ON a.depot_job_id = last.depot_job_id
     """
 
 
@@ -203,7 +218,8 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
     Depot job rows carry no branch: the jobs builder scans its source twice, so a PR snapshot lookup here
-    would cost two PR scans per jobs read. A reader that needs the branch takes the run's.
+    would cost two PR scans per jobs read. A reader that joins a job to its run reads the branch through
+    ``workflow_jobs.branch``, which falls back to the run's.
     """
     if depot is None:
         return jobs_table

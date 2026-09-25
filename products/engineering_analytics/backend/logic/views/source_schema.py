@@ -103,6 +103,7 @@ DEPOT_JOB_ATTEMPTS_COLUMNS: dict[str, dict[str, str]] = {
             "workflow_created_at",
             "workflow_started_at",
             "workflow_finished_at",
+            "job_id",
             "job_key",
             "job_display_name",
             "attempt_id",

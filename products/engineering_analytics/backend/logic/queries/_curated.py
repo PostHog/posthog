@@ -245,10 +245,6 @@ class CuratedGitHubSource:
             self._depot_job_attempts_resolved = True
         return self._depot_job_attempts_table
 
-    @property
-    def has_depot_ci(self) -> bool:
-        return self._depot_job_attempts() is not None
-
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
             self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
