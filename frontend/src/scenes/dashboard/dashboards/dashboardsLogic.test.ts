@@ -149,18 +149,26 @@ describe('dashboardsLogic', () => {
         expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
     })
 
-    it('clears the created by filter when switching to my dashboards', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setFilters({ createdBy: [OTHER_USER.id] })
-        }).toFinishAllListeners()
+    // The All case is the dead click: that tab is already active on a pinned-filtered list,
+    // so without a reset the click leaves the page exactly as it was.
+    it.each([DashboardsTab.All, DashboardsTab.Yours])(
+        'clears the filter chips and their URL params when the %s tab is picked',
+        async (tab) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ pinned: true, shared: true, createdBy: [OTHER_USER.id] })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.pinned).toBe(true)
 
-        await expectLogic(logic, () => {
-            logic.actions.setCurrentTab(DashboardsTab.Yours)
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentTab(tab)
+            }).toFinishAllListeners()
 
-        expect(logic.values.filters.createdBy).toBe('All users')
-        expect(router.values.searchParams.created_by).toBeUndefined()
-    })
+            expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
+            expect(router.values.searchParams.pinned).toBeUndefined()
+            expect(router.values.searchParams.shared).toBeUndefined()
+            expect(router.values.searchParams.created_by).toBeUndefined()
+        }
+    )
 
     it('replaces tag results for a new search and appends the next page', async () => {
         await expectLogic(logic, () => {
