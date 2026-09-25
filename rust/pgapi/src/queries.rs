@@ -803,15 +803,27 @@ pub async fn log_errors(db: &Db, server: &str, from: Ts, to: Ts, limit: i64) -> 
     Ok(json!({ "summary": summary, "counts": counts, "recent": errors, "temp_files": temp }))
 }
 
+/// Host CPU, CPU by user, code path and query, and the checkpoint, bgwriter and Aurora
+/// panels, in one object for callers that want the whole picture.
 pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
+    let (mut all, rest) =
+        tokio::try_join!(cpu(db, server, from, to), checkpoints(db, server, from, to))?;
+    if let (Some(a), Some(r)) = (all.as_object_mut(), rest.as_object()) {
+        a.extend(r.clone());
+    }
+    Ok(all)
+}
+
+pub async fn cpu(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
+    let p: &[&(dyn tokio_postgres::types::ToSql + Sync)] = &[&server, &from, &to];
     let cpu = opt(db, "SELECT collected_at, instance,
                 round(((user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies)::numeric / nullif(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies, 0)) * 100, 2)::float8 AS cpu_pct,
                 round((iowait_jiffies::numeric / nullif(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies, 0)) * 100, 2)::float8 AS iowait_pct
-         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", &[&server, &from, &to]).await?;
+         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", p);
     let host = opt(db, "SELECT instance, round(sum(user_jiffies + nice_jiffies + system_jiffies + iowait_jiffies + idle_jiffies) / nullif(sum(interval_seconds), 0) / 100.0)::bigint AS ncpu,
                 sum(interval_seconds)::float8 AS covered_s
-         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND interval_seconds > 0 GROUP BY 1", &[&server, &from, &to]).await?;
-    let mem = opt(db, "SELECT collected_at, instance, mem_used_kb, mem_free_kb, mem_cached_kb, swap_used_kb, load1, load5 FROM ts_system_memory WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", &[&server, &from, &to]).await?;
+         FROM ts_system_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND interval_seconds > 0 GROUP BY 1", p);
+    let mem = opt(db, "SELECT collected_at, instance, mem_used_kb, mem_free_kb, mem_cached_kb, swap_used_kb, load1, load5 FROM ts_system_memory WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY 1", p);
 
     // A jiffy is 10 ms, and /proc/stat sums to 100 jiffies per core per second, which
     // is where the core count comes from; `covered` counts each tick once.
@@ -822,7 +834,7 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
         covered AS (
             SELECT instance, sum(interval_seconds) AS covered_s
             FROM (SELECT DISTINCT instance, collected_at, interval_seconds FROM ts_backend_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3) t GROUP BY 1)";
-    let by_user = opt(db, &format!("{CPU_CTES},
+    let by_user_sql = format!("{CPU_CTES},
         per_pid AS (
             SELECT instance, datname, usename, application_name, backend_type, pid, backend_start, sum(utime_jiffies + stime_jiffies) AS jiffies
             FROM ts_backend_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1, 2, 3, 4, 5, 6, 7)
@@ -833,7 +845,8 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                count(*)::bigint AS backends,
                (max(p.jiffies) / 100.0 / nullif(c.covered_s, 0))::float8 AS hottest_backend_cores
         FROM per_pid p JOIN covered c ON c.instance = p.instance LEFT JOIN host h ON h.instance = p.instance
-        GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 20"), &[&server, &from, &to]).await?;
+        GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 20");
+    let by_user = opt(db, &by_user_sql, p);
     let by_user_series = opt(db, "
         WITH b AS (
             SELECT collected_at, instance, interval_seconds,
@@ -843,9 +856,9 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
         top AS (SELECT label FROM b GROUP BY 1 ORDER BY sum(jiffies) DESC LIMIT 7)
         SELECT b.collected_at, b.instance, CASE WHEN t.label IS NULL THEN 'other' ELSE b.label END AS label,
                (sum(b.jiffies) / 100.0 / max(b.interval_seconds))::float8 AS cores
-        FROM b LEFT JOIN top t ON t.label = b.label GROUP BY 1, 2, 3 ORDER BY 1", &[&server, &from, &to]).await?;
-    let by_code_path = if has_column(db, "ts_backend_cpu", "tags").await {
-        opt(db, &format!("{CPU_CTES}
+        FROM b LEFT JOIN top t ON t.label = b.label GROUP BY 1, 2, 3 ORDER BY 1", p);
+    let has_tags = has_column(db, "ts_backend_cpu", "tags").await;
+    let by_code_path_sql = format!("{CPU_CTES}
             SELECT b.instance, b.tags,
                    (sum(b.utime_jiffies + b.stime_jiffies) / 100.0)::float8 AS cpu_seconds,
                    (sum(b.utime_jiffies + b.stime_jiffies) / 100.0 / nullif(c.covered_s, 0))::float8 AS avg_cores,
@@ -853,29 +866,73 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                    count(DISTINCT (b.pid, b.backend_start))::bigint AS backends
             FROM ts_backend_cpu b JOIN covered c ON c.instance = b.instance LEFT JOIN host h ON h.instance = b.instance
             WHERE b.server_id = $1 AND b.collected_at >= $2 AND b.collected_at < $3 AND b.tags IS NOT NULL AND b.tags <> '{{}}'::jsonb
-            GROUP BY 1, 2, c.covered_s, h.ncpu ORDER BY 3 DESC LIMIT 15"), &[&server, &from, &to]).await?
-    } else {
-        vec![]
-    };
-    let by_query = if has_column(db, "ts_backend_cpu", "query_id").await {
-        let query_tags = if has_column(db, "cur_queries", "tags").await {
-            "q.tags"
+            GROUP BY 1, 2, c.covered_s, h.ncpu ORDER BY 3 DESC LIMIT 15");
+    let by_code_path = async {
+        if has_tags {
+            opt(db, &by_code_path_sql, p).await
         } else {
-            "NULL::jsonb AS tags"
-        };
-        opt(db, &format!("{CPU_CTES}
-            SELECT b.instance, b.datname, b.query_id AS queryid, q.query, {query_tags},
-                   (sum(b.utime_jiffies + b.stime_jiffies) / 100.0)::float8 AS cpu_seconds,
-                   (sum(b.utime_jiffies + b.stime_jiffies) / 100.0 / nullif(c.covered_s, 0))::float8 AS avg_cores,
-                   (sum(b.utime_jiffies + b.stime_jiffies) / nullif(c.covered_s, 0) / nullif(h.ncpu, 0))::float8 AS host_pct,
-                   count(DISTINCT (b.pid, b.backend_start))::bigint AS backends
-            FROM ts_backend_cpu b JOIN covered c ON c.instance = b.instance LEFT JOIN host h ON h.instance = b.instance
-                 LEFT JOIN cur_queries q ON q.server_id = $1 AND q.instance = b.instance AND q.queryid = b.query_id AND q.datname = b.datname
-            WHERE b.server_id = $1 AND b.collected_at >= $2 AND b.collected_at < $3 AND b.query_id IS NOT NULL
-            GROUP BY 1, 2, 3, 4, 5, c.covered_s, h.ncpu ORDER BY 6 DESC LIMIT 15"), &[&server, &from, &to]).await?
-    } else {
-        vec![]
+            Ok(vec![])
+        }
     };
+    // pg_stat_statements counts every call, while the per-minute backend sample above only sees
+    // the statement running at the tick and misses almost all short queries. Each role's CPU
+    // from /proc is split between its queries: execution time minus I/O time first, then the
+    // rest (planning, parsing, protocol) by call count. When the role used less CPU than its
+    // execution time (the time includes lock and other waits), the time is scaled down instead.
+    // A role with no /proc rows keeps its execution time as the estimate.
+    let query_tags = if has_column(db, "cur_queries", "tags").await {
+        "q.tags"
+    } else {
+        "NULL::jsonb AS tags"
+    };
+    let by_query_sql = format!("{CPU_CTES},
+        stmts AS (
+            SELECT instance, rolname, datname, queryid, sum(calls) AS calls,
+                   greatest(sum(total_exec_time + coalesce(total_plan_time, 0) - coalesce(blk_read_time, 0) - coalesce(blk_write_time, 0)), 0) AS exec_ms
+            FROM ts_query_stats WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND toplevel
+            GROUP BY 1, 2, 3, 4),
+        role_stmts AS (SELECT instance, rolname, datname, sum(exec_ms) AS exec_ms, sum(calls) AS calls FROM stmts GROUP BY 1, 2, 3),
+        role_cpu AS (
+            SELECT instance, usename AS rolname, datname, sum(utime_jiffies + stime_jiffies) * 10.0 AS cpu_ms
+            FROM ts_backend_cpu WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 AND backend_type IN ('client backend', 'parallel worker')
+            GROUP BY 1, 2, 3),
+        est AS (
+            SELECT s.instance, s.datname, s.queryid, s.calls,
+                   CASE WHEN rc.cpu_ms IS NULL THEN s.exec_ms
+                        WHEN rc.cpu_ms >= r.exec_ms THEN s.exec_ms + (rc.cpu_ms - r.exec_ms) * s.calls / nullif(r.calls, 0)
+                        ELSE s.exec_ms * rc.cpu_ms / nullif(r.exec_ms, 0) END AS cpu_ms
+            FROM stmts s JOIN role_stmts r USING (instance, rolname, datname) LEFT JOIN role_cpu rc USING (instance, rolname, datname)),
+        per_query AS (
+            SELECT instance, datname, queryid, sum(calls)::bigint AS calls, sum(cpu_ms) AS cpu_ms,
+                   sum(sum(cpu_ms)) OVER (PARTITION BY instance) AS instance_cpu_ms
+            FROM est GROUP BY 1, 2, 3)
+        SELECT p.instance, p.datname, p.queryid, q.query, {query_tags}, p.calls,
+               (p.cpu_ms / 1000.0)::float8 AS cpu_seconds,
+               (p.cpu_ms / 1000.0 / nullif(c.covered_s, 0))::float8 AS avg_cores,
+               (p.cpu_ms / 10.0 / nullif(c.covered_s, 0) / nullif(h.ncpu, 0))::float8 AS host_pct,
+               (100.0 * p.cpu_ms / nullif(p.instance_cpu_ms, 0))::float8 AS share_pct
+        FROM per_query p LEFT JOIN covered c ON c.instance = p.instance LEFT JOIN host h ON h.instance = p.instance
+             LEFT JOIN cur_queries q ON q.server_id = $1 AND q.instance = p.instance AND q.queryid = p.queryid AND q.datname = p.datname
+        WHERE p.cpu_ms > 0
+        ORDER BY p.cpu_ms DESC LIMIT 15");
+    let by_query = opt(db, &by_query_sql, p);
+    // Each panel scans a different table over the whole range, so they run side by side.
+    let (cpu, host, mem, by_user, by_user_series, by_code_path, by_query) = tokio::try_join!(
+        cpu,
+        host,
+        mem,
+        by_user,
+        by_user_series,
+        by_code_path,
+        by_query
+    )?;
+    Ok(json!({
+        "cpu": cpu, "host": host, "memory": mem,
+        "cpu_by_user": by_user, "cpu_by_user_series": by_user_series, "cpu_by_code_path": by_code_path, "cpu_by_query": by_query,
+    }))
+}
+
+pub async fn checkpoints(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
     let checkpoints = opt(db, "SELECT log_time, log_stream, kind, buffers_written, buffers_pct, write_s, sync_s, total_s, distance_kb FROM ts_checkpoints WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 ORDER BY log_time DESC LIMIT 50", &[&server, &from, &to]).await?;
     let bgw = opt(db, "SELECT instance, sum(checkpoints_timed)::bigint AS checkpoints_timed, sum(checkpoints_req)::bigint AS checkpoints_req, sum(buffers_checkpoint)::bigint AS buffers_checkpoint, sum(buffers_clean)::bigint AS buffers_clean, sum(buffers_alloc)::bigint AS buffers_alloc
          FROM ts_bgwriter WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1", &[&server, &from, &to]).await?;
@@ -884,8 +941,6 @@ pub async fn system(db: &Db, server: &str, from: Ts, to: Ts) -> Result<Value> {
                 CASE WHEN sum(update_count) > 0 THEN sum(update_latency_us) / sum(update_count) END::float8 AS avg_update_latency_us
          FROM ts_aurora_db_latency WHERE server_id = $1 AND collected_at >= $2 AND collected_at < $3 GROUP BY 1", &[&server, &from, &to]).await?;
     Ok(json!({
-        "cpu": cpu, "host": host, "memory": mem,
-        "cpu_by_user": by_user, "cpu_by_user_series": by_user_series, "cpu_by_code_path": by_code_path, "cpu_by_query": by_query,
         "checkpoints": checkpoints, "bgwriter": bgw, "aurora_replicas": repl, "aurora_db_latency": latency,
     }))
 }
