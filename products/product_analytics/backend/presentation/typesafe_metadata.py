@@ -46,7 +46,8 @@ MAX_TEXT_CANDIDATES = 16
 
 @frozen
 class SubjectContext:
-    """What Jev is told about the insight or dashboard. Everything here is state, not instruction."""
+    """What Jev is told about the insight or dashboard. Everything here is state, not instruction.
+    The query itself never reaches Jev: ``_query_summary`` turns it into lines without filter values."""
 
     subject: Subject
     name: str = ""
@@ -607,31 +608,99 @@ def description_candidates(context: SubjectContext) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _filter_keys(properties: object) -> list[str]:
+    """Property filter keys and operators, never values. Values are what people type into filters
+    (emails, ids, URLs), and they must not leave PostHog for a title suggestion."""
+    keys: list[str] = []
+    stack: list[object] = [properties]
+    while stack:
+        current = stack.pop()
+        if current is None:
+            continue
+        if isinstance(current, list | tuple):
+            stack.extend(current)
+            continue
+        nested = getattr(current, "values", None)
+        if nested is not None and not isinstance(nested, str):
+            stack.append(nested)
+            continue
+        key = getattr(current, "key", None)
+        if getattr(current, "type", None) == "cohort":
+            keys.append("cohort membership")
+        elif key:
+            operator = getattr(current, "operator", None)
+            keys.append(f"{key} {str(operator).split('.')[-1]}" if operator else str(key))
+    return keys
+
+
 def _query_summary(query: MetadataQuery) -> list[str]:
-    """Plain-language lines about the query. Jev reads these next to the raw query JSON, and the
-    formula line is what lets it prefer 'pageviews per user' over a list of the series."""
+    """Plain-language lines about the query. This is all Jev sees of the query: the raw JSON stays
+    in PostHog because it carries filter values, HogQL and identifiers a person typed."""
     if not isinstance(query, InsightVizNode):
-        return [f"Type: {query.kind}"]
+        lines = [f"Type: {query.kind}"]
+        keys = _filter_keys(getattr(query, "properties", None))
+        if keys:
+            lines.append(f"Filtered on: {join_words(keys)}")
+        return lines
     source = query.source
     lines = [f"Type: {source.kind.replace('Query', '')}"]
     items = list(getattr(source, "series", None) or [])
     labels = _series_labels(source)
+    step_word = "Step" if source.kind == "FunnelsQuery" else "Series"
     for index, (item, label) in enumerate(zip(items, labels)):
         math = _series_math(item) or ("total count" if getattr(item, "math", None) in (None, "total") else None)
-        lines.append(f"Series {chr(ord('A') + index)}: {label}" + (f" ({math})" if math else ""))
+        item_filters = _filter_keys(getattr(item, "properties", None))
+        line = f"{step_word} {chr(ord('A') + index)}: {label}"
+        if math and source.kind not in ("FunnelsQuery", "PathsQuery"):
+            line += f" ({math})"
+        if item_filters:
+            line += f", filtered on {join_words(item_filters)}"
+        lines.append(line)
     for formula, custom_name in _formulas(source):
         reading = _read_formula(source, formula, custom_name, None)
         lines.append(f"Formula: {formula}, which means {reading.titles[0].lower()}. Only the formula is plotted.")
+    funnels_filter = getattr(source, "funnelsFilter", None)
+    if funnels_filter is not None and getattr(funnels_filter, "funnelWindowInterval", None):
+        unit = str(getattr(funnels_filter, "funnelWindowIntervalUnit", None) or "day").split(".")[-1].lower()
+        lines.append(f"Conversion window: {funnels_filter.funnelWindowInterval} {unit}s")
+    retention_filter = getattr(source, "retentionFilter", None)
+    if retention_filter is not None:
+        period = str(getattr(retention_filter, "period", None) or "Week").lower()
+        lines.append(
+            f"Retention: users who did {_entity_label(getattr(retention_filter, 'targetEntity', None))} and came "
+            f"back to do {_entity_label(getattr(retention_filter, 'returningEntity', None))}, measured per {period}"
+        )
+    paths_filter = getattr(source, "pathsFilter", None)
+    if paths_filter is not None:
+        types = getattr(paths_filter, "includeEventTypes", None)
+        if types:
+            lines.append(f"Path steps: {join_words([str(t).split('.')[-1].lower() for t in types])}")
+        if getattr(paths_filter, "startPoint", None):
+            lines.append(f"Paths start at: {paths_filter.startPoint}")
+        if getattr(paths_filter, "endPoint", None):
+            lines.append(f"Paths end at: {paths_filter.endPoint}")
     breakdown = _breakdown_label(source)
     if breakdown:
         lines.append(f"Broken down by: {breakdown}")
+    group_index = getattr(source, "aggregation_group_type_index", None)
+    if group_index is not None:
+        lines.append(f"Counted per group (group type {group_index}), not per person")
+    keys = _filter_keys(getattr(source, "properties", None))
+    if keys:
+        lines.append(f"Filtered on: {join_words(keys)}")
+    if getattr(source, "filterTestAccounts", None):
+        lines.append("Internal and test accounts are excluded")
     interval = getattr(source, "interval", None)
     if interval:
-        lines.append(f"Interval: {interval}")
+        lines.append(f"Interval: {str(interval).split('.')[-1].lower()}")
     date_range = getattr(source, "dateRange", None)
     range_text = humanize_date_range(getattr(date_range, "date_from", None)) if date_range else None
     if range_text:
         lines.append(f"Date range: {range_text}")
+    trends_filter = getattr(source, "trendsFilter", None)
+    display = getattr(trends_filter, "display", None) if trends_filter is not None else None
+    if display:
+        lines.append(f"Chart: {str(display).split('.')[-1].replace('Actions', '').replace('_', ' ').lower()}")
     return lines
 
 
@@ -639,7 +708,6 @@ def _state(context: SubjectContext) -> dict[str, object]:
     subject: dict[str, object] = {"kind": context.subject, "name": context.name, "description": context.description}
     if context.query is not None:
         subject["summary"] = _query_summary(context.query)
-        subject["query"] = context.query.model_dump(exclude_none=True, mode="json")
     if context.tile_names:
         subject["tiles"] = list(context.tile_names)
     return {"subject": subject}
@@ -652,8 +720,8 @@ def _choose_text(context: SubjectContext, candidates: Sequence[str], *, field: s
     question = ChoiceQuestion(
         instructions=(
             f"`subject` describes a saved {context.subject} in a product analytics tool: its current name and "
-            f"description, a plain-language `summary` of what it plots, and its query or the names of the "
-            f"insights on it. Read `summary` first. Which option is the best {field} "
+            f"description, a plain-language `summary` of what it plots, or the names of the insights on it. "
+            f"Which option is the best {field} "
             f"for it? {guidance} Judge only on how well the option fits `subject`; do not prefer an option "
             "because it is longer or because it is the current value."
         ),

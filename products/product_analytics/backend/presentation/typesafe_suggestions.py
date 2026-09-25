@@ -60,7 +60,8 @@ class TypesafeSubjectSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "For an insight, its query as a JSON object with kind `InsightVizNode`, `ActorsQuery`, `EventsQuery` "
-            "or `GroupsQuery`. Omit for a dashboard."
+            "or `GroupsQuery`. Candidates are built from it server-side; only a plain-language outline without "
+            "filter values is sent to TypeSafe. Omit for a dashboard."
         ),
     )
     name = serializers.CharField(

@@ -1,3 +1,5 @@
+import json
+
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -131,7 +133,32 @@ class TestTypesafeSuggestionRanking(SimpleTestCase):
         sent = system_one.call_args.kwargs
         assert sent["state"]["subject"]["name"] == ""
         assert sent["state"]["subject"]["summary"][0] == "Type: Trends"
+        assert "query" not in sent["state"]["subject"]
         assert "Pageviews" not in sent["questions"]["title"].instructions
+
+    def test_state_carries_filter_keys_but_never_filter_values(self) -> None:
+        context = SubjectContext(
+            subject="insight",
+            query=_trends(
+                properties=[
+                    {
+                        "type": "event",
+                        "key": "$current_url",
+                        "operator": "icontains",
+                        "value": "secret-customer.example.com",
+                    }
+                ],
+                trendsFilter={"display": "ActionsBar"},
+            ),
+        )
+        with patch(f"{MODULE}.system_one") as system_one:
+            system_one.return_value = _result({"title": ChoiceAnswer(choice="c0", confidence=0.7, probabilities={})})
+            suggest_title(context)
+
+        state = json.dumps(system_one.call_args.kwargs["state"])
+        assert "secret-customer" not in state
+        assert "Filtered on: $current_url icontains" in state
+        assert "Chart: bar" in state
 
     def test_tags_keep_only_confident_matches_and_never_invent_one(self) -> None:
         context = SubjectContext(subject="insight", name="Signups by country", query=_trends())
