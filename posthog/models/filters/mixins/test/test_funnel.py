@@ -110,10 +110,11 @@ def test_correlation_property_values_reports_and_skips_unparsable_property(
 
     mock_capture_exception.assert_called_once()
     args, kwargs = mock_capture_exception.call_args
-    assert isinstance(args[0], expected_exception)
+    assert isinstance(args[0], ValueError)
+    assert type(args[0]) is ValueError
+    assert str(args[0]) == f"Malformed correlation property ({expected_exception.__name__})"
     assert kwargs["additional_properties"] == {
-        "property_type": invalid_property["type"],
-        "property_fields": expected_fields,
+        "property_field_count": len(expected_fields),
     }
 
 
@@ -135,8 +136,23 @@ def test_correlation_property_values_reports_non_mapping_property():
 
     mock_capture_exception.assert_called_once()
     args, kwargs = mock_capture_exception.call_args
-    assert isinstance(args[0], TypeError)
-    assert kwargs["additional_properties"] == {"property_type": None, "property_fields": None}
+    assert type(args[0]) is ValueError
+    assert str(args[0]) == "Malformed correlation property (TypeError)"
+    assert kwargs["additional_properties"] == {"property_field_count": 0}
+
+
+def test_correlation_property_values_never_reports_raw_exception_message():
+    secret = "private@example.invalid"
+    filter = Filter(data={"funnel_correlation_property_values": [{"key": secret, "value": secret, "type": "invalid"}]})
+
+    with patch("posthog.models.filters.mixins.funnel.capture_exception") as mock_capture_exception:
+        _ = filter.correlation_property_values
+
+    mock_capture_exception.assert_called_once()
+    args, kwargs = mock_capture_exception.call_args
+    assert secret not in str(args[0])
+    assert secret not in repr(kwargs)
+    assert args[0].__context__ is None
 
 
 def test_correlation_property_values_disables_code_variable_capture_for_reported_exception():

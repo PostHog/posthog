@@ -412,17 +412,19 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                         # those can carry real user data. Code-variable capture would
                         # attach those same values from this frame's locals regardless, so
                         # it's disabled for this call.
-                        prop_dict = prop_params if isinstance(prop_params, dict) else {}
-                        with posthoganalytics.new_context():
-                            posthoganalytics.set_capture_exception_code_variables_context(False)
-                            capture_exception(
-                                e,
-                                additional_properties={
-                                    "property_type": prop_dict.get("type"),
-                                    "property_fields": sorted(prop_dict.keys()) or None,
-                                },
-                            )
-                        continue
+                        error_type = type(e).__name__
+                        property_field_count = len(prop_params) if isinstance(prop_params, dict) else 0
+                    # Outside the handler there is no active exception for the
+                    # telemetry logger to chain to the raw validation message.
+                    with posthoganalytics.new_context():
+                        posthoganalytics.set_capture_exception_code_variables_context(False)
+                        capture_exception(
+                            ValueError(f"Malformed correlation property ({error_type})"),
+                            additional_properties={
+                                "property_field_count": property_field_count,
+                            },
+                        )
+                    continue
             return _properties
         return None
 
