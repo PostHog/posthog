@@ -234,7 +234,8 @@ def _chunk_tallies(team_id: int, run_ids: Sequence[UUID]) -> dict[UUID, dict[str
         return {}
     tallies = (
         CohortBackfillChunk.objects.for_team(team_id, canonical=True)
-        .filter(run_id__in=run_ids)
+        # Readiness does not wait for trailing chunks, so they are no part of the build's progress.
+        .filter(run_id__in=run_ids, claimable_after__isnull=True)
         .values("run_id")
         .annotate(
             chunks_total=Count("id"),

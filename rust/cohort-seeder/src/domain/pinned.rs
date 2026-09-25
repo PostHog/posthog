@@ -275,12 +275,7 @@ impl PinnedRun {
                 pinned_team_id: self.team_id.0,
             });
         }
-        Ok(SeedDomain::new(
-            spec.day,
-            self.boundary,
-            self.tz,
-            spec.s_chunk,
-        )?)
+        Ok(SeedDomain::new(spec.day, self.tz, spec.s_chunk)?)
     }
 }
 

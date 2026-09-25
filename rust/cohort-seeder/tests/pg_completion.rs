@@ -38,9 +38,9 @@ use sqlx::PgPool;
 
 mod support;
 use support::{
-    empty_pinned, ensure_fence_lost, insert_cohort, insert_participation,
+    empty_pinned, ensure_fence_lost, historical, insert_cohort, insert_participation,
     insert_person_participation, insert_person_run, insert_reconciling_run, insert_run,
-    person_pinned, set_marker_bits, with_db,
+    person_pinned, set_marker_bits, trailing, with_db,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
@@ -262,11 +262,30 @@ async fn cas_reconciling_is_single_winner_and_gated_on_planned_and_confirmed() -
             insert_run(&pool, 4, "team_enablement", "seeding", true, empty_pinned()).await?;
         mark_chunks_planned(&pool, pending, RunKind::Behavioral).await?;
         PgChunkStore::new(pool.clone())
-            .plan_chunks(pending, [100], ONE_BAND)
+            .plan_chunks(pending, historical([100]), ONE_BAND)
             .await?;
         ensure!(cas_run_reconciling(&pool, pending, RunKind::Behavioral)
             .await?
             .is_none());
+
+        // Only a held trailing day unconfirmed: readiness does not wait for it, so the CAS wins.
+        let trailing_only =
+            insert_run(&pool, 5, "team_enablement", "seeding", true, empty_pinned()).await?;
+        mark_chunks_planned(&pool, trailing_only, RunKind::Behavioral).await?;
+        let store = PgChunkStore::new(pool.clone());
+        store
+            .plan_chunks(
+                trailing_only,
+                [trailing(101, Utc::now() + ChronoDuration::hours(1))],
+                ONE_BAND,
+            )
+            .await?;
+        ensure!(store.chunk_progress(trailing_only).await?.remaining() == 0);
+        ensure!(
+            cas_run_reconciling(&pool, trailing_only, RunKind::Behavioral)
+                .await?
+                .is_some()
+        );
         Ok(())
     })
     .await
@@ -463,14 +482,18 @@ async fn runs_with_all_chunks_confirmed_selects_only_fully_confirmed_ledgers() -
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let confirmed =
             insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
-        store.plan_chunks(confirmed, [100], ONE_BAND).await?;
+        store
+            .plan_chunks(confirmed, historical([100]), ONE_BAND)
+            .await?;
         sqlx::query("UPDATE cohort_backfill_chunks SET status = 'confirmed' WHERE run_id = $1")
             .bind(confirmed)
             .execute(&pool)
             .await?;
         let pending =
             insert_run(&pool, 4, "team_enablement", "seeding", true, empty_pinned()).await?;
-        store.plan_chunks(pending, [100, 101], ONE_BAND).await?;
+        store
+            .plan_chunks(pending, historical([100, 101]), ONE_BAND)
+            .await?;
         sqlx::query(
             "UPDATE cohort_backfill_chunks SET status = 'confirmed' \
              WHERE id = (SELECT id FROM cohort_backfill_chunks WHERE run_id = $1 LIMIT 1)",
@@ -479,9 +502,21 @@ async fn runs_with_all_chunks_confirmed_selects_only_fully_confirmed_ledgers() -
         .execute(&pool)
         .await?;
 
-        let ready = runs_with_all_chunks_confirmed(&pool, &[no_chunks, confirmed, pending]).await?;
+        let trailing_only =
+            insert_run(&pool, 5, "team_enablement", "seeding", true, empty_pinned()).await?;
+        store
+            .plan_chunks(
+                trailing_only,
+                [trailing(101, Utc::now() + ChronoDuration::hours(1))],
+                ONE_BAND,
+            )
+            .await?;
+
+        let ready =
+            runs_with_all_chunks_confirmed(&pool, &[no_chunks, confirmed, pending, trailing_only])
+                .await?;
         ensure!(
-            ready == [no_chunks, confirmed].into_iter().collect(),
+            ready == [no_chunks, confirmed, trailing_only].into_iter().collect(),
             "unexpected ready set: {ready:?}"
         );
         ensure!(runs_with_all_chunks_confirmed(&pool, &[]).await?.is_empty());

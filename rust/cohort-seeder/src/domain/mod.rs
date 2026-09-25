@@ -72,4 +72,4 @@ pub use pinned::{
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
 pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};
-pub use window::{Boundary, DomainError, PlanCaps, SeedDomain};
+pub use window::{Boundary, DaySchedule, DomainError, PlanCaps, PlannedDay, SeedDomain};

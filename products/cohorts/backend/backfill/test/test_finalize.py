@@ -17,6 +17,8 @@ from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.models.backfill import (
+    CohortBackfillChunk,
+    CohortBackfillChunkStatus,
     CohortBackfillKind,
     CohortBackfillRun,
     CohortBackfillRunCohort,
@@ -182,6 +184,32 @@ class TestBackfillFinalizer(BaseTest):
             else:
                 self.assertIsNone(cohort.last_backfill_events_at)
                 self.assertIsNone(participation.stamped_at)
+
+    @parameterized.expand(
+        [
+            ("trailing_day_pending", CohortBackfillChunkStatus.PENDING, CohortBackfillRunStatus.TRAILING),
+            ("trailing_day_confirmed", CohortBackfillChunkStatus.CONFIRMED, CohortBackfillRunStatus.COMPLETED),
+        ]
+    )
+    def test_run_stamps_readiness_and_trails_while_a_trailing_day_is_unconfirmed(
+        self, _name: str, trailing_status: str, expected_status: str
+    ) -> None:
+        run, cohorts = self._make_run(["completed"])
+        CohortBackfillChunk.objects.for_team(self.team.id).create(
+            run=run,
+            team_id=self.team.id,
+            day=timezone.now().date(),
+            status=trailing_status,
+            claimable_after=timezone.now() + timedelta(hours=1),
+        )
+
+        result = finalize_backfill_runs()
+
+        run.refresh_from_db()
+        cohorts[0].refresh_from_db()
+        self.assertEqual(run.status, expected_status)
+        self.assertEqual(result.completed, 1)
+        self.assertIsNotNone(cohorts[0].last_backfill_events_at)
 
     def test_unobserved_run_is_untouched(self) -> None:
         run, cohorts = self._make_run(["completed"], observed=False)

@@ -249,9 +249,11 @@ def collect_run_inventory(
 
     # One relation per query, so each aggregate stays linear in the chunk count. Keyed by run id and
     # merged back below; runs with no chunks are simply absent and fall back to `_EMPTY_CHUNK_TALLY`.
+    # Trailing chunks are left out: they are held until their day ends, and no active run waits for
+    # them, so counting them would read a run whose readiness chunks are all done as stalled.
     chunk_tallies = (
         CohortBackfillChunk.objects.unscoped()
-        .filter(run_id__in=[run.id for run in runs])
+        .filter(run_id__in=[run.id for run in runs], claimable_after__isnull=True)
         .values("run_id")
         .annotate(
             chunks_total=Count("id"),

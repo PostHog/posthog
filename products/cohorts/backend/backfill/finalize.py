@@ -12,6 +12,10 @@ The seeder writes a definitive per-participation outcome (``reconcile_completed_
 ``superseded_at`` / retryable ``error``) before it sets ``run.reconcile_observed_at`` as its last
 write. This finalizer trusts those columns — never Kafka — and CASes the run out of
 ``reconciling`` once every participation has a terminal outcome.
+
+A run that stamped readiness with trailing chunks still unconfirmed moves to ``trailing`` rather
+than ``completed``. The seeder scans those days only after they end, and it completes the run when
+they confirm.
 """
 
 from collections.abc import Callable
@@ -31,6 +35,8 @@ from posthog.tasks.utils import CeleryQueue
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
 from products.cohorts.backend.models.backfill import (
+    CohortBackfillChunk,
+    CohortBackfillChunkStatus,
     CohortBackfillKind,
     CohortBackfillRun,
     CohortBackfillRunCohort,
@@ -58,7 +64,7 @@ READINESS_STAMPS_COUNTER = Counter(
 RUNS_FINALIZED_COUNTER = Counter(
     "posthog_cohort_backfill_runs_finalized_total",
     "Backfill runs terminalized by the finalizer, by terminal status and backfill kind",
-    ["status", "kind"],  # status: "completed", "superseded"; kind: the CohortBackfillKind
+    ["status", "kind"],  # status: "completed", "trailing", "superseded"; kind: the CohortBackfillKind
 )
 
 # Split by reason: a shortfall is routine backpressure, an error is a crashed pass, and a gated run
@@ -298,16 +304,26 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
             result.held += 1
             return invalidate_team
 
-        terminal_status = CohortBackfillRunStatus.COMPLETED if stamped >= 1 else CohortBackfillRunStatus.SUPERSEDED
+        if stamped == 0:
+            terminal_status = CohortBackfillRunStatus.SUPERSEDED
+        elif (
+            CohortBackfillChunk.objects.for_team(team_id)
+            .filter(run_id=run.id, claimable_after__isnull=False)
+            .exclude(status=CohortBackfillChunkStatus.CONFIRMED)
+            .exists()
+        ):
+            terminal_status = CohortBackfillRunStatus.TRAILING
+        else:
+            terminal_status = CohortBackfillRunStatus.COMPLETED
         transitioned = (
             CohortBackfillRun.objects.for_team(team_id)
             .filter(id=run.id, status=CohortBackfillRunStatus.RECONCILING)
             .update(status=terminal_status, finished_at=Now())
         )
         if transitioned:
-            if terminal_status == CohortBackfillRunStatus.COMPLETED:
+            if terminal_status != CohortBackfillRunStatus.SUPERSEDED:
                 result.completed += 1
-                RUNS_FINALIZED_COUNTER.labels(status="completed", kind=run.backfill_kind).inc()
+                RUNS_FINALIZED_COUNTER.labels(status=terminal_status.value, kind=run.backfill_kind).inc()
             else:
                 result.superseded += 1
                 RUNS_FINALIZED_COUNTER.labels(status="superseded", kind=run.backfill_kind).inc()
@@ -324,7 +340,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
         # a crash between that pass's commit and its post-commit invalidation. (A crash after this
         # terminal transition commits leaves any staleness bounded by the flags-cache verifier task
         # and the behavioral-ids cache TTL, in the fail-closed direction.)
-        if terminal_status == CohortBackfillRunStatus.COMPLETED and stamped >= 1:
+        if stamped >= 1:
             invalidate_team = True
 
     return invalidate_team

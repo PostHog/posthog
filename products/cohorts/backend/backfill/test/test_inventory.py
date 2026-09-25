@@ -257,6 +257,22 @@ class TestCollectRunInventory(BaseTest):
         self.assertEqual(row.classification, "seeding-stalled")
         self.assertEqual(row.chunks_failed_exhausted, 1)
 
+    def test_a_held_trailing_chunk_does_not_read_as_a_stall(self) -> None:
+        run = self._run()
+        long_ago = timezone.now() - timedelta(days=2)
+        CohortBackfillRun.objects.for_team(self.team.id).filter(id=run.id).update(chunks_planned_at=long_ago)
+        for day, status, claimable_after in [
+            (date(2026, 1, 1), CohortBackfillChunkStatus.CONFIRMED, None),
+            (date(2026, 1, 2), CohortBackfillChunkStatus.PENDING, timezone.now() + timedelta(hours=1)),
+        ]:
+            CohortBackfillChunk.objects.for_team(self.team.id).create(
+                run=run, team_id=self.team.id, day=day, status=status, claimable_after=claimable_after
+            )
+        CohortBackfillChunk.objects.for_team(self.team.id).filter(run_id=run.id).update(updated_at=long_ago)
+
+        [row] = collect_run_inventory(stalled_after=STALLED_AFTER)
+        self.assertEqual(row.classification, "seeding-healthy")
+
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED=False)
     def test_person_runs_held_by_the_readiness_gate_are_kept_off_the_allowlist_line(self) -> None:
         behavioral = self._run(status=CohortBackfillRunStatus.RECONCILING, observed=True)

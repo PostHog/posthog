@@ -656,13 +656,7 @@ mod tests {
     const HASH: &str = "aaaaaaaaaaaaaaaa";
 
     fn domain() -> SeedDomain {
-        SeedDomain::new(
-            1,
-            Boundary::new(UtcMillis::new(2 * 86_400_000), UTC),
-            UTC,
-            SChunkMs(200_000_000),
-        )
-        .unwrap()
+        SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
     fn filters() -> TeamFilters {
@@ -1003,11 +997,12 @@ mod tests {
     }
 
     /// Disaster-recovery shape: the boundary is a past instant, so the scan runs days after the
-    /// plan was anchored. Every pre-boundary day still inside the wall-clock window must stay
-    /// admitted (those days feed membership the live replay cannot reconstruct); days that slid
-    /// out of every window are skipped, matching the consumer's drop-below-window apply rule.
+    /// plan was anchored. Every planned day still inside the wall-clock window must stay admitted
+    /// (the days before the boundary feed membership the live replay cannot reconstruct, and the
+    /// boundary day holds events from before the replay resumed); days that slid out of every
+    /// window are skipped, matching the consumer's drop-below-window apply rule.
     #[test]
-    fn dr_scan_admits_every_pre_boundary_day_still_inside_the_window() {
+    fn dr_scan_admits_every_planned_day_still_inside_the_window() {
         let hash = ConditionHash::parse(HASH).unwrap();
         let conditions = [PinnedCondition {
             cohort_id: CohortId(1),
@@ -1017,7 +1012,7 @@ mod tests {
         }];
         let boundary = Boundary::new(UtcMillis::new(100 * 86_400_000), UTC);
         let planned = plan_days(&conditions, boundary, &PlanCaps::default());
-        assert_eq!(planned, BTreeSet::from_iter(93..=99));
+        assert_eq!(planned, BTreeSet::from_iter(93..=100));
 
         let admitted_at = |now_day: i64| {
             planned
@@ -1030,12 +1025,12 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         // Scanned the boundary day (enablement shape): every planned day is admitted.
-        assert_eq!(admitted_at(100), (93..=99).collect::<Vec<_>>());
+        assert_eq!(admitted_at(100), (93..=100).collect::<Vec<_>>());
         // Scanned three days later (DR shape): the window is [96, 103]; days 93-95 can no longer
-        // affect any evaluation and are skipped, days 96-99 are still scanned.
-        assert_eq!(admitted_at(103), (96..=99).collect::<Vec<_>>());
-        // Boundary older than the window: live replay from the boundary covers the whole window,
-        // so the seed correctly has nothing left to contribute.
-        assert_eq!(admitted_at(107), Vec::<DayIdx>::new());
+        // affect any evaluation and are skipped, days 96-100 are still scanned.
+        assert_eq!(admitted_at(103), (96..=100).collect::<Vec<_>>());
+        // Boundary day older than the window: live replay from the boundary covers the whole
+        // window, so the seed correctly has nothing left to contribute.
+        assert_eq!(admitted_at(108), Vec::<DayIdx>::new());
     }
 }

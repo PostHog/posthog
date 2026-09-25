@@ -276,7 +276,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::domain::{Boundary, SChunkMs, UtcMillis};
+    use crate::domain::SChunkMs;
 
     const HASH_A: &str = "aaaaaaaaaaaaaaaa";
     const HASH_B: &str = "bbbbbbbbbbbbbbbb";
@@ -373,8 +373,7 @@ mod tests {
     }
 
     fn domain() -> SeedDomain {
-        let boundary = Boundary::new(UtcMillis::new(20 * 86_400_000), UTC);
-        SeedDomain::new(19, boundary, UTC, SChunkMs(boundary.at_ms().as_i64())).unwrap()
+        SeedDomain::new(19, UTC, SChunkMs(20 * 86_400_000)).unwrap()
     }
 
     #[test]

@@ -31,7 +31,7 @@ use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, read_planning_stamp, PlanningStampOutcome};
 use crate::store::runs::{
     discover_runs, establish_boundary, fail_run, record_run_warning, BoundaryOutcome,
-    DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedableRun,
+    DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedPhase, SeedableRun,
 };
 use crate::store::RenderedError;
 
@@ -202,6 +202,7 @@ async fn prepare_behavioral(
     boundary: SeedableRun,
 ) -> PrepareOutcome {
     let run_id = boundary.run_id;
+    let phase = boundary.phase;
     let validated = match boundary.load_pinned(pool).await {
         Ok(validated) => validated,
         Err(error) => {
@@ -217,6 +218,11 @@ async fn prepare_behavioral(
         if lookback_truncated {
             counter!(LOOKBACK_TRUNCATED).increment(1);
         }
+    }
+    match phase {
+        SeedPhase::Seeding => {}
+        // Every day was planned while the run was seeding, and its readiness is already stamped.
+        SeedPhase::Trailing => return eligible_behavioral(validated.run, analyses),
     }
     if validated
         .warnings
@@ -247,8 +253,14 @@ async fn prepare_behavioral(
         }
         return PrepareOutcome::NoChunks;
     }
+    let planned = days.into_iter().map(|day| {
+        validated
+            .run
+            .boundary
+            .schedule(day, plan_caps.trailing_day_grace)
+    });
     match store
-        .plan_chunks(validated.run.run_id, days, plan_caps.bands_per_day)
+        .plan_chunks(validated.run.run_id, planned, plan_caps.bands_per_day)
         .await
     {
         Ok(PlanOutcome::Planned { inserted }) => {
@@ -272,8 +284,12 @@ async fn prepare_behavioral(
             return PrepareOutcome::Skipped;
         }
     }
+    eligible_behavioral(validated.run, analyses)
+}
+
+fn eligible_behavioral(run: PinnedRun, analyses: ConditionAnalyses) -> PrepareOutcome {
     PrepareOutcome::Eligible(PreparedRun::Behavioral(Arc::new(PreparedBehavioral {
-        run: validated.run,
+        run,
         analyses,
     })))
 }

@@ -406,7 +406,7 @@ class RecomputeComparison:
     missing: int = 0  # oracle - members(fold) (under-count)
     missing_grace: int = 0
     missing_seed_domain: int = 0  # qualified by confirmed seed days alone — gates FAIL
-    missing_boundary_day: int = 0  # needs boundary-day pre-boundary events — the decaying gap
+    missing_boundary_day: int = 0  # needs boundary-day pre-boundary events — pending the trailing chunk
     missing_unseeded_day: int = 0  # needs a pre-boundary window day with no confirmed chunk — FAIL
     missing_post_boundary: int = 0  # needs post-boundary events the live path owns — gates FAIL
     missing_unsegmented: int = 0  # shape or grace window admits no segmentation — not adjudicated
@@ -471,9 +471,9 @@ def _domain_counts(
 ) -> DomainCounts:
     """Per-domain in-window match counts for one person.
 
-    ``seed`` / ``boundary`` / ``unseeded`` partition the pre-boundary window days: boundary-day first
-    (the seed/live handoff day, even if a chunk exists for it), then confirmed-seed days, then the
-    rest (window days with no confirmed chunk). The scan and the window share one tz and one range,
+    ``seed`` / ``boundary`` / ``unseeded`` partition the pre-boundary window days: confirmed-seed days
+    first, including the boundary day once its trailing chunk has confirmed, then the boundary day
+    while that chunk is still unconfirmed, then the rest (window days with no confirmed chunk). The scan and the window share one tz and one range,
     so the out-of-window skip is defensive only — a dropped in-window match would understate the
     total and misfile the person as lag noise.
     """
@@ -485,10 +485,10 @@ def _domain_counts(
             grace += count
         elif bucket == _POST_BOUNDARY:
             post += count
-        elif day == ctx.boundary_day:
-            boundary += count
         elif day in ctx.confirmed_days:
             seed += count
+        elif day == ctx.boundary_day:
+            boundary += count
         else:
             unseeded += count
     return DomainCounts(grace=grace, seed=seed, boundary=boundary, unseeded=unseeded, post=post)
@@ -517,7 +517,7 @@ def _classify_missing_person(
     if counts.seed >= min_count:
         return "missing_seed_domain"  # confirmed seed days alone qualify — unexpected, gates FAIL
     if counts.seed + counts.boundary >= min_count:
-        return "missing_boundary_day"  # needs boundary-day pre-boundary events — decaying gap
+        return "missing_boundary_day"  # needs boundary-day pre-boundary events — pending the trailing chunk
     if counts.seed + counts.boundary + counts.unseeded >= min_count:
         return "missing_unseeded_day"  # needs an unseeded pre-boundary window day — gates FAIL
     return "missing_post_boundary"  # needs post-boundary events the live path owns — gates FAIL

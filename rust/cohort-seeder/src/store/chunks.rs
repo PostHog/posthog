@@ -11,7 +11,7 @@
 //! [`PgChunkStore::fail`] stamped, which is the only claim arm that reads `next_attempt_at`.
 //! Depends on `domain` (the pure chunk states it mints and the typed ids) and nothing above.
 
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use cohort_core::filters::TeamId;
 use cohort_core::{day_idx_of_naive_date, DayIdx};
 use sqlx::types::Json;
@@ -23,9 +23,9 @@ use uuid::Uuid;
 
 use crate::domain::{
     bands_for_day, person_chunk_sentinel_day, AttemptCount, Band, BandSpec, BandSpecError, ChunkId,
-    ChunkLease, ChunkSpec, ChunkStatus, ClaimEpoch, ClaimKind, ClaimedChunk, EnqueuedChunk, Halted,
-    PersonRange, PersonRangeError, ProduceHwms, ProducedChunk, RunId, SChunkMs, ScanVolume,
-    ScannedChunk, StreamedChunk,
+    ChunkLease, ChunkSpec, ChunkStatus, ClaimEpoch, ClaimKind, ClaimedChunk, DaySchedule,
+    EnqueuedChunk, Halted, PersonRange, PersonRangeError, PlannedDay, ProduceHwms, ProducedChunk,
+    RunId, SChunkMs, ScanVolume, ScannedChunk, StreamedChunk, UtcMillis,
 };
 
 use super::lease::LeaseHandle;
@@ -33,6 +33,10 @@ use super::{Claimant, LeaseDuration, MaxAttempts, RenderedError, PERSISTED_ERROR
 
 /// Chunk statuses holding a live lease — the targets of the fenced heartbeat/fail/confirm writes.
 const ACTIVE_STATUSES_SQL: &str = "('scanning', 'produced')";
+
+/// Run statuses whose chunks the seeder claims and heartbeats: the SQL twin of
+/// [`super::runs::RunStatus::seed_phase`].
+const SEEDABLE_RUN_STATUSES_SQL: &str = "('seeding', 'trailing')";
 
 #[derive(Debug, Clone)]
 pub struct PgChunkStore {
@@ -47,18 +51,27 @@ impl PgChunkStore {
     pub async fn plan_chunks(
         &self,
         run_id: RunId,
-        days: impl IntoIterator<Item = DayIdx>,
+        days: impl IntoIterator<Item = PlannedDay>,
         bands_per_day: NonZeroU16,
     ) -> Result<PlanOutcome, ChunkStoreError> {
         let mut ids = Vec::new();
         let mut dates = Vec::new();
         let mut bands = Vec::new();
-        for day in days {
+        let mut holds = Vec::new();
+        for PlannedDay { day, schedule } in days {
             let date = date_for_day(day).ok_or(ChunkStoreError::InvalidDay(day))?;
+            let hold = match schedule {
+                DaySchedule::Historical => None,
+                DaySchedule::Trailing { claimable_after } => Some(
+                    DateTime::<Utc>::from_timestamp_millis(claimable_after.as_i64())
+                        .ok_or(ChunkStoreError::InvalidClaimableAfter(claimable_after))?,
+                ),
+            };
             for band in bands_for_day(day, bands_per_day) {
                 ids.push(Uuid::now_v7());
                 dates.push(date);
                 bands.push(band.0);
+                holds.push(hold);
             }
         }
         if ids.is_empty() {
@@ -76,13 +89,14 @@ impl PgChunkStore {
                 WHERE id = $1 AND status = 'seeding'
                 FOR UPDATE
             ), input AS (
-                SELECT * FROM unnest($2::uuid[], $3::date[], $4::smallint[]) AS u(id, day, band)
+                SELECT * FROM unnest($2::uuid[], $3::date[], $4::smallint[], $6::timestamptz[])
+                    AS u(id, day, band, claimable_after)
             ), inserted AS (
                 INSERT INTO cohort_backfill_chunks
                     (id, run_id, team_id, day, band, status, claim_epoch, claimed_by, attempts,
-                     last_error, tiles_produced, created_at, updated_at)
+                     last_error, tiles_produced, claimable_after, created_at, updated_at)
                 SELECT u.id, r.id, r.team_id, u.day, u.band, $5, 0, '', 0, '', 0,
-                       now(), now()
+                       u.claimable_after, now(), now()
                 FROM input u CROSS JOIN target_run r
                 ON CONFLICT (run_id, day, band) DO NOTHING
                 RETURNING id
@@ -97,6 +111,7 @@ impl PgChunkStore {
         .bind(dates)
         .bind(bands)
         .bind(ChunkStatus::Pending.as_str())
+        .bind(holds)
         .fetch_one(&self.pool)
         .await?;
         if !result.run_seeding {
@@ -239,7 +254,9 @@ impl PgChunkStore {
                 SELECT c.id, c.status IN {active} AS was_reclaim
                 FROM cohort_backfill_chunks c
                 JOIN cohort_backfill_runs r ON r.id = c.run_id
-                WHERE c.run_id = ANY($1) AND r.status = 'seeding'
+                WHERE c.run_id = ANY($1) AND r.status IN {seedable}
+                  -- A trailing day is scanned only once it has ended, on every arm.
+                  AND (c.claimable_after IS NULL OR c.claimable_after <= now())
                   AND ((c.status = $7 AND c.attempts < $4)
                        -- Only the failed→claim transition is gated on the backoff stamp. A chunk
                        -- that never ran (`pending`) and an expired lease reclaim both stay
@@ -271,6 +288,7 @@ impl PgChunkStore {
                       next_chunk.was_reclaim
             "#,
             active = ACTIVE_STATUSES_SQL,
+            seedable = SEEDABLE_RUN_STATUSES_SQL,
         );
         let row = sqlx::query_as::<_, ClaimedRow>(&sql)
             .bind(run_ids)
@@ -341,14 +359,18 @@ impl PgChunkStore {
         let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
         let rows = sqlx::query_as::<_, ExhaustedRunRow>(
             r#"
-            SELECT DISTINCT ON (run_id)
-                   run_id,
-                   count(*) OVER (PARTITION BY run_id) AS exhausted,
-                   id::text AS chunk_id,
-                   last_error
-            FROM cohort_backfill_chunks
-            WHERE run_id = ANY($1) AND status = $2 AND attempts >= $3
-            ORDER BY run_id, id
+            SELECT DISTINCT ON (c.run_id)
+                   c.run_id,
+                   count(*) OVER (PARTITION BY c.run_id) AS exhausted,
+                   c.id::text AS chunk_id,
+                   c.last_error
+            FROM cohort_backfill_chunks c
+            JOIN cohort_backfill_runs r ON r.id = c.run_id
+            WHERE c.run_id = ANY($1) AND c.status = $2 AND c.attempts >= $3
+              -- Readiness does not wait for a trailing chunk, so its failure fails the run only
+              -- once the run has stamped readiness and is `trailing`.
+              AND (c.claimable_after IS NULL OR r.status = 'trailing')
+            ORDER BY c.run_id, c.id
             "#,
         )
         .bind(run_ids)
@@ -466,6 +488,7 @@ impl PgChunkStore {
         fenced(updated, lease, ChunkOperation::Unclaim)
     }
 
+    /// Unconfirmed chunks the runs' readiness still waits for, which leaves out trailing chunks.
     pub async fn remaining_chunks(&self, run_ids: &[RunId]) -> Result<u64, ChunkStoreError> {
         if run_ids.is_empty() {
             return Ok(0);
@@ -475,7 +498,7 @@ impl PgChunkStore {
             r#"
             SELECT count(*)::bigint
             FROM cohort_backfill_chunks
-            WHERE run_id = ANY($1) AND status <> $2
+            WHERE run_id = ANY($1) AND status <> $2 AND claimable_after IS NULL
             "#,
         )
         .bind(run_ids)
@@ -485,13 +508,14 @@ impl PgChunkStore {
         u64::try_from(count).map_err(|_| ChunkStoreError::InvalidRemainingCount(count))
     }
 
+    /// Progress over the chunks the run's readiness waits for, which leaves out its trailing chunks.
     pub async fn chunk_progress(&self, run_id: RunId) -> Result<ChunkProgress, ChunkStoreError> {
         let row = sqlx::query_as::<_, ChunkProgressRow>(
             r#"
             SELECT count(*)::bigint AS total,
                    count(*) FILTER (WHERE status <> $2)::bigint AS remaining
             FROM cohort_backfill_chunks
-            WHERE run_id = $1
+            WHERE run_id = $1 AND claimable_after IS NULL
             "#,
         )
         .bind(run_id)
@@ -524,10 +548,11 @@ impl PgChunkStore {
             FROM cohort_backfill_runs r
             WHERE c.id = $1 AND c.claim_epoch = $2 AND c.claimed_by = $4
               AND c.status IN {active}
-              AND r.id = c.run_id AND r.status = 'seeding'
+              AND r.id = c.run_id AND r.status IN {seedable}
             RETURNING c.id
             "#,
             active = ACTIVE_STATUSES_SQL,
+            seedable = SEEDABLE_RUN_STATUSES_SQL,
         ))
         .bind(lease.chunk_id())
         .bind(lease.epoch())
@@ -710,6 +735,8 @@ pub enum ChunkStoreError {
     ScanBytesOutOfRange(u64),
     #[error("day index {0} is outside chrono's date range")]
     InvalidDay(DayIdx),
+    #[error("claim hold {0:?} is outside chrono's timestamp range")]
+    InvalidClaimableAfter(UtcMillis),
     #[error(transparent)]
     Band(#[from] BandSpecError),
     #[error(transparent)]
