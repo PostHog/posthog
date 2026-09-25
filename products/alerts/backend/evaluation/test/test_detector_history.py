@@ -6,6 +6,8 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from hypothesis import (
     HealthCheck,
     given,
@@ -40,6 +42,7 @@ RESTRICTIONS_PATH = (
     "products.alerts.backend.evaluation.detector_history.get_restricted_properties_with_group_type_index_for_team"
 )
 PROBE_PATH = "products.alerts.backend.evaluation.detector_history.sync_execute"
+CAPTURE_PATH = "products.alerts.backend.evaluation.detector_history.ph_background_capture"
 
 
 class _Warehouse:
@@ -416,6 +419,37 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
 
         assert warehouse.is_rebuild(warehouse.overrides[-1])
+
+    def test_a_failing_shadow_scan_never_fails_a_served_check(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+
+        def flaky_full_scans(query_override: dict | None = None) -> tuple[list, list[str] | None]:
+            # The shadow comparison is the only caller that passes no override.
+            if query_override is None:
+                raise RuntimeError("shadow comparison scan outage")
+            return warehouse.run(query_override)
+
+        with time_machine.travel(NOW, tick=False):
+            self._check(warehouse)
+            with (
+                override_settings(ALERTS_DETECTOR_HISTORY_SHADOW_SAMPLE=1.0),
+                patch(FLAG_PATH, return_value=True),
+                patch(PROBE_PATH, return_value=[]),
+                patch(CAPTURE_PATH) as capture,
+            ):
+                result = detector_rows_from_history(
+                    alert=self.alert,
+                    insight=self.alert.insight,
+                    config=self.config,
+                    min_samples=MIN_SAMPLES,
+                    run_query=flaky_full_scans,
+                )
+
+        assert result is not None and len(result[0]) == 10
+        events = [call.kwargs for call in capture.return_value.call_args_list]
+        outcomes = [e["properties"] for e in events if e["properties"]["outcome"] == "cache_hit"]
+        assert len(outcomes) == 1
+        assert outcomes[0]["shadow_query_failed"] is True
 
     def test_the_flag_being_off_leaves_the_check_and_the_cache_untouched(self) -> None:
         warehouse = _Warehouse(self._dense(10))
