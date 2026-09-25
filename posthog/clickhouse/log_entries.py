@@ -305,6 +305,23 @@ def LOG_ENTRIES_AUX_DISTRIBUTED_TABLE_SQL():
     )
 
 
+def LOG_ENTRIES_AUX_READER_SQL():
+    """The app-facing `log_entries` name as the aux-cluster reader.
+
+    Post read-cutover, `log_entries` points at the aux cluster's `log_entries_data`
+    everywhere it exists (data and aux nodes). On the data nodes of deployed cloud
+    regions the name arrives via an operational EXCHANGE with the pre-cutover main
+    reader (which survives as `log_entries_distributed`, the rollback handle); this
+    SQL codifies the same end state for the aux nodes and for fresh environments.
+    """
+    return LOG_ENTRIES_TABLE_BASE_SQL.format(
+        table_name=LOG_ENTRIES_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        extra_fields=KAFKA_COLUMNS,
+        engine=_log_entries_aux_distributed_engine(),
+    )
+
+
 def LOG_ENTRIES_AUX_WRITABLE_TABLE_SQL():
     return LOG_ENTRIES_TABLE_BASE_SQL.format(
         table_name=LOG_ENTRIES_AUX_WRITABLE_TABLE,
