@@ -9,11 +9,13 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
+    E2BConfigurationError,
     E2BResumeConfig,
     E2BRetryableError,
     e2b_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS
 
 # e2b builds its own tracked session and hands it to the RESTClient, so patch it in the e2b module.
 E2B_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b.make_tracked_session"
@@ -36,28 +38,41 @@ def _make_manager(resume_state: E2BResumeConfig | None = None) -> mock.MagicMock
 
 
 def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list capturing each request's params AT SEND TIME.
+    """Wire a mock session and return a list capturing each request's url and params AT SEND TIME.
 
     ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
     shows only the final state — snapshot a copy when each request is prepared instead.
     """
     session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
 
     def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
+        calls.append({"url": request.url, "params": dict(request.params or {})})
         prepared = mock.MagicMock()
-        # allowed_hosts pins requests to the base host, so the prepared URL must resolve there.
-        prepared.url = "https://api.e2b.app/v2/sandboxes"
+        # allowed_hosts pins requests to the base host, and RESTClient already joined the path
+        # against it, so echoing the request URL keeps the check honest.
+        prepared.url = request.url
         return prepared
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
-    return param_snapshots
+    return calls
 
 
-def _source(manager: mock.MagicMock, endpoint: str = "sandboxes", api_key: str = "e2b_test"):
-    return e2b_source(api_key=api_key, endpoint=endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+def _source(
+    manager: mock.MagicMock,
+    endpoint: str = "sandboxes",
+    api_key: str = "e2b_test",
+    e2b_team_id: str | None = None,
+):
+    return e2b_source(
+        api_key=api_key,
+        endpoint=endpoint,
+        team_id=1,
+        job_id="j",
+        resumable_source_manager=manager,
+        e2b_team_id=e2b_team_id,
+    )
 
 
 def _rows(source_response) -> list[dict[str, Any]]:
@@ -69,7 +84,7 @@ class TestPagination:
     def test_follows_next_token_header_across_pages(self, MockSession) -> None:
         # The paginator must chase the X-Next-Token header; stopping after page one silently drops data.
         session = MockSession.return_value
-        params = _wire(
+        calls = _wire(
             session,
             [_response([{"sandboxID": "a"}, {"sandboxID": "b"}], next_token="t1"), _response([{"sandboxID": "c"}])],
         )
@@ -78,15 +93,15 @@ class TestPagination:
 
         assert rows == [{"sandboxID": "a"}, {"sandboxID": "b"}, {"sandboxID": "c"}]
         # First page requested with no cursor, second page with the header token; limit ridden every page.
-        assert params[0].get("nextToken") is None
-        assert params[0]["limit"] == 100
-        assert params[1]["nextToken"] == "t1"
+        assert calls[0]["params"].get("nextToken") is None
+        assert calls[0]["params"]["limit"] == 100
+        assert calls[1]["params"]["nextToken"] == "t1"
 
     @mock.patch(E2B_SESSION_PATCH)
     def test_terminates_when_token_repeats(self, MockSession) -> None:
         # An endpoint that echoes the same cursor instead of dropping it must not loop forever.
         session = MockSession.return_value
-        params = _wire(
+        calls = _wire(
             session,
             [_response([{"sandboxID": "a"}], next_token="same"), _response([{"sandboxID": "b"}], next_token="same")],
         )
@@ -94,20 +109,20 @@ class TestPagination:
         rows = _rows(_source(_make_manager()))
 
         assert rows == [{"sandboxID": "a"}, {"sandboxID": "b"}]
-        assert params[0].get("nextToken") is None
-        assert params[1]["nextToken"] == "same"
+        assert calls[0]["params"].get("nextToken") is None
+        assert calls[1]["params"]["nextToken"] == "same"
         assert session.send.call_count == 2
 
     @mock.patch(E2B_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession) -> None:
         # A resumed run must start from the persisted cursor, not re-page from the beginning.
         session = MockSession.return_value
-        params = _wire(session, [_response([{"sandboxID": "x"}])])
+        calls = _wire(session, [_response([{"sandboxID": "x"}])])
 
         rows = _rows(_source(_make_manager(E2BResumeConfig(next_token="resume_tok"))))
 
         assert rows == [{"sandboxID": "x"}]
-        assert params[0]["nextToken"] == "resume_tok"
+        assert calls[0]["params"]["nextToken"] == "resume_tok"
 
     @mock.patch(E2B_SESSION_PATCH)
     def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession) -> None:
@@ -246,12 +261,18 @@ class TestSourceResponsePartitioning:
             ("templates", ["templateID"], "createdAt"),
             # Snapshots carry no timestamp — a partition key would have to be an unstable field.
             ("snapshots", ["snapshotID"], None),
+            # A fan-out child aggregates rows from every parent, so the parent id has to be in the key.
+            ("sandbox_metrics", ["sandboxID", "timestampUnix"], "timestamp"),
+            ("template_builds", ["templateID", "buildID"], "createdAt"),
+            # One row per sandbox, and its sample timestamp moves every sync, so it can't partition.
+            ("sandbox_metrics_latest", ["sandboxID"], None),
+            ("team_metrics", ["timestampUnix"], "timestamp"),
         ]
     )
     def test_primary_keys_and_partitioning_per_endpoint(
         self, endpoint: str, expected_pks: list[str], expected_partition: str | None
     ) -> None:
-        response = _source(_make_manager(), endpoint=endpoint)
+        response = _source(_make_manager(), endpoint=endpoint, e2b_team_id="prj_1")
         assert response.primary_keys == expected_pks
         assert response.sort_mode == "asc"
         if expected_partition is None:
@@ -263,8 +284,187 @@ class TestSourceResponsePartitioning:
             assert response.partition_format == "week"
 
 
-@pytest.mark.parametrize("endpoint", ["sandboxes", "templates", "snapshots"])
+@pytest.mark.parametrize("endpoint", list(ENDPOINTS))
 def test_every_endpoint_builds_a_source_response(endpoint: str) -> None:
-    response = _source(_make_manager(), endpoint=endpoint)
+    response = _source(_make_manager(), endpoint=endpoint, e2b_team_id="prj_1")
     assert response.name == endpoint
     assert callable(response.items)
+
+
+class TestFanout:
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_sandbox_metrics_fans_out_per_sandbox_and_stamps_the_sandbox_id(self, MockSession) -> None:
+        # A SandboxMetric row carries no sandbox id, so without the parent injection every row in the
+        # table would be unattributable — and the primary key would collide across sandboxes.
+        session = MockSession.return_value
+        calls = _wire(
+            session,
+            [
+                _response([{"sandboxID": "s1"}, {"sandboxID": "s2"}]),
+                _response([{"timestampUnix": 10, "cpuUsedPct": 1.5}]),
+                _response([{"timestampUnix": 11, "cpuUsedPct": 2.5}]),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="sandbox_metrics"))
+
+        assert rows == [
+            {"timestampUnix": 10, "cpuUsedPct": 1.5, "sandboxID": "s1"},
+            {"timestampUnix": 11, "cpuUsedPct": 2.5, "sandboxID": "s2"},
+        ]
+        assert [call["url"] for call in calls] == [
+            "https://api.e2b.app/v2/sandboxes",
+            "https://api.e2b.app/sandboxes/s1/metrics",
+            "https://api.e2b.app/sandboxes/s2/metrics",
+        ]
+        # The parent keeps its documented page size; the child documents no limit param, so sending
+        # one risks a strict validator rejecting the request.
+        assert calls[0]["params"]["limit"] == 100
+        assert "limit" not in calls[1]["params"]
+
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_template_builds_reads_the_builds_key_and_stamps_the_template_id(self, MockSession) -> None:
+        # /templates/{templateID} answers with the template object, not a build array, so a missing
+        # data_selector would sync one row holding the whole object.
+        session = MockSession.return_value
+        calls = _wire(
+            session,
+            [
+                _response([{"templateID": "t1"}]),
+                _response({"templateID": "t1", "builds": [{"buildID": "b1", "status": "ready"}]}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="template_builds"))
+
+        assert rows == [{"buildID": "b1", "status": "ready", "templateID": "t1"}]
+        assert calls[1]["url"] == "https://api.e2b.app/templates/t1"
+
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_fanout_checkpoints_under_its_own_slot_and_resumes_from_it(self, MockSession) -> None:
+        # Fan-out resume state is a completed-parents map, not a page cursor, so it must not be
+        # written into next_token — replaying that against the API would be meaningless.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"templateID": "t1"}, {"templateID": "t2"}]),
+                _response({"builds": [{"buildID": "b1"}]}),
+                _response({"builds": [{"buildID": "b2"}]}),
+            ],
+        )
+
+        manager = _make_manager()
+        _rows(_source(manager, endpoint="template_builds"))
+
+        saved = manager.save_state.call_args.args[0]
+        assert saved.next_token is None
+        assert saved.fanout is not None and sorted(saved.fanout["completed"]) == [
+            "/templates/t1",
+            "/templates/t2",
+        ]
+
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_fanout_resume_skips_parents_already_completed(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls = _wire(
+            session,
+            [
+                _response([{"templateID": "t1"}, {"templateID": "t2"}]),
+                _response({"builds": [{"buildID": "b2"}]}),
+            ],
+        )
+
+        resume = E2BResumeConfig(fanout={"completed": ["/templates/t1"], "current": None, "child_state": None})
+        rows = _rows(_source(_make_manager(resume), endpoint="template_builds"))
+
+        assert rows == [{"buildID": "b2", "templateID": "t2"}]
+        assert [call["url"] for call in calls] == [
+            "https://api.e2b.app/v2/templates",
+            "https://api.e2b.app/templates/t2",
+        ]
+
+
+class TestLatestSandboxMetrics:
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_batches_a_page_of_sandboxes_into_one_request_and_keys_rows_by_sandbox(self, MockSession) -> None:
+        # The endpoint takes up to 100 ids per call and answers with a sandboxID -> metric map, so the
+        # id only exists as a map key. One request per page is the whole point of this table.
+        session = MockSession.return_value
+        calls = _wire(
+            session,
+            [
+                _response([{"sandboxID": "s1"}, {"sandboxID": "s2"}]),
+                _response({"sandboxes": {"s1": {"cpuUsedPct": 1.0}, "s2": {"cpuUsedPct": 2.0}}}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(), endpoint="sandbox_metrics_latest"))
+
+        assert rows == [
+            {"cpuUsedPct": 1.0, "sandboxID": "s1"},
+            {"cpuUsedPct": 2.0, "sandboxID": "s2"},
+        ]
+        assert calls[1]["url"] == "https://api.e2b.app/sandboxes/metrics"
+        assert calls[1]["params"]["sandbox_ids"] == "s1,s2"
+
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_walks_the_whole_sandbox_list_starting_from_a_resumed_cursor(self, MockSession) -> None:
+        # The iterator drives the sandbox list itself, so it has to seed a resumed run from the saved
+        # cursor and keep chasing the header token; stopping after one page leaves most sandboxes
+        # with no metrics at all.
+        session = MockSession.return_value
+        calls = _wire(
+            session,
+            [
+                _response([{"sandboxID": "s9"}], next_token="t2"),
+                _response({"sandboxes": {"s9": {"cpuUsedPct": 9.0}}}),
+                _response([{"sandboxID": "s10"}]),
+                _response({"sandboxes": {"s10": {"cpuUsedPct": 10.0}}}),
+            ],
+        )
+
+        rows = _rows(_source(_make_manager(E2BResumeConfig(next_token="tok")), endpoint="sandbox_metrics_latest"))
+
+        assert rows == [{"cpuUsedPct": 9.0, "sandboxID": "s9"}, {"cpuUsedPct": 10.0, "sandboxID": "s10"}]
+        assert calls[0]["params"]["nextToken"] == "tok"
+        assert calls[2]["params"]["nextToken"] == "t2"
+
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_a_page_with_no_sandboxes_makes_no_metrics_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        assert _rows(_source(_make_manager(), endpoint="sandbox_metrics_latest")) == []
+        assert session.send.call_count == 1
+
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_missing_sandboxes_key_fails_loudly(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"sandboxID": "s1"}]), _response({"error": "nope"})])
+
+        with pytest.raises(ValueError, match="data_selector"):
+            _rows(_source(_make_manager(), endpoint="sandbox_metrics_latest"))
+
+
+class TestTeamMetrics:
+    @mock.patch(E2B_SESSION_PATCH)
+    def test_puts_the_team_id_in_the_path_and_sends_no_page_size(self, MockSession) -> None:
+        # E2B takes the team in the path even though the API key already identifies it, and the
+        # endpoint documents no pagination — a stray limit/nextToken would be an undocumented param.
+        session = MockSession.return_value
+        calls = _wire(session, [_response([{"timestampUnix": 5, "concurrentSandboxes": 3}])])
+
+        rows = _rows(_source(_make_manager(), endpoint="team_metrics", e2b_team_id=" prj_abc "))
+
+        assert rows == [{"timestampUnix": 5, "concurrentSandboxes": 3}]
+        assert calls[0]["url"] == "https://api.e2b.app/teams/prj_abc/metrics"
+        assert calls[0]["params"] == {}
+        assert session.send.call_count == 1
+
+    @parameterized.expand([("missing", None), ("blank", "   "), ("path_traversal", "../admin/teams")])
+    def test_an_unusable_team_id_fails_before_any_request(self, _name: str, team_id: str | None) -> None:
+        # The value lands in a request path, so anything but an opaque identifier must be refused
+        # rather than interpolated.
+        with pytest.raises(E2BConfigurationError):
+            _source(_make_manager(), endpoint="team_metrics", e2b_team_id=team_id)
