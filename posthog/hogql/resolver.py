@@ -25,7 +25,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -71,7 +71,7 @@ from posthog.hogql.type_system import (
     least_common_supertype,
 )
 from posthog.hogql.utils import map_virtual_properties
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clear_locations, clone_expr
 
 from posthog.uuidt import UUIDT
 
@@ -183,6 +183,23 @@ _PIVOT_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _PIVOT_ONLY_DIALEC
 
 def _select_from_is_pivot(select_from: "ast.JoinExpr | None") -> bool:
     return select_from is not None and isinstance(select_from.table, ast.PivotExpr)
+
+
+_VIEW_NAMED_IN_ERROR = "_hogql_view_named"
+
+
+def _name_view_in_error(error: ExposedHogQLError, view_name: str | None) -> ExposedHogQLError:
+    """Prefix an error raised inside an inlined view with the name of that view.
+
+    Without the name the user only sees a column or table they never wrote, and has to expand
+    their views one at a time to find the broken one. The innermost view wins, because that is
+    the one that has to change.
+    """
+    if view_name is None or getattr(error, _VIEW_NAMED_IN_ERROR, False):
+        return error
+    error.args = (f'In view "{view_name}": {error.args[0] if error.args else ""}',)
+    setattr(error, _VIEW_NAMED_IN_ERROR, True)
+    return error
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -405,6 +422,9 @@ class Resolver(CloningVisitor):
         self.scopes: list[ast.SelectQueryType] = scopes or []
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
+        # Set by visit_join_expr when it inlines a view, consumed by the body visit it triggers.
+        # A union body carries no `view_name`, so this is the only way it knows which view it is.
+        self._pending_view_name: str | None = None
         self.context = context
         self.dialect = dialect
         self.database = context.database
@@ -433,6 +453,23 @@ class Resolver(CloningVisitor):
         return super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
+        view_name = self._take_pending_view_name(None)
+        try:
+            return self._visit_select_set_query(node)
+        except ExposedHogQLError as error:
+            raise _name_view_in_error(error, view_name)
+
+    def _take_pending_view_name(self, stamped_view_name: str | None) -> str | None:
+        """Return the view whose body is about to be visited, and forget it.
+
+        The name is consumed here, so that the joins visited after the body are not attributed
+        to the view. Those joins belong to the outer query.
+        """
+        view_name = stamped_view_name or self._pending_view_name
+        self._pending_view_name = None
+        return view_name
+
+    def _visit_select_set_query(self, node: ast.SelectSetQuery):
         parent_ctes = self.ctes
         self.ctes = dict(parent_ctes)
 
@@ -915,6 +952,15 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
+        # A view body is about to be visited when the name is set. An error inside it is about SQL
+        # the user did not write, so name the view before the error leaves this frame.
+        view_name = self._take_pending_view_name(node.view_name)
+        try:
+            return self._visit_select_query(node)
+        except ExposedHogQLError as error:
+            raise _name_view_in_error(error, view_name)
+
+    def _visit_select_query(self, node: ast.SelectQuery):
         # Capture before visiting CTEs/subqueries (which re-enter here), so only the outermost query
         # counts as root — a top-level `SELECT *` on a direct table is kept literal below.
         is_root_select = not self._entered_root_select
@@ -1432,17 +1478,27 @@ class Resolver(CloningVisitor):
                 database_table = lower_trino_table(database_table, self.context)
 
             if isinstance(database_table, SavedQuery):
+                try:
+                    parsed_view = parse_select(str(database_table.query))
+                except ExposedHogQLError as error:
+                    raise _name_view_in_error(error, database_table.name)
+
                 self.current_view_depth += 1
+                previous_pending_view_name = self._pending_view_name
+                try:
+                    # The offsets belong to the view's own SQL. Left in place, they make the editor
+                    # mark unrelated text in the query the user wrote.
+                    node.table = clear_locations(parsed_view)
 
-                node.table = parse_select(str(database_table.query))
+                    if isinstance(node.table, ast.SelectQuery):
+                        node.table.view_name = database_table.name
 
-                if isinstance(node.table, ast.SelectQuery):
-                    node.table.view_name = database_table.name
-
-                node.alias = table_alias or database_table.name
-                node = self.visit(node)
-
-                self.current_view_depth -= 1
+                    node.alias = table_alias or database_table.name
+                    self._pending_view_name = database_table.name
+                    node = self.visit(node)
+                finally:
+                    self._pending_view_name = previous_pending_view_name
+                    self.current_view_depth -= 1
                 return node
 
             if isinstance(database_table, LazyTable):

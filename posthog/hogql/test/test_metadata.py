@@ -16,6 +16,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
+    HogQLNotice,
     HogQLQuery,
     HogQLQueryModifiers,
     SessionTableVersion,
@@ -31,6 +32,7 @@ from posthog.models import EventDefinition, PropertyDefinition, Team
 from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -1040,6 +1042,79 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "errors": [],
             },
         )
+
+    def test_broken_view_error_names_the_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="broken_view",
+            query={"kind": "HogQLQuery", "query": "SELECT no_such_column FROM events"},
+            columns={"no_such_column": "String"},
+        )
+
+        query = "SELECT * FROM broken_view"
+        metadata = self._select(query)
+
+        assert metadata.isValid is False
+        assert metadata.errors == [
+            HogQLNotice(
+                message='In view "broken_view": Unable to resolve field: no_such_column',
+                start=query.index("broken_view"),
+                end=len(query),
+                fix=None,
+            )
+        ]
+
+    def test_broken_view_error_names_the_innermost_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="inner_view",
+            query={"kind": "HogQLQuery", "query": "SELECT no_such_column FROM events"},
+            columns={"no_such_column": "String"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="outer_view",
+            query={"kind": "HogQLQuery", "query": "SELECT no_such_column FROM inner_view"},
+            columns={"no_such_column": "String"},
+        )
+
+        metadata = self._select("SELECT * FROM outer_view")
+
+        assert metadata.isValid is False
+        assert [error.message for error in metadata.errors] == [
+            'In view "inner_view": Unable to resolve field: no_such_column'
+        ]
+
+    def test_broken_union_view_error_names_the_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="union_view",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT event FROM events UNION ALL SELECT no_such_column FROM events",
+            },
+            columns={"event": "String"},
+        )
+
+        metadata = self._select("SELECT * FROM union_view")
+
+        assert metadata.isValid is False
+        assert [error.message for error in metadata.errors] == [
+            'In view "union_view": Unable to resolve field: no_such_column'
+        ]
+
+    def test_error_beside_a_view_is_not_blamed_on_the_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="good_view",
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+            columns={"event": "String"},
+        )
+
+        metadata = self._select("SELECT * FROM good_view JOIN no_such_table ON 1 = 1")
+
+        assert metadata.isValid is False
+        assert [error.message for error in metadata.errors] == ["Unknown table `no_such_table`."]
 
     def test_union_all_does_not_crash(self):
         metadata = self._select("SELECT events.event FROM events UNION ALL SELECT events.event FROM events WHERE 1 = 2")
