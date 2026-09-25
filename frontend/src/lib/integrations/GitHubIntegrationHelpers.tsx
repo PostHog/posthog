@@ -22,7 +22,7 @@ import {
     IconRust,
     IconSwift,
 } from '@posthog/icons'
-import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -74,35 +74,61 @@ export const GitHubRepositoryPicker = ({
     className,
     valueKey,
 }: GitHubRepositoryPickerProps): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId, { valueKey })
+    const { options, loading, error, retry } = useRepositories(integrationId, { valueKey })
 
     return (
-        <LemonInputSelect
-            onChange={(val) => onChange?.(val[0] ?? null)}
-            value={value ? [value] : []}
-            mode="single"
-            data-attr="select-github-repository"
-            placeholder="Select a repository..."
-            options={options}
-            loading={loading}
-            className={className}
-        />
-    )
-}
-
-export const GitHubRepositorySelectField = ({ integrationId }: { integrationId: number }): JSX.Element => {
-    const { options, loading } = useRepositories(integrationId)
-
-    return (
-        <LemonField name="repositories" label="Repository">
+        <div className="flex flex-col gap-2">
             <LemonInputSelect
+                onChange={(val) => onChange?.(val[0] ?? null)}
+                value={value ? [value] : []}
                 mode="single"
                 data-attr="select-github-repository"
                 placeholder="Select a repository..."
                 options={options}
                 loading={loading}
+                className={className}
             />
-        </LemonField>
+            <GitHubRepositoryLoadError error={error} onRetry={retry} />
+        </div>
+    )
+}
+
+// Without this the dropdown reports a failed load as "No options", which reads as an account with no
+// repositories and gives the user nothing to act on.
+function GitHubRepositoryLoadError({
+    error,
+    onRetry,
+}: {
+    error: string | null
+    onRetry: () => void
+}): JSX.Element | null {
+    if (!error) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="error" action={{ children: 'Try again', onClick: onRetry }}>
+            {error}
+        </LemonBanner>
+    )
+}
+
+export const GitHubRepositorySelectField = ({ integrationId }: { integrationId: number }): JSX.Element => {
+    const { options, loading, error, retry } = useRepositories(integrationId)
+
+    return (
+        <>
+            <LemonField name="repositories" label="Repository">
+                <LemonInputSelect
+                    mode="single"
+                    data-attr="select-github-repository"
+                    placeholder="Select a repository..."
+                    options={options}
+                    loading={loading}
+                />
+            </LemonField>
+            <GitHubRepositoryLoadError error={error} onRetry={retry} />
+        </>
     )
 }
 
@@ -187,14 +213,14 @@ function RepoOptionLabel({ repo }: { repo: GitHubRepoApi }): JSX.Element {
 export function useRepositories(
     integrationId: number,
     { valueKey = 'name' }: { valueKey?: 'name' | 'full_name' } = {}
-): { options: LemonInputSelectOption[]; loading: boolean } {
+): { options: LemonInputSelectOption[]; loading: boolean; error: string | null; retry: () => void } {
     const logic = githubIntegrationLogic({ id: integrationId })
-    const { repositories, repositoriesLoading } = useValues(logic)
+    const { repositories, repositoriesLoading, repositoriesError } = useValues(logic)
     const { loadRepositories } = useActions(logic)
 
     useEffect(() => {
         loadRepositories()
-    }, [loadRepositories])
+    }, [integrationId, loadRepositories])
 
     const options = useMemo(
         () =>
@@ -205,5 +231,5 @@ export function useRepositories(
         [repositories, valueKey]
     )
 
-    return { options, loading: repositoriesLoading }
+    return { options, loading: repositoriesLoading, error: repositoriesError, retry: loadRepositories }
 }
