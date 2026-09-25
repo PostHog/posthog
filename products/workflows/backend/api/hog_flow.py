@@ -692,20 +692,22 @@ _TEMPLATE_EMAIL_BODY_KEYS = ("subject", "text", "html", "design")
 MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
 
 
-def _apply_email_template_content(config: dict, team: Team, strict: bool, context: dict) -> None:
+def _apply_email_template_content(config: dict, team: Team, context: dict) -> None:
     """Materialize a referenced saved template's email body into the step's inputs at save,
     mirroring what the web editor does when a template is picked (snapshot semantics: later
-    template edits don't propagate). Only fires when the caller supplied no body at all — a
-    caller-authored body always wins, and then template_uuid is provenance only. Under strict
-    (programmatic) validation an unresolvable reference is a 400; lenient web/internal saves
-    skip it so re-saves of already-accepted drafts can't start failing."""
+    template edits don't propagate). Only fires for a programmatic (API key, MCP, CLI) request
+    whose step has no body at all. A caller-authored body always wins, and then template_uuid
+    is provenance only. An unresolvable reference is a 400."""
     template_uuid = config.get("template_uuid")
     if not template_uuid:
         return
     # The web editor copies the template body in itself and saves the whole email, so an empty
-    # body there is one the user cleared. Refilling it would undo that edit, and a lookup could
-    # fail publish on a template deleted since the insert. On this path the link is provenance only.
-    if context.get("event_source") == EventSource.WEB:
+    # body there is one the user cleared. Internal re-saves (canvas enable, the refresh command)
+    # have no request source and re-persist bodies that were filled in when they were saved.
+    # Refilling on either path would undo a cleared email and could put template content live.
+    # Programmatic drafts always validate strictly, so every save that gets past this is strict.
+    source = context.get("event_source")
+    if source is None or source == EventSource.WEB:
         return
     inputs = config.get("inputs")
     email_input = inputs.get("email") if isinstance(inputs, dict) else None
@@ -732,21 +734,17 @@ def _apply_email_template_content(config: dict, team: Team, strict: bool, contex
         template_cache[cache_key] = template
     email_content = (template.content or {}).get("email") if template else None
     if not isinstance(email_content, dict) or not any(email_content.get(key) for key in _TEMPLATE_EMAIL_BODY_KEYS):
-        if strict:
-            raise serializers.ValidationError(
-                {
-                    "template_uuid": (
-                        f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
-                        "this project. List templates with workflows-list-email-templates, or author the email "
-                        "inline in config.inputs.email.value."
-                    )
-                }
-            )
-        return
+        raise serializers.ValidationError(
+            {
+                "template_uuid": (
+                    f"template_uuid '{str(template_uuid)[:100]}' doesn't match a saved email template in "
+                    "this project. List templates with workflows-list-email-templates, or author the email "
+                    "inline in config.inputs.email.value."
+                )
+            }
+        )
 
     body = {key: email_content[key] for key in _TEMPLATE_EMAIL_BODY_KEYS if email_content.get(key)}
-    # Applies on lenient saves too: the lenient path is caller-selectable (a request header),
-    # so a strict-only cap would leave the amplification open.
     materialized_bytes = context.get("_materialized_template_bytes", 0) + len(json.dumps(body))
     if materialized_bytes > MATERIALIZED_TEMPLATE_CONTENT_MAX_BYTES:
         raise serializers.ValidationError(
@@ -1656,7 +1654,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # re-saves, direct construction) - no team to resolve against, so skip.
                 get_team = self.context.get("get_team")
                 if get_team is not None:
-                    _apply_email_template_content(config, get_team(), strict, self.context)
+                    _apply_email_template_content(config, get_team(), self.context)
             template = HogFunctionTemplate.get_template(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
