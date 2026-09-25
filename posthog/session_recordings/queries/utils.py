@@ -22,7 +22,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr
+from posthog.hogql.visitor import GetFieldsTraverser
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
@@ -104,6 +106,59 @@ def is_session_property(p: AnyPropertyFilter) -> bool:
 def is_recording_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return p_type == "recording"
+
+
+# Columns the recordings listing selects as aggregates over the replay rows of a session. A filter
+# that names one of them resolves to that SELECT alias, and ClickHouse rejects an aggregate in WHERE,
+# so such a filter has to be applied in HAVING.
+AGGREGATED_LISTING_COLUMNS = frozenset(
+    {
+        "start_time",
+        "end_time",
+        "duration",
+        "first_url",
+        "click_count",
+        "keypress_count",
+        "mouse_activity_count",
+        "active_seconds",
+        "inactive_seconds",
+        "console_log_count",
+        "console_warn_count",
+        "console_error_count",
+        "retention_period_days",
+        "expiry_time",
+        "recording_ttl",
+        "ongoing",
+        "activity_score",
+        "surfacing_score",
+    }
+)
+
+
+def is_aggregated_listing_hogql_property(p: AnyPropertyFilter) -> bool:
+    """A hogql filter that reads one of the listing's aggregated columns, e.g. `console_error_count > 0`."""
+
+    if getattr(p, "type", None) != "hogql":
+        return False
+
+    try:
+        expr = parse_expr(getattr(p, "key", "") or "")
+    except Exception:
+        # An unparseable expression fails later with its own message, which is clearer than this one.
+        return False
+
+    reads_aggregate = False
+    for field in GetFieldsTraverser(expr).fields:
+        root = field.chain[0]
+        # An expression over event, person or session properties is answered by a sub-query, not by
+        # the listing's own columns, so it keeps its existing route. The roots come from the parsed
+        # expression, so a string literal that reads like a property reference does not count.
+        if root in ("properties", "person", "session"):
+            return False
+        if len(field.chain) == 1 and root in AGGREGATED_LISTING_COLUMNS:
+            reads_aggregate = True
+
+    return reads_aggregate
 
 
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:

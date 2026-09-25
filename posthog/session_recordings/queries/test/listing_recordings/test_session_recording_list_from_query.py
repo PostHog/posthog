@@ -3671,6 +3671,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
             first_timestamp=self.an_hour_ago,
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+            console_error_count=0,
         )
 
         long_session = f"test_recording_prop_routing-long-{str(uuid4())}"
@@ -3680,12 +3681,35 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
             first_timestamp=self.an_hour_ago,
             last_timestamp=(self.an_hour_ago + relativedelta(seconds=90)),
+            console_error_count=3,
         )
 
         # Sending recording filter via `properties` (not `having_predicates`) — this is
         # how MCP agents submit recording filters through AssistantRecordingsQuery
         self._assert_query_matches_session_ids(
             {"properties": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'},
+            [long_session],
+        )
+
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"type":"recording","key":"console_error_count","value":0,"operator":"gt"}]'},
+            [long_session],
+        )
+
+        # A hogql filter over the same metric reads the listing's aggregated columns too,
+        # so it must take the same route out of WHERE.
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"type":"hogql","key":"console_error_count > 0"}]'},
+            [long_session],
+        )
+
+        # A string literal that reads like a property reference must not send the same filter
+        # back to WHERE.
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"type":"hogql","key":"console_error_count > 0 '
+                "and first_url not ilike '%properties.internal%'\"}]"
+            },
             [long_session],
         )
 
