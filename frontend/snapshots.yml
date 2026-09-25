@@ -6964,6 +6964,22 @@ snapshots:
         hash: v1.k794b7964.86d0cbd8d6aff26f2592a2b564534fb53fd5c0bb89c1383f0cc4e1c4029e6ad0.RjTbwWkbD4SNVNNM83vresibkwUxkliGjKwl5_LCWME
     products-wizard-wizard-run-diff-viewer--narrow--light:
         hash: v1.k794b7964.2ea84850b2a15dfe74254e4439305686f9718b0627f1bc8ca05a0fd428fcebba.qvBX7qTpArw7bMv-azF7FL1HSBhsl9BhNblAoqlGpi8
+    products-wizard-wizard-run-sync-card--completed--dark:
+        hash: v1.k794b7964.b389514fabb5dec603e6ac02cfe893d90ee793ced7fa06fdee051ab218ed9e6f.ifpv5W-1BCjmRB-laDihXTly_4UxYYZfwk0_xRMcVoo
+    products-wizard-wizard-run-sync-card--completed--light:
+        hash: v1.k794b7964.0d171f1dd84ed010d842617f35781f5d1b31f4222c48631e6854b76a56106ad3.3MBXO6B3RlDeEPOSAIHl4RB3UffoZOLrBdN50j8GCH4
+    products-wizard-wizard-run-sync-card--local-running--dark:
+        hash: v1.k794b7964.070388138ab8bc5e20c611f5b42036c39901c3317beee7ba8f6aed70af62676f.sk2IJooQi8BK7jzJ2f_fBf7oRzT84m5IITvhwWu_09c
+    products-wizard-wizard-run-sync-card--local-running--light:
+        hash: v1.k794b7964.a38acaf7ddbfa37a3eaade8958875c54749471c262ddb52f0eade0d1d4b198ed.CbsNAL-B-ud5AUggvwVq5ub2-kDqUp8TWuRRxm1rO08
+    products-wizard-wizard-run-sync-card--multiple-runs--dark:
+        hash: v1.k794b7964.e789ca3d622fa2b08aee57c2baadd6bb0a52300e488a8f930de58cdab26cea69.DGYEtSMfDUbr2sATZhkHRT2_QvZGDJFNgDapxqrzThE
+    products-wizard-wizard-run-sync-card--multiple-runs--light:
+        hash: v1.k794b7964.69189adcaad12ad70369068150d954cd8c11f9d56c6c1bfb0bedee839a69b2dc.TkYYU8OORDZougolY7DYEZYahFzy4aEQCqeLS9DFsY8
+    products-wizard-wizard-run-sync-card--running--dark:
+        hash: v1.k794b7964.b59d3e3b569184f8fdd9029c1c2067b053e8e135173c37218bfe4c626079b7e3.v2d325yM8eofSv8GOhTRsOEFjAoT2k8AHsyUXsGxaHs
+    products-wizard-wizard-run-sync-card--running--light:
+        hash: v1.k794b7964.df30028d9399928f4b1c8d2ad87fadb9ce6597419600e07b57b35d34ac9ade93.zpJJ3MjyG1rhJm9eAq8JTYdRRteI3ptNuZor2nr8hOA
     products-workflows-customerioimportmodal--all-steps-completed--dark:
         hash: v1.k794b7964.da9d1ebf1836700267307224631511bd8fe3b9fb0906654a383e545e1c6f98f1.lPijIVizKAMxsGEVt28x0Y5izfhcfnbjbPhoHzriWFg
     products-workflows-customerioimportmodal--all-steps-completed--light:
