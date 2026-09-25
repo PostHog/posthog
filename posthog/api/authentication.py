@@ -59,7 +59,12 @@ from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.sso import is_sso_reauth_begin, sso_failure_redirect_url
+from posthog.helpers.sso import (
+    GITHUB_EMAIL_LOOKUP_ERROR,
+    UNVERIFIED_SOCIAL_EMAIL_ERROR,
+    is_sso_reauth_begin,
+    sso_failure_redirect_url,
+)
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -1370,12 +1375,6 @@ def social_identity_matches_session(
             session_user_id=request.user.pk,
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
-
-
-UNVERIFIED_SOCIAL_EMAIL_ERROR = (
-    "Your sign-in provider hasn't verified this email address. Verify it with the provider, then sign in again."
-)
-GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
 
 
 def _github_email_is_verified(backend: Any, access_token: str, email: str) -> bool:
