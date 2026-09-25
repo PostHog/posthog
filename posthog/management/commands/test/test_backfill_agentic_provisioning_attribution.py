@@ -90,6 +90,7 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
 
     def test_live_run_skips_unresolvable_rows_and_attributes_the_rest(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
+        conflicting_team = Team.objects.create(organization=self.organization, name="Conflicting team")
         partner_id = self.apps["partner"].id
 
         output = self._run_command(
@@ -98,12 +99,16 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
                 (self.team.id, uuid.uuid4()),
                 ("not-a-team-id", partner_id),
                 (other_team.id, partner_id),
+                (conflicting_team.id, partner_id),
+                (conflicting_team.id, self.apps["other_partner"].id),
             ],
             "--live-run",
         )
 
         assert self._attribution(self.team) == NO_ROW
         assert self._attribution(other_team) == "partner"
+        assert self._attribution(conflicting_team) == NO_ROW
         assert "skipped_team_not_found: 1" in output
         assert "skipped_application_not_found: 1" in output
         assert "skipped_invalid_row: 1" in output
+        assert "skipped_conflicting_partners: 1" in output

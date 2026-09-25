@@ -1,7 +1,7 @@
 import csv
 import uuid
 from argparse import ArgumentParser
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from enum import StrEnum
 from pathlib import Path
@@ -21,6 +21,7 @@ class Outcome(StrEnum):
     FILL = "fill"
     ALREADY_ATTRIBUTED = "already_attributed"
     SKIPPED_OTHER_APPLICATION = "skipped_other_application"
+    SKIPPED_CONFLICTING_PARTNERS = "skipped_conflicting_partners"
     SKIPPED_TEAM_NOT_FOUND = "skipped_team_not_found"
     SKIPPED_APPLICATION_NOT_FOUND = "skipped_application_not_found"
     SKIPPED_NOT_PROVISIONING_PARTNER = "skipped_not_provisioning_partner"
@@ -32,7 +33,7 @@ WRITE_OUTCOMES = {Outcome.CREATE, Outcome.FILL}
 
 def _parse_row(row: Mapping[str, str | None]) -> tuple[int, uuid.UUID] | None:
     try:
-        return int(row.get("team_id") or ""), uuid.UUID((row.get("partner_id") or "").strip())
+        return int(row["team_id"] or ""), uuid.UUID((row["partner_id"] or "").strip())
     except ValueError:
         return None
 
@@ -58,38 +59,49 @@ def _classify(
     return Outcome.SKIPPED_OTHER_APPLICATION
 
 
+def _write(team_id: int, application: OAuthApplication, outcome: Outcome) -> Outcome:
+    if outcome is Outcome.CREATE:
+        _, created = TeamProvisioningConfig.objects.get_or_create(
+            team_id=team_id, defaults={"application": application}
+        )
+        if created:
+            return Outcome.CREATE
+    if TeamProvisioningConfig.objects.filter(team_id=team_id, application__isnull=True).update(application=application):
+        return Outcome.FILL
+    current = TeamProvisioningConfig.objects.filter(team_id=team_id).values_list("application_id", flat=True).first()
+    return Outcome.ALREADY_ATTRIBUTED if current == application.id else Outcome.SKIPPED_OTHER_APPLICATION
+
+
 def backfill_partner_attribution(rows: Iterable[Mapping[str, str | None]], *, live_run: bool) -> Counter[Outcome]:
     outcomes: Counter[Outcome] = Counter()
-    pairs: dict[tuple[int, uuid.UUID], None] = {}
+    partners_by_team: defaultdict[int, set[uuid.UUID]] = defaultdict(set)
     for row in rows:
         parsed = _parse_row(row)
         if parsed is None:
             outcomes[Outcome.SKIPPED_INVALID_ROW] += 1
         else:
-            pairs[parsed] = None
+            team_id, partner_id = parsed
+            partners_by_team[team_id].add(partner_id)
 
-    team_ids = {team_id for team_id, _ in pairs}
-    applications = OAuthApplication.objects.in_bulk({partner_id for _, partner_id in pairs})
-    existing_team_ids = set(Team.objects.filter(id__in=team_ids).values_list("id", flat=True))
+    pairs: dict[int, uuid.UUID] = {}
+    for team_id, partner_ids in partners_by_team.items():
+        if len(partner_ids) > 1:
+            outcomes[Outcome.SKIPPED_CONFLICTING_PARTNERS] += 1
+        else:
+            pairs[team_id] = next(iter(partner_ids))
+
+    applications = OAuthApplication.objects.in_bulk(set(pairs.values()))
+    existing_team_ids = set(Team.objects.filter(id__in=pairs).values_list("id", flat=True))
     attributed: dict[int, uuid.UUID | None] = dict(
-        TeamProvisioningConfig.objects.filter(team_id__in=team_ids).values_list("team_id", "application_id")
+        TeamProvisioningConfig.objects.filter(team_id__in=pairs).values_list("team_id", "application_id")
     )
 
-    for team_id, partner_id in pairs:
+    for team_id, partner_id in pairs.items():
         application = applications.get(partner_id)
         outcome = _classify(team_id, application, existing_team_ids, attributed)
+        if live_run and application is not None and outcome in WRITE_OUTCOMES:
+            outcome = _write(team_id, application, outcome)
         outcomes[outcome] += 1
-        if application is None or outcome not in WRITE_OUTCOMES:
-            continue
-        attributed[team_id] = application.id
-        if not live_run:
-            continue
-        if outcome is Outcome.CREATE:
-            TeamProvisioningConfig.objects.get_or_create(team_id=team_id, defaults={"application": application})
-        else:
-            TeamProvisioningConfig.objects.filter(team_id=team_id, application__isnull=True).update(
-                application=application
-            )
     return outcomes
 
 
