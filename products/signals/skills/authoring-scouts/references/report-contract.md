@@ -558,7 +558,8 @@ A replacement request that cannot bind verified predecessor PRs, or whose report
 
 This tool definition and the endpoint behind it deploy separately, so a field you can see in the schema can reach an endpoint that does not declare it yet.
 The endpoint applies the rest of the edit and lists the names it ignored in `ignored_fields`. On a normal edit that list is empty.
-A name in the list means the field did nothing: the note still landed, so re-send the edit only when you need what the ignored field would have done.
+A name in the list means only that field did nothing. Everything else in the edit is applied and must not be sent again, because `edit_report` is not idempotent and a repeat of the same call appends a second note.
+Send the ignored field on its own, and only once the endpoint supports it. Never retry the whole edit.
 An edit whose every instruction is unrecognized is rejected instead, and the error names the fields.
 
 ## Finding "the report I made last time"
