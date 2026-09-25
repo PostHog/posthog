@@ -1,5 +1,7 @@
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 import {
     ExperimentMetric,
     isExperimentMeanMetric,
@@ -13,7 +15,10 @@ import {
     formatDeltaPercent,
     formatMetricValue,
     isBayesianResult,
+    isCupedAdjusted,
 } from '~/scenes/experiments/MetricsView/shared/utils'
+
+import { CUPED_ADJUSTED_EXPLANATION, CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
 
 type NotebookCompactTableProps = {
     result: NewExperimentQueryResponse
@@ -42,12 +47,26 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
                     <div className="flex flex-col">
                         <span className="font-semibold">{value}</span>
                         {delta && (
-                            <span
-                                className={`text-xs ${
-                                    delta.startsWith('+') ? 'text-success' : delta.startsWith('-') ? 'text-danger' : ''
-                                }`}
-                            >
-                                {delta}
+                            <span className="flex items-center gap-1">
+                                <span
+                                    className={`text-xs ${
+                                        delta.startsWith('+')
+                                            ? 'text-success'
+                                            : delta.startsWith('-')
+                                              ? 'text-danger'
+                                              : ''
+                                    }`}
+                                >
+                                    {delta}
+                                </span>
+                                {isCupedAdjusted(item) && (
+                                    <Tooltip title={CUPED_ADJUSTED_EXPLANATION}>
+                                        {/* Tooltip attaches its handlers to this element, because CupedAdjustedTag forwards no props. */}
+                                        <span className="flex">
+                                            <CupedAdjustedTag />
+                                        </span>
+                                    </Tooltip>
+                                )}
                             </span>
                         )}
                         {item.isBaseline && <span className="text-xs text-muted">Baseline</span>}

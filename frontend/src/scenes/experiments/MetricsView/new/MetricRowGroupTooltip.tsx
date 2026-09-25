@@ -6,6 +6,8 @@ import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
+import { CUPED_ADJUSTED_EXPLANATION, CupedAdjustedTag } from 'products/experiments/frontend/components/CupedAdjustedTag'
+
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -14,6 +16,7 @@ import {
     formatPValue,
     getIntervalLabel,
     isBayesianResult,
+    isCupedAdjusted,
     isSignificant,
     isWinning,
 } from '../shared/utils'
@@ -26,6 +29,7 @@ export const renderTooltipContent = (
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
     const significant = isSignificant(variantResult)
+    const cupedAdjusted = isCupedAdjusted(variantResult)
 
     const winning = isWinning(variantResult, metric.goal)
     const isBaseline = variantResult.key === baselineKey
@@ -72,7 +76,10 @@ export const renderTooltipContent = (
             )}
 
             <div className="flex justify-between items-center">
-                <span className="text-muted-alt font-semibold">Delta:</span>
+                <span className="text-muted-alt font-semibold flex items-center gap-1">
+                    Delta:
+                    {!isBaseline && cupedAdjusted && <CupedAdjustedTag />}
+                </span>
                 <span className="font-semibold">
                     {isBaseline ? (
                         <em className="text-muted-alt">Baseline</em>
@@ -88,6 +95,10 @@ export const renderTooltipContent = (
                 <span className="text-muted-alt font-semibold">{intervalLabel}:</span>
                 <span className="font-semibold">{intervalPercent}</span>
             </div>
+
+            {!isBaseline && cupedAdjusted && (
+                <div className="text-muted-alt text-xs max-w-60">{CUPED_ADJUSTED_EXPLANATION}</div>
+            )}
 
             <div className="text-muted-alt text-xs mt-1 text-center flex items-center justify-center gap-1">
                 <IconCursorClick className="text-sm" />

@@ -20,9 +20,12 @@ from posthog.schema import (
 
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL
 
+from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
+    get_bayesian_experiment_result,
     get_experiment_query_debug,
+    get_frequentist_experiment_result,
     get_variant_result,
     get_variant_results,
     metric_variant_to_statistic,
@@ -1073,3 +1076,51 @@ class TestSanitizeNonFinite:
     def test_leaves_finite_values_untouched(self):
         value = {"a": 1, "b": [1.5, "x", None, True], "c": {"d": 0.0}}
         assert sanitize_non_finite(value) == value
+
+
+class TestCupedAdjustedFlag:
+    @staticmethod
+    def _metric() -> ExperimentMeanMetric:
+        return ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM))
+
+    @staticmethod
+    def _variant(
+        key: str, *, covariate_sum: float, covariate_sum_squares: float, covariate_sum_product: float
+    ) -> ExperimentStatsBase:
+        return ExperimentStatsBase(
+            key=key,
+            number_of_samples=200,
+            sum=400.0,
+            sum_squares=1200.0,
+            covariate_sum=covariate_sum,
+            covariate_sum_squares=covariate_sum_squares,
+            covariate_sum_product=covariate_sum_product,
+        )
+
+    @pytest.mark.parametrize("get_result", [get_frequentist_experiment_result, get_bayesian_experiment_result])
+    def test_no_pre_exposure_variance_is_not_reported_as_adjusted(self, get_result):
+        # Every exposed user has no pre-exposure activity, so the covariate carries no variance and
+        # the optimal theta is 0. This happens on a new event or a lookback window with no data.
+        control = self._variant("control", covariate_sum=0.0, covariate_sum_squares=0.0, covariate_sum_product=0.0)
+        test = self._variant("test", covariate_sum=0.0, covariate_sum_squares=0.0, covariate_sum_product=0.0)
+
+        response = get_result(
+            self._metric(), control, [test], cuped_config=CupedQueryConfig(enabled=True, lookback_days=14)
+        )
+
+        assert response.variant_results is not None
+        assert response.variant_results[0].cuped_adjusted is False
+
+    @pytest.mark.parametrize("get_result", [get_frequentist_experiment_result, get_bayesian_experiment_result])
+    def test_real_pre_exposure_covariate_is_reported_as_adjusted(self, get_result):
+        control = self._variant(
+            "control", covariate_sum=300.0, covariate_sum_squares=900.0, covariate_sum_product=800.0
+        )
+        test = self._variant("test", covariate_sum=320.0, covariate_sum_squares=1000.0, covariate_sum_product=850.0)
+
+        response = get_result(
+            self._metric(), control, [test], cuped_config=CupedQueryConfig(enabled=True, lookback_days=14)
+        )
+
+        assert response.variant_results is not None
+        assert response.variant_results[0].cuped_adjusted is True

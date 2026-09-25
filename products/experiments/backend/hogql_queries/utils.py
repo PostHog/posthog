@@ -430,6 +430,10 @@ class CupedAdjustment:
     test_stat: ExperimentStatistic
     control_stat: ExperimentStatistic
     control_unadjusted_mean: float | None
+    # CUPED can run and change nothing: with no pre-exposure variance the optimal theta is 0, which
+    # returns the original means and variances. The delta then does match the values shown, so the
+    # presence of an unadjusted mean cannot stand in for this.
+    adjusted: bool
 
 
 def _apply_cuped_adjustment_if_enabled(
@@ -440,7 +444,9 @@ def _apply_cuped_adjustment_if_enabled(
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
 ) -> CupedAdjustment:
-    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, control_unadjusted_mean=None)
+    unadjusted = CupedAdjustment(
+        test_stat=test_stat, control_stat=control_stat, control_unadjusted_mean=None, adjusted=False
+    )
 
     if not cuped_config.enabled:
         return unadjusted
@@ -465,6 +471,7 @@ def _apply_cuped_adjustment_if_enabled(
         test_stat=cuped_result.treatment_adjusted,
         control_stat=cuped_result.control_adjusted,
         control_unadjusted_mean=cuped_result.control_unadjusted_mean,
+        adjusted=cuped_result.theta != 0.0,
     )
 
 
@@ -591,6 +598,8 @@ def get_frequentist_experiment_result(
                 experiment_variant_result.p_value = result.p_value
                 experiment_variant_result.confidence_interval = confidence_interval
                 experiment_variant_result.significant = result.is_significant
+                experiment_variant_result.delta = result.point_estimate
+                experiment_variant_result.cuped_adjusted = cuped_adjustment.adjusted
             except StatisticError as e:
                 logger.info(
                     "experiment_statistics_skipped",
@@ -694,6 +703,9 @@ def get_bayesian_experiment_result(
                 experiment_variant_result.chance_to_win = result.chance_to_win
                 experiment_variant_result.credible_interval = credible_interval
                 experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+                experiment_variant_result.delta = result.effect_size
+                experiment_variant_result.cuped_adjusted = cuped_adjustment.adjusted
+                experiment_variant_result.ci_level = result.ci_level
             except StatisticError as e:
                 logger.info(
                     "experiment_statistics_skipped",
