@@ -11,6 +11,7 @@ No business logic or ORM access here — that belongs in the facade / logic laye
 """
 
 from typing import Any
+from uuid import UUID
 
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -22,10 +23,12 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
+from posthog.models.team.team import Team
 from posthog.permissions import TeamMemberStrictManagementPermission
 
 from ..facade import api
 from ..facade.contracts import DeletePropertyAccessControlInput, PropertyAccessLevel, UpsertPropertyAccessControlInput
+from ..facade.user_access_control import UserAccessControl
 from .serializers import (
     PropertyAccessControlDeleteSerializer,
     PropertyAccessControlRuleSerializer,
@@ -34,6 +37,24 @@ from .serializers import (
 )
 
 PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE = "Property access control feature is required"
+
+
+def check_can_write_property_rules(team: Team, user_access_control: UserAccessControl) -> None:
+    """The gate every property rule write passes, from the settings page or the rule endpoints,
+    so the two surfaces cannot drift. Runs before the request body is read, so a caller without
+    access gets 403 rather than a validation error."""
+    if not team.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
+        raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
+    if not user_access_control.check_can_modify_access_levels_for_object(team):
+        raise PermissionDenied()
+
+
+def check_can_write_role_rule(team: Team, *, role_id: UUID | None) -> None:
+    """A role rule needs the role-based access feature, the same gate AccessControlSerializer
+    applies to role rules on every other scope. Without it a role rule grants nobody anything,
+    because role memberships are not resolved at all."""
+    if role_id is not None and not team.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        raise PermissionDenied("Role-based access controls require the Role-based access feature.")
 
 
 class _SingletonStateSchema(AutoSchema):
@@ -99,14 +120,12 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         description="Create or update a property access control rule.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
-            raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
-        if not self.user_access_control.check_can_modify_access_levels_for_object(self.team):
-            raise PermissionDenied()
+        check_can_write_property_rules(self.team, self.user_access_control)
 
         serializer = PropertyAccessControlUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        check_can_write_role_rule(self.team, role_id=data.get("role"))
 
         created_by_id: int | None = request.user.pk if request.user.is_authenticated else None
         try:
@@ -159,14 +178,12 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         ),
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
-            raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
-        if not self.user_access_control.check_can_modify_access_levels_for_object(self.team):
-            raise PermissionDenied()
+        check_can_write_property_rules(self.team, self.user_access_control)
 
         serializer = PropertyAccessControlDeleteSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        check_can_write_role_rule(self.team, role_id=data.get("role"))
 
         try:
             api.delete_property_access_control(
