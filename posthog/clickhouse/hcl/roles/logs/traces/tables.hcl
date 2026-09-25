@@ -341,13 +341,6 @@ database "posthog" {
       type        = "bloom_filter(0.00001)"
       granularity = 99999
     }
-    projection "projection_index_span_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY span_id
-SQL
-
-    }
     projection "projection_index_team_span_id" {
       query = <<SQL
 SELECT team_id, _part_offset
