@@ -953,13 +953,13 @@ class OrphanedForeignKeyPolicy(MigrationPolicy):
         )
 
 
-_LOCK_PHASE_OPERATIONS = {"DropForeignKey", "SafeDropTable"}
+_LOCK_PHASE_OPERATIONS = {"DropColumnConstraints", "DropForeignKey", "SafeDropTable"}
 
 
 class LockPhaseTransactionPolicy(MigrationPolicy):
-    """Keep a DropForeignKey or SafeDropTable alone in its transaction.
+    """Keep a DropForeignKey, DropColumnConstraints or SafeDropTable alone in its transaction.
 
-    Both take their locks in a bounded, parent-first phase (posthog/migration_helpers/lock_phase.py),
+    Each takes its locks in a bounded, parent-first phase (posthog/migration_helpers/lock_phase.py),
     but the transaction holds the locks until COMMIT. A second lock phase then waits for new
     parents while the first one's parents stay locked. Another operation that runs first holds
     its table while the lock phase waits for the parents, and one that runs after waits for new

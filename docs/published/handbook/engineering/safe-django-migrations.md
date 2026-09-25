@@ -321,6 +321,22 @@ When the keys point at several busy parents, one lock phase has to win every par
 
 **`deprecate_field()` is not an option for a foreign key.** It writes no migration, so there is nowhere for the constraint drop to live, and the hidden column leaves exactly the orphan described above. Use `untrack_field()` with `DropForeignKey`.
 
+**Check and unique rules on the column go before the release that stops writing it.** A check that requires the column rejects every insert once nothing fills it, and a unique rule over it guards nothing. Drop them with `DropColumnConstraints`, in a migration before the one that untracks the field:
+
+```python
+from posthog.migration_helpers import DropColumnConstraints
+
+migrations.SeparateDatabaseAndState(
+    state_operations=[
+        migrations.AlterUniqueTogether(name="mymodel", unique_together=set()),
+        migrations.RemoveConstraint(model_name="mymodel", name="one_owner_set"),
+    ],
+    database_operations=[DropColumnConstraints("posthog_mymodel", columns=["owner_id"])],
+)
+```
+
+It finds every check, unique and exclusion constraint and every unique index that covers the columns in the catalog, and drops them under one bounded lock on the table. Do not hand-write `DROP CONSTRAINT IF EXISTS <name>` or `DROP INDEX IF EXISTS <name>` for this. Django names a `unique_together` constraint with a hash suffix, and a long-lived database can hold unique indexes that earlier constraint swaps left behind and no migration file names any more. A typed name finds neither, and `IF EXISTS` hides the miss. Keep this operation alone in its migration too.
+
 ### If you must drop the column
 
 Only after one of the above has been deployed for at least one full deploy cycle. That deployed release is what makes the drop safe: no running pod names the column any more, so nothing fails while the rollout finishes.
