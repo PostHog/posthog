@@ -633,14 +633,21 @@ def get_run(team_id: int, run_id: str | UUID, *, pipeline_id: str | UUID | None 
     return _run_to_contract(row) if row else None
 
 
-def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User) -> Run:
-    """Score the inference population with the champion model and emit prediction events."""
+def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User, allow_action_target: bool = True) -> Run:
+    """Score the inference population with the champion model and emit prediction events.
+
+    ``allow_action_target=False`` refuses an action target with ``InvalidTarget``: a recipe-only
+    champion relabels on the action's steps, and a target-relative population selects on them.
+    The target is frozen once a model exists, so this read needs no lock.
+    """
     # Scoring loads the inference sandbox, which imports pandas and pyarrow.
     from ..inference.scoring import run_inference_for_pipeline  # noqa: PLC0415
 
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
     if pipeline.status == AutoresearchPipeline.Status.PAUSED:
         raise AutoresearchConflict("The pipeline is paused. Resume it before scoring.")
+    if not allow_action_target and pipeline.target_definition.get("type") == "action":
+        raise InvalidTarget("An action target needs the action:read scope.")
     champion = (
         AutoresearchModel.objects.for_team(team_id)
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
@@ -649,7 +656,10 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User) -> Run:
     )
     if not champion:
         raise AutoresearchConflict("No champion model found. Run training first.")
-    return _run_to_contract(run_inference_for_pipeline(pipeline=pipeline, model=champion, user=user))
+    try:
+        return _run_to_contract(run_inference_for_pipeline(pipeline=pipeline, model=champion, user=user))
+    except Action.DoesNotExist:
+        raise AutoresearchConflict("The pipeline's target action no longer exists.")
 
 
 def validate_pipeline_online(
@@ -667,7 +677,11 @@ def validate_pipeline_online(
     pipeline = _pipeline_row(team_id, pipeline_id, live_only=True)
     if not allow_action_target and pipeline.target_definition.get("type") == "action":
         raise InvalidTarget("An action target needs the action:read scope.")
-    return [_run_to_contract(run) for run in run_online_validation_for_pipeline(pipeline=pipeline, user=user)]
+    try:
+        runs = run_online_validation_for_pipeline(pipeline=pipeline, user=user)
+    except Action.DoesNotExist:
+        raise AutoresearchConflict("The pipeline's target action no longer exists.")
+    return [_run_to_contract(run) for run in runs]
 
 
 # ── Training runs ──────────────────────────────────────────────────────────

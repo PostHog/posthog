@@ -229,6 +229,19 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline.refresh_from_db()
         assert pipeline.status == start
 
+    @parameterized.expand([("pause",), ("resume",), ("archive",), ("delete",)])
+    def test_sandbox_origin_cannot_change_a_pipeline(self, verb: str):
+        start = AutoresearchPipeline.Status.PAUSED if verb == "resume" else AutoresearchPipeline.Status.RUNNING
+        pipeline = self._make_pipeline(status=start)
+        with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
+            if verb == "delete":
+                resp = self.client.delete(f"{self.base_url}/{pipeline.id}/")
+            else:
+                resp = self.client.post(f"{self.base_url}/{pipeline.id}/{verb}/")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        pipeline.refresh_from_db()
+        assert pipeline.status == start
+
     @parameterized.expand([("idle", None, 204), ("training", "running", 400), ("pending", "pending", 400)])
     def test_delete_pipeline_is_refused_while_training(self, _name: str, run_status: str | None, expected: int):
         pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
@@ -433,6 +446,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             ("train", status.HTTP_200_OK),
             ("training_runs", status.HTTP_201_CREATED),
             ("validate_online", status.HTTP_200_OK),
+            # No champion, so the scoped caller gets past the scope check to the champion refusal.
+            ("score", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_action_target_actions_need_the_action_scope(self, path: str, ok_status: int):
@@ -440,7 +455,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_pipeline(
             target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
         )
-        scopes = ["autoresearch:write", "query:read", "insight:read"]
+        scopes = ["autoresearch:write", "query:read", "insight:read", "person:write"]
         self.client.logout()
         without = self.create_personal_api_key_with_scopes(scopes)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {without}")
@@ -487,6 +502,21 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
         assert resp.status_code == gate_status
         mock_run_training.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("score", "products.autoresearch.backend.inference.scoring.run_inference_for_pipeline"),
+            (
+                "validate_online",
+                "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline",
+            ),
+        ]
+    )
+    def test_scoring_actions_with_a_deleted_target_action_return_400(self, path: str, runner: str):
+        pipeline = self._make_trained_pipeline()
+        with patch(runner, side_effect=Action.DoesNotExist):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_start_training_with_a_deleted_target_action_returns_400(self):
         action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])

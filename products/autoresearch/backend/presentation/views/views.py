@@ -163,6 +163,13 @@ def _require_parent_pipeline_id(view: Any) -> str:
     return pipeline_id
 
 
+def _refuse_sandbox_origin(request: Request, message: str) -> None:
+    # A sandbox token carries team-wide autoresearch:write, so a confused or injected agent must not
+    # reach pipeline-level actions. Tasks applies the same rule to its own launches.
+    if is_sandbox_origin_request(request):
+        raise PermissionDenied(message)
+
+
 def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     """The fields to persist.
 
@@ -279,6 +286,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         }
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        _refuse_sandbox_origin(request, "Pipelines cannot be deleted from inside a sandbox.")
         try:
             api.delete_pipeline(self.team_id, self.kwargs["pk"])
         except PipelineNotFound:
@@ -428,9 +436,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         required_scopes=["autoresearch:write", "query:read", "insight:read"],
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # A sandbox agent must not launch more sandboxes, the same rule Tasks applies to its own launches.
-        if is_sandbox_origin_request(request):
-            raise PermissionDenied("Training runs cannot be started from inside a sandbox.")
+        _refuse_sandbox_origin(request, "Training runs cannot be started from inside a sandbox.")
         # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
         if access_response := code_access_required_response(request, self.organization):
             return access_response
@@ -459,7 +465,11 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 response=AutoresearchRunSerializer,
                 description="The created inference run. Check rows_scored and status.",
             ),
-            400: OpenApiResponse(description="The pipeline has no champion model, or it is paused."),
+            400: OpenApiResponse(
+                description=(
+                    "The pipeline has no champion model or is paused, or an action target needs the action:read scope."
+                )
+            ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
         },
         summary="Run inference (score users)",
@@ -478,9 +488,17 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     )
     def run_inference(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
-            run = api.score_pipeline(self.team_id, self.kwargs["pk"], user=cast(User, request.user))
+            run = api.score_pipeline(
+                self.team_id,
+                self.kwargs["pk"],
+                user=cast(User, request.user),
+                # Scoring can label or select on the action's steps, so an action target needs the action scope.
+                allow_action_target=has_action_scope(request),
+            )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except InvalidTarget as exc:
+            raise ValidationError({"target_definition": str(exc)}) from exc
         except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
         return Response(AutoresearchRunSerializer(instance=run).data)
@@ -593,6 +611,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         return self._set_status("running")
 
     def _set_status(self, status: str) -> Response:
+        _refuse_sandbox_origin(self.request, "Pipeline status cannot be changed from inside a sandbox.")
         try:
             pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
         except PipelineNotFound:
