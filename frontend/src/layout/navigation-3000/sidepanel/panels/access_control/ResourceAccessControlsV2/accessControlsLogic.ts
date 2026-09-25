@@ -461,6 +461,7 @@ export interface accessControlsLogicActions {
             | 'mcp_builtin_agent'
             | 'metrics'
             | 'notebook'
+            | 'offline_evaluation_ingestion'
             | 'organization'
             | 'organization_integration'
             | 'organization_member'
@@ -636,6 +637,7 @@ export interface accessControlsLogicMeta {
                 | 'mcp_builtin_agent'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -788,6 +790,7 @@ export interface accessControlsLogicMeta {
                 | 'mcp_builtin_agent'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -912,6 +915,7 @@ export interface accessControlsLogicMeta {
                 | 'mcp_builtin_agent'
                 | 'metrics'
                 | 'notebook'
+                | 'offline_evaluation_ingestion'
                 | 'organization'
                 | 'organization_integration'
                 | 'organization_member'
@@ -1039,6 +1043,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlDefaultsResponse | null,
             {
                 loadDefaults: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlDefaultsRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlDefaultsResponse>(`api/projects/${props.projectId}/access_control_defaults`),
             },
         ],
@@ -1046,6 +1051,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlRolesResponse | null,
             {
                 loadRoles: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlRolesRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlRolesResponse>(`api/projects/${props.projectId}/access_control_roles`),
             },
         ],
@@ -1053,6 +1059,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlMembersResponse | null,
             {
                 loadMembers: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlMembersRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
             },
         ],
@@ -1066,6 +1073,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             ? `access_control_roles?role_id=${subject.subjectId}`
                             : `access_control_members?member_id=${subject.subjectId}`
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
                             `api/projects/${props.projectId}/${query}`
                         )

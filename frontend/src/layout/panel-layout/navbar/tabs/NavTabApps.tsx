@@ -7,7 +7,9 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
+import { ConfigureStarredModal } from './ConfigureStarredModal'
 import { NavAppRow } from './NavAppRow'
+import { NavAppsMenu } from './NavAppsMenu'
 import { APPS_STARRED_TREE_KEY, navAppsTabLogic } from './navAppsTabLogic'
 import { NavTabSection } from './NavTabSection'
 
@@ -31,6 +33,7 @@ export function NavTabApps(): JSX.Element {
                         label="Starred"
                         dataAttr="nav-apps-starred-toggle"
                         key={`starred-${!!search.trim()}`}
+                        actions={<NavAppsMenu />}
                     >
                         {!shortcutDataHasLoaded ? (
                             <Spinner className="m-2" />
@@ -72,6 +75,7 @@ export function NavTabApps(): JSX.Element {
                     )}
                 </NavTabSection>
             </ScrollableShadows>
+            <ConfigureStarredModal />
         </div>
     )
 }

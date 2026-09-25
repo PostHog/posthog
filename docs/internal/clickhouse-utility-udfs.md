@@ -3,6 +3,8 @@
 `JSONCleanPostHogEventProperties` groups `$feature/<key>` event properties into `$feature_flags`.
 Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphabetically using case-sensitive string order.
 This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates and expands dotted keys.
+A flag value that is the JSON string `"false"` (a variant named false) is stored as `$false`, so it stays distinct from a flag that was evaluated and switched off (JSON `false`, which the typed map stores as `false`).
+`$false` is a reserved variant key; the flag API rejects it.
 Flag values and person-property ordering follow the existing cleanup rules.
 
 Invalid scalar and array `$feature_flags` values are replaced with an empty map and retained in
@@ -72,6 +74,15 @@ Documents exceeding the shared depth limit produce `{}` in the temporary output;
 
 Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
 Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
+
+Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. `$false` counts as active, and reads of `$feature/<key>`, `$feature_flags.<key>` and the `$feature_flags` map return it as `false`. Whole-document reads of `properties`, and batch exports of the whole `$feature_flags` map, return it as stored; single-flag export fields and filters map it back. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
+
+Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
+becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.
+
+On native events, HogQL `JSONExtract*` calls with `$feature_flags` as their first property key read the same restricted-property-aware map as dotted `$feature_flags` access.
+The original extractor still determines the return type and missing-value default.
+The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
 
 ### Benchmarking the cleaner
 

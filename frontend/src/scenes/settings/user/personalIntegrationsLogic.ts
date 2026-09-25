@@ -261,6 +261,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
                     // paginated schema, so the generated helper would mis-type the
                     // response — call `api.get` directly until the backend serializer
                     // is decorated to bypass pagination.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersIntegrationsList() from '~/generated/core/api' instead.
                     const response = await api.get<{ results: PersonalGitHubIntegration[] }>(
                         'api/users/@me/integrations/'
                     )
@@ -272,6 +273,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
             [] as PersonalSlackIntegration[],
             {
                 loadSlackIntegrations: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersIntegrationsList() from '~/generated/core/api' instead.
                     const response = await api.get<{ results: PersonalSlackIntegration[] }>(
                         'api/users/@me/integrations/?kind=slack'
                     )

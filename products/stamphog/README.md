@@ -132,12 +132,16 @@ Why the digest works this way: [`docs/digest.md`](docs/digest.md).
 Hosted flow: webhook → Celery (`backend/tasks/tasks.py`) → Temporal (`backend/temporal/workflow.py`) → sandboxed engine → verdict posted back (`post_verdict`).
 The workflow dismisses stale approvals first, waits out other in-flight reviewer bots, then reviews.
 Before the wait, the worker runs the engine's gates alone on the fetched context (`review_local.py --pregate`).
+The server also reads every `AGENT_APPROVALS.md` that governs a changed file at the PR head, so the pre-check budgets the size gate like the sandbox does.
 When a gate refusal is certain to hold in the full review, stamphog posts it right away with a short LLM note on what the author can do, and skips the wait and the sandbox.
-Anything less certain, such as a size gate that a folder `AGENT_APPROVALS.md` could lift or a migration whose `Migration risk` check has not reported, gets the full review.
+A migration whose `Migration risk` check has not reported gets the same WAIT the full review would give, without the sandbox.
+Anything less certain, such as a PR with renamed files, a dependency manifest next to a pending migration, or folder files that could not be read, gets the full review.
 A dismissed approval is also hidden on the PR timeline as outdated, so superseded reviews do not pile up. Hiding is best-effort and never blocks the dismissal.
 
 Reviews run in an isolated Modal sandbox with per-run minted credentials.
 The sandbox fetches the PR head and its merge base at depth 1, checks out the head, and runs `review_local.py` against a pre-fetched context, with no GitHub token inside the sandbox.
+
+Every posted verdict emits a `stamphog_review_timings` event with one `stamphog_timing_<step>_ms` property per step: each context read, the bot wait, the pre-check or sandbox steps, the engine's own phases (uv launch, gates, familiarity, LLM, flush), and the verdict post.
 
 **Stacked PRs.** A stacked PR targets its parent's branch and depends on parent code that has not merged yet.
 The sandbox checkout is already the PR head, so the reviewer's Read, Grep and Glob see the post-stack tree and parent symbols resolve.

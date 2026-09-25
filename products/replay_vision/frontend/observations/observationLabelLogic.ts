@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    beforeUnmount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -138,6 +150,8 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             return
         }
         cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+        // The adopted label supersedes anything this viewer sent, so a note saved on unmount keeps its rating.
+        cache.lastSentLabel = undefined
         actions.labelUpdated(next)
         actions.setFeedbackDraft(next?.feedback ?? '')
     }),
@@ -160,6 +174,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         rate: async ({ isCorrect, feedback }) => {
+            cache.lastSentLabel = { is_correct: isCorrect, feedback }
             cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
             const epoch = cache.labelEpoch
             const teamId = teamLogic.values.currentTeamId
@@ -187,6 +202,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         clearRating: async () => {
+            cache.lastSentLabel = null
             cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
             const epoch = cache.labelEpoch
             const teamId = teamLogic.values.currentTeamId
@@ -209,4 +225,17 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             }
         },
     })),
+    // Unmounting cancels the pending autosave, so a note typed just before leaving the page saves here instead.
+    beforeUnmount(({ values, props, cache }) => {
+        // A rating still in flight has not reached `label` yet, and a save carrying the older rating could overwrite it.
+        const latest: ReplayObservationLabelApi | null =
+            cache.lastSentLabel === undefined ? values.label : cache.lastSentLabel
+        const teamId = teamLogic.values.currentTeamId
+        if (latest && teamId && normalizeFeedback(latest.feedback) !== normalizeFeedback(values.feedbackDraft)) {
+            void visionObservationsLabelCreate(String(teamId), props.observationId, {
+                is_correct: latest.is_correct,
+                feedback: values.feedbackDraft,
+            }).catch(() => lemonToast.error('Failed to save your note'))
+        }
+    }),
 ])

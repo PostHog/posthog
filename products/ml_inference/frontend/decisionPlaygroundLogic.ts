@@ -30,7 +30,7 @@ export interface PlaygroundQuestion {
 }
 
 export const EXAMPLE_STATE: string =
-    "It's really important that we establish whether it's acceptableness for PostHog employees to put pineapple on pizza"
+    "It's really important that we establish whether it's acceptable for PostHog employees to put pineapple on pizza."
 
 export const EXAMPLE_QUESTIONS: PlaygroundQuestion[] = [
     { key: 'acceptable', type: 'noul', instructions: 'Is this acceptable?', options: [] },

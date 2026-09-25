@@ -41,6 +41,8 @@ function jsonStringify (value, spacing) {
 }
 function ilike (str, pattern) { return __like(str, pattern, true) }
 function concat (...args) { return args.map((arg) => (arg === null ? '' : __STLToString(arg))).join('') }
+function __lte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a <= b }
+function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }
 function __like(str, pattern, caseInsensitive = false) {
     if (caseInsensitive) {
         str = str.toLowerCase()
@@ -53,6 +55,8 @@ function __like(str, pattern, caseInsensitive = false) {
     return new RegExp(pattern).test(str)
 }
 function __imatch (str, pattern) { return !str || !pattern ? false : new RegExp(pattern, 'i').test(str) }
+function __gte (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a >= b }
+function __gt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a > b }
 function __STLToString(arg) {
     if (arg && __isHogDate(arg)) { return `${arg.year}-${arg.month.toString().padStart(2, '0')}-${arg.day.toString().padStart(2, '0')}`; }
     else if (arg && __isHogDateTime(arg)) { return __DateTimeToString(arg); }
@@ -158,10 +162,10 @@ test(3.14);
 test((1 == 2));
 test((1 == 2));
 test((1 != 2));
-test((1 < 2));
-test((1 <= 2));
-test((1 > 2));
-test((1 >= 2));
+test(__lt(1, 2));
+test(__lte(1, 2));
+test(__gt(1, 2));
+test(__gte(1, 2));
 test(like("a", "b"));
 test(like("baa", "%a%"));
 test(like("baa", "%x%"));
@@ -212,14 +216,14 @@ test((1 != false));
 test((1 == "2"));
 test((1 == "2"));
 test((1 != "2"));
-test((1 < "2"));
-test((1 <= "2"));
-test((1 > "2"));
-test((1 >= "2"));
+test(__lt(1, "2"));
+test(__lte(1, "2"));
+test(__gt(1, "2"));
+test(__gte(1, "2"));
 test(("1" == 2));
 test(("1" == 2));
 test(("1" != 2));
-test(("1" < 2));
-test(("1" <= 2));
-test(("1" > 2));
-test(("1" >= 2));
+test(__lt("1", 2));
+test(__lte("1", 2));
+test(__gt("1", 2));
+test(__gte("1", 2));

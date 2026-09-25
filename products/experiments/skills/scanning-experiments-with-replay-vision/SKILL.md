@@ -20,7 +20,7 @@ You no longer derive the exposure event to build the scan query — the API does
 Guards before doing anything else:
 
 - **Draft** (no `start_date`): there are no exposures and nothing to scan. Say so and stop.
-- **Stopped/complete**: a new scanner only sees sessions from creation time onward, and historical backfill is not automatable over MCP (see Limits). A concluded experiment has nothing left to watch — offer the UI backfill path or a handful of `vision-scanners-scan-session` calls instead.
+- **Stopped/complete**: a new scanner only sees sessions from creation time onward, so a concluded experiment needs a backfill over its run (see Limits).
 - **Running or exposure-frozen**: proceed. A frozen experiment stops enrolling but already-exposed users keep producing sessions, so scanning stays useful.
 - **Already half over**: the scanner watches only the remaining run. Say so, so a per-variant readout isn't mistaken for full-run coverage.
 
@@ -73,7 +73,7 @@ Starter templates:
 
 ## Step 4: Size it against the experiment, not the month
 
-Run the standard gut-check from [[creating-replay-vision-scanners]]: `vision-scanners-estimate-create` with the `query` **and the same `experiment_targeting`** you will save, then `vision-quota-retrieve`, comparing **credits against credits** (`remaining` is `null` when the org is uncapped — then reason about absolute spend instead). Passing `experiment_targeting` matters: the estimate then derives the same exposure filter and counts only exposed sessions, so it forecasts the scanner's real spend. Experiment-specific corrections on top:
+Run the standard gut-check from [[creating-replay-vision-scanners]]: `vision-scanners-estimate` with the `query` **and the same `experiment_targeting`** you will save, then `vision-quota-get`, comparing **credits against credits** (`remaining` is `null` when the org is uncapped — then reason about absolute spend instead). Passing `experiment_targeting` matters: the estimate then derives the same exposure filter and counts only exposed sessions, so it forecasts the scanner's real spend. Experiment-specific corrections on top:
 
 - **The estimate's window is the wrong window.** It always measures a fixed 30-day lookback — `window_days` shrinks only when the team's recording history is shorter, never to the experiment's age. For an experiment younger than the window, `matched_sessions_in_window / window_days` dilutes the true rate across days the experiment wasn't running (a 3-day-old experiment is understated ~10×), and `estimated_credits_per_month` inherits the dilution. Compute sessions/day as `matched_sessions_in_window / min(window_days, days since start_date)`, and don't quote the monthly figure as the experiment's cost.
 - **The experiment gives a better bound than a monthly projection.** Total spend ≈ (exposed sessions/day × days remaining × `sampling_rate`) × `credits_per_observation` — a finite number. Use the experiment's expected remaining run time (`running_time_calculation.recommended_running_time` minus days elapsed, when set — that's its canonical home; it no longer lives in `parameters`).
@@ -101,7 +101,7 @@ Then link the user to the scanner (`/project/<project_id>/replay-vision/<scanner
 ## Limits to state, not hide
 
 - **Scanners view the whole recording.** No way today to scope a scan to the part after the exposure moment; the post-exposure framing is prose, not a constraint.
-- **A new scanner only sees sessions from now on**, and bulk backfill is not available over MCP (the bulk endpoint exists in the UI/REST, capped at 200 sessions per request). `vision-scanners-scan-session` works for a handful; beyond that, point at the UI.
+- **A new scanner only sees sessions from now on.** To cover the past, run `vision-scanners-backfills-estimate` over the window, show the person `total_sessions` and `total_credits`, and call `vision-scanners-backfills-create` with that `total_credits` as `max_total_credits` only once they agree. For named sessions, `vision-scanners-scan-sessions` takes up to 200 at a time.
 - **One observation per (scanner, session), forever** — including failed/ineligible ones. Re-scanning is a no-op.
 - **Editing config mid-experiment forks the comparison.** Edits bump `scanner_version`; old observations keep the old config snapshot, so before/after observations are not comparable. Iterate on the prompt during the disabled preview, not mid-run.
 - **`ineligible` ≠ broken** (`too_short`, `no_recording`, …) — normal terminal outcomes that explain "the scanner produced nothing".
