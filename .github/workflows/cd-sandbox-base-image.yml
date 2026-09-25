@@ -394,22 +394,47 @@ jobs:
                         tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-streamlit:master,ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-streamlit:{0}', github.sha) }}
                         platforms: linux/arm64,linux/amd64
 
+            - name: Record the base image digest
+              id: image-metadata
+              if: ${{ !cancelled() && steps.build.outcome == 'success' && github.event_name == 'pull_request' }}
+              env:
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  jq -n '{head_sha: env.HEAD_SHA, digest: env.DIGEST}' > "$RUNNER_TEMP/sandbox-base-image.json"
+
+            - name: Upload the base image digest
+              id: image-artifact
+              if: ${{ !cancelled() && steps.image-metadata.outcome == 'success' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              with:
+                  name: sandbox-base-image-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/sandbox-base-image.json
+                  if-no-files-found: error
+
             - name: Smoke the installed agent on both architectures
               id: smoke
-              if: ${{ !cancelled() && steps.build.outcome == 'success' && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
+              if: >-
+                  !cancelled() && steps.build.outcome == 'success' &&
+                    ((github.event_name == 'pull_request' && steps.image-artifact.outcome == 'success') ||
+                     (github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true'))
               env:
-                  IMAGE: ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+                  IMAGE: ghcr.io/posthog/posthog-sandbox-base@${{ steps.build.outputs.digest }}
               run: |
                   pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  manifest=$(docker manifest inspect "$IMAGE")
                   for platform in linux/amd64 linux/arm64; do
                     echo "::group::$platform"
-                    installed=$(docker run --rm --platform "$platform" "$IMAGE" \
+                    digest=$(jq -er --arg platform "$platform" '.manifests[] |
+                      select((.platform.os + "/" + .platform.architecture) == $platform) | .digest' <<< "$manifest")
+                    platform_image="${IMAGE%@*}@$digest"
+                    installed=$(docker run --rm --platform "$platform" "$platform_image" \
                       node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
                     if [ "$installed" != "$pinned" ]; then
                       echo "::error::$platform image has @posthog/agent $installed, Dockerfile pins $pinned"
                       exit 1
                     fi
-                    docker run --rm --platform "$platform" "$IMAGE" \
+                    docker run --rm --platform "$platform" "$platform_image" \
                       /scripts/node_modules/.bin/agent-server --help >/dev/null
                     echo "@posthog/agent $installed starts on $platform"
                     echo "::endgroup::"

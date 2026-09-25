@@ -40,7 +40,7 @@ const meta: Meta<typeof ScoutTrials> = {
         },
         mswDecorator({
             get: {
-                '/api/projects/:team/signals/scout/configs/:config/trial_evaluation/': ({ request }) => {
+                '/api/projects/:team/signals/scout/configs/:config/trial_evaluation_result/': ({ request }) => {
                     const evaluation = evaluations.get(new URL(request.url).searchParams.get('evaluation_id')!)
                     return evaluation ? [200, evaluation] : [404, { detail: 'Evaluation not found.' }]
                 },
