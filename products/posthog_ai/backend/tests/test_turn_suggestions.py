@@ -1,6 +1,8 @@
 import json
+import tempfile
 from dataclasses import replace
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -8,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import yaml
 import httpx
 import requests
 from openai.resources.chat.completions import Completions
@@ -708,6 +711,18 @@ class TestBenchmark(SimpleTestCase):
         # Every threshold from 0.61 to 0.90 offers on half the cases, and the tie goes to the highest.
         closest = closest_to_offer_rate(results, 0.5)
         assert closest is not None and (closest.threshold, closest.offer_rate) == (0.9, 0.5)
+        # Offering nothing where offers are wanted scores zero, so that threshold still ranks.
+        silent = score(results, 0.95)
+        assert (silent.precision, silent.recall, silent.f1) == (None, 0.0, 0.0)
+
+    def test_a_case_file_with_a_repeated_name_is_rejected(self):
+        case = {"name": "same", "category": "c", "acceptable": ["none"], "question": "q", "answer": "a"}
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml") as cases_file:
+            yaml.safe_dump([case, case], cases_file)
+            cases_file.flush()
+
+            with self.assertRaises(ValueError):
+                load_cases(Path(cases_file.name))
 
     def test_judges_are_compared_on_the_cases_every_judge_answered(self):
         cases = load_cases()[:3]
