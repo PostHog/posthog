@@ -22,19 +22,20 @@ class TestExperimentSavedMetricService(APIBaseTest):
             "source": {"kind": "EventsNode", "event": "$pageview"},
         }
 
-    def test_create_saved_metric_with_minimum_fields(self) -> None:
+    @parameterized.expand([("without_uuid", {}), ("with_client_uuid", {"uuid": "inline-metric-uuid"})])
+    def test_create_saved_metric_with_minimum_fields(self, _name: str, client_uuid: dict) -> None:
         original_query = self._valid_experiment_metric()
         saved_metric = self._service().create_saved_metric(
             name="Service saved metric",
             description="Created through the service",
-            query=original_query,
+            query={**original_query, **client_uuid},
         )
 
         assert saved_metric.team_id == self.team.id
         assert saved_metric.created_by_id == self.user.id
         assert saved_metric.name == "Service saved metric"
         assert saved_metric.description == "Created through the service"
-        assert saved_metric.query["uuid"]
+        assert saved_metric.query["uuid"] not in (None, "", "inline-metric-uuid")
         assert {key: value for key, value in saved_metric.query.items() if key != "uuid"} == original_query
 
     @parameterized.expand(

@@ -6153,6 +6153,128 @@ class TestExperimentService(APIBaseTest):
         # The saved-metric link itself is untouched.
         assert list(updated.experimenttosavedmetric_set.values_list("saved_metric_id", flat=True)) == [sm.id]
 
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "metrics_secondary", "primary_metrics_ordered_uuids", "primary", True),
+            ("secondary", "metrics_secondary", "metrics", "secondary_metrics_ordered_uuids", "secondary", True),
+            ("no_collision", "metrics", "metrics_secondary", "primary_metrics_ordered_uuids", "primary", False),
+        ]
+    )
+    def test_attaching_saved_metric_regenerates_stored_inline_uuid_that_collides(
+        self, _name, field, other_field, ordering_attr, metric_type, collides
+    ):
+        self._create_flag(key="attach-dedup-with-saved")
+        inline_uuid = "66bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        service = self._service()
+        inline_metrics: dict[str, Any] = {
+            field: [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": inline_uuid,
+                    "source": {"kind": "EventsNode", "event": "stale_event_nobody_sends"},
+                }
+            ],
+            other_field: [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                }
+            ],
+        }
+        experiment = service.create_experiment(
+            name="Promoted inline metric",
+            feature_flag_key="attach-dedup-with-saved",
+            allow_unknown_events=True,
+            **inline_metrics,
+        )
+        stored_before = {f: deepcopy(getattr(experiment, f)) for f in ("metrics", "metrics_secondary")}
+        saved_metric_uuid = inline_uuid if collides else str(uuid4())
+        # Created through the ORM, because the saved-metric service assigns its own uuid on create.
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Promoted",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": saved_metric_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+
+        updated = service.update_experiment(
+            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": metric_type}}]}
+        )
+
+        sm.refresh_from_db()
+        assert sm.query["uuid"] == saved_metric_uuid
+        assert list(updated.experimenttosavedmetric_set.values_list("saved_metric_id", flat=True)) == [sm.id]
+        assert getattr(updated, other_field) == stored_before[other_field]
+        new_inline_uuid = getattr(updated, field)[0]["uuid"]
+        if collides:
+            assert new_inline_uuid != inline_uuid
+            UUID(new_inline_uuid)
+            assert {new_inline_uuid, saved_metric_uuid} <= set(getattr(updated, ordering_attr))
+        else:
+            assert getattr(updated, field) == stored_before[field]
+
+    @parameterized.expand(
+        [
+            ("attach_another_primary", "metrics", "primary_metrics_ordered_uuids", "primary", True),
+            ("resend_inline_secondary", "metrics_secondary", "secondary_metrics_ordered_uuids", "secondary", False),
+        ]
+    )
+    def test_update_keeps_saved_metric_uuid_in_ordering_when_stored_inline_copy_collides(
+        self, _name, field, ordering_attr, metric_type, attach_another
+    ):
+        self._create_flag(key="stored-collision")
+        shared_uuid = "77bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        sm = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Linked",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": shared_uuid,
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Stored collision",
+            feature_flag_key="stored-collision",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+        )
+        Experiment.objects.filter(id=experiment.id).update(
+            **{
+                field: [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": shared_uuid,
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+                ordering_attr: [shared_uuid],
+            }
+        )
+        experiment.refresh_from_db()
+
+        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": metric_type}}]
+        if attach_another:
+            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": metric_type}})
+            payload: dict = {"saved_metrics_ids": saved_metrics_ids}
+        else:
+            payload = {field: deepcopy(getattr(experiment, field))}
+
+        updated = service.update_experiment(experiment, payload)
+
+        new_inline_uuid = getattr(updated, field)[0]["uuid"]
+        assert new_inline_uuid != shared_uuid
+        assert {shared_uuid, new_inline_uuid} <= set(getattr(updated, ordering_attr))
+
     def test_create_regenerates_inline_uuid_that_collides_with_saved_metric_uuid(self):
         """Same protection on create: inline metric reusing a saved-metric uuid gets regenerated."""
         self._create_flag(key="create-dedup-with-saved")

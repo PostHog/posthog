@@ -3628,6 +3628,14 @@ class ExperimentService:
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+            saved_metric_uuids = self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+            # A stored inline metric can carry the uuid of a shared metric this update links, for
+            # example one promoted from it. Send that list through the uuid assignment below so the
+            # inline copy gets a fresh uuid and the two metrics stop sharing results.
+            for field in ("metrics", "metrics_secondary"):
+                stored_metrics = getattr(experiment, field) or []
+                if field not in update_data and any(m.get("uuid") in saved_metric_uuids for m in stored_metrics):
+                    update_data[field] = deepcopy(stored_metrics)
 
         # Seed the uniqueness set with uuids that must remain stable in the
         # ordering arrays — any inline metric reusing one of these gets
@@ -3647,7 +3655,7 @@ class ExperimentService:
                 if uuid := metric.get("uuid"):
                     seen_metric_uuids.add(uuid)
         if "saved_metrics_ids" in update_data:
-            seen_metric_uuids |= self._collect_saved_metric_uuids(update_data["saved_metrics_ids"])
+            seen_metric_uuids |= saved_metric_uuids
         else:
             for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
                 if link.saved_metric.query and (uuid := link.saved_metric.query.get("uuid")):
@@ -4923,12 +4931,22 @@ class ExperimentService:
 
     def _sync_ordering_with_metric_changes(self, experiment: Experiment, update_data: dict) -> None:
         """Sync ordering arrays with inline metric changes during update."""
+        if "metrics" not in update_data and "metrics_secondary" not in update_data:
+            return
+
+        # A stored inline metric can share its uuid with a linked shared metric. When dedup gives the
+        # inline copy a fresh uuid, the old uuid still belongs to the shared metric, so keep it in the ordering.
+        saved_uuids = self._saved_metric_uuids_by_type(
+            (link.saved_metric.query, link.metadata)
+            for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all()
+        )
+
         if "metrics" in update_data:
             old_uuids = {m.get("uuid") for m in experiment.metrics or [] if m.get("uuid")}
             new_uuids = {m.get("uuid") for m in update_data.get("metrics") or [] if m.get("uuid")}
 
             added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
+            removed = old_uuids - new_uuids - saved_uuids["primary"]
 
             if added or removed:
                 if "primary_metrics_ordered_uuids" in update_data:
@@ -4948,7 +4966,7 @@ class ExperimentService:
             new_uuids = {m.get("uuid") for m in update_data.get("metrics_secondary") or [] if m.get("uuid")}
 
             added = new_uuids - old_uuids
-            removed = old_uuids - new_uuids
+            removed = old_uuids - new_uuids - saved_uuids["secondary"]
 
             if added or removed:
                 if "secondary_metrics_ordered_uuids" in update_data:
