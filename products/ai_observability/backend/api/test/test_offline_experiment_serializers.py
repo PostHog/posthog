@@ -86,6 +86,15 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
     def test_normalizes_supported_filters_and_maximum_version_selection(self) -> None:
         versions = tuple(UUID(int=index + 1) for index in range(20))
         definition_id = uuid4()
+        identifiers = {
+            "suite_key": " run ",
+            "dataset_source": "  ",
+            "dataset_identifier": "dataset\t",
+            "dataset_revision_identifier": " rev-1",
+            "application_version": "app ",
+            "model_version": "model\n",
+            "prompt_version": "v3\n",
+        }
         serializer = OfflineExperimentQuerySerializer(
             data={
                 "limit": "100",
@@ -95,6 +104,7 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
                 "scorer_version_ids": ",".join(str(version) for version in versions),
                 "date_from": "2026-09-24T10:00:00Z",
                 "date_to": "2026-09-25T10:00:00Z",
+                **identifiers,
             }
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -107,6 +117,7 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
         self.assertEqual(query.scorer_version_ids, versions)
         self.assertIsNotNone(query.date_from)
         self.assertIsNotNone(query.date_to)
+        self.assertEqual({field: getattr(query, field) for field in identifiers}, identifiers)
 
 
 class TestOfflineExperimentSubmissionSerializers(SimpleTestCase):

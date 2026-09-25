@@ -96,17 +96,27 @@ class OfflineExperimentQuerySerializer(OfflineSummaryQuerySerializer):
         max_length=32,
         help_text="Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.",
     )
-    suite_key = serializers.CharField(required=False, max_length=255, help_text="Exact evaluation suite identifier.")
-    dataset_source = serializers.CharField(required=False, max_length=255, help_text="Exact dataset source.")
+    suite_key = serializers.CharField(
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact evaluation suite identifier."
+    )
+    dataset_source = serializers.CharField(
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact dataset source."
+    )
     dataset_identifier = serializers.CharField(
-        required=False, max_length=255, help_text="Exact durable dataset identifier."
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact durable dataset identifier."
     )
     dataset_revision_identifier = serializers.CharField(
-        required=False, max_length=255, help_text="Exact durable dataset revision identifier."
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact durable dataset revision identifier."
     )
-    application_version = serializers.CharField(required=False, max_length=255, help_text="Exact application revision.")
-    model_version = serializers.CharField(required=False, max_length=255, help_text="Exact model revision.")
-    prompt_version = serializers.CharField(required=False, max_length=255, help_text="Exact prompt revision.")
+    application_version = serializers.CharField(
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact application revision."
+    )
+    model_version = serializers.CharField(
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact model revision."
+    )
+    prompt_version = serializers.CharField(
+        required=False, max_length=255, trim_whitespace=False, help_text="Exact prompt revision."
+    )
 
     class Meta(OfflineSummaryQuerySerializer.Meta):
         fields = [
