@@ -7,20 +7,21 @@ The multivariate `vision-watch-feed-ranker` flag selects one of two independent 
   weighted score. This arm exists to collect probabilities and cost data before any feed changes.
 - `jev`: the feed ranks on the cached probabilities alone (`rank_watch_feed_by_jev`).
 
-Jev, the shared decision model behind the ml_inference facade, judges a whole scanner window at
-once: one request carries a chunk of the scanner's recent observations as the state and one yes/no
-question per observation, so each judgment is relative to the scanner's own recent sessions rather
-than made in isolation. The judgments run in an hourly Temporal sweep
-(`temporal/jev_watch_rank/`) and land in a Redis cache, because the feed API is synchronous over up
-to 1,000 rows and must not make model calls, and the scan pipeline must not either. The two rankers
-share nothing but the `WatchFeedEntry` shape, so switching the flag switches the whole ranking, not
-one component of it.
+Jev, the shared decision model behind the ml_inference facade, judges each observation once, in
+company: one request carries a chunk of observations as the state and one yes/no question per
+observation, with already-judged rows padding a short chunk as context, so every judgment sees the
+scanner's own recent sessions rather than standing alone. The hourly Temporal sweep
+(`temporal/jev_watch_rank/`) judges only the rows without a cached probability and merges the
+results into a Redis cache, so coverage accumulates across sweeps at a bounded hourly cost whatever
+the scanner's volume. The cache exists because the feed API is synchronous over up to 1,000 rows
+and must not make model calls, and the scan pipeline must not either. The two rankers share nothing
+but the `WatchFeedEntry` shape, so switching the flag switches the whole ranking, not one component
+of it.
 """
 
 import json
 import math
 from datetime import UTC, datetime, timedelta
-from hashlib import sha256
 from time import perf_counter
 from typing import Any, Literal
 from uuid import UUID, uuid4
@@ -78,9 +79,10 @@ _MAX_TITLE_CHARS = 300
 _MAX_PROSE_CHARS = 1500
 _MAX_TAGS = 20
 _WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:"
-# Three sweep intervals: the cache survives one failed hourly sweep, and goes cold (the feed falls
-# back to the recency filler tier) rather than stale when the sweep stays down.
-WATCH_RANK_TTL = timedelta(hours=3)
+# Judgments are append-only per observation and the sweep prunes entries that leave the window, so
+# a long lifetime is resilience, not staleness: the cache survives a day of failed sweeps before
+# the feed falls back to the recency filler tier and coverage rebuilds at the judging cap per hour.
+WATCH_RANK_TTL = timedelta(hours=25)
 
 # User text stays in the request state; these instructions refer to it by observation id only, so
 # session prose cannot become an instruction (the rule from posthog/llm/system_one.py). Each
@@ -140,9 +142,13 @@ def watch_feed_ranker(team_id: int) -> RankerMode:
 
 @frozen
 class WindowJudgment:
-    """Jev's judgment of one scanner's window: a probability per observation id (as a string)."""
+    """Jev's judgment of one batch of observations: a probability per observation id (as a string)."""
 
     probabilities: dict[str, float]
+    # Rows with no prose to judge. The sweep caches these as 0.0, so they settle into the filler
+    # tier once instead of being refetched every sweep; a failed chunk's rows are absent from both
+    # fields and retry next sweep.
+    skipped_no_prose: tuple[str, ...]
     model: str | None
     chunks: int
     failed_chunks: int
@@ -185,8 +191,17 @@ def _window_entry(row: dict[str, Any]) -> dict[str, Any] | None:
     return entry
 
 
-def _judge_chunk(team_id: int, trace_id: str, chunk: list[tuple[str, dict[str, Any]]]) -> tuple[dict[str, float], Any]:
-    state: JsonValue = {"observations": {str(index): entry for index, (_, entry) in enumerate(chunk)}}
+def _judge_chunk(
+    team_id: int,
+    trace_id: str,
+    chunk: list[tuple[str, dict[str, Any]]],
+    context: list[dict[str, Any]],
+) -> tuple[dict[str, float], Any]:
+    """One request: questions about `chunk`, with `context` entries in the state as extra siblings.
+    Context pads a small chunk (a quiet hour adds only a few new rows) so its judgments still see
+    what routine looks like for this scanner."""
+    entries = [entry for _, entry in chunk] + context
+    state: JsonValue = {"observations": {str(index): entry for index, entry in enumerate(entries)}}
     questions = {
         f"watch_{index}": DecisionQuestion(
             type=DecisionQuestionType.NOUL, instructions=_WINDOW_INSTRUCTIONS.format(index=index)
@@ -217,14 +232,21 @@ def _judge_chunk(team_id: int, trace_id: str, chunk: list[tuple[str, dict[str, A
     return probabilities, result
 
 
-def judge_scanner_window(team_id: int, scanner_id: UUID, rows: list[dict[str, Any]]) -> WindowJudgment:
-    """Ask Jev which observations in one scanner's recent window are worth watching.
+def judge_scanner_window(
+    team_id: int, scanner_id: UUID, rows: list[dict[str, Any]], context_rows: list[dict[str, Any]] | None = None
+) -> WindowJudgment:
+    """Ask Jev which of these observations are worth watching, one probability per row.
 
-    `rows` carry `id` and `scanner_result` (the shape the sweep loads). Fail-soft per chunk: a
-    failed chunk loses its rows' judgments and counts as failed, and the other chunks still land,
-    so one bad request never empties a scanner's cache entry.
+    `rows` and `context_rows` carry `id` and `scanner_result` (the shape the sweep loads). Context
+    rows enter the request state without questions, so a small batch of new rows is still judged
+    against the scanner's routine. Fail-soft per chunk: a failed chunk loses its rows' judgments
+    and counts as failed, and the other chunks still land, so one bad request never empties a
+    scanner's cache entry.
     """
     entries = [(str(row["id"]), entry) for row in rows if (entry := _window_entry(row)) is not None]
+    entry_ids = {entry_id for entry_id, _ in entries}
+    skipped_no_prose = tuple(str(row["id"]) for row in rows if str(row["id"]) not in entry_ids)
+    context = [entry for row in context_rows or [] if (entry := _window_entry(row)) is not None]
     chunks = [entries[start : start + WINDOW_CHUNK_SIZE] for start in range(0, len(entries), WINDOW_CHUNK_SIZE)]
     # One trace per window run, so a window's chunks group in AI observability without merging runs.
     trace_id = str(uuid4())
@@ -236,7 +258,10 @@ def judge_scanner_window(team_id: int, scanner_id: UUID, rows: list[dict[str, An
     for chunk in chunks:
         started = perf_counter()
         try:
-            chunk_probabilities, result = _judge_chunk(team_id, trace_id, chunk)
+            # The state holds at most WINDOW_CHUNK_SIZE entries, so context only pads short chunks.
+            chunk_probabilities, result = _judge_chunk(
+                team_id, trace_id, chunk, context[: WINDOW_CHUNK_SIZE - len(chunk)]
+            )
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(type(error).__name__).inc()
@@ -261,6 +286,7 @@ def judge_scanner_window(team_id: int, scanner_id: UUID, rows: list[dict[str, An
         _ESTIMATED_COST.inc(chunk_cost)
     return WindowJudgment(
         probabilities=probabilities,
+        skipped_no_prose=skipped_no_prose,
         model=model,
         chunks=len(chunks),
         failed_chunks=failed_chunks,
@@ -273,37 +299,19 @@ def _watch_rank_key(team_id: int, scanner_id: UUID | str) -> str:
     return f"{_WATCH_RANK_REDIS_PREFIX}{team_id}:{scanner_id}"
 
 
-def window_fingerprint(rows: list[dict[str, Any]]) -> str:
-    """Identity of a window's membership and order, so the sweep can skip a scanner whose window
-    did not change since the last run instead of re-buying the same judgments every hour."""
-    return sha256("\n".join(str(row["id"]) for row in rows).encode()).hexdigest()[:16]
-
-
-def stored_watch_rank_fingerprint(team_id: int, scanner_id: UUID) -> str | None:
-    try:
-        value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_watch_rank_key(team_id, scanner_id))
-        if not value:
-            return None
-        fingerprint = json.loads(value).get("fingerprint")
-        return fingerprint if isinstance(fingerprint, str) else None
-    except Exception:
-        return None
-
-
 def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
     get_client(settings.REPLAY_VISION_REDIS_URL).expire(_watch_rank_key(team_id, scanner_id), WATCH_RANK_TTL)
 
 
-def store_watch_ranks(team_id: int, scanner_id: UUID, judgment: WindowJudgment, fingerprint: str) -> None:
+def store_watch_ranks(team_id: int, scanner_id: UUID, probabilities: dict[str, float], model: str | None) -> None:
     get_client(settings.REPLAY_VISION_REDIS_URL).setex(
         _watch_rank_key(team_id, scanner_id),
         WATCH_RANK_TTL,
         json.dumps(
             {
-                "model": judgment.model,
+                "model": model,
                 "judged_at": datetime.now(UTC).isoformat(),
-                "fingerprint": fingerprint,
-                "probabilities": judgment.probabilities,
+                "probabilities": probabilities,
             }
         ),
     )
