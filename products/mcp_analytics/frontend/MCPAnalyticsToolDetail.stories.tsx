@@ -185,9 +185,5 @@ export default meta
 type Story = StoryObj<{}>
 
 export const ToolDetail: Story = {
-    parameters: { testOptions: { viewportWidths: ['medium', 'wide'] } },
-}
-
-export const ToolDetailNarrow: Story = {
-    parameters: { layout: 'padded', testOptions: { viewport: { width: 520, height: 900 } } },
+    parameters: { testOptions: { viewportWidths: ['narrow', 'medium', 'wide'] } },
 }
