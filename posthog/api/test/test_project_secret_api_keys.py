@@ -443,28 +443,10 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.client.logout()
-
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="pat-with-project-write",
-            user=self.user,
-            scopes=["project:write", "project:read", "endpoint:read"],
-            secure_value=hash_key_value(token),
-        )
-        self.token = token
+        self.token = self.create_personal_api_key_with_scopes(["project:write", "project:read", "endpoint:read"])
 
     def _auth(self):
         return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
-
-    def _token_with_scopes(self, scopes: list[str]) -> str:
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label=f"pat-{token[-6:]}",
-            user=self.user,
-            scopes=scopes,
-            secure_value=hash_key_value(token),
-        )
-        return token
 
     def _create_key(self) -> str:
         response = self.client.post(
@@ -584,7 +566,7 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
     def test_create_requires_caller_to_hold_requested_scopes(
         self, _name, caller_scopes, requested_scopes, missing_scopes
     ):
-        token = self._token_with_scopes(caller_scopes)
+        token = self.create_personal_api_key_with_scopes(caller_scopes)
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys/",
@@ -628,7 +610,7 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
             scopes=key_scopes,
             created_by=self.user,
         )
-        token = self._token_with_scopes(caller_scopes)
+        token = self.create_personal_api_key_with_scopes(caller_scopes)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/",
@@ -650,7 +632,7 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
             scopes=["endpoint:read", "account:read"],
             created_by=self.user,
         )
-        token = self._token_with_scopes(["project:write", "endpoint:read"])
+        token = self.create_personal_api_key_with_scopes(["project:write", "endpoint:read"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll/",
