@@ -87,23 +87,7 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
-    // The AI events lookup is bounded by the loaded trace, so it waits for the trace to load
-    // rather than asking once for the prefetch and again for the full span set.
-    const traceBounds = useMemo(() => {
-        if (loading) {
-            return { timestamp: null, endTimestamp: null }
-        }
-        if (realSpans.length === 0) {
-            return { timestamp: ts, endTimestamp: null }
-        }
-        const root = realSpans.find((span) => span.is_root_span) ?? realSpans[0]
-        const endTimestamp = realSpans.reduce(
-            (latest, span) => (span.end_time > latest ? span.end_time : latest),
-            root.end_time
-        )
-        return { timestamp: root.timestamp, endTimestamp }
-    }, [loading, realSpans, ts])
-    const { aiEvents } = useValues(traceAiEventsLogic({ traceId, ...traceBounds }))
+    const { aiEvents } = useValues(traceAiEventsLogic({ traceId }))
     // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
     const spans = useMemo(() => {
         const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
