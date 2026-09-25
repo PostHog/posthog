@@ -3000,8 +3000,8 @@ _NETWORK_ACCESS_HELP = (
 _ALLOWED_DOMAINS_HELP = (
     "Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always "
     "on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such "
-    "as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every "
-    f"subdomain. Up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains. Required when "
+    "as `status.example.com`, with no scheme, path, or port; `*.example.com` covers `example.com` "
+    f"and all its subdomains. Up to {tasks_facade.MAX_SANDBOX_ALLOWED_DOMAINS} domains. Required when "
     "`network_access` is `custom`. The list is kept when the mode changes, so switching back to "
     "`custom` restores it. Applies from the scout's next run."
 )

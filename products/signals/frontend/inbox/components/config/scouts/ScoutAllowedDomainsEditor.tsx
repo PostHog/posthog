@@ -111,12 +111,11 @@ export function ScoutAllowedDomainsEditor({
                     size="xsmall"
                     placeholder={atCap ? `${MAX_SCOUT_ALLOWED_DOMAINS} domain limit` : 'Add domain'}
                     aria-label={`${config.skill_name} allowed domains`}
+                    // Not disabled while a save is in flight: disabling the focused input drops focus
+                    // and the browser never restores it, so a keyboard user loses the field after every
+                    // domain. The fleet logic already coalesces commits sent while one is in flight.
                     disabledReason={
-                        updating
-                            ? 'Saving scout settings'
-                            : atCap
-                              ? `A scout can reach up to ${MAX_SCOUT_ALLOWED_DOMAINS} custom domains`
-                              : undefined
+                        atCap ? `A scout can reach up to ${MAX_SCOUT_ALLOWED_DOMAINS} custom domains` : undefined
                     }
                     status={error ? 'danger' : 'default'}
                     className="w-56"
@@ -129,7 +128,7 @@ export function ScoutAllowedDomainsEditor({
             ) : (
                 <span className="text-[11.5px] text-muted">
                     One domain per entry, like status.example.com, with no scheme or path. Use *.example.com to cover
-                    every subdomain. Trusted domains are always included.
+                    example.com and all its subdomains. Trusted domains are always included.
                 </span>
             )}
         </div>

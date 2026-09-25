@@ -283,6 +283,17 @@ describe('ScoutConfigForm', () => {
         unmount()
     })
 
+    it('keeps the domain input editable while a save is in flight, so keyboard focus is not lost', () => {
+        // Disabling the focused input mid-save drops focus and the browser never restores it, so a
+        // keyboard user loses the field after every domain. The fleet logic coalesces commits sent
+        // while one is in flight, so the input stays enabled.
+        const saved = { ...config, network_access: 'custom' as const, allowed_domains: ['status.example.com'] }
+        const { getByLabelText, unmount } = render(<ScoutConfigForm config={saved} onUpdate={jest.fn()} updating />)
+
+        expect(getByLabelText(`${config.skill_name} allowed domains`)).not.toBeDisabled()
+        unmount()
+    })
+
     it('keeps the last domain, because custom with none of them is not a state the API accepts', () => {
         const onUpdate = jest.fn()
         const saved = { ...config, network_access: 'custom' as const, allowed_domains: ['status.example.com'] }

@@ -50,18 +50,25 @@ def handle_signal_scout_config_change(
         return
 
     changes = changes_between(scope, previous=before_update, current=after_update)
-    if before_update is None and after_update is not None and after_update.write_scopes:
-        # `changes_between` records no fields for a creation, so a scout created with a grant
-        # would leave the log unable to say what it held before the first edit. Write access
-        # decides what an unattended agent can change, so its first value is part of the trail.
-        changes.append(
-            Change(
-                type=scope,
-                field=field_name_overrides["SignalScoutConfig"]["write_scopes"],
-                action="created",
-                after=after_update.write_scopes,
-            )
-        )
+    if before_update is None and after_update is not None:
+        # `changes_between` records no fields for a creation, so a scout created with a
+        # security-relevant grant would leave the log unable to say what it held before the first
+        # edit. Write access decides what an unattended agent can change, and the custom network
+        # allowlist decides which external hosts it can reach, so each one's first value is part of
+        # the trail.
+        for field, initial_value in (
+            ("write_scopes", after_update.write_scopes),
+            ("allowed_domains", after_update.allowed_domains),
+        ):
+            if initial_value:
+                changes.append(
+                    Change(
+                        type=scope,
+                        field=field_name_overrides["SignalScoutConfig"][field],
+                        action="created",
+                        after=initial_value,
+                    )
+                )
 
     log_activity(
         organization_id=None,

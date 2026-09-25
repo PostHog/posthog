@@ -1835,7 +1835,7 @@ export interface SignalScoutConfigOptionsApi {
      * * `custom` - Trusted domains plus a custom allowlist */
     network_access?: SignalScoutConfigNetworkAccessEnumApi
     /**
-     * Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run.
+     * Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers `example.com` and all its subdomains. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run.
      * @maxItems 100
      * @items.maxLength 255
      */
@@ -1998,7 +1998,7 @@ export interface SignalScoutConfigApi {
      * * `custom` - Trusted domains plus a custom allowlist */
     readonly network_access: SignalScoutConfigNetworkAccessEnumApi
     /**
-     * Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every subdomain. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run.
+     * Extra hosts this scout may reach, applied only while `network_access` is `custom`, and always on top of the trusted-domain allowlist rather than instead of it. Give bare domain names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers `example.com` and all its subdomains. Up to 100 domains. Required when `network_access` is `custom`. The list is kept when the mode changes, so switching back to `custom` restores it. Applies from the scout's next run.
      * @maxItems 100
      * @items.maxLength 255
      */

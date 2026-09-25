@@ -1451,6 +1451,31 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
             ("write access", "created", ["dashboard:write"])
         ]
 
+    def test_creating_a_custom_scout_records_its_domains_in_the_activity_log(self) -> None:
+        # Same reasoning as the write-access grant above: a creation diffs against nothing, so the
+        # first entry for a scout created with custom network access must record which external hosts
+        # it may reach, or a later change to the allowlist has no "before" to point at.
+        self._authored_by(self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/",
+            data={
+                "skill_name": "signals-scout-hygiene",
+                "network_access": "custom",
+                "allowed_domains": ["status.example.com"],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", activity="created").latest(
+            "created_at"
+        )
+        assert entry.detail is not None
+        assert ("allowed domains", "created", ["status.example.com"]) in [
+            (change["field"], change["action"], change["after"]) for change in entry.detail["changes"]
+        ]
+
     @parameterized.expand(
         [
             # A key minted with only the config scope must not turn into `dashboard:write` on the
@@ -3869,6 +3894,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.network_access == SignalScoutConfig.NetworkAccess.CUSTOM
         assert config.allowed_domains == ["status.example.com"]
+
+    def test_create_rejects_custom_when_the_row_vanishes_after_the_pre_lock_read(self) -> None:
+        # The pre-lock read that lets a `custom` switch validate against stored domains is stale if
+        # the row is deleted before the upsert locks it. The upsert then builds a fresh row from
+        # tunables that carry no domains, so the guard must reject rather than persist a custom
+        # config with an empty allowlist that would silently run on the trusted posture. Mocking the
+        # stored-domains read reproduces the race deterministically: validation passes, but no row
+        # exists when the upsert runs.
+        self._make_skill("signals-scout-fresh")
+        with patch(
+            "products.signals.backend.scout_harness.views._stored_allowed_domains",
+            return_value=["status.example.com"],
+        ):
+            response = self.client.post(
+                self._list_url(),
+                data={"skill_name": "signals-scout-fresh", "network_access": "custom"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-fresh").exists()
 
     def test_create_upsert_leaves_omitted_fields_untouched(self) -> None:
         self._make_skill("signals-scout-fresh")

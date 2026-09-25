@@ -126,7 +126,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Set **`emit=false` (dry-run)** only when you want to be extra careful: the scout still runs and logs its reasoning but writes nothing to the inbox.
   Reach for dry-run on a scout you expect to be chatty, expensive, or high-stakes; for most scouts, just writing and watching the inbox is the better loop.
 - `network_access` — defaults to **`trusted`**: the scout's sandbox can only reach the platform's trusted-domain allowlist (PostHog, GitHub, common package registries), which covers the MCP loop and `gh` but blocks everything else.
-  Set **`custom`** with an `allowed_domains` list when the skill body names the sources it reads — a vendor status page, a public docs site, an API the team owns. Custom keeps the trusted allowlist and adds the listed hosts on top, so it is the right choice whenever you can enumerate the targets. Domains are bare names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers every subdomain.
+  Set **`custom`** with an `allowed_domains` list when the skill body names the sources it reads — a vendor status page, a public docs site, an API the team owns. Custom keeps the trusted allowlist and adds the listed hosts on top, so it is the right choice whenever you can enumerate the targets. Domains are bare names such as `status.example.com`, with no scheme, path, or port; `*.example.com` covers `example.com` and all its subdomains.
   Set **`full`** only when the scout genuinely needs arbitrary external reads it cannot enumerate, e.g. following links across the open web.
   Applies from the scout's next run, and changes to either field are activity-logged.
 - `auto_pause_exempt` — defaults to `false`.

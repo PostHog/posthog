@@ -88,13 +88,10 @@ export function ScoutTagsEditor({
                     size="xsmall"
                     placeholder={atCap ? `${MAX_SCOUT_TAGS} tag limit` : 'Add tag'}
                     aria-label={`${config.skill_name} tags`}
-                    disabledReason={
-                        updating
-                            ? 'Saving scout settings'
-                            : atCap
-                              ? `A scout can have up to ${MAX_SCOUT_TAGS} tags`
-                              : undefined
-                    }
+                    // Not disabled while a save is in flight: disabling the focused input drops focus
+                    // and the browser never restores it, so a keyboard user loses the field after every
+                    // tag. The fleet logic already coalesces commits sent while one is in flight.
+                    disabledReason={atCap ? `A scout can have up to ${MAX_SCOUT_TAGS} tags` : undefined}
                     status={error ? 'danger' : 'default'}
                     className="w-40"
                 />

@@ -140,6 +140,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    _validate_network_access_domains,
     validate_scout_repositories,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -2161,6 +2162,15 @@ def _upsert_scout_config(
     # The per-team cap only gates net-new enables: creating an enabled row or
     # flipping a disabled row on. Reasserting an already-enabled scout stays exempt.
     existing = SignalScoutConfig.objects.for_team(team_id).filter(skill_name=skill_name).first()
+    if existing is None:
+        # A create resolves the custom allowlist from `tunables` alone. The pre-lock read that let the
+        # request validate `custom` against a stored list is stale if the row was deleted since, so
+        # re-check under the caller's lock: a delete race must not land a `custom` config with no
+        # domains, which would silently run on the trusted posture.
+        _validate_network_access_domains(
+            network_access=tunables.get("network_access"),
+            allowed_domains=tunables.get("allowed_domains") or [],
+        )
     will_enable = (
         tunables.get("enabled", True)
         if existing is None
