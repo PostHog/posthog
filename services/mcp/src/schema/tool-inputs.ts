@@ -405,6 +405,15 @@ export const SavedMetricsAttachSchema = z
 
 // Agents reach for `experimentId` / `experiment_id` here as often as `id` — the same
 // alias set the generated experiment tools accept via their tools.yaml overrides.
+// `main_distinct_id` is left out on purpose: it splits off every other distinct ID, and the API
+// has no re-merge, so an agent that reaches for it destroys an identity nobody can restore.
+export const PersonSplitDistinctIdsSchema = z
+    .array(z.string())
+    .min(1)
+    .describe(
+        'Distinct IDs to move off this person onto new single-ID persons. The person keeps every other distinct ID and all of its properties. Name only the IDs you want moved: the person must keep at least one distinct ID, so the API rejects a list naming every ID it holds.'
+    )
+
 export const ExperimentResultsGetSchema = z.preprocess(
     normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
     z.object({

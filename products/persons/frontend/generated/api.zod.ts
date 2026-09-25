@@ -49,7 +49,7 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Split distinct_ids off a merged person. Two mutually exclusive modes:
  *
- * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.
+ * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties, and must keep at least one distinct_id, so a list naming every distinct_id it holds is rejected.
  * - **`main_distinct_id`**: keeps only the specified distinct_id on this person; moves every *other* distinct_id off onto its own new person. If omitted, the first distinct_id is kept.
  *
  * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
@@ -67,7 +67,7 @@ export const PersonsSplitCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .nullish()
         .describe(
-            'List of distinct_ids to \*\*move off\*\* this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.'
+            'List of distinct_ids to \*\*move off\*\* this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`. The person must keep at least one distinct_id, so a list naming every distinct_id it holds is rejected.'
         ),
 })
 

@@ -350,7 +350,8 @@ class PersonSplitRequestSerializer(serializers.Serializer):
             "List of distinct_ids to **move off** this person onto new single-id persons. "
             "The original person keeps every other distinct_id and its properties. New persons "
             "are created with deterministic UUIDs derived from `(team_id, distinct_id)`. "
-            "Cannot be combined with `main_distinct_id`."
+            "Cannot be combined with `main_distinct_id`. The person must keep at least one "
+            "distinct_id, so a list naming every distinct_id it holds is rejected."
         ),
     )
 
@@ -1299,7 +1300,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "Split distinct_ids off a merged person. Two mutually exclusive modes:\n\n"
             "- **`distinct_ids_to_split`** (recommended for surgical edits): moves only the "
             "listed distinct_ids off this person onto new single-id persons. The original "
-            "person keeps every other distinct_id and its properties.\n"
+            "person keeps every other distinct_id and its properties, and must keep at least "
+            "one distinct_id, so a list naming every distinct_id it holds is rejected.\n"
             "- **`main_distinct_id`**: keeps only the specified distinct_id "
             "on this person; moves every *other* distinct_id off onto its own new person. If "
             "omitted, the first distinct_id is kept.\n\n"
@@ -1336,6 +1338,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+            # Moving every distinct_id off leaves this person's properties on a row that no
+            # distinct_id resolves to, and no endpoint merges it back.
+            if not set(distinct_ids) - set(distinct_ids_to_split):
+                raise ValidationError(
+                    {
+                        "distinct_ids_to_split": "cannot move every distinct_id off this person; at least one must "
+                        "remain. To split the person apart, use main_distinct_id."
+                    }
+                )
 
         split_person.delay(
             person.id,
