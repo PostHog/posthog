@@ -8,7 +8,7 @@ response. Those need the live delivery test.
 
 Stdlib only, so it runs against a dev stack without installing anything.
 
-    ./firehose_replay.py --token phc_... --source-id "$(uuidgen)"
+    ./firehose_replay.py --token phc_...
     ./firehose_replay.py --token phc_... --records 3 --events 50 --gzip-body
     ./firehose_replay.py --token phc_... --oversize      # expect 413
 """
@@ -41,7 +41,6 @@ REQUEST_TIMEOUT_SECONDS = 30
 class ReplayOptions:
     url: str
     token: str
-    source_id: str | None
     log_group: str
     events: int
     records: int
@@ -58,12 +57,6 @@ class FirehoseReplay:
     def __init__(self, options: ReplayOptions) -> None:
         self.options = options
         self.request_id = str(uuid.uuid4())
-
-    def target_url(self) -> str:
-        # Not validated here: a non-UUID source id has to reach the endpoint to be rejected.
-        if self.options.source_id is None:
-            return self.options.url
-        return f"{self.options.url.rstrip('/')}/{self.options.source_id}"
 
     def cloudwatch_envelope(self, index: int, message_type: str) -> dict[str, Any]:
         now_ms = int(time.time() * 1000)
@@ -138,8 +131,8 @@ class FirehoseReplay:
             body = gzip.compress(body)
             headers["Content-Encoding"] = "gzip"
 
-        print(f"POST {self.target_url()} ({len(body)} bytes, request id {self.request_id})")
-        return urllib.request.Request(self.target_url(), data=body, headers=headers, method="POST")
+        print(f"POST {self.options.url} ({len(body)} bytes, request id {self.request_id})")
+        return urllib.request.Request(self.options.url, data=body, headers=headers, method="POST")
 
     def send(self) -> tuple[int, bytes]:
         request = self.build_request()
@@ -177,9 +170,8 @@ class FirehoseReplay:
 
 def parse_args(argv: list[str] | None = None) -> ReplayOptions:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default=DEFAULT_URL, help="Endpoint without the source id.")
+    parser.add_argument("--url", default=DEFAULT_URL, help="Firehose endpoint to post to.")
     parser.add_argument("--token", required=True, help="Project API key, sent as the access key.")
-    parser.add_argument("--source-id", default=None, help="LogsSource id appended to the URL path.")
     parser.add_argument("--log-group", default=DEFAULT_LOG_GROUP, help="CloudWatch log group name.")
     parser.add_argument("--events", type=int, default=5, help="Log events per record.")
     parser.add_argument("--records", type=int, default=1, help="Records in the delivery.")
