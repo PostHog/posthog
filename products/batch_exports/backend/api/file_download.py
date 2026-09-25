@@ -19,6 +19,8 @@ from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, ValidationError
 from rest_framework.throttling import BaseThrottle
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
@@ -32,10 +34,15 @@ from posthog.models import Team, User
 from posthog.rate_limit import BatchExportsCountRowsBurstRateThrottle, BatchExportsCountRowsSustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
-from products.batch_exports.backend.api.utils import check_hogql_batch_exports_enabled
+from products.batch_exports.backend.api.utils import (
+    HOGQL_MODIFIERS_HELP_TEXT,
+    HogQLModifiersField,
+    check_hogql_batch_exports_enabled,
+)
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     find_interval_placeholders,
+    load_hogql_modifiers,
     parse_hogql_select_for_batch_export,
     validate_hogql_query_for_batch_export,
 )
@@ -194,6 +201,7 @@ class FileDownloadHogQLRequestSerializer(serializers.Serializer):
     file = FileDownloadDestinationFileConfigSerializer()
     model = serializers.ChoiceField(choices=FileDownloadHogQLModel.choices)
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
+    hogql_modifiers = HogQLModifiersField(required=False, help_text=HOGQL_MODIFIERS_HELP_TEXT)
     data_interval_start = serializers.DateTimeField(
         default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_START_HELP_TEXT
     )
@@ -210,6 +218,7 @@ class FileDownloadCountRowsRequestSerializer(serializers.Serializer):
         help_text="Model to count rows for. Only 'hogql' is supported.",
     )
     hogql_query = serializers.CharField(help_text=HOGQL_QUERY_HELP_TEXT)
+    hogql_modifiers = HogQLModifiersField(required=False, help_text=HOGQL_MODIFIERS_HELP_TEXT)
     data_interval_start = serializers.DateTimeField(
         default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_START_HELP_TEXT
     )
@@ -251,13 +260,14 @@ def count_rows_for_hogql_batch_export(
     user: User,
     data_interval_start: dt.datetime | None = None,
     data_interval_end: dt.datetime | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> int:
     """Count the rows a HogQL query would produce.
 
     Raises:
         UnsupportedHogQLQueryError: If the query cannot power a batch export.
     """
-    validate_hogql_query_for_batch_export(hogql_query, team, user=user)
+    validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=modifiers)
 
     record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query, user_id=user.pk)
     query_settings = get_user_hogql_batch_export_query_settings()
@@ -272,6 +282,7 @@ def count_rows_for_hogql_batch_export(
         user=user,
         query_type="HogQLBatchExportCountRowsQuery",
         settings=query_settings,
+        modifiers=modifiers,
     )
     return query_response.results[0][0] if query_response.results else 0
 
@@ -288,6 +299,7 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
 
     # Only specific to hogql
     hogql_query = serializers.CharField(required=False, help_text=HOGQL_QUERY_HELP_TEXT)
+    hogql_modifiers = HogQLModifiersField(required=False, help_text=HOGQL_MODIFIERS_HELP_TEXT)
 
     data_interval_start = serializers.DateTimeField(
         default_timezone=dt.UTC, required=False, help_text=DATA_INTERVAL_START_HELP_TEXT
@@ -302,6 +314,9 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
 
         if data.get("hogql_query") is not None:
             raise ValidationError("'hogql_query' is only supported when 'model' is 'hogql'")
+
+        if data.get("hogql_modifiers") is not None:
+            raise ValidationError("'hogql_modifiers' are only supported when 'model' is 'hogql'")
 
         validate_file_download_interval(data.get("data_interval_start"), data.get("data_interval_end"))
 
@@ -323,7 +338,12 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         )
 
         try:
-            validate_hogql_query_for_batch_export(hogql_query, team, user=self.context["request"].user)
+            validate_hogql_query_for_batch_export(
+                hogql_query,
+                team,
+                user=self.context["request"].user,
+                modifiers=load_hogql_modifiers(data.get("hogql_modifiers")),
+            )
         except UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e
 
@@ -340,7 +360,11 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
 
         source = None
         if model == "hogql":
-            source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
+            source = BatchExportSource(
+                team_id=team_id,
+                hogql_query=validated_data.pop("hogql_query"),
+                hogql_modifiers=validated_data.pop("hogql_modifiers", None),
+            )
             data_interval_start = validated_data.pop("data_interval_start", None)
             data_interval_end = validated_data.pop("data_interval_end", None)
         else:
@@ -543,6 +567,7 @@ class FileDownloadBatchExportOnDemandViewSet(
                     user_id=instance.batch_export_on_demand.last_modified_by_id
                     if instance.batch_export_on_demand.model == "hogql"
                     else None,
+                    hogql_modifiers=source.hogql_modifiers if source is not None else None,
                 ),
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
@@ -730,6 +755,7 @@ class FileDownloadBatchExportOnDemandViewSet(
                 user=request.user,
                 data_interval_start=request.validated_data.get("data_interval_start"),
                 data_interval_end=request.validated_data.get("data_interval_end"),
+                modifiers=load_hogql_modifiers(request.validated_data.get("hogql_modifiers")),
             )
         except UnsupportedHogQLQueryError as e:
             raise ValidationError({"hogql_query": str(e)}) from e

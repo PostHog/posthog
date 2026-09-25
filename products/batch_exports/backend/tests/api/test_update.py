@@ -724,6 +724,7 @@ def test_can_patch_hogql_query(
         },
         "hogql_query": None,
         "user_id": None,
+        "hogql_modifiers": None,
     }
 
     for patch_data, expected_schema in [
@@ -842,7 +843,24 @@ def test_patch_hogql_model_batch_export(
         "schema": None,
         "hogql_query": new_hogql_query,
         "user_id": editor.pk,
+        "hogql_modifiers": None,
     }
+
+    # Modifiers can change without the query, and null removes them.
+    for hogql_modifiers in ({"convertToProjectTimezone": False}, None):
+        response = patch_batch_export(client, team.pk, batch_export["id"], {"hogql_modifiers": hogql_modifiers})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        updated = get_batch_export_ok(client, team.pk, batch_export["id"])
+        assert updated["hogql_query"] == new_hogql_query
+        assert updated["hogql_modifiers"] == hogql_modifiers
+        assert BatchExport.objects.get(id=batch_export["id"]).source_id == source_id
+
+        schedule = describe_schedule(temporal, batch_export["id"])
+        decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+        args = json.loads(decoded_payload[0].data)
+        assert args["batch_export_model"]["hogql_query"] == new_hogql_query
+        assert args["batch_export_model"]["hogql_modifiers"] == hogql_modifiers
 
 
 @pytest.mark.usefixtures("hogql_batch_exports_enabled")

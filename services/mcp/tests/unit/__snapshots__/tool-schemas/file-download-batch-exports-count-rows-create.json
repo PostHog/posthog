@@ -14,6 +14,555 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
+        "hogql_modifiers": {
+            "description": "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone.",
+            "properties": {
+                "bounceRateDurationSeconds": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "bounceRatePageViewMode": {
+                    "anyOf": [
+                        {
+                            "enum": ["count_pageviews", "uniq_urls", "uniq_page_screen_autocaptures"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "convertToProjectTimezone": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "cookielessTrafficIsRegular": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients."
+                },
+                "customBotDefinitions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "properties": {
+                                    "category": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Reported by `$virt_traffic_category`. Defaults to `custom`."
+                                    },
+                                    "combiner": {
+                                        "description": "Whether every condition must match (AND) or any one of them (OR).",
+                                        "enum": ["AND", "OR"],
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "items": {
+                                        "items": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string"
+                                                },
+                                                "key": {
+                                                    "description": "The event property this condition reads.",
+                                                    "enum": [
+                                                        "$raw_user_agent",
+                                                        "$ip",
+                                                        "$lib",
+                                                        "$host",
+                                                        "$pathname",
+                                                        "$current_url",
+                                                        "$browser",
+                                                        "$os",
+                                                        "$browser_language",
+                                                        "$screen_width",
+                                                        "$screen_height",
+                                                        "$geoip_country_code",
+                                                        "$referrer",
+                                                        "$referring_domain"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "matcher": {
+                                                    "enum": ["contains", "regex", "exact", "cidr"],
+                                                    "type": "string"
+                                                },
+                                                "pattern": {
+                                                    "description": "Matched against the property named by `key`.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["id", "key", "matcher", "pattern"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "name": {
+                                        "description": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["combiner", "id", "items", "name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "customChannelTypeRules": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "properties": {
+                                    "channel_type": {
+                                        "type": "string"
+                                    },
+                                    "combiner": {
+                                        "enum": ["AND", "OR"],
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "type": "string"
+                                    },
+                                    "items": {
+                                        "items": {
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string"
+                                                },
+                                                "key": {
+                                                    "enum": [
+                                                        "utm_source",
+                                                        "utm_medium",
+                                                        "utm_campaign",
+                                                        "referring_domain",
+                                                        "url",
+                                                        "pathname",
+                                                        "hostname"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "op": {
+                                                    "enum": [
+                                                        "exact",
+                                                        "is_not",
+                                                        "is_set",
+                                                        "is_not_set",
+                                                        "icontains",
+                                                        "not_icontains",
+                                                        "regex",
+                                                        "not_regex"
+                                                    ],
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "items": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "array"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                }
+                                            },
+                                            "required": ["id", "key", "op"],
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    }
+                                },
+                                "required": ["channel_type", "combiner", "id", "items"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dataWarehouseEventsModifiers": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "properties": {
+                                    "distinct_id_field": {
+                                        "type": "string"
+                                    },
+                                    "id_field": {
+                                        "type": "string"
+                                    },
+                                    "table_name": {
+                                        "type": "string"
+                                    },
+                                    "timestamp_field": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["distinct_id_field", "id_field", "table_name", "timestamp_field"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "debug": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "forceClickhouseDataSkippingIndexes": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "If these are provided, the query will fail if these skip indexes are not used"
+                },
+                "formatCsvAllowDoubleQuotes": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "inCohortVia": {
+                    "anyOf": [
+                        {
+                            "enum": ["auto", "leftjoin", "subquery", "leftjoin_conjoined"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "inlineCohortCalculation": {
+                    "anyOf": [
+                        {
+                            "enum": ["off", "auto", "always"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "materializationMode": {
+                    "anyOf": [
+                        {
+                            "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "materializedColumnsOptimizationMode": {
+                    "anyOf": [
+                        {
+                            "enum": ["disabled", "optimized"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "mergeFederatedAggregateJoins": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap"
+                },
+                "optimizeJoinedFilters": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "optimizeProjections": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "parserMode": {
+                    "anyOf": [
+                        {
+                            "enum": [
+                                "cpp_only",
+                                "cpp_with_rust_shadow",
+                                "cpp_with_rust_py_shadow",
+                                "rust_with_cpp_shadow",
+                                "rust_only",
+                                "rust_py_only",
+                                "rust_py_with_cpp_shadow"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip."
+                },
+                "personsArgMaxVersion": {
+                    "anyOf": [
+                        {
+                            "enum": ["auto", "v1", "v2"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "personsJoinMode": {
+                    "anyOf": [
+                        {
+                            "enum": ["inner", "left"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "personsOnEventsMode": {
+                    "anyOf": [
+                        {
+                            "enum": [
+                                "disabled",
+                                "person_id_no_override_properties_on_events",
+                                "person_id_override_properties_on_events",
+                                "person_id_override_properties_joined"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "propertyGroupsMode": {
+                    "anyOf": [
+                        {
+                            "enum": ["enabled", "disabled", "optimized"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "pushDownPredicates": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "s3TableUseInvalidColumns": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "sessionIdPushdown": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter."
+                },
+                "sessionPropertyPreAggregation": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`)."
+                },
+                "sessionsV2JoinMode": {
+                    "anyOf": [
+                        {
+                            "enum": ["string", "uuid"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "sessionTableVersion": {
+                    "anyOf": [
+                        {
+                            "enum": ["auto", "v1", "v2", "v3"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "timings": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "typeAwareCastSimplification": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types"
+                },
+                "useMaterializedViews": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "usePreaggregatedIntermediateResults": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "usePreaggregatedTableTransforms": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"
+                },
+                "useWebAnalyticsPreAggregatedTables": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "webAnalyticsFirstPageviewFilters": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                }
+            },
+            "type": "object"
+        },
         "hogql_query": {
             "description": "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.",
             "type": "string"

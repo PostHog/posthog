@@ -161,6 +161,8 @@ class BatchExportModel:
     hogql_query: str | None = None
     # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
     user_id: int | None = None
+    # A dict, not `HogQLQueryModifiers`, because Temporal's default converter only decodes dataclasses and JSON types.
+    hogql_modifiers: dict[str, typing.Any] | None = None
 
 
 @dataclass
@@ -1215,6 +1217,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                         user_id=batch_export.last_modified_by_id
                         if batch_export.model == BatchExport.Model.HOGQL
                         else None,
+                        hogql_modifiers=batch_export.hogql_modifiers,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing

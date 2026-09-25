@@ -741,6 +741,11 @@ class TestFileDownloadHogQL:
                 "'data_interval_start' and 'data_interval_end' are required",
                 id="events-model-missing-intervals",
             ),
+            pytest.param(
+                {"model": "events", "hogql_query": None, "hogql_modifiers": {"convertToProjectTimezone": False}},
+                "'hogql_modifiers' are only supported when 'model' is 'hogql'",
+                id="modifiers-with-events-model",
+            ),
         ],
     )
     @pytest.mark.usefixtures("enable_hogql_flag")
@@ -817,6 +822,7 @@ class TestFileDownloadHogQL:
                 "file": {"format": "Parquet"},
                 "model": "hogql",
                 "hogql_query": hogql_query,
+                "hogql_modifiers": {"convertToProjectTimezone": False},
                 "last_modified_by": user.pk + 1,
                 "last_modified_by_id": user.pk + 1,
                 "user_id": user.pk + 1,
@@ -842,6 +848,7 @@ class TestFileDownloadHogQL:
         assert on_demand.last_modified_by_id == user.pk
         assert on_demand.source is not None
         assert on_demand.source.hogql_query == hogql_query
+        assert on_demand.source.hogql_modifiers == {"convertToProjectTimezone": False}
         assert on_demand.source.team_id == team.pk
         assert "include_events" not in on_demand.destination.config
 
@@ -850,6 +857,7 @@ class TestFileDownloadHogQL:
         assert batch_export_model.name == "hogql"
         assert batch_export_model.hogql_query == hogql_query
         assert batch_export_model.user_id == user.pk
+        assert batch_export_model.hogql_modifiers == {"convertToProjectTimezone": False}
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
         assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
         assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end
@@ -1111,6 +1119,15 @@ class TestFileDownloadHogQL:
                 {"model": "hogql", "hogql_query": "SELECT event FROM events WHERE timestamp < {data_interval_end}"},
                 "'data_interval_end' is required",
                 id="missing-placeholder-bounds",
+            ),
+            pytest.param(
+                {
+                    "model": "hogql",
+                    "hogql_query": "SELECT event AS event FROM events",
+                    "hogql_modifiers": {"notAModifier": True},
+                },
+                "Extra inputs are not permitted",
+                id="unknown-modifier",
             ),
         ],
     )
