@@ -15,9 +15,8 @@ from products.engineering_analytics.backend.logic import build_workflow_health
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series
-from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA, GitHubTables
+from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
-    DEPOT_JOB_ATTEMPTS_COLUMNS,
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     TRUNK_MERGE_QUEUE_COLUMNS,
@@ -25,13 +24,12 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _depot_attempt_row,
     _issue_event_row,
     _pr_row,
     _run_row,
     _trunk_queue_row,
     connect_github_source_without_data,
-    create_depot_source,
-    create_github_source,
     create_trunk_source,
 )
 from products.engineering_analytics.backend.tests._logic_helpers import (
@@ -1180,7 +1178,24 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
 
     def test_job_aggregates_branch_filter_matches_depot_jobs_through_their_run(self) -> None:
-        self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        started, completed = _ago_with_duration(1, 120)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    ref="refs/pull/65/merge",
+                    head_sha="sha65",
+                    workflow_name="CI",
+                    workflow_status="finished",
+                    workflow_created_at=started,
+                    workflow_started_at=started,
+                    workflow_finished_at=completed,
+                    job_key="ci.yml:lint",
+                    attempt_status="finished",
+                    attempt_started_at=started,
+                    attempt_finished_at=completed,
+                )
+            ]
+        )
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -1192,37 +1207,6 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_run_row(9800, "CI", "sha-main", "completed", "success", _ago(1), _ago(1), head_branch="main")],
         )
         self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(98000, 9800, "build", "success")])
-        started, completed = _ago_with_duration(1, 120)
-        depot = create_depot_source(self.team, prefix="ci", repository="PostHog/posthog")
-        self._create_table(
-            "depot_job_attempts",
-            DEPOT_JOB_ATTEMPTS_COLUMNS,
-            [
-                dict.fromkeys(DEPOT_JOB_ATTEMPTS_COLUMNS)
-                | {
-                    "run_id": "427q556wmn",
-                    "run_workflow_count": 1,
-                    "repo": "PostHog/posthog",
-                    "ref": "refs/pull/65/merge",
-                    "head_sha": "sha65",
-                    "workflow_id": "6n4tghls33",
-                    "workflow_name": "CI",
-                    "workflow_status": "finished",
-                    "workflow_created_at": started,
-                    "workflow_started_at": started,
-                    "workflow_finished_at": completed,
-                    "job_key": "ci.yml:lint",
-                    "attempt_id": "zf6sbbn2wh",
-                    "attempt": 1,
-                    "attempt_status": "finished",
-                    "attempt_started_at": started,
-                    "attempt_finished_at": completed,
-                }
-            ],
-            source=depot,
-            prefix="ci",
-            schema_name=DEPOT_JOB_ATTEMPTS_SCHEMA,
-        )
 
         aggregates = api.list_job_aggregates(team=self.team, workflow_name="CI", branch="feature/depot")
 

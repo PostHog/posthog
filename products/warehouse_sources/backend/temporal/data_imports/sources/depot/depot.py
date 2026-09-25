@@ -26,13 +26,12 @@ REQUEST_TIMEOUT_SECONDS = 60
 # so it returns most of what the first walk skipped. A run that both walks skip is still lost, and
 # only a fix to Depot's page cursor closes that. Depot caps pages at 100.
 LIST_RUNS_PAGE_SIZES = (100, 57)
-IN_FLIGHT_STATUSES = ["queued", "running"]
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
 # Depot can leave a run in `queued` or `running` and never finish it. An in-flight run older than its
 # cutoff counts as stuck, so it does not hold the sync horizon back. A running run gets the longer
 # cutoff because a real run can take hours, while a real queued run starts within minutes.
-QUEUED_MAX_AGE = dt.timedelta(hours=6)
-RUNNING_MAX_AGE = dt.timedelta(hours=24)
+IN_FLIGHT_MAX_AGE = {"queued": dt.timedelta(hours=6), "running": dt.timedelta(hours=24)}
+IN_FLIGHT_STATUSES = list(IN_FLIGHT_MAX_AGE)
 
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
@@ -85,11 +84,16 @@ def _list_runs(
     """
     runs: dict[str, tuple[dt.datetime, JSONObject]] = {}
     for page_size in LIST_RUNS_PAGE_SIZES:
+        listed = 0
         for run in _walk_runs(session, repository, statuses, page_size):
             created_at = _parse_timestamp(run["createdAt"])
             if created_after is not None and created_at < created_after:
                 break
             runs[run["runId"]] = (created_at, run)
+            listed += 1
+        if listed < page_size:
+            # The walk ended inside its first page, so no page end skipped a run.
+            break
     return sorted(runs.values(), key=lambda entry: (entry[0], entry[1]["runId"]))
 
 
@@ -98,9 +102,9 @@ def _list_runs(
 # reads it. A job that is retried after its run was synced is not picked up either.
 def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> dt.datetime:
     horizon = now
-    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
-        max_age = RUNNING_MAX_AGE if run["status"] == "running" else QUEUED_MAX_AGE
-        if created_at > now - max_age:
+    oldest_that_counts = now - max(IN_FLIGHT_MAX_AGE.values())
+    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES, oldest_that_counts):
+        if created_at > now - IN_FLIGHT_MAX_AGE.get(run["status"], IN_FLIGHT_MAX_AGE["queued"]):
             horizon = min(horizon, created_at)
     return horizon
 

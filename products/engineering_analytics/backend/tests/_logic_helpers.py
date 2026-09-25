@@ -12,7 +12,9 @@ from django.utils import timezone
 
 import pandas as pd
 
+from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -20,6 +22,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    create_depot_source,
     create_github_source,
     link_schema,
     seeding_object_storage,
@@ -208,6 +211,20 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
         # sources (Trunk) pass their endpoint's schema name explicitly.
         link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
+
+    def _create_depot_table(self, rows: list[dict[str, Any]]) -> None:
+        # A Depot source joins the GitHub source that syncs the same repository.
+        if self._github_source is None:
+            self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        depot = create_depot_source(self.team, prefix="ci", repository="PostHog/posthog")
+        self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            rows,
+            source=depot,
+            prefix="ci",
+            schema_name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+        )
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):

@@ -204,7 +204,7 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
 
     Depot job rows carry no branch. The jobs builder scans its source twice, so a PR snapshot lookup
     here would add two full PR scans to every jobs read. A reader that needs a job's branch takes its
-    run's instead (``job_costs``, ``ci_job_history`` and the job aggregates do).
+    run's instead.
     """
     if depot is None:
         return jobs_table

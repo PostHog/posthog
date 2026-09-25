@@ -23,7 +23,10 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
 )
-from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
+)
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -73,6 +76,21 @@ def create_trunk_source(
         source_type=ExternalDataSourceType.TRUNKIO,
         prefix=prefix,
         job_inputs={},
+    )
+
+
+def _depot_attempt_row(**overrides: Any) -> dict[str, Any]:
+    return (
+        dict.fromkeys(DEPOT_JOB_ATTEMPTS_COLUMNS)
+        | {
+            "run_id": "427q556wmn",
+            "run_workflow_count": 1,
+            "repo": "PostHog/posthog",
+            "workflow_id": "6n4tghls33",
+            "attempt_id": "zf6sbbn2wh",
+            "attempt": 1,
+        }
+        | overrides
     )
 
 

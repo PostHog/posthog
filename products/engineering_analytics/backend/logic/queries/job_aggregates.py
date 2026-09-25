@@ -106,6 +106,11 @@ _RUN_COUNT_SELECT = f"""
 # the run it belongs to. The subquery reuses the run-count window so both sides of the jobs table read
 # the same population.
 _RUNS_SCOPE_SUBQUERY = f"AND run_id IN (SELECT id FROM __RUNS_SOURCE__ AS r WHERE {_RUNS_WINDOW})"
+# Depot job rows carry no branch, so a job without one matches through its run's branch.
+_DEPOT_JOBS_BRANCH_CLAUSE = (
+    "AND (head_branch = {branch} OR (ifNull(head_branch, '') = '' AND run_id IN "
+    "(SELECT id FROM __RUNS_SOURCE__ AS r WHERE workflow_name = {workflow_name} AND head_branch = {branch})))"
+)
 
 
 def query_job_aggregates(
@@ -139,16 +144,16 @@ def query_job_aggregates(
     runs_date_to_clause = date_to_filter_clause(date_to, placeholders, column="run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
     runs_branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
-    # Depot job rows carry no branch, so a job without one matches through its run's branch.
-    jobs_branch_clause = (
-        "AND (ifNull(head_branch, '') = {branch} OR (ifNull(head_branch, '') = '' AND run_id IN "
-        "(SELECT id FROM __RUNS_SOURCE__ AS r WHERE workflow_name = {workflow_name} AND head_branch = {branch})))"
-        if branch_clause
-        else ""
-    )
     runs_run_scope_clause = run_scope_filter_clause(run_scope)
     cost_run_scope_clause = cost_run_scope_filter_clause(run_scope)
     jobs_run_scope_clause = _RUNS_SCOPE_SUBQUERY if runs_run_scope_clause else ""
+    if jobs_run_scope_clause:
+        # The run scope already keeps only the jobs of runs on the branch.
+        jobs_branch_clause = ""
+    elif branch_clause and curated.has_depot_ci:
+        jobs_branch_clause = _DEPOT_JOBS_BRANCH_CLAUSE
+    else:
+        jobs_branch_clause = branch_clause
 
     def fill(template: str) -> str:
         return (

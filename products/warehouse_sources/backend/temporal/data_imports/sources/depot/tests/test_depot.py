@@ -51,14 +51,11 @@ def _single_attempt_workflow(run: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fake_session(
-    terminal_pages: list[list[dict[str, Any]]],
+    terminal_runs: list[dict[str, Any]],
     in_flight_runs: list[dict[str, Any]] | None = None,
     workflows_by_run: dict[str, list[dict[str, Any]]] | None = None,
-    cursor_skips_rest_of_second: bool = False,
 ) -> mock.MagicMock:
-    workflows = workflows_by_run or {
-        run["runId"]: [_single_attempt_workflow(run)] for page in terminal_pages for run in page
-    }
+    workflows = workflows_by_run or {run["runId"]: [_single_attempt_workflow(run)] for run in terminal_runs}
     workflows_by_id = {workflow["workflowId"]: workflow for runs in workflows.values() for workflow in runs}
 
     def post(url: str, json: dict[str, Any], timeout: float) -> Response:
@@ -66,18 +63,14 @@ def _fake_session(
         if method == "ListRuns" and json["status"] == IN_FLIGHT:
             return _response(200, {"runs": in_flight_runs or []}, method)
         if method == "ListRuns":
-            if cursor_skips_rest_of_second:
-                # Depot's cursor: a page that ends inside a second makes the next page skip the rest of it.
-                runs = [run for page in terminal_pages for run in page]
-                start = int(json.get("pageToken", "0"))
-                page = runs[start : start + json["pageSize"]]
-                end = start + len(page)
-                while end < len(runs) and runs[end]["createdAt"] == page[-1]["createdAt"]:
-                    end += 1
-                return _response(200, {"runs": page, "nextPageToken": str(end) if end < len(runs) else ""}, method)
-            page_index = int(json.get("pageToken", "0"))
-            next_page_token = str(page_index + 1) if page_index + 1 < len(terminal_pages) else ""
-            return _response(200, {"runs": terminal_pages[page_index], "nextPageToken": next_page_token}, method)
+            # Depot's cursor: a page that ends inside a second makes the next page skip the rest of it.
+            start = int(json.get("pageToken", "0"))
+            page = terminal_runs[start : start + json["pageSize"]]
+            end = start + len(page)
+            while page and end < len(terminal_runs) and terminal_runs[end]["createdAt"] == page[-1]["createdAt"]:
+                end += 1
+            next_page_token = str(end) if end < len(terminal_runs) else ""
+            return _response(200, {"runs": page, "nextPageToken": next_page_token}, method)
         if method == "GetRunStatus":
             run_workflows = workflows.get(json["runId"], [])
             return _response(200, {"workflows": [{"workflowId": w["workflowId"]} for w in run_workflows]}, method)
@@ -106,11 +99,14 @@ def _synced_rows(session: mock.MagicMock, created_after: dt.datetime | str | Non
 
 
 # Newest first, the order ListRuns returns terminal runs in.
-TERMINAL_PAGES = [
-    [_run("r6", dt.timedelta(minutes=10)), _run("r5", dt.timedelta(hours=1))],
-    [_run("r4", dt.timedelta(hours=2)), _run("r3", dt.timedelta(hours=3))],
-    [_run("r2", dt.timedelta(hours=4)), _run("r1", dt.timedelta(hours=5))],
-    [_run("r0", dt.timedelta(days=6))],
+TERMINAL_RUNS = [
+    _run("r6", dt.timedelta(minutes=10)),
+    _run("r5", dt.timedelta(hours=1)),
+    _run("r4", dt.timedelta(hours=2)),
+    _run("r3", dt.timedelta(hours=3)),
+    _run("r2", dt.timedelta(hours=4)),
+    _run("r1", dt.timedelta(hours=5)),
+    _run("r0", dt.timedelta(days=6)),
 ]
 WATERMARK = NOW - dt.timedelta(hours=4)
 RECENT_IN_FLIGHT = {**_run("in-flight", dt.timedelta(minutes=90)), "status": "queued"}
@@ -129,7 +125,7 @@ class TestDepotSource:
             ([], ["r3", "r4", "r5", "r6"]),
             ([RECENT_IN_FLIGHT], ["r3", "r4"]),
             ([STALE_QUEUED], ["r3", "r4", "r5", "r6"]),
-            ([STALE_QUEUED, RECENT_IN_FLIGHT], ["r3", "r4"]),
+            ([RECENT_IN_FLIGHT, STALE_QUEUED], ["r3", "r4"]),
             ([LONG_RUNNING], ["r3"]),
             ([VERY_LONG_RUNNING], []),
             ([STUCK_RUNNING], ["r3", "r4", "r5", "r6"]),
@@ -138,7 +134,7 @@ class TestDepotSource:
     def test_syncs_only_runs_created_before_the_oldest_recent_in_flight_run(
         self, in_flight_runs: list[dict[str, Any]], expected_run_ids: list[str]
     ) -> None:
-        session = _fake_session(TERMINAL_PAGES, in_flight_runs)
+        session = _fake_session(TERMINAL_RUNS, in_flight_runs)
 
         rows = _synced_rows(session, WATERMARK)
 
@@ -147,11 +143,11 @@ class TestDepotSource:
     @pytest.mark.parametrize(
         "created_after, expected_run_ids, expected_terminal_pages",
         [
-            (WATERMARK, ["r3", "r4", "r5", "r6"], 6),
+            (WATERMARK, ["r3", "r4", "r5", "r6"], 5),
             # A watermark in a run's own second reads that run again, because a sync that stopped
             # partway through the second may not have read it.
-            (_iso(WATERMARK), ["r2", "r3", "r4", "r5", "r6"], 6),
-            (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 8),
+            (_iso(WATERMARK), ["r2", "r3", "r4", "r5", "r6"], 5),
+            (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 7),
         ],
         # The bounds derive from the wall clock, so fixed ids keep every xdist worker collecting the same tests.
         ids=["datetime_watermark", "watermark_in_a_runs_second", "no_watermark"],
@@ -159,9 +155,10 @@ class TestDepotSource:
     def test_walks_terminal_runs_down_to_the_lower_bound_and_yields_them_oldest_first(
         self, created_after: dt.datetime | str | None, expected_run_ids: list[str], expected_terminal_pages: int
     ) -> None:
-        session = _fake_session(TERMINAL_PAGES)
+        session = _fake_session(TERMINAL_RUNS)
 
-        rows = _synced_rows(session, created_after)
+        with mock.patch(f"{MODULE}.LIST_RUNS_PAGE_SIZES", (2, 3)):
+            rows = _synced_rows(session, created_after)
 
         assert [row["run_id"] for row in rows] == expected_run_ids
         terminal_list_calls = [
@@ -186,7 +183,7 @@ class TestDepotSource:
             *[_run(f"tied-{index}", dt.timedelta(hours=1)) for index in range(3)],
             _run("oldest", dt.timedelta(hours=2)),
         ]
-        session = _fake_session([runs], cursor_skips_rest_of_second=True)
+        session = _fake_session(runs)
 
         with mock.patch(f"{MODULE}.LIST_RUNS_PAGE_SIZES", page_sizes):
             rows = _synced_rows(session, None)
@@ -194,24 +191,27 @@ class TestDepotSource:
         assert [row["run_id"] for row in rows] == expected_run_ids
 
     def test_request_shapes(self) -> None:
-        session = _fake_session(TERMINAL_PAGES[:2])
+        session = _fake_session(TERMINAL_RUNS[:4])
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
+        with (
+            mock.patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session,
+            mock.patch(f"{MODULE}.LIST_RUNS_PAGE_SIZES", (2, 3)),
+        ):
             _batches(depot_source(API_TOKEN, REPOSITORY, None, mock.MagicMock()))
 
         assert make_session.call_args.kwargs["headers"] == {"Authorization": f"Bearer {API_TOKEN}"}
         assert API_TOKEN in make_session.call_args.kwargs["redact_values"]
         # Every Depot RPC is a POST, which the shared retry leaves out, so a 429 must still retry.
         assert make_session.call_args.kwargs["retry"].is_retry("POST", 429)
-        assert _requests(session)[:6] == [
-            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 100}),
-            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 57}),
-            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 100}),
-            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 100, "pageToken": "1"}),
-            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 57}),
-            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 57, "pageToken": "1"}),
+        # The in-flight listing fits in one page, so no page end can skip a run and one walk is enough.
+        assert _requests(session)[:5] == [
+            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 2}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 2}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 2, "pageToken": "2"}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 3}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 3, "pageToken": "3"}),
         ]
-        assert _requests(session)[6:8] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
+        assert _requests(session)[5:7] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
 
     def test_flattens_one_row_per_attempt_of_every_workflow_in_the_run(self) -> None:
         run = _run("run-1", dt.timedelta(hours=1))
@@ -263,7 +263,7 @@ class TestDepotSource:
             "workflowId": "wf-2",
             "jobs": [{"jobId": "job-report", "attempts": [{"attemptId": "attempt-3"}]}],
         }
-        session = _fake_session([[run]], workflows_by_run={"run-1": [backend, report]})
+        session = _fake_session([run], workflows_by_run={"run-1": [backend, report]})
 
         rows = _synced_rows(session, None)
 
