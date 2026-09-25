@@ -291,10 +291,12 @@ class Command(BaseCommand):
                 else f"{_percent(agreement(scored_run, threshold, reference, threshold))} "
             )
             # A failed request often waits out the timeout, which says nothing about how fast the judge answers.
-            median = statistics.median(result.seconds for result in scored_run.results)
+            # Another judge's failures leave this judge's answers in, so the median reads every one of them.
+            answered = [result.seconds for result in run.results if result.judgment is not None]
+            median = f"{statistics.median(answered):5.1f}s" if answered else "     -"
             self.stdout.write(
                 f"  {run.label:{width}}  {failed:6}     {_percent(current.offer_rate)}       {_percent(current.precision)}"
-                f"     {_percent(current.recall)}   {f1}   {best_f1:12}  {agrees}   {median:5.1f}s"
+                f"     {_percent(current.recall)}   {f1}   {best_f1:12}  {agrees}   {median}"
             )
         self.stdout.write(
             f"\n  agrees: the share of cases where the judge picks the same offer as {reference.label}. "
