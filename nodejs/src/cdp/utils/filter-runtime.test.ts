@@ -27,7 +27,7 @@ describe('filter-runtime', () => {
     })
 
     it('describes what a hog function is actually evaluated with', () => {
-        const { roots, callables, functions } = describeFilterRuntime()
+        const { roots, callables, functions, template_roots } = describeFilterRuntime()
         expect(roots).toEqual(expect.arrayContaining(['event', 'person', 'properties', 'group_0', '$group_4']))
         // In the type, but built only by the hogflow conditional-branch path, which does not compile
         // through compile_filters_bytecode. Listing it would let a destination save a filter that throws.
@@ -42,6 +42,9 @@ describe('filter-runtime', () => {
         expect(functions).not.toHaveProperty('sleep')
         expect(callables).not.toContain('print')
         expect(functions).not.toHaveProperty('print')
+        expect(template_roots).toEqual(expect.arrayContaining(['event', 'person', 'inputs', 'variables', 'request']))
+        expect(template_roots).not.toContain('distinct_id')
+        expect(template_roots).not.toContain('properties')
     })
 
     it('agrees with what the VM does when asked', async () => {

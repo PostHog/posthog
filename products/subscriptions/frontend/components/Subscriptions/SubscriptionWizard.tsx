@@ -35,6 +35,7 @@ import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionT
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
 import { InsightSelector } from './InsightSelector'
+import { getNextDeliveryDate } from './nextDeliveryDate'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
@@ -48,7 +49,6 @@ import {
     bysetposOptions,
     monthlyWeekdayOptions,
     getSubscriptionAdvancedSettings,
-    getNextDeliveryDate,
     formatSubscriptionSchedule,
     shouldShowDayPicker,
     requestSubscriptionWizardCancellation,

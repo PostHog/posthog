@@ -72,6 +72,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_event_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
+    get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
@@ -2738,7 +2739,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3,
+            type=BatchExportDestination.Destination.AWS_S3,
             config={"bucket_name": "my_production_s3_bucket"},
         )
         BatchExport.objects.create(
@@ -2782,7 +2783,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         self._setup_teams()
 
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3,
+            type=BatchExportDestination.Destination.AWS_S3,
             config={"bucket_name": "test_bucket"},
         )
         batch_export = BatchExport.objects.create(
@@ -3515,7 +3516,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             assert org_1_report[field] == value, field
             assert team_1_report[field] == value, field
 
-    def _logs_records_json(self, team_id: int, sdk_name: str | None, count: int) -> str:
+    def _logs_records_json(
+        self, team_id: int, sdk_name: str | None, count: int, timestamp: datetime | None = None
+    ) -> str:
         resource_attributes = {"telemetry.sdk.name": sdk_name} if sdk_name is not None else {}
         lines = ""
         for _ in range(count):
@@ -3524,7 +3527,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     {
                         "uuid": str(uuid4()),
                         "team_id": team_id,
-                        "timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "timestamp": (timestamp or now()).strftime("%Y-%m-%d %H:%M:%S.%f"),
                         "observed_timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
                         "body": "test log line",
                         "severity_text": "info",
@@ -3589,6 +3592,39 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             for sdk, expected in per_sdk.items():
                 field = f"{sdk}_logs_records_in_period"
                 assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
+
+    @parameterized.expand([("aligned", 0, 0), ("partial_buckets", 3, 7)])
+    def test_sdk_logs_counts_respect_period_and_team(self, _name: str, minute: int, second: int) -> None:
+        self._setup_teams()
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_LOCAL_TABLE}")
+        begin = now().replace(hour=12, minute=minute, second=second, microsecond=0)
+        end = begin + timedelta(minutes=10)
+        team_id = self.org_1_team_1.id
+        other_team_id = self.org_1_team_2.id
+
+        lines = self._logs_records_json(team_id, "web", 5, begin - timedelta(seconds=1))
+        lines += self._logs_records_json(team_id, "web", 3, begin)
+        lines += self._logs_records_json(team_id, "web", 4, end - timedelta(seconds=1))
+        lines += self._logs_records_json(team_id, "posthog-ios", 2, end - timedelta(seconds=1))
+        lines += self._logs_records_json(team_id, "posthog-ios", 6, end)
+        lines += self._logs_records_json(team_id, "posthog-node", 8, begin)
+        lines += self._logs_records_json(team_id, None, 10, begin)
+        lines += self._logs_records_json(other_team_id, "web", 9, begin)
+        sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
+        sync_execute(
+            f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{self._logs_records_json(team_id, 'web', 1, begin)}"
+        )
+
+        expected = {
+            "web": [(team_id, 8)],
+            "ios": [(team_id, 2)],
+            "react_native": [],
+            "android": [],
+            "flutter": [],
+            "ruby": [],
+        }
+        assert get_teams_with_sdk_logs_records_in_period(begin, end, [team_id]) == expected
+        assert get_teams_with_sdk_logs_records_in_period(begin, end, []) == {sdk: [] for sdk in expected}
 
     @parameterized.expand(
         [

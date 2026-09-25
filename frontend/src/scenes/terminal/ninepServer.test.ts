@@ -117,7 +117,9 @@ describe('PostHog 9P filesystem', () => {
     it('rejects nonempty folders, mismatched removal flags, and read-only mount entries', async () => {
         const folder = filesystem.directory('folder', filesystem.root)
         folder.remove = jest.fn(async () => {})
-        filesystem.text('child', folder, '')
+        folder.loadChildren = async () => {
+            filesystem.text('child', folder, '')
+        }
         const remove = (name: string, flags: number): Promise<{ type: number; body: NinePReader }> =>
             request(76, new NinePWriter().number(1, 4).string(name).number(flags, 4))
         expect((await remove('folder', 0x200)).body.number(4)).toBe(39)
@@ -126,6 +128,21 @@ describe('PostHog 9P filesystem', () => {
         expect((await remove('view.json', 0)).body.number(4)).toBe(30)
         expect((await remove('missing', 0)).body.number(4)).toBe(2)
         expect(folder.remove).not.toHaveBeenCalled()
+    })
+
+    it('checks an unloaded destination before renaming over an existing file', async () => {
+        const folder = filesystem.directory('folder', filesystem.root)
+        folder.mkdir = jest.fn()
+        folder.loadChildren = async () => {
+            filesystem.text('taken.json', folder, '{}')
+        }
+        const note = filesystem.root.children!.get('note.md')!
+        note.rename = jest.fn()
+        await walk('folder', 3)
+        const response = await request(20, new NinePWriter().number(2, 4).number(3, 4).string('taken.json'))
+        expect(response.type).toBe(7)
+        expect(response.body.number(4)).toBe(17)
+        expect(note.rename).not.toHaveBeenCalled()
     })
 
     it.each([50, 120])('commits complete, truncated content on message %i', async (operation) => {

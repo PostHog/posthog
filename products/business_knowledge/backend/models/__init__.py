@@ -1,5 +1,6 @@
 from .constants import (
     REFRESH_INTERVAL_TIMEDELTAS,
+    AddedBy,
     CrawlMode,
     EmbeddingStatus,
     GapStatus,
@@ -21,6 +22,7 @@ from .team_business_knowledge_config import TeamBusinessKnowledgeConfig
 
 __all__ = [
     "REFRESH_INTERVAL_TIMEDELTAS",
+    "AddedBy",
     "CrawlMode",
     "EmbeddingStatus",
     "GapStatus",

@@ -61,7 +61,7 @@ export function AttributionTable({
     const [key] = useState(() => `MarketingAttribution.${uniqueNode++}`)
     // Registered under the tab's shared collection so the filter bar's ReloadAll reaches this query.
     const logic = dataNodeLogic({ query, key, dataNodeCollectionId: MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
     const { breakdownBy, effectiveLookbackDays } = useValues(marketingAttributionLogic)
     const { baseCurrency } = useValues(teamLogic)
@@ -237,6 +237,7 @@ export function AttributionTable({
     if (responseError) {
         return (
             <InsightErrorState
+                queryId={responseErrorObject?.queryId ?? queryId}
                 query={query}
                 excludeDetail
                 title={responseError}

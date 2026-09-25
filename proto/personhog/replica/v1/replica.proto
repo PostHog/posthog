@@ -65,6 +65,9 @@ service PersonHogReplica {
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);
   rpc DeletePersonsBatchForTeam(personhog.types.v1.DeletePersonsBatchForTeamRequest) returns (personhog.types.v1.DeletePersonsBatchForTeamResponse);
   rpc DeleteTombstonedPersons(personhog.types.v1.DeleteTombstonedPersonsRequest) returns (personhog.types.v1.DeleteTombstonedPersonsResponse);
+  rpc GetPersonTombstones(personhog.types.v1.GetPersonTombstonesRequest) returns (personhog.types.v1.GetPersonTombstonesResponse);
+  rpc AckPersonTombstones(personhog.types.v1.AckPersonTombstonesRequest) returns (personhog.types.v1.AckPersonTombstonesResponse);
+  rpc ListPersonTombstoneQueue(personhog.types.v1.ListPersonTombstoneQueueRequest) returns (personhog.types.v1.ListPersonTombstoneQueueResponse);
 
   // Person split (temporary: same routing caveat as deletes above)
   rpc SplitPerson(personhog.types.v1.SplitPersonRequest) returns (personhog.types.v1.SplitPersonResponse);

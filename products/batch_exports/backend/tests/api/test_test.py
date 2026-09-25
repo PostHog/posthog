@@ -211,7 +211,7 @@ def test_run_test_step_rejects_destination_type_change(
     malicious_data = {
         "name": "my-production-s3-bucket-destination",
         "destination": {
-            "type": "S3",
+            "type": "S3Compatible",
             # Valid configuration for the submitted type, so the type change is what gets rejected.
             "config": {"bucket_name": "my-bucket", "region": "us-east-1", "prefix": "events/"},
         },

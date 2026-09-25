@@ -191,6 +191,7 @@ export type SettingId =
     | 'group-analytics'
     | 'heatmaps'
     | 'heatmap-screenshot-cookie'
+    | 'heatmaps-capture'
     | 'hedgehog-mode'
     | 'homepage'
     | 'human-friendly-comparison-periods'
@@ -214,7 +215,6 @@ export type SettingId =
     | 'logs-pattern-message-keys'
     | 'logs-pii-scrub'
     | 'logs-retention'
-    | 'logs-retention-rules'
     | 'logs-session-id-attribute-keys'
     | 'marketing-settings'
     | 'mcp-hints'
@@ -292,6 +292,7 @@ export type SettingId =
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
+    | 'tracing-retention'
     | 'tracing-session-id-attribute-keys'
     | 'user-delete'
     | 'user-groups'
@@ -399,6 +400,20 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * setting's component, which stacks one identical upsell card per setting on the page.
      */
     payGate?: SettingSectionPayGate
+
+    /**
+     * Where to send a reader who cannot open this section, shown as the next step when the section
+     * is gated off. `label` is user-facing copy.
+     */
+    unavailableFallback?: { sectionId: SettingSectionId; label: string }
+}
+
+/** Why a section the reader asked for is not there, and where to go instead. */
+export interface UnavailableSection {
+    id: SettingSectionId
+    title: JSX.Element | string
+    reason: 'not-enabled' | 'admin-only'
+    fallback: { sectionId: SettingSectionId; label: string } | null
 }
 
 export interface SettingSectionPayGate {

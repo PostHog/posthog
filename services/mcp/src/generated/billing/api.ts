@@ -151,27 +151,6 @@ export const BillingLimitsRetrieveParams = () => zod.object({
 
 /**
  * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
- * @summary List the organization's products
- */
-export const BillingProductsListParams = () => zod.object({
-    organization_id: zod
-        .string()
-        .describe(
-            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
-        ),
-})
-
-export const billingProductsListQueryIncludePlansDefault = false
-
-export const BillingProductsListQueryParams = () => zod.object({
-    include_plans: zod
-        .boolean()
-        .default(billingProductsListQueryIncludePlansDefault)
-        .describe('Add the `plans` list to each product and add-on. Most of the payload.'),
-})
-
-/**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
  * @summary Get one product
  */
 export const BillingProductsRetrieveParams = () => zod.object({
@@ -190,6 +169,18 @@ export const BillingProductsRetrieveQueryParams = () => zod.object({
         .boolean()
         .default(billingProductsRetrieveQueryIncludePlansDefault)
         .describe('Add the `plans` list to each product and add-on. Most of the payload.'),
+})
+
+/**
+ * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * @summary Get every product in summary
+ */
+export const BillingProductsSummaryRetrieveParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
 })
 
 /**

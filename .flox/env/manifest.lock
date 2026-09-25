@@ -43,6 +43,11 @@
           "dev"
         ]
       },
+      "depot-cli": {
+        "pkg-path": "depot-cli",
+        "pkg-group": "depot",
+        "version": "^2.102"
+      },
       "emscripten": {
         "pkg-path": "emscripten",
         "pkg-group": "emscripten",
@@ -3505,6 +3510,93 @@
       },
       "system": "x86_64-linux",
       "group": "uv",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/8hnwcq7wrlzwizkrxjhib7bx82llp5xi-depot-cli-2.102.9.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
+      "pname": "depot-cli",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T04:58:05.803991Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.102.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/1bi1y13kr74rlmj8j4vslq993j1vdm5c-depot-cli-2.102.9"
+      },
+      "system": "aarch64-darwin",
+      "group": "depot",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/zkw5dmf93pfr1wm7f2622g7lyw8yz10w-depot-cli-2.102.9.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
+      "pname": "depot-cli",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T05:29:39.537297Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.102.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/ld8k0nmfl02ysjkkr9l2m5i3hy893sn3-depot-cli-2.102.9"
+      },
+      "system": "aarch64-linux",
+      "group": "depot",
+      "priority": 5
+    },
+    {
+      "attr_path": "depot-cli",
+      "broken": false,
+      "derivation": "/nix/store/vjh6m3hgsafr06qx6ajfmva818rfwq2f-depot-cli-2.102.9.drv",
+      "description": "Official CLI for the Depot Docker image builder",
+      "install_id": "depot-cli",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "name": "depot-cli-2.102.9",
+      "pname": "depot-cli",
+      "rev": "6774f7bc253789b113a4f39285dc0fa100abeacc",
+      "rev_count": 1077996,
+      "rev_date": "2026-09-22T03:11:10Z",
+      "scrape_date": "2026-09-23T06:06:17.967455Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "2.102.9",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/y9pf0adrvbwj3ki0ab9nch76p9y1d05v-depot-cli-2.102.9"
+      },
+      "system": "x86_64-linux",
+      "group": "depot",
       "priority": 5
     }
   ]

@@ -620,12 +620,12 @@ describe('mcpDashboardOverviewLogic', () => {
 
                 if (filter === 'date') {
                     logic.actions.setDateFilter('-30d', null)
+                    logic.actions.markFilterInteraction()
                 } else if (filter === 'property') {
                     logic.actions.setPropertyFilters([EVENT_FILTER])
                 } else {
                     logic.actions.setFilterTestAccounts(true)
                 }
-                logic.actions.markFilterInteraction()
                 expect(logic.values.canShowFeedback).toBe(false)
                 await expectLogic(logic).toFinishAllListeners()
                 expect(logic.values.canShowFeedback).toBe(true)

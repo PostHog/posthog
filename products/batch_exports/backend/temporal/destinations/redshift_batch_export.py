@@ -835,7 +835,10 @@ def _get_table_schemas(
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
             ("person_properties", properties_type),
+            ("person_id", "VARCHAR(200)"),
         ]
+        # A retry can consume files staged before a new default column was added.
+        table_schema = [field for field in table_schema if field[0] in record_batch_schema.names]
 
     else:
         table_schema = get_redshift_fields_from_record_schema(

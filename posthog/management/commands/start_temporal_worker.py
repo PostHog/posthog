@@ -31,6 +31,7 @@ from posthog.temporal.ai_observability import (
 )
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
+    AI_QUEUE_ACTIVITIES as ALERT_AI_QUEUE_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
 )
 from posthog.temporal.backfill_group_type_created_at import (
@@ -152,12 +153,12 @@ from posthog.temporal.weekly_digest import (
 )
 
 from products.alerts.backend.facade.temporal import (
-    DELIVERY_ACTIVITIES as ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
-    DELIVERY_WORKFLOWS as ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
-    EVALUATION_ACTIVITIES as ALERTS_PRODUCT_EVALUATION_ACTIVITIES,
-    EVALUATION_WORKFLOWS as ALERTS_PRODUCT_EVALUATION_WORKFLOWS,
-    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
-    SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
+    DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
+    DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
+    EVALUATION_ACTIVITIES as ALERTS_PLATFORM_EVALUATION_ACTIVITIES,
+    EVALUATION_WORKFLOWS as ALERTS_PLATFORM_EVALUATION_WORKFLOWS,
+    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
+    SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
 )
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
@@ -454,7 +455,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -566,19 +567,19 @@ _task_queue_specs = [
         STAMPHOG_ACTIVITIES,
     ),
     (
-        settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE,
-        ALERTS_PRODUCT_SHARED_ORCHESTRATION_WORKFLOWS,
-        ALERTS_PRODUCT_SHARED_ORCHESTRATION_ACTIVITIES,
+        settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
+        ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
+        ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
     ),
     (
-        settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE,
-        ALERTS_PRODUCT_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
-        ALERTS_PRODUCT_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
+        settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
+        ALERTS_PLATFORM_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
     ),
     (
-        settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
-        ALERTS_PRODUCT_DELIVERY_WORKFLOWS,
-        ALERTS_PRODUCT_DELIVERY_ACTIVITIES,
+        settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
+        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
+        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
     ),
 ]
 
@@ -683,14 +684,20 @@ class Command(BaseCommand):
         parser.add_argument(
             "--target-memory-usage",
             type=float,
-            default=settings.TARGET_MEMORY_USAGE,
+            default=settings.TEMPORAL_TARGET_MEMORY_USAGE,
             help="Fraction of available memory to use",
         )
         parser.add_argument(
             "--target-cpu-usage",
             type=float,
-            default=settings.TARGET_CPU_USAGE,
+            default=settings.TEMPORAL_TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
+        )
+        parser.add_argument(
+            "--activity-ramp-throttle-ms",
+            type=int,
+            default=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS,
+            help="Minimum milliseconds between two activity slot issues when the resource-based tuner is on",
         )
         parser.add_argument(
             "--health-port",
@@ -725,6 +732,7 @@ class Command(BaseCommand):
         use_pydantic_converter = options["use_pydantic_converter"]
         target_memory_usage = options.get("target_memory_usage", None)
         target_cpu_usage = options.get("target_cpu_usage", None)
+        activity_ramp_throttle_ms = options.get("activity_ramp_throttle_ms", None)
         health_port = options.get("health_port", None)
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
@@ -821,6 +829,7 @@ class Command(BaseCommand):
                 max_concurrent_activities=max_concurrent_activities,
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage,
+                activity_ramp_throttle_ms=activity_ramp_throttle_ms,
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
@@ -859,6 +868,11 @@ class Command(BaseCommand):
                     use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
+                    activity_ramp_throttle=(
+                        dt.timedelta(milliseconds=activity_ramp_throttle_ms)
+                        if activity_ramp_throttle_ms is not None
+                        else None
+                    ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
                 )

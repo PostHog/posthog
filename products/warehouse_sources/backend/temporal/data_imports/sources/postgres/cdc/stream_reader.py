@@ -156,8 +156,8 @@ class PgCDCStreamReader:
 
         ``upto_nchanges`` bounds one peek: ``pg_logical_slot_peek_binary_changes`` stops once a
         transaction's COMMIT pushes the decoded-change count past it. It never splits a
-        transaction, so a single large transaction is still returned in full (the decoder's own
-        buffer guard bounds that case). ``None`` reads the whole backlog.
+        transaction, so a single large transaction is still returned in full (the decoder spills it
+        to a temporary file rather than holding it in memory). ``None`` reads the whole backlog.
 
         ``on_row`` is invoked once per fetched WAL row so the caller can heartbeat during a long
         decode — the decoder yields nothing until a COMMIT, so a big transaction would otherwise
@@ -373,6 +373,7 @@ class PgCDCStreamReader:
         return self._last_rows_consumed
 
     def close(self) -> None:
+        self._decoder.close()
         if self._conn is not None:
             self._conn.close()
             self._conn = None

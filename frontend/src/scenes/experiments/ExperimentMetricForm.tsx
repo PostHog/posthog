@@ -551,8 +551,9 @@ export function ExperimentMetricForm({
                             />
                             {isExperimentExposureNode(metric.start_event) ? (
                                 <div className="text-muted text-xs">
-                                    Retention starts from each user's first exposure to the experiment. In a shared
-                                    metric, each experiment uses its own exposure event.
+                                    {isSharedMetric
+                                        ? "Retention starts from each user's first exposure. Each experiment using this metric anchors on its own exposure event."
+                                        : "Retention starts from each user's first exposure to the experiment."}
                                 </div>
                             ) : (
                                 <ActionFilter
