@@ -85,8 +85,7 @@ class _EgressHooks:
             "egress.domain": self.egress_domain,
             "egress.source": source,
             "egress.priority": priority.value,
-            "egress.endpoint": endpoint
-            or (self.observability.normalize_endpoint(url) if hasattr(self, "observability") else "unknown"),
+            "egress.endpoint": endpoint or self.observability.normalize_endpoint(url),
             "egress.scoped": bool(scope),
         }
 
@@ -94,6 +93,18 @@ class _EgressHooks:
     def _mark_span_exception(span: trace.Span, error: Exception) -> None:
         span.set_attribute("error.type", type(error).__name__)
         span.set_status(Status(StatusCode.ERROR))
+
+    @staticmethod
+    def _set_span_response_metadata(span: trace.Span, response_url: str | None, status_code: int | None) -> None:
+        """Record response URL (after redirects) and status code to the span."""
+        if isinstance(response_url, str):
+            response_hostname = urlparse(response_url).hostname
+            if response_hostname:
+                span.set_attribute("server.address", response_hostname)
+        if isinstance(status_code, int):
+            span.set_attribute("http.response.status_code", status_code)
+            if status_code >= 400:
+                span.set_status(Status(StatusCode.ERROR))
 
 
 class RecordedEgressClient(_EgressHooks):
@@ -142,20 +153,13 @@ class RecordedEgressClient(_EgressHooks):
                 raise
 
             self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
-            response_url = getattr(response, "url", None)
-            if isinstance(response_url, str):
-                response_hostname = urlparse(response_url).hostname
-                if response_hostname:
-                    span.set_attribute("server.address", response_hostname)
-            status_code = getattr(response, "status_code", None)
-            if isinstance(status_code, int):
-                span.set_attribute("http.response.status_code", status_code)
-                if status_code >= 400:
-                    span.set_status(Status(StatusCode.ERROR))
+            self._set_span_response_metadata(
+                span, getattr(response, "url", None), getattr(response, "status_code", None)
+            )
             return response
 
     def _before_request(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
-        return None
+        pass
 
     def _record_response(
         self, response: requests.Response, *, source: str, scope: str | None, method: str, endpoint: str | None
@@ -274,16 +278,7 @@ class AsyncEgressClient(_EgressHooks, ABC):
                 self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
                 raise
 
-            response_url = getattr(response, "url", None)
-            if isinstance(response_url, str):
-                response_hostname = urlparse(response_url).hostname
-                if response_hostname:
-                    span.set_attribute("server.address", response_hostname)
-            status_code = getattr(response, "status", None)
-            if isinstance(status_code, int):
-                span.set_attribute("http.response.status_code", status_code)
-                if status_code >= 400:
-                    span.set_status(Status(StatusCode.ERROR))
+            self._set_span_response_metadata(span, getattr(response, "url", None), getattr(response, "status", None))
             self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
             return response
 
