@@ -81,8 +81,16 @@ function WatchLink({
         </ObservationThumbnail>
     )
     if (expired) {
-        // An expired recording has nothing to open, so its frame carries no link and no play affordance.
-        return <span className={clsx('relative block', compact && 'w-28')}>{thumbnail}</span>
+        // Nothing to open, so no link. The tag sits on the frame where the watch caption would, which
+        // keeps it off the result title.
+        return (
+            <span className={clsx('relative block', compact && 'w-28')}>
+                {thumbnail}
+                <span className={clsx('absolute', compact ? 'bottom-1 right-1' : 'bottom-2 right-2')}>
+                    <RecordingExpiredTag compact={compact} />
+                </span>
+            </span>
+        )
     }
     return (
         <Link
@@ -192,7 +200,6 @@ export function MomentCard({
             <div className="flex flex-col gap-1.5 p-3 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                     <ScannerName observation={observation} />
-                    {expired && <RecordingExpiredTag />}
                     <span className="ml-auto shrink-0 text-xs text-muted">
                         <TZLabel time={observation.created_at} />
                     </span>
@@ -226,7 +233,6 @@ export function MomentRow({ result, searchedQuery, returnParams, expired }: Resu
                 <div className="flex items-center gap-2 min-w-0">
                     <ScannerName observation={observation} />
                     {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
-                    {expired && <RecordingExpiredTag />}
                     <SubjectLink observation={observation} />
                     <span className="ml-auto shrink-0 flex items-center gap-2 text-xs text-muted">
                         <TZLabel time={observation.created_at} />
