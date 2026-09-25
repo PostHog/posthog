@@ -34,15 +34,17 @@ Constraints: `check_properties_size` — `pg_column_size(properties) <= 655360` 
 
 ## posthog_persondistinctid
 
-| Index name                                    | Type   | Columns                                                | Notes                              |
-| --------------------------------------------- | ------ | ------------------------------------------------------ | ---------------------------------- |
-| `unique_distinct_id_for_team`                 | UNIQUE | `(team_id, distinct_id)`                               | Primary lookup path                |
-| `posthog_persondistinctid_person_id_5d655bba` | INDEX  | `(person_id)`                                          | Join back to person                |
-| `posthog_persondistinctid_person_id_fkey`     | FK     | `(team_id, person_id)` → `posthog_person(team_id, id)` | NOT VALID (added during migration) |
+| Index name                                     | Type   | Columns                                                | Notes                                               |
+| ---------------------------------------------- | ------ | ------------------------------------------------------ | --------------------------------------------------- |
+| `unique_distinct_id_for_team`                  | UNIQUE | `(team_id, distinct_id)`                               | Primary lookup path                                 |
+| `posthog_persondistinctid_person_lookup_idx`   | INDEX  | `(person_id, team_id, is_deleted, id)`                 | Covering: `INCLUDE (distinct_id, version)`          |
+| `posthog_persondistinctid_person_id_5d655bba`  | INDEX  | `(person_id)`                                          | Join back to person; a prefix of the covering index |
+| `posthog_persondistinctid_person_id_fkey`      | FK     | `(team_id, person_id)` → `posthog_person(team_id, id)` | NOT VALID (added during migration)                  |
 
 **Typical query patterns:**
 
 - `WHERE team_id = $1 AND distinct_id = $2` → `unique_distinct_id_for_team` scan
+- `WHERE team_id = $1 AND person_id = $2 AND is_deleted = false`, returning `distinct_id`, `version` or `id` → index-only scan on `posthog_persondistinctid_person_lookup_idx`
 - `WHERE person_id = $1` → `posthog_persondistinctid_person_id_5d655bba` scan
 - `JOIN posthog_person p ON p.id = d.person_id AND p.team_id = d.team_id WHERE d.team_id = $1 AND d.distinct_id = $2` → unique index + PK
 
