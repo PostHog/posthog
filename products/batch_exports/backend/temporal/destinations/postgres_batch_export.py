@@ -135,21 +135,12 @@ NON_RETRYABLE_ERROR_TYPES = (
     # The inputs are missing required connection details (e.g. credentials or host).
     # This usually means the backing integration is misconfigured or absent, so retrying won't help.
     "PostgreSQLMissingRequiredInputsError",
+    # The final merge waited on locks or hit the destination's statement timeout after several attempts.
+    "PostgreSQLMergeTimeoutError",
 )
 
 MERGE_LOCK_TIMEOUT_SECONDS = 5 * 60
-
-# If our worker stops during a merge, the destination can keep the session and its row locks for hours.
-# Server-side keepalives find a client that stopped without closing the connection, and
-# client_connection_check_interval (PostgreSQL 14+) cancels a running statement when that occurs.
-# The libpq keepalive parameters cannot do this, because they only configure our side of the connection.
-MERGE_SESSION_SETTINGS: dict[str, str] = {
-    "idle_in_transaction_session_timeout": "5min",
-    "client_connection_check_interval": "10s",
-    "tcp_keepalives_idle": "60",
-    "tcp_keepalives_interval": "10",
-    "tcp_keepalives_count": "6",
-}
+MERGE_MAX_ATTEMPTS = 3
 
 
 class PostgreSQLConnectionError(Exception):
@@ -173,6 +164,10 @@ class PostgreSQLTransactionError(Exception):
 
     def __init__(self, max_attempts: int, err_msg: str):
         super().__init__(f"A transaction failed to complete after {max_attempts} attempts: {err_msg}")
+
+
+class PostgreSQLMergeTimeoutError(Exception):
+    """Raised when the final merge waits on locks or exceeds the statement timeout after several attempts."""
 
 
 class PostgreSQLMissingRequiredInputsError(Exception):
@@ -230,6 +225,10 @@ class PostgresInsertInputs(BatchExportInsertInputs):
         return TLS(
             ssl_mode="prefer" if settings.TEST else "require",
         )
+
+
+def _is_statement_timeout(err: Exception) -> bool:
+    return isinstance(err, psycopg.errors.QueryCanceled) and "statement timeout" in (err.diag.message_primary or "")
 
 
 async def run_in_retryable_transaction(
@@ -530,6 +529,7 @@ class PostgreSQLClient:
         update_when_matched: Fields,
         timeout: float | int | None = None,
         lock_timeout: float | int = MERGE_LOCK_TIMEOUT_SECONDS,
+        max_attempts: int = MERGE_MAX_ATTEMPTS,
     ) -> None:
         """Merge two identical person model tables in PostgreSQL.
 
@@ -597,64 +597,70 @@ class PostgreSQLClient:
             field_names=field_names,
         )
 
-        async with self.connection.transaction():
-            async with self.connection.cursor() as cursor:
-                if schema:
-                    await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-                await cursor.execute("SET TRANSACTION READ WRITE")
+        async def merge() -> None:
+            async with self.connection.transaction():
+                async with self.connection.cursor() as cursor:
+                    if schema:
+                        await cursor.execute(
+                            sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema))
+                        )
+                    await cursor.execute("SET TRANSACTION READ WRITE")
 
-                await self._aset_local(cursor, "lock_timeout", f"{int(lock_timeout * 1000)}ms")
-                for name, value in MERGE_SESSION_SETTINGS.items():
-                    await self._aset_local(cursor, name, value)
+                    # The savepoint keeps the transaction valid on PostgreSQL-compatible databases that reject
+                    # the setting. These merge as before, without a limit on lock waits.
+                    try:
+                        async with self.connection.transaction():
+                            await cursor.execute(
+                                sql.SQL("SET LOCAL lock_timeout = {}").format(
+                                    sql.Literal(f"{int(lock_timeout * 1000)}ms")
+                                )
+                            )
+                    except psycopg.Error:
+                        self.logger.warning("Failed to set lock_timeout for merge", exc_info=True)
 
-                try:
-                    async with asyncio.timeout(timeout):
-                        await cursor.execute(merge_query)
-                except psycopg.errors.InvalidColumnReference:
-                    raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
-                except psycopg.errors.LockNotAvailable:
-                    self.external_logger.exception(
-                        "Final merge into '%s.%s' waited more than %s seconds for a lock held by another session, so it was canceled and will be retried. "
-                        "A long-running or idle transaction on the destination database can hold these locks. "
-                        "To find the blocking session, query 'pg_stat_activity' together with 'pg_blocking_pids()'.",
-                        schema,
-                        final_table_name,
-                        lock_timeout,
-                    )
-                    raise
-                except psycopg.errors.QueryCanceled as e:
-                    if "statement timeout" in (e.diag.message_primary or ""):
+                    try:
+                        async with asyncio.timeout(timeout):
+                            await cursor.execute(merge_query)
+                    except psycopg.errors.InvalidColumnReference:
+                        raise MissingPrimaryKeyError(final_table_identifier, conflict_fields)
+                    except TimeoutError as e:
                         self.external_logger.exception(
-                            "Final merge into '%s.%s' was canceled by the 'statement_timeout' of the destination database, and will be retried. "
-                            "The merge can be slow, or it can wait for a lock held by another session. "
-                            "Increase 'statement_timeout' for this user, or query 'pg_stat_activity' together with 'pg_blocking_pids()' to find a blocking session.",
+                            "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
                             schema,
                             final_table_name,
                         )
-                    raise
-                except TimeoutError as e:
-                    self.external_logger.exception(
-                        "Final merge into '%s.%s' is taking too long to complete and will be rolled-back. Perhaps the database is under too much load?",
-                        schema,
-                        final_table_name,
-                    )
-                    raise TimeoutError(
-                        f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
-                    ) from e
+                        raise TimeoutError(
+                            f"Timed-out final merge into '{schema}.{final_table_name}' after {timeout} seconds"
+                        ) from e
 
-    async def _aset_local(self, cursor: psycopg.AsyncCursor, name: str, value: str) -> None:
-        """Set a setting for the current transaction only, and continue if the server rejects it.
+        merge_with_retries = make_retryable_with_exponential_backoff(
+            merge,
+            max_attempts=max_attempts,
+            retryable_exceptions=(psycopg.errors.LockNotAvailable, psycopg.errors.QueryCanceled),
+            is_exception_retryable=lambda err: (
+                isinstance(err, psycopg.errors.LockNotAvailable) or _is_statement_timeout(err)
+            ),
+        )
 
-        The `SET` runs in a savepoint, because a rejected `SET` (for example, on a PostgreSQL-compatible
-        database that does not have the setting) would otherwise abort the full transaction.
-        """
         try:
-            async with self.connection.transaction():
-                await cursor.execute(
-                    sql.SQL("SET LOCAL {name} = {value}").format(name=sql.Identifier(name), value=sql.Literal(value))
-                )
-        except psycopg.Error:
-            self.logger.warning("Failed to set PostgreSQL setting", setting=name, exc_info=True)
+            await merge_with_retries()
+        except psycopg.errors.LockNotAvailable as err:
+            raise PostgreSQLMergeTimeoutError(
+                f"Final merge into '{schema}.{final_table_name}' waited more than {lock_timeout} seconds for a lock "
+                f"held by another session, after {max_attempts} attempts. "
+                "A long-running or idle transaction on the destination database can hold these locks. "
+                "To find the blocking session, query 'pg_stat_activity' together with 'pg_blocking_pids()'."
+            ) from err
+        except psycopg.errors.QueryCanceled as err:
+            if not _is_statement_timeout(err):
+                raise
+            raise PostgreSQLMergeTimeoutError(
+                f"The 'statement_timeout' of the destination database canceled the final merge into "
+                f"'{schema}.{final_table_name}' after {max_attempts} attempts. "
+                "The merge can be slow, or it can wait for a lock held by another session. "
+                "Increase 'statement_timeout' for this user, or query 'pg_stat_activity' together with "
+                "'pg_blocking_pids()' to find a blocking session."
+            ) from err
 
     async def copy_tsv_to_postgres(
         self,

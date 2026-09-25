@@ -13,6 +13,7 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     NON_RETRYABLE_ERROR_TYPES,
     PostgresInsertInputs,
     PostgreSQLClient,
+    PostgreSQLMergeTimeoutError,
     PostgreSQLMissingRequiredInputsError,
     PostgreSQLTransactionError,
     remove_invalid_json,
@@ -205,7 +206,7 @@ async def test_client_from_integration(postgres_config, setup_postgres_test_db, 
                 assert results == [(1,)]
 
 
-async def test_amerge_mutable_tables_stops_waiting_for_a_row_lock(
+async def test_amerge_mutable_tables_raises_non_retryable_error_when_a_row_lock_blocks_it(
     postgres_config: dict[str, typing.Any], postgres_connection: psycopg.AsyncConnection
 ) -> None:
     schema = postgres_config["schema"]
@@ -234,7 +235,7 @@ async def test_amerge_mutable_tables_stops_waiting_for_a_row_lock(
             await cursor.execute(sql.SQL("SELECT * FROM {} WHERE id = 1 FOR UPDATE").format(final_table))
 
         async with postgres_client.connect() as pg_client:
-            with pytest.raises(psycopg.errors.LockNotAvailable):
+            with pytest.raises(PostgreSQLMergeTimeoutError) as exc_info:
                 await pg_client.amerge_mutable_tables(
                     final_table_name="merge_lock_final",
                     stage_table_name="merge_lock_stage",
@@ -244,4 +245,8 @@ async def test_amerge_mutable_tables_stops_waiting_for_a_row_lock(
                     update_when_matched=[("id", "INTEGER"), ("version", "INTEGER")],
                     timeout=60,
                     lock_timeout=1,
+                    max_attempts=1,
                 )
+
+    assert isinstance(exc_info.value.__cause__, psycopg.errors.LockNotAvailable)
+    assert type(exc_info.value).__name__ in NON_RETRYABLE_ERROR_TYPES
