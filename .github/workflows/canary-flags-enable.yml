@@ -374,7 +374,7 @@ jobs:
                       } else {
                           // pull_request: synchronize.
                           // The active canary's settings are the source of truth —
-                          // read them from state.yaml (loaded by the state_lookup
+                          // read them from the charts state file (loaded by the state_lookup
                           // step). If the canary is disabled or owned by a different
                           // PR, skip the rebuild entirely; the user must use
                           // /pr-canary to opt back in. Silently defaulting to
