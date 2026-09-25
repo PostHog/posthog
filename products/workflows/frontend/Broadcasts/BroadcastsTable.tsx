@@ -101,7 +101,13 @@ export function BroadcastsTable(): JSX.Element {
         createdAtColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
     ]
 
-    const isEmpty = hasLoadedBroadcasts && !broadcastsLoading && !isFiltered && broadcasts.count === 0
+    const isEmpty =
+        hasLoadedBroadcasts &&
+        !broadcastsLoading &&
+        !filtersPending &&
+        !loadFailed &&
+        !isFiltered &&
+        broadcasts.count === 0
 
     if (isEmpty) {
         return (
@@ -167,7 +173,7 @@ export function BroadcastsTable(): JSX.Element {
                 columns={columns}
                 nouns={['broadcast', 'broadcasts']}
                 emptyState={
-                    hideRows
+                    loadFailed
                         ? "Couldn't load broadcasts. Refresh the page to try again."
                         : isFiltered
                           ? 'No broadcasts match these filters'
