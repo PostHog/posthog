@@ -6980,6 +6980,7 @@ const api = {
                 date_from?: string
                 date_to?: string
                 order_by?: string
+                count_mode?: 'exact' | 'capped'
                 limit?: number
                 offset?: number
             } = {}

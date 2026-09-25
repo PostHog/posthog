@@ -655,13 +655,17 @@ class TestTicketAPI(APIBaseTest):
             )
         list_url = f"/api/projects/{self.team.id}/conversations/tickets/"
 
-        response = self.client.get(f"{list_url}?limit=1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
-        self.assertFalse(response.json()["count_capped"])
-
         with patch.object(TicketPagination, "count_ceiling", 2):
-            capped = self.client.get(f"{list_url}?limit=1")
+            # A request that does not opt in keeps the exact total it has always had, even
+            # though more tickets match than the ceiling allows.
+            for query in (f"{list_url}?limit=1", f"{list_url}?limit=1&count_mode=exact"):
+                with self.subTest(query=query):
+                    response = self.client.get(query)
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
+                    self.assertEqual(response.json()["count"], 3)
+                    self.assertFalse(response.json()["count_capped"])
+
+            capped = self.client.get(f"{list_url}?limit=1&count_mode=capped")
             self.assertEqual(capped.status_code, status.HTTP_200_OK)
             self.assertEqual(capped.json()["count"], 2)
             self.assertTrue(capped.json()["count_capped"])
@@ -669,7 +673,7 @@ class TestTicketAPI(APIBaseTest):
 
             # The ceiling always leaves room for one row past the current page, so a page
             # deeper than the ceiling still reports the rows behind it.
-            deep = self.client.get(f"{list_url}?limit=1&offset=2")
+            deep = self.client.get(f"{list_url}?limit=1&offset=2&count_mode=capped")
             self.assertEqual(deep.status_code, status.HTTP_200_OK)
             self.assertEqual(deep.json()["count"], 3)
             self.assertFalse(deep.json()["count_capped"])
@@ -679,7 +683,7 @@ class TestTicketAPI(APIBaseTest):
         # A total that lands exactly on the ceiling is exact, not capped: the count query reads
         # one row past the ceiling, and here that row does not exist.
         with patch.object(TicketPagination, "count_ceiling", 3):
-            exact = self.client.get(f"{list_url}?limit=1")
+            exact = self.client.get(f"{list_url}?limit=1&count_mode=capped")
             self.assertEqual(exact.status_code, status.HTTP_200_OK)
             self.assertEqual(exact.json()["count"], 3)
             self.assertFalse(exact.json()["count_capped"])

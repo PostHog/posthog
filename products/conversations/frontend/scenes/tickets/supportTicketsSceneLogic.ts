@@ -766,6 +766,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 params.date_to = values.dateTo
             }
             params.order_by = values.orderBy
+            // The list only needs to know whether another page exists, so it takes the cheap
+            // capped count. An exact total costs a full scan of everything the filters match.
+            params.count_mode = 'capped'
             params.limit = SUPPORT_TICKETS_PAGE_SIZE
             params.offset = (values.currentPage - 1) * SUPPORT_TICKETS_PAGE_SIZE
 

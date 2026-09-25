@@ -49,6 +49,12 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .enum(['email', 'github', 'slack', 'teams', 'widget'])
         .optional()
         .describe('Filter by the channel the ticket originated from.'),
+    count_mode: zod
+        .enum(['capped', 'exact'])
+        .optional()
+        .describe(
+            'How to compute `count`. `exact` (default) counts every matching ticket. `capped` stops counting at 1000 and sets `count_capped` when more match, which keeps the count cheap on a large ticket list. Paging and the `next` link are exact in both modes.'
+        ),
     date_from: zod
         .string()
         .optional()
