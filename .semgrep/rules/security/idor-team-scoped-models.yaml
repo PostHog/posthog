@@ -305,11 +305,6 @@ rules:
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
-                              |OfflineEvaluationResult
-                              |OfflineEvaluationResultPayload
-                              |OfflineExperiment
-                              |OfflineExperimentItem
-                              |OfflineExperimentItemPayload
                               |ParserRecipe
                               |PendingSourceCredential
                               |PluginConfig
@@ -732,11 +727,6 @@ rules:
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
-                        |OfflineEvaluationResult
-                        |OfflineEvaluationResultPayload
-                        |OfflineExperiment
-                        |OfflineExperimentItem
-                        |OfflineExperimentItemPayload
                         |ParserRecipe
                         |PendingSourceCredential
                         |PluginConfig
