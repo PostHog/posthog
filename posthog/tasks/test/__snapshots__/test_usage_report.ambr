@@ -658,7 +658,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -670,7 +670,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 02:00:00'
     AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -682,7 +682,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 04:00:00'
     AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -694,7 +694,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 06:00:00'
     AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -706,7 +706,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 08:00:00'
     AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -718,7 +718,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 10:00:00'
     AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -730,7 +730,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 12:00:00'
     AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -782,7 +782,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 14:00:00'
     AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -794,7 +794,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 16:00:00'
     AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -806,7 +806,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 18:00:00'
     AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -818,7 +818,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 20:00:00'
     AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -830,7 +830,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 22:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
   GROUP BY team_id
   '''
 # ---
@@ -842,7 +842,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -856,7 +856,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 02:00:00'
     AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -870,7 +870,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 04:00:00'
     AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -884,7 +884,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 06:00:00'
     AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -898,7 +898,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 08:00:00'
     AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -952,7 +952,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 10:00:00'
     AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -966,7 +966,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 12:00:00'
     AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -980,7 +980,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 14:00:00'
     AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -994,7 +994,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 16:00:00'
     AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -1008,7 +1008,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 18:00:00'
     AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -1022,7 +1022,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 20:00:00'
     AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -1036,7 +1036,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 22:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
+    AND event NOT IN ['$sdk_diagnostics_config', '$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id

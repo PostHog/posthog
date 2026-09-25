@@ -102,6 +102,7 @@
     'posthog.tasks.remote_config.cleanup_stale_remote_config_expiry_tracking_task',
     'posthog.tasks.remote_config.refresh_expiring_remote_config_cache_entries',
     'posthog.tasks.remote_config.sync_all_remote_configs',
+    'posthog.tasks.remote_config.update_organization_remote_configs',
     'posthog.tasks.remote_config.update_team_remote_config',
     'posthog.tasks.split_person.split_person',
     'posthog.tasks.surveys.sync_all_surveys_cache',
