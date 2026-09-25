@@ -215,6 +215,11 @@ export const ConfigureStarredWithoutAIConsent: Story = {
     },
 }
 export const ConfigureStarredSaveFailure: Story = {
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
+    },
     decorators: [
         (Story, { globals }) => (
             <>
