@@ -1,7 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { EvaluationBackfillApi } from '../generated/api.schemas'
-import { backfillCoveredCount, backfillRangeDateFormat, backfillSamplingLabel } from './backfillConditions'
+import {
+    backfillCoveredCount,
+    backfillLateArrivalCount,
+    backfillRangeDateFormat,
+    backfillSamplingLabel,
+    backfillTotalCount,
+} from './backfillConditions'
 
 function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBackfillApi {
     return {
@@ -43,9 +49,21 @@ describe('backfillCoveredCount', () => {
         ['a finished run that left work counts the rest', { remaining_count: 3 }, 5],
         ['an unmeasured run counts what the walk handled', { remaining_count: null }, 3],
         ['a running one counts what the walk handled', { status: 'running' as const, remaining_count: null }, 3],
-        ['a remainder above the total cannot go negative', { total_count: 1, remaining_count: 2 }, 0],
-        ['coverage never exceeds the total', { status: 'running' as const, total_count: 1, remaining_count: null }, 1],
+        [
+            'a remainder above the total cannot go negative',
+            { total_count: 1, dispatched_count: 0, skipped_count: 0, remaining_count: 2 },
+            0,
+        ],
+        ['a run that handled more than its estimate counts all of it', { dispatched_count: 10, skipped_count: 0 }, 10],
     ])('%s', (_case, overrides, expected) => {
         expect(backfillCoveredCount(backfill(overrides))).toEqual(expected)
+    })
+
+    it.each([
+        ['the estimate stands while the walk handled less', {}, 8, 0],
+        ['the total rises to what the walk found', { dispatched_count: 10, skipped_count: 0 }, 10, 2],
+    ])('%s', (_case, overrides, total, late) => {
+        expect(backfillTotalCount(backfill(overrides))).toEqual(total)
+        expect(backfillLateArrivalCount(backfill(overrides))).toEqual(late)
     })
 })
