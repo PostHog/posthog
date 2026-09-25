@@ -3203,6 +3203,7 @@ def update_task_run(
                     "error_message": truncate_error_message(run.error_message),
                     "error_type": "agent_reported",
                     "duration_seconds": run._duration_seconds(),
+                    **run.failure_sandbox_backend_properties(),
                 },
             )
         observe_wizard_run_unbound(run)

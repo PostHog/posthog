@@ -384,6 +384,21 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 502
 
+    def test_get_pull_request_diff_uses_the_durable_pr_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
+            result = github.get_pull_request_diff("PostHog/posthog", 42)
+
+        assert result == {"success": True, "diff": "diff --git a b", "truncated": False}
+        mock_get.assert_called_once_with(
+            "GET",
+            "/repos/PostHog/posthog/pulls/42",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+            headers={"Accept": "application/vnd.github.diff"},
+        )
+
     def _github_for_org(self) -> GitHubIntegration:
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
