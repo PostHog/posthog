@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import { useRef, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import {
   KeyboardStickyView,
@@ -15,6 +16,7 @@ import {
   createAndRunTask,
   useDefaultRepository,
   useInvalidateTasks,
+  useSelectedSpace,
 } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
@@ -24,6 +26,9 @@ export default function NewChatScreen() {
   const insets = useSafeAreaInsets();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const repository = useDefaultRepository();
+  const space = useSelectedSpace();
+  const submitting = useRef(false);
+  const [sending, setSending] = useState(false);
   const invalidateTasks = useInvalidateTasks();
   // Keep the greeting centred in the space the keyboard leaves. The reported
   // height covers the bottom inset too, which the composer already occupied.
@@ -40,6 +45,9 @@ export default function NewChatScreen() {
   // Open the chat immediately with the message in it; the task and its run
   // are created behind that screen, then the chat is re-keyed to the real id.
   const send = async (text: string): Promise<void> => {
+    if (submitting.current) return;
+    submitting.current = true;
+    setSending(true);
     const identity = sessionIdentity();
     const tempId = `new-${Date.now()}`;
     const { startPending, adopt, failPending } = useSessions.getState();
@@ -49,6 +57,7 @@ export default function NewChatScreen() {
       const task = await createAndRunTask({
         prompt: text,
         repository: repository.data ?? null,
+        channel: space.selected?.id ?? null,
       });
       if (sessionIdentity() !== identity) return;
       adopt(tempId, task);
@@ -60,6 +69,9 @@ export default function NewChatScreen() {
     } catch (err) {
       if (sessionIdentity() !== identity) return;
       failPending(tempId, err instanceof Error ? err.message : String(err));
+    } finally {
+      submitting.current = false;
+      setSending(false);
     }
   };
 
@@ -77,6 +89,17 @@ export default function NewChatScreen() {
           <Composer
             placeholder="Chat with PostHog"
             repository={repository.data ?? null}
+            space={
+              space.isError
+                ? "Could not load spaces"
+                : space.isLoading
+                  ? "Loading spaces"
+                  : space.unavailable
+                    ? "Choose a space"
+                    : (space.selected?.name ?? "Personal")
+            }
+            sending={sending}
+            disabled={space.isLoading || space.isError || space.unavailable}
             onSend={send}
             autoFocus
           />

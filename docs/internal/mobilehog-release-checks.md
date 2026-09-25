@@ -31,6 +31,20 @@ The selected project persists across restarts and token refreshes.
 Switching projects clears the previous project's cached data and navigation state.
 Cloud sign-in lists only projects included in the OAuth grant.
 
+## Tasks and spaces
+
+The drawer starts with the signed-in user's cloud tasks in the selected project, including tasks started from Desktop.
+All tasks includes tasks by other users that the signed-in user can access.
+Task lists use the server's most recent activity order and support loading older pages.
+Search matches task titles, descriptions, and task numbers on the server, across spaces in the selected scope.
+Local Desktop runs remain on Desktop. Archived tasks stay outside the task list.
+Pull to refresh or return to the app to update tasks and spaces.
+
+New tasks use the selected space and its server context.
+The composer shows the space before sending. Tap it to search and choose an accessible space.
+The default is the user's personal space. The server creates it when needed.
+Space selection lasts for the current app session and clears on account or project changes.
+
 ## Inbox and task conversations
 
 Inbox lists actionable reports where the signed-in user is a suggested reviewer, highest priority first.
@@ -60,6 +74,15 @@ Before sharing a build:
   No data or selection from the first account should appear.
 - Log out while token refresh or a task command is pending.
   The old session must not return, and the command must not start work under the new account.
+- Start a cloud task in Desktop, then sign in to the same account and project on mobile.
+  Confirm that My tasks shows it. Switch to All tasks and confirm that accessible tasks by other users appear.
+  Load older pages. Search for an older task by title, description text, and task number, then open a result.
+  Clear search and confirm that the normal space groups return. Check loading, empty, and error states.
+- Choose a space in the new-task composer and send a message.
+  Confirm that Desktop shows the task in that space. Select a private space and confirm that access stays private.
+  Switch projects and confirm that the previous space selection clears.
+- Create a task in Desktop while mobile is in the background, then return to mobile.
+  Confirm that the task appears. Disconnect the network and check that refresh and space selection show errors with Retry.
 - Tap the login button twice quickly.
   Only one login flow should start.
 - Open Inbox with reports for different suggested reviewers. Only your reports should appear, with P0 first.
