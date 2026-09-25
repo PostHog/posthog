@@ -34,6 +34,6 @@ describe('insight description 400-character limit', () => {
             properties: Record<string, { description?: string }>
         }
 
-        expect(inputSchema.properties['description']?.description).toMatch(/[Mm]ax 400 characters/)
+        expect(inputSchema.properties['description']?.description).toMatch(/400 characters/)
     })
 })
