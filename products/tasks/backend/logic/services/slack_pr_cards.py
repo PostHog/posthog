@@ -8,7 +8,6 @@ already recorded on the run and the report.
 import structlog
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_messages import load_run_footer
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.tasks.backend.models import TaskRun
 
@@ -56,9 +55,7 @@ def _post_pr_closed_card(run_id: str, pr_url: str, *, merged: bool) -> bool:
     if not task_run.task.claim_slack_pr_closed_notification(pr_url, merged=merged):
         return False
 
-    handler = SlackThreadHandler(
-        SlackThreadContext.from_mapping(mapping), load_run_footer(task_run.id, integration_id=mapping.integration_id)
-    )
+    handler = SlackThreadHandler.for_run(SlackThreadContext.from_mapping(mapping), task_run.id)
     posted = handler.post_pr_closed(
         pr_url,
         handler.reader_task_url(),

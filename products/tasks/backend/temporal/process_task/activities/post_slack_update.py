@@ -91,7 +91,6 @@ class PostSlackUpdateInput:
 @close_db_connections
 def post_slack_update(input: PostSlackUpdateInput) -> None:
     """Post Slack update based on current task run state. Idempotent."""
-    from products.slack_app.backend.services.slack_messages import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
 
@@ -103,8 +102,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        footer = load_run_footer(task_run.id, integration_id=context.integration_id)
-        handler = SlackThreadHandler(context, footer)
+        handler = SlackThreadHandler.for_run(context, task_run.id)
         # The buttons lead where the footer's links do, so they answer to the same reader.
         task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
