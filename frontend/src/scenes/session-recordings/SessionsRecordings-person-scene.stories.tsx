@@ -180,6 +180,11 @@ export const PersonRecordingTabMultipleAndNotFound: Story = {
 
         return <App />
     },
+    parameters: {
+        testOptions: {
+            snapshotSettleTimeMs: 1000,
+        },
+    },
 }
 
 export const PersonRecordingTabMultipleAndFound: Story = {
