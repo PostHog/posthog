@@ -5005,10 +5005,21 @@ class ExperimentService:
             new_primary_uuids = new_uuids["primary"]
             new_secondary_uuids = new_uuids["secondary"]
 
+        # An inline metric can share its uuid with a detached shared metric. The ordering entry
+        # still belongs to the inline metric, so keep it.
+        inline_primary_uuids = {
+            uuid for m in update_data.get("metrics", experiment.metrics) or [] if (uuid := m.get("uuid"))
+        }
+        inline_secondary_uuids = {
+            uuid
+            for m in update_data.get("metrics_secondary", experiment.metrics_secondary) or []
+            if (uuid := m.get("uuid"))
+        }
+
         added_primary = new_primary_uuids - old_saved_metric_uuids["primary"]
-        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids
+        removed_primary = old_saved_metric_uuids["primary"] - new_primary_uuids - inline_primary_uuids
         added_secondary = new_secondary_uuids - old_saved_metric_uuids["secondary"]
-        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids
+        removed_secondary = old_saved_metric_uuids["secondary"] - new_secondary_uuids - inline_secondary_uuids
 
         # Fields whose new value is purely a side effect of add/remove — save these
         # via a muted save to avoid logging a spurious "reordered metrics" entry

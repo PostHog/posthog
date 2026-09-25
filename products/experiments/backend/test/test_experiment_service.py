@@ -6190,6 +6190,40 @@ class TestExperimentService(APIBaseTest):
         assert saved_metric_uuid in experiment.primary_metrics_ordered_uuids
         assert inline_uuid in experiment.primary_metrics_ordered_uuids
 
+    @parameterized.expand(
+        [
+            ("primary", "metrics", "primary_metrics_ordered_uuids"),
+            ("secondary", "metrics_secondary", "secondary_metrics_ordered_uuids"),
+        ]
+    )
+    def test_detaching_saved_metric_keeps_uuid_its_stored_inline_copy_uses(
+        self, metric_type: str, field: str, ordering_attr: str
+    ) -> None:
+        self._create_flag(key="detach-stored-collision")
+        shared_uuid = "99bfb66a-51f5-48d0-a87e-bde2b4c958a6"
+        metric = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": shared_uuid,
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+        sm = ExperimentSavedMetric.objects.create(team=self.team, name="Linked", query=metric)
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Detach stored collision",
+            feature_flag_key="detach-stored-collision",
+            allow_unknown_events=True,
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+        )
+        Experiment.objects.filter(id=experiment.id).update(**{field: [metric], ordering_attr: [shared_uuid]})
+        experiment.refresh_from_db()
+
+        updated = service.update_experiment(experiment, {"saved_metrics_ids": []})
+
+        assert not updated.experimenttosavedmetric_set.exists()
+        assert [m["uuid"] for m in getattr(updated, field)] == [shared_uuid]
+        assert getattr(updated, ordering_attr) == [shared_uuid]
+
     def test_clone_regenerates_uuids_even_when_source_uuid_matches_saved_metric(self):
         """Cloning regenerates inline metric uuids so they no longer collide with the
         saved metric's uuid carried by the cloned saved-metric link."""
