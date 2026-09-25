@@ -196,6 +196,42 @@ describe('FetchRunner', () => {
         ])
     })
 
+    it('starts the next request for a registrable domain while an earlier image publish waits', async () => {
+        const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' }, {}, 'queued', {
+            ...OPTIONS,
+            maxConcurrentPerRegistrableDomain: 1,
+        })
+        let releasePublish: () => void = () => undefined
+        harness.publishImage.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    releasePublish = resolve
+                })
+        )
+        const second = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://cdn.example.com/b.png',
+        })
+
+        let passFinished = false
+        const run = harness.runner.run([candidate(), second], new Map()).finally(() => {
+            passFinished = true
+        })
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([candidate().currentUrl, second.currentUrl])
+        expect(passFinished).toBe(false)
+        releasePublish()
+        const attempts = await run
+        expect(attempts.map((attempt) => [attempt.candidate.originalRef, attempt.outcome, attempt.lost])).toEqual(
+            expect.arrayContaining([
+                [candidate().originalRef, 'ok', false],
+                [second.originalRef, 'ok', false],
+            ])
+        )
+        expect(attempts).toHaveLength(2)
+    })
+
     it('allocates sibling-origin workers by queue share', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
         let releaseFirst: (() => void) | undefined
