@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { getPluginContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -300,6 +301,19 @@ describe('heatmapLogic', () => {
             expect(logic.values.saveDisabledReason).toBeTruthy()
             logic.actions.updateHeatmap()
             expect(heatmapApi.savedPartialUpdate).not.toHaveBeenCalled()
+        })
+
+        it('keeps the unsaved-changes guard quiet after the logic unmounts', () => {
+            logic.actions.setName('Checkout page')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+            const interceptors = Array.from(
+                getPluginContext('router').beforeUnloadInterceptors as Set<{
+                    enabled: () => boolean
+                }>
+            )
+            expect(interceptors.some((interceptor) => interceptor.enabled())).toBe(true)
+            logic.unmount()
+            expect(interceptors.some((interceptor) => interceptor.enabled())).toBe(false)
         })
 
         it.each(['viewer', 'toolbar'] as const)('disables unsupported edits for %s', (restriction) => {
