@@ -1,14 +1,7 @@
 import type { Task, TaskChannel } from "@posthog/shared/domain-types";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DrawerEdgeShadow } from "@/components/DrawerEdgeShadow";
 import { GlassCircleButton } from "@/components/Glass";
@@ -67,7 +60,6 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const router = useRouter();
   const tasks = useTasks();
   const channels = useChannels();
-  const logout = useAuth((s) => s.logout);
   const userName = useAuth((s) => s.session?.userName ?? "");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -186,16 +178,10 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
         <GlassCircleButton
           size={44}
           tint="rgba(255,92,28,0.18)"
-          onPress={() =>
-            Alert.alert("Sign out?", undefined, [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Sign out",
-                style: "destructive",
-                onPress: () => logout(),
-              },
-            ])
-          }
+          onPress={() => {
+            closeDrawer();
+            router.push("/settings");
+          }}
         >
           <Text style={styles.avatarText}>
             {userName.slice(0, 2).toUpperCase()}

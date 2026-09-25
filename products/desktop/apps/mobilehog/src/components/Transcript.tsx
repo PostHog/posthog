@@ -17,6 +17,7 @@ interface TranscriptProps {
   onPermission: (toolCallId: string, optionId: string) => void;
   // Fires with each user bubble's y offset inside the transcript, for scrolling.
   onUserLayout?: (blockId: string, y: number) => void;
+  workingLabel?: string;
 }
 
 type ToolBlock = Block & { kind: "tool" };
@@ -83,6 +84,7 @@ export function Transcript({
   session,
   onPermission,
   onUserLayout,
+  workingLabel = "Working",
 }: TranscriptProps) {
   const rows = useMemo(() => arrange(session.blocks), [session.blocks]);
   const lastRow = rows[rows.length - 1];
@@ -116,8 +118,9 @@ export function Transcript({
           onPermission={onPermission}
         />
       ))}
-      {session.turnActive && lastRow?.kind !== "activity" ? (
-        <StatusLine label="Working" active />
+      {(session.turnActive || !session.connected) &&
+      lastRow?.kind !== "activity" ? (
+        <StatusLine label={workingLabel} active />
       ) : null}
     </View>
   );
@@ -199,7 +202,7 @@ function useNow(enabled: boolean): number {
   return now;
 }
 
-function StatusLine({
+export function StatusLine({
   label,
   active,
   detail,
