@@ -126,6 +126,15 @@ export function InboxReportRowView({
               </span>
             </span>
           )}
+          {report.status === "failed" && (
+            <span
+              title="The run stopped before it finished. Decide whether to keep or archive this report."
+              className="flex min-w-0 items-center gap-1.5"
+            >
+              <span className="size-1.5 shrink-0 rounded-full bg-(--red-9)" />
+              <span className="truncate">Run failed</span>
+            </span>
+          )}
           {report.status === "resolved" &&
             !isShipped &&
             report.dismissal_reason && (

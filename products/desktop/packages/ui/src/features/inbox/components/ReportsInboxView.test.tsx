@@ -1,5 +1,5 @@
-import { INBOX_ACTIONABLE_REPORT_STATUS_FILTER } from "@posthog/core/inbox/reportFiltering";
 import type { ReportImplementationState } from "@posthog/core/inbox/reportImplementation";
+import { isNeedsDecisionReport } from "@posthog/core/inbox/reportInboxSections";
 import type { SignalReport } from "@posthog/shared/types";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { render, renderHook, screen } from "@testing-library/react";
@@ -29,7 +29,8 @@ const mocks = vi.hoisted(() => ({
   },
   navigate: vi.fn(),
   fetchNextPage: vi.fn(),
-  pagedStatus: null as string | null,
+  /** The section whose query reports another page: a view name or a status filter. */
+  pagedQuery: null as string | null,
   pagedCount: 400,
   totalCount: null as number | null,
   allReportsOptions: [] as {
@@ -40,6 +41,7 @@ const mocks = vi.hoisted(() => ({
     enabled?: boolean;
     hasImplementationPr?: boolean;
     actionabilityFilter?: string;
+    inboxView?: string;
     withPullRequestCount?: boolean;
   }[],
 }));
@@ -73,6 +75,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
     enabled?: boolean;
     hasImplementationPr?: boolean;
     actionabilityFilter?: string;
+    inboxView?: string;
     withPullRequestCount?: boolean;
   }) => {
     mocks.allReportsOptions.push(options);
@@ -85,6 +88,8 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
         ? []
         : mocks.activeReports.filter(
             (report) =>
+              (options.inboxView !== "needs_decision" ||
+                isNeedsDecisionReport(report)) &&
               (statuses.size === 0 || statuses.has(report.status)) &&
               (options.hasImplementationPr === undefined ||
                 options.hasImplementationPr ===
@@ -93,10 +98,11 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
                 (report.actionability != null &&
                   actionability.has(report.actionability))),
           );
+    const queryKey = options.inboxView ?? options.statusFilter;
     return {
       scopedReports: reports,
       allReports:
-        options.statusFilter === mocks.pagedStatus
+        queryKey === mocks.pagedQuery
           ? Array.from({ length: mocks.pagedCount }, () => reports[0]).filter(
               Boolean,
             )
@@ -104,7 +110,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
       isLoading: false,
       isPending: false,
       isError: false,
-      hasNextPage: options.statusFilter === mocks.pagedStatus,
+      hasNextPage: queryKey === mocks.pagedQuery,
       isFetchingNextPage: false,
       fetchNextPage: mocks.fetchNextPage,
       refetch: vi.fn(),
@@ -252,7 +258,7 @@ describe("ReportsInboxView", () => {
     mocks.triageProps = null;
     mocks.locationState = {};
     mocks.allReportsOptions = [];
-    mocks.pagedStatus = null;
+    mocks.pagedQuery = null;
     mocks.pagedCount = 400;
     mocks.totalCount = null;
     useInboxSignalsFilterStore.setState({
@@ -283,8 +289,29 @@ describe("ReportsInboxView", () => {
     expect(screen.queryByText("Review and merge")).toBeNull();
     expect(screen.queryByText("Resolved and dismissed")).toBeNull();
     expect(
-      mocks.allReportsOptions.map((options) => options.statusFilter),
-    ).toEqual(["ready", "ready,pending_input", "resolved,suppressed"]);
+      mocks.allReportsOptions.map(
+        (options) => options.inboxView ?? options.statusFilter,
+      ),
+    ).toEqual(["ready", "needs_decision", "resolved,suppressed"]);
+  });
+
+  it("lists a failed report that nobody has judged under Needs decision", () => {
+    mocks.activeReports = [
+      {
+        ...activeReport("failed-report", "Research run stopped"),
+        status: "failed",
+        actionability: null,
+      },
+    ];
+    mocks.searchQuery = "";
+    useInboxSignalsFilterStore
+      .getState()
+      .setReportStateFilter(["needs_decision"]);
+
+    render(<ReportsInboxView />);
+
+    expect(screen.getByText("Research run stopped")).toBeInTheDocument();
+    expect(screen.getByText("Run failed")).toBeInTheDocument();
   });
 
   it("offers agent configuration when no reports or agents exist", async () => {
@@ -344,7 +371,7 @@ describe("ReportsInboxView", () => {
         implementation_pr_url: "https://github.com/PostHog/posthog/pull/1",
       },
     ];
-    mocks.pagedStatus = "ready";
+    mocks.pagedQuery = "ready";
 
     render(<ReportsInboxView />);
     await userEvent.click(screen.getByText("Load more"));
@@ -384,9 +411,7 @@ describe("ReportsInboxView", () => {
       withPullRequestCount: false,
     });
     expect(decisionQuery).toMatchObject({
-      statusFilter: "ready,pending_input",
-      hasImplementationPr: false,
-      actionabilityFilter: "immediately_actionable,requires_human_input",
+      inboxView: "needs_decision",
       withPullRequestCount: false,
     });
     expect(
@@ -491,7 +516,7 @@ describe("ReportsInboxView", () => {
     mocks.implementationStates = new Map([["working", "working"]]);
     mocks.searchQuery = "";
     mocks.triageFocusEnabled = true;
-    mocks.pagedStatus = INBOX_ACTIONABLE_REPORT_STATUS_FILTER;
+    mocks.pagedQuery = "needs_decision";
     mocks.pagedCount = 50;
 
     render(<InboxTriagePane />);

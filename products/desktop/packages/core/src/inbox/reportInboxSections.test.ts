@@ -380,7 +380,15 @@ describe("reportInboxSections", () => {
       },
       null,
     ],
-    [{ status: "failed" }, null],
+    [{ status: "failed", actionability: undefined }, "needsPr"],
+    [
+      {
+        status: "failed",
+        actionability: undefined,
+        implementation_pr_url: "https://github.com/o/r/pull/3",
+      },
+      "needsPr",
+    ],
     [{ status: "in_progress" }, null],
     [{ status: "candidate" }, null],
   ] as const)("%j lands in %s", (overrides, section) => {

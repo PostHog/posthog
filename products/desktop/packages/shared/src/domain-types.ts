@@ -1165,7 +1165,25 @@ export interface SignalReportsQueryParams {
   has_implementation_pr?: boolean;
   /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
   channel_id?: string;
+  /**
+   * Server-side inbox view. Applies the whole membership rule of an inbox
+   * section in one param, including rules no status/actionability/PR
+   * combination can express — `needs_decision` also keeps failed reports,
+   * which carry no actionability judgment.
+   */
+  view?: SignalReportInboxView;
 }
+
+/** Inbox views the signal report list API accepts through its `view` param. */
+export type SignalReportInboxView =
+  | "actionable"
+  | "needs_input"
+  | "needs_decision"
+  | "monitoring"
+  | "resolved"
+  | "dismissed"
+  | "not_actionable"
+  | "all";
 
 export interface SignalTeamConfig {
   id: string;

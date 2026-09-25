@@ -1,8 +1,6 @@
 import {
   buildPriorityFilterParam,
   buildSuggestedReviewerFilterParam,
-  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   INBOX_SCOPE_FOR_YOU,
@@ -16,6 +14,7 @@ import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/in
 
 export interface InboxSectionCounts {
   reviewAndMerge: number;
+  /** The Needs decision count, from the server's `needs_decision` view. */
   needsPr: number;
   resolved: number;
   dismissed: number;
@@ -61,12 +60,7 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     { ...options, enabled: scopeReady },
   );
   const needsPrQuery = useInboxReports(
-    {
-      ...shared,
-      status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-      actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-      has_implementation_pr: false,
-    },
+    { ...shared, view: "needs_decision" },
     { ...options, enabled: scopeReady },
   );
   const resolvedQuery = useInboxReports(

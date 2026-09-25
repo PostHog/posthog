@@ -12,6 +12,7 @@ import {
   INBOX_SCOPE_FOR_YOU,
   parseTeammateInboxScope,
 } from "@posthog/core/inbox/reportMembership";
+import type { SignalReportInboxView } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { DESKTOP_INBOX_REFETCH_INTERVAL_MS } from "@posthog/ui/features/inbox/hooks/inboxPolling";
@@ -48,6 +49,11 @@ export function useInboxAllReports(options?: {
   pullRequestsOnly?: boolean;
   hasImplementationPr?: boolean;
   actionabilityFilter?: string;
+  /**
+   * Server-side inbox view, applied on top of the other filters. Use it where
+   * the section's membership rule has no status/actionability equivalent.
+   */
+  inboxView?: SignalReportInboxView;
   withPullRequestCount?: boolean;
   withReportsCount?: boolean;
   refetchIntervalMs?: number;
@@ -123,6 +129,7 @@ export function useInboxAllReports(options?: {
       has_implementation_pr:
         options?.hasImplementationPr ?? (pullRequestsOnly ? true : undefined),
       actionability: options?.actionabilityFilter,
+      view: options?.inboxView,
       ordering: groupByStatus
         ? buildSignalReportListOrdering(sortField, sortDirection)
         : buildArchiveListOrdering(sortField, sortDirection),
