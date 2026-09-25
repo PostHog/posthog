@@ -237,9 +237,16 @@ def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
 def _without_bytecode_contracts(node: Any) -> Any:
     # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
     # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
-    # nobody changed it, so the revision comparison must not count the stamp as content.
+    # nobody changed it, so the revision comparison must not count the stamp as content. A stamp only
+    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
+    # content and still versions the flow.
     if isinstance(node, dict):
-        return {key: _without_bytecode_contracts(value) for key, value in node.items() if key != "bytecode_contract"}
+        derived = "bytecode" in node
+        return {
+            key: _without_bytecode_contracts(value)
+            for key, value in node.items()
+            if not (derived and key == "bytecode_contract")
+        }
     if isinstance(node, list):
         return [_without_bytecode_contracts(item) for item in node]
     return node

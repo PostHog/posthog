@@ -340,7 +340,7 @@ class TemplateGlobalsValidator(TraversingVisitor):
             return
         self.invalid_globals.add(root)
 
-    def visit_call(self, node: ast.Call):
+    def visit_call(self, node: ast.Call) -> None:
         super().visit_call(node)
         if self._python_stl or node.name in self._declared:
             return

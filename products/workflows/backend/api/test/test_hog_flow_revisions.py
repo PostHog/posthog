@@ -217,6 +217,28 @@ class TestHogFlowRevisions(APIBaseTest):
         assert activate.json()["version"] == 1
         assert self._list_revisions(flow_id) == []
 
+    def test_an_authored_key_named_like_the_stamp_still_versions_the_flow(self):
+        # The stamp is stripped from the comparison only where it sits beside a bytecode. A person's
+        # own JSON body can carry a key with the same name, and editing it is a real change.
+        flow_id = self._create_active_flow()
+
+        def body_action(marker: str) -> dict:
+            action = _webhook_action()
+            action["config"]["inputs"]["body"] = {"value": {"bytecode_contract": marker}}
+            return action
+
+        first = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": [_trigger_action(), body_action("one")]}
+        )
+        assert first.status_code == 200, first.json()
+        version_after_first = first.json()["version"]
+
+        second = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": [_trigger_action(), body_action("two")]}
+        )
+        assert second.status_code == 200, second.json()
+        assert second.json()["version"] == version_after_first + 1
+
     def test_no_op_live_edit_does_not_append_revision(self):
         # Two identical saves in a row: the first may change stored shape (create vs update
         # serializer defaults differ), but the second must not append a junk revision.
