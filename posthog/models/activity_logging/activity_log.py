@@ -585,6 +585,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "SignalProductDomain": ["preferences", "reports", "import_state", "revision"],
+    "SignalReportRouting": ["report", "domain", "domain_revision", "classifier_version"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],

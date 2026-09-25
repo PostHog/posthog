@@ -5,7 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from pydantic import ValidationError
 
-from products.signals.backend.ownership_import import OwnershipImport, import_product_domains
+from products.signals.backend.facade.api import import_signal_product_domains
 
 
 class Command(BaseCommand):
@@ -23,11 +23,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            definition = OwnershipImport.model_validate_json(options["definitions"].read_text())
-            result = import_product_domains(
+            result = import_signal_product_domains(
                 team_id=options["team_id"],
-                repo_root=options["repo_root"],
-                definition=definition,
+                repo_root=str(options["repo_root"]),
+                definitions_json=options["definitions"].read_text(),
                 apply=options["apply"],
             )
         except (OSError, ValueError, ValidationError) as error:

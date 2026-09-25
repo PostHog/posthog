@@ -1,12 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
 import products.signals.backend.views as signals
-from products.signals.backend.ownership_api import (
-    SignalDomainPreferenceViewSet,
-    SignalProductDomainViewSet,
-    SignalReportRoutingViewSet,
-    SignalRoutingBatchViewSet,
-)
 from products.signals.backend.scout_chat import SignalScoutChatTaskViewSet
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
@@ -19,7 +13,13 @@ from products.signals.backend.scout_harness.views import (
     SignalScratchpadViewSet,
 )
 from products.signals.backend.scout_suggestions_api import SignalScoutSuggestionViewSet
-from products.signals.backend.views import SignalViewSet
+from products.signals.backend.views import (
+    SignalDomainPreferenceViewSet,
+    SignalProductDomainViewSet,
+    SignalReportRoutingViewSet,
+    SignalRoutingBatchViewSet,
+    SignalViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:

@@ -239,6 +239,7 @@ def enforce_current_reviewers(*, team_id: int, report_id: str | UUID, attributio
                 content=after,
                 attribution=attribution,
                 reevaluate_autostart=False,
+                reviewer_correction=True,
             )
 
 

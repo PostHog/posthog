@@ -500,6 +500,46 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stale_write.update_content([identity])
         assert self._latest_reviewers(report) == []
 
+    def test_human_patch_uses_editor_attribution_for_unclassified_reviewers(self):
+        report = self._create_report()
+        other = self._create_org_member("current-owner@example.com")
+        entries = [{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(other.uuid)}]
+        artefact = self._create_artefact(report, content=entries)
+        artefact.actor_kind = "system"
+        artefact.save(update_fields=["actor_kind"])
+        SignalReportRouting.objects.for_team(self.team.id).create(team=self.team, report=report, accepted=False)
+
+        response = self.client.patch(
+            self._detail_url(str(report.id), str(artefact.id)), {"content": entries}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {entry["user_uuid"] for entry in self._latest_reviewers(report)} == {
+            str(self.user.uuid),
+            str(other.uuid),
+        }
+
+    def test_enforcement_preserves_other_reviewers_when_routing_is_unclassified(self):
+        from products.signals.backend.ownership import enforce_current_reviewers
+
+        report = self._create_report()
+        other = self._create_org_member("retained-owner@example.com")
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(other.uuid)}])
+        SignalReportRouting.objects.for_team(self.team.id).create(team=self.team, report=report, accepted=False)
+        SignalReviewerExclusion.objects.for_team(self.team.id).create(team=self.team, report=report, user=self.user)
+
+        enforce_current_reviewers(team_id=self.team.id, report_id=report.id, attribution=ArtefactAttribution.system())
+
+        assert [entry["user_uuid"] for entry in self._latest_reviewers(report)] == [str(other.uuid)]
+        automated = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers.model_validate([{"user_uuid": str(other.uuid)}]),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        assert json.loads(automated.content) == []
+
     def test_only_the_removed_person_can_explicitly_restore_their_suggestion(self):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}])

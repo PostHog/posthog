@@ -10,9 +10,10 @@ from owners_yaml import OwnersResolver
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from posthog.models import Team
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.access_control.backend.facade.api import get_routing_roles
-from products.signals.backend.models import SignalProductDomain
+from products.signals.backend.models import SignalProductDomain, SignalTeamConfig
 
 
 class ImportedDomain(BaseModel):
@@ -49,8 +50,10 @@ def import_product_domains(*, team_id: int, repo_root: Path, definition: Ownersh
     resolver = OwnersResolver(repo_root=repo_root)
     results: list[dict] = []
     with transaction.atomic():
-        # Import workers serialize on the project; individual edits serialize on each domain.
-        Team.objects.select_for_update().get(id=team_id)
+        if apply:
+            config = get_or_create_team_extension(Team.objects.get(id=team_id), SignalTeamConfig)
+            # Serialize imports without blocking unrelated foreign-key writes to the project.
+            SignalTeamConfig.objects.select_for_update().get(id=config.id)
         for item in definition.domains:
             resolutions = [resolver.resolve(path) for path in item.ownership_paths]
             owners = {owner for result in resolutions for owner in result.owners or []}

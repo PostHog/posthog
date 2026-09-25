@@ -1559,6 +1559,7 @@ class SignalReportArtefact(UUIDModel):
         content: ArtefactContent,
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
+        reviewer_correction: bool = False,
     ) -> "SignalReportArtefact":
         """Single write funnel: derive the row's type from the content model's class, map
         attribution to columns, and insert. Content is a typed model (parsed at the API boundary
@@ -1595,7 +1596,7 @@ class SignalReportArtefact(UUIDModel):
                 SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
                 policy = ReviewerRoutingPolicy(team_id=team_id, report_id=report_id)
                 policy.lock_domain()
-                content = policy.filter(content, automatic=attribution.kind != "user")
+                content = policy.filter(content, automatic=not reviewer_correction and attribution.kind != "user")
             return cls.objects.create(
                 team_id=team_id,
                 report_id=report_id,
@@ -1619,6 +1620,7 @@ class SignalReportArtefact(UUIDModel):
         attribution: ArtefactAttribution,
         claim_id: str | None = None,
         reevaluate_autostart: bool = True,
+        reviewer_correction: bool = False,
     ) -> "SignalReportArtefact":
         """Append a new version of a status artefact (see `STATUS_ARTEFACT_TYPES`) and return it.
 
@@ -1633,7 +1635,12 @@ class SignalReportArtefact(UUIDModel):
         if artefact_type_for(content) not in cls.STATUS_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a status artefact content model")
         artefact = cls._create(
-            team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
+            team_id=team_id,
+            report_id=report_id,
+            content=content,
+            attribution=attribution,
+            claim_id=claim_id,
+            reviewer_correction=reviewer_correction,
         )
         if reevaluate_autostart and artefact.type == cls.ArtefactType.SUGGESTED_REVIEWERS:
             cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
@@ -1906,7 +1913,7 @@ class SignalReportArtefact(UUIDModel):
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
 
-    def update_content(self, content: str | dict | list) -> None:
+    def update_content(self, content: str | dict | list, *, editor: ArtefactAttribution | None = None) -> None:
         """Replace this artefact's content in place (bumps `updated_at`), parsed and validated
         against the row's type. Attribution is creation-time only — edits don't reassign it.
 
@@ -1939,7 +1946,7 @@ class SignalReportArtefact(UUIDModel):
                 SignalReport.objects.select_for_update().get(team_id=self.team_id, id=self.report_id)
                 policy = ReviewerRoutingPolicy(team_id=self.team_id, report_id=self.report_id)
                 policy.lock_domain()
-                parsed = policy.filter(parsed, automatic=self.actor_kind != "user")
+                parsed = policy.filter(parsed, automatic=editor is None or editor.kind != "user")
             if isinstance(parsed, ReportLink):
                 # An edit is a second way to write a link, so it answers to the same invariants
                 # under the same lock. Without this a PATCH could point an existing row at the
