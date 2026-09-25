@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogApiError } from '@/lib/errors'
 import setActiveOrganizationTool from '@/tools/organizations/setActive'
 import type { Context } from '@/tools/types'
 
@@ -31,7 +32,13 @@ describe('switch-organization', () => {
     const tool = setActiveOrganizationTool()
 
     it('rejects an unreachable organization without changing the cached or pinned session', async () => {
-        const apiError = new Error('404')
+        const apiError = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"Not found."}',
+            url: 'https://us.posthog.com/api/organizations/missing-org/',
+            method: 'GET',
+        })
         const organizationGet = vi.fn().mockResolvedValue({ success: false, error: apiError })
         const { context, cache, setSessionActiveContext } = createContext(organizationGet)
 
@@ -39,6 +46,28 @@ describe('switch-organization', () => {
             message: expect.stringContaining('Could not switch to organization missing-org'),
             cause: apiError,
         })
+        expect(cache.get('orgId')).toBe('current-org')
+        expect(setSessionActiveContext).not.toHaveBeenCalled()
+    })
+
+    it('reports a server failure as a failed lookup, not as a missing organization', async () => {
+        const apiError = new PostHogApiError({
+            status: 503,
+            statusText: 'Service Unavailable',
+            body: 'upstream unavailable',
+            url: 'https://us.posthog.com/api/organizations/new-org/',
+            method: 'GET',
+        })
+        const organizationGet = vi.fn().mockResolvedValue({ success: false, error: apiError })
+        const { context, cache, setSessionActiveContext } = createContext(organizationGet)
+
+        const rejection = await tool.handler(context, { orgId: 'new-org' }).catch((error: Error) => error)
+
+        expect(rejection).toMatchObject({
+            message: expect.stringContaining('the organization lookup failed'),
+            cause: apiError,
+        })
+        expect((rejection as Error).message).not.toContain("don't have access")
         expect(cache.get('orgId')).toBe('current-org')
         expect(setSessionActiveContext).not.toHaveBeenCalled()
     })
