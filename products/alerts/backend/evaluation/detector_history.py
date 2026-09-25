@@ -16,6 +16,7 @@ import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 
 from django.conf import settings
@@ -62,6 +63,42 @@ _PROBE_HORIZON_HOURS = 8 * 24
 # One result row: the bucket cell rendered in the team timezone, then the value.
 _Row = list[Any]
 RunQuery = Callable[..., tuple[list, list[str] | None]]
+
+
+class CacheOutcome(StrEnum):
+    """What one flagged check reported — the vocabulary of the rollout funnel."""
+
+    # The alert can never be served here: wrong evaluation, or a query the rulebook refuses.
+    INELIGIBLE_EVALUATION = "ineligible_evaluation"
+    INELIGIBLE_QUERY = "ineligible_query"
+    # A backward DST fold sits inside the window, so bucket instants are ambiguous this check.
+    DST_FOLD_FULL_SCAN = "dst_fold_full_scan"
+    # The cache gave up for this check's SeedReason and reseeded itself from a full scan.
+    FULL_SEED = "full_seed"
+    # Served from cache: only the scan set was re-read.
+    CACHE_HIT = "cache_hit"
+
+
+class SeedReason(StrEnum):
+    """Why a check gave up on the cache — the decision ladder's table of contents, in order."""
+
+    # Fewer cached in-window points than the detector needs; a tail scan cannot fill that.
+    SHORT_CACHE = "short_cache"
+    # Cached buckets without probe bookkeeping cannot prove they saw every late insert.
+    NO_WATERMARK = "no_watermark"
+    # The daily bound on drift no insert signal reveals (person merges, dedup, attaches).
+    SCHEDULED_RESEED = "scheduled_reseed"
+    # The watermark outlived events_recent's TTL, so the probe cannot vouch for the gap.
+    STALE_WATERMARK = "stale_watermark"
+    # The scan set grew to the whole window; one full scan is cheaper than pretending.
+    WIDE_SCAN = "wide_scan"
+    # The narrowed scan returned rows the parser refuses; serve the full scan's rows instead.
+    UNPARSABLE_TAIL = "unparsable_tail"
+    # The assembly came up short of the detector's minimum despite a healthy-looking cache.
+    SHORT_ASSEMBLY = "short_assembly"
+    # The assembly reached the query's own LIMIT; only the full scan's completeness guard
+    # can say whether the result is truncated.
+    BEYOND_LIMIT = "beyond_limit"
 
 
 @frozen
@@ -166,15 +203,15 @@ def detector_rows_from_history(
     if _window_spans_backward_dst_transition(ctx.anchor, ctx.window_hours, ctx.team):
         # A backward fold gives two instants one local label, which an instant-keyed cache
         # cannot tell apart.
-        _capture_outcome(ctx.alert, "dst_fold_full_scan", window_hours=ctx.window_hours)
+        _capture_outcome(ctx.alert, CacheOutcome.DST_FOLD_FULL_SCAN, window_hours=ctx.window_hours)
         return None
 
     cached = _load_cached(ctx)
     if len(cached) < ctx.min_samples:
-        return _reseed(ctx, "short_cache")
+        return _reseed(ctx, SeedReason.SHORT_CACHE)
     state = _load_state(ctx)
     if state is None:
-        return _reseed(ctx, "no_watermark")
+        return _reseed(ctx, SeedReason.NO_WATERMARK)
     staleness = _state_staleness(ctx, state)
     if staleness is not None:
         return _reseed(ctx, staleness)
@@ -182,14 +219,14 @@ def detector_rows_from_history(
     probed = _changed_buckets(ctx, state.watermark)
     scan = _scan_buckets(ctx, newest_cached=cached.newest(), probed=probed)
     if len(scan) >= ctx.window_hours:
-        return _reseed(ctx, "wide_scan")
+        return _reseed(ctx, SeedReason.WIDE_SCAN)
 
     scanned_rows, _ = ctx.run_query(
         query_override=ctx.matched.narrowed_to_buckets(sorted(scan), at=ctx.now, tz=ctx.team.timezone)
     )
     scanned = _BucketSeries.parse(ctx.team, scanned_rows)
     if scanned is None:
-        return _reseed(ctx, "unparsable_tail")
+        return _reseed(ctx, SeedReason.UNPARSABLE_TAIL)
 
     _write(
         ctx,
@@ -201,14 +238,14 @@ def detector_rows_from_history(
 
     rows = cached.replaced_by(scanned, within=scan).window_rows(ctx.anchor, ctx.window_hours)
     if len(rows) < ctx.min_samples:
-        return _reseed(ctx, "short_assembly")
+        return _reseed(ctx, SeedReason.SHORT_ASSEMBLY)
     if _assembly_reached_query_limit(ctx, rows):
-        return _reseed(ctx, "beyond_limit")
+        return _reseed(ctx, SeedReason.BEYOND_LIMIT)
 
     shadow = _shadow_compare(ctx, rows)
     _capture_outcome(
         ctx.alert,
-        "cache_hit",
+        CacheOutcome.CACHE_HIT,
         scanned_buckets=len(scan),
         probed_buckets=0 if probed is None else len(probed),
         probe_failed=probed is None,
@@ -232,11 +269,11 @@ def _admitted(
         return None
     if config.evaluation != HogQLAlertEvaluation.LAST_ROW:
         # first_row scores the head of the window, which a tail refresh never re-reads.
-        _capture_outcome(alert, "ineligible_evaluation")
+        _capture_outcome(alert, CacheOutcome.INELIGIBLE_EVALUATION)
         return None
     matched = match_detector_series_query(insight.query, column=config.column)
     if matched is None:
-        _capture_outcome(alert, "ineligible_query")
+        _capture_outcome(alert, CacheOutcome.INELIGIBLE_QUERY)
         return None
     now = django_timezone.now()
     return _CheckContext(
@@ -252,11 +289,11 @@ def _admitted(
     )
 
 
-def _state_staleness(ctx: _CheckContext, state: AlertSeriesState) -> str | None:
+def _state_staleness(ctx: _CheckContext, state: AlertSeriesState) -> SeedReason | None:
     if ctx.now - state.seeded_at >= timedelta(hours=RESEED_INTERVAL_HOURS):
-        return "scheduled_reseed"
+        return SeedReason.SCHEDULED_RESEED
     if ctx.now - state.watermark >= timedelta(hours=_PROBE_HORIZON_HOURS):
-        return "stale_watermark"
+        return SeedReason.STALE_WATERMARK
     return None
 
 
@@ -279,9 +316,9 @@ def _assembly_reached_query_limit(ctx: _CheckContext, rows: list[_Row]) -> bool:
     return explicit_limit is not None and len(rows) >= explicit_limit
 
 
-def _reseed(ctx: _CheckContext, reason: str) -> tuple[list[_Row], list[str]]:
+def _reseed(ctx: _CheckContext, reason: SeedReason) -> tuple[list[_Row], list[str]]:
     """Run the query in full, replace the cache with what it returned, and hand back its rows."""
-    _capture_outcome(ctx.alert, "full_seed", reason=reason, window_hours=ctx.window_hours)
+    _capture_outcome(ctx.alert, CacheOutcome.FULL_SEED, reason=reason.value, window_hours=ctx.window_hours)
     rows, column_names = ctx.run_query(query_override=ctx.matched.prepared(at=ctx.now, tz=ctx.team.timezone))
     parsed = _BucketSeries.parse(ctx.team, rows)
     if parsed is not None:
@@ -316,12 +353,12 @@ def _shadow_compare(ctx: _CheckContext, rows: list[_Row]) -> dict[str, object]:
     return {"shadow_compared": True, "shadow_equal": diverging == 0, "shadow_diverging_rows": diverging}
 
 
-def _capture_outcome(alert: AlertConfiguration, outcome: str, **props: object) -> None:
+def _capture_outcome(alert: AlertConfiguration, outcome: CacheOutcome, **props: object) -> None:
     """One event per flagged check: the rollout's cache-engagement funnel."""
     ph_background_capture()(
         distinct_id=str(alert.id),
         event="alert detector cache outcome",
-        properties={"team_id": alert.team_id, "alert_id": str(alert.id), "outcome": outcome, **props},
+        properties={"team_id": alert.team_id, "alert_id": str(alert.id), "outcome": outcome.value, **props},
     )
 
 
