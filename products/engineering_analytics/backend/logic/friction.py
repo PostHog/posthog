@@ -330,7 +330,7 @@ class FrictionScorer:
                     rank=ranks[s.author],
                     rank_low=min(bands[s.author].low, ranks[s.author]),
                     rank_high=max(bands[s.author].high, ranks[s.author]),
-                    teams=sorted((teams_by_author or {}).get(s.author, [])),
+                    teams=sorted((teams_by_author or {}).get(s.author.lower(), [])),
                 )
                 for s in scores
             ),
@@ -433,8 +433,10 @@ def _query_memberships(curated: CuratedGitHubSource) -> dict[str, set[str]] | No
         placeholders={},
     )
     members: dict[str, set[str]] = {}
+    # GitHub logins are case-insensitive and the snapshots do not agree on casing, so members and authors
+    # match on the lowercased login, like the roster read.
     for team_slug, member_handle in rows:
-        members.setdefault(team_slug, set()).add(member_handle)
+        members.setdefault(team_slug, set()).add(member_handle.lower())
     return members
 
 
@@ -460,7 +462,8 @@ def _teams_by_author(members: dict[str, set[str]]) -> dict[str, list[str]]:
 def _team_friction(
     items: list[AuthorFriction], members: dict[str, set[str]], *, leave_out: str | None = None, floor: int
 ) -> list[TeamFriction]:
-    score_by_author = {item.author: item.score for item in items if item.author != leave_out}
+    left_out = leave_out.lower() if leave_out else None
+    score_by_author = {item.author.lower(): item.score for item in items if item.author.lower() != left_out}
     teams = []
     for team, handles in members.items():
         scores = [score_by_author[handle] for handle in handles if handle in score_by_author]
@@ -491,7 +494,7 @@ def build_author_friction(*, curated: CuratedGitHubSource, github_team: str | No
     teams = _team_friction(items, members or {}, floor=MIN_TEAM_AUTHORS)
     if github_team:
         team_members = (members or {}).get(github_team, set())
-        items = [item for item in items if item.author in team_members]
+        items = [item for item in items if item.author.lower() in team_members]
     return AuthorFrictionList(
         available=True,
         window_days=window_days,
@@ -524,7 +527,7 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
         )
     scorer = FrictionScorer(pull_requests)
     items = scorer.score(_teams_by_author(members or {}))
-    own_teams = {team: handles for team, handles in (members or {}).items() if author in handles}
+    own_teams = {team: handles for team, handles in (members or {}).items() if author.lower() in handles}
     top = sorted(scorer.pull_request_scores(author), key=lambda scored: (-scored.score, -scored.pr.number))
     top = top[:TOP_PULL_REQUESTS]
     titles = _query_titles(curated, [scored.pr.number for scored in top])

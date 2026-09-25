@@ -20,7 +20,8 @@ from products.engineering_analytics.backend.logic.friction import (
     build_pull_request_friction,
 )
 
-_MEMBERS = {"pair": ["typical", "calm"], "everyone": ["blocked", "typical", "calm", "newcomer"]}
+# "Typical" differs in case from the author login, as the membership snapshot can.
+_MEMBERS = {"pair": ["typical", "calm"], "everyone": ["blocked", "Typical", "calm", "newcomer"]}
 
 
 def _pr(author: str, number: int, **friction: Any) -> PullRequestFriction:
