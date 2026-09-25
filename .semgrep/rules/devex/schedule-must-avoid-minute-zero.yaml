@@ -3,10 +3,9 @@ rules:
       message: |
           This schedule fires at minute zero of the hour.
 
-          Every fleet schedule that fires at minute zero lands on the same ClickHouse cluster
-          at the same moment, so each query in the pile-up runs several times slower. A job that
-          reads the last interval needs only the boundary plus ingestion lag, so it can start a
-          few minutes after the boundary and spread its work across a window.
+          Fleet schedules that fire together concentrate query load. Check how the job tracks
+          its input before moving it: a rolling lookback equal to the interval can skip data
+          when its start moves. Jitter needs a cursor or enough overlapping lookback.
 
           - Celery beat and Dagster: write a fixed minute that no other job in that hour holds,
             for example `crontab(minute="23")` or `cron_schedule="23 * * * *"`.
@@ -16,8 +15,7 @@ rules:
           - Sub-hourly or per-entity Temporal schedule: pass
             `offset=deterministic_offset(<stable id>, <interval>)` from `posthog/scheduling/jitter.py`.
 
-          If a customer was promised that exact instant (a batch export interval, a report at the
-          time a customer chose), keep it and add
+          Keep the existing time when a customer chose it or a fixed lookback requires it. Add
           `# nosemgrep: schedule-must-avoid-minute-zero -- <reason>`.
       languages: [python]
       severity: ERROR
