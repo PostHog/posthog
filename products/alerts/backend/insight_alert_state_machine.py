@@ -51,10 +51,15 @@ def evaluate_alert_check(
     threshold_breached: bool,
     error_message: str | None,
     now: datetime,
+    is_transient_error: bool = False,
 ) -> AlertCheckOutcome:
     return shared_evaluate_alert_check(
         snapshot_from_alert(alert),
-        CheckInput(threshold_breached=threshold_breached, error_message=error_message),
+        CheckInput(
+            threshold_breached=threshold_breached,
+            error_message=error_message,
+            is_transient_error=is_transient_error,
+        ),
         now,
         policy=INSIGHT_ALERT_POLICY,
     )

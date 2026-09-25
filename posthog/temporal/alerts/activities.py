@@ -81,7 +81,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import get_metric_meter
 
 from products.alerts.backend.evaluation import check_alert_for_insight
-from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE,
+    EVALUATION_TEMPORARILY_UNAVAILABLE_MESSAGE,
+    AlertDataUnavailableError,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -599,24 +604,45 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     )
 
 
+# Temporal gives the activity only the class name of the failure, so match on names.
+_CH_TRANSIENT_ERROR_NAMES = frozenset(error_class.__name__ for error_class in CH_TRANSIENT_ERRORS)
+
+
+def _is_transient_failure(inputs: RecordFailedEvaluationActivityInputs) -> bool:
+    """True when the retries ran out on a ClickHouse failure that is not specific to this alert.
+
+    A cluster outage stops every alert that checks in the same window. If each of them goes to
+    ERRORED and emails its owner, one outage sends one generic email per alert.
+    """
+    return inputs.error_type in _CH_TRANSIENT_ERROR_NAMES
+
+
 def _failed_evaluation_error(inputs: RecordFailedEvaluationActivityInputs) -> dict:
     """The error payload for an evaluation that ran out of retries without writing a check.
 
-    A provider the judge cannot reach is not the owner's configuration, and the raw transport
-    error is not written for them, so that case gets its own code and its own wording.
+    A provider the judge cannot reach, or a shared ClickHouse failure, is not the owner's
+    configuration, and the raw transport error is not written for them, so those cases get
+    their own code and their own wording.
     """
     if inputs.error_type == LLMDetectorUnavailableError.__name__:
         return {"code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE, "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE}
+    if _is_transient_failure(inputs):
+        return {
+            "code": EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE,
+            "message": EVALUATION_TEMPORARILY_UNAVAILABLE_MESSAGE,
+        }
     return {"message": inputs.error_message}
 
 
-def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[AlertCheck, bool]:
+def _write_errored_alert_check(
+    alert: AlertConfiguration, error: dict, *, is_transient_error: bool = False
+) -> tuple[AlertCheck, bool]:
     """Write an errored AlertCheck for an already-locked alert and return it with the notify decision.
 
     Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
     through here, so the errored-check write stays in one place.
     """
-    return add_alert_check(alert, None, error)
+    return add_alert_check(alert, None, error, is_transient_error=is_transient_error)
 
 
 @temporalio.activity.defn
@@ -969,7 +995,9 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
                 if alert.next_check_at is not None and alert.next_check_at > datetime.now(UTC):
                     return RecordFailedEvaluationResult()
                 error = _failed_evaluation_error(inputs)
-                alert_check, should_notify = _write_errored_alert_check(alert, error)
+                alert_check, should_notify = _write_errored_alert_check(
+                    alert, error, is_transient_error=_is_transient_failure(inputs)
+                )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert gone before its failure could be recorded", alert_id=inputs.alert_id)
             return RecordFailedEvaluationResult()
@@ -983,6 +1011,7 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
             "alerts.recorded_failed_evaluation",
             alert_id=inputs.alert_id,
             alert_check_id=str(alert_check.id),
+            error_type=inputs.error_type,
         )
         return RecordFailedEvaluationResult(alert_check_id=str(alert_check.id), should_notify=should_notify)
 

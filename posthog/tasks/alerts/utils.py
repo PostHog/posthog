@@ -599,8 +599,13 @@ def add_alert_check(
     alert: AlertConfiguration,
     evaluation_result: AlertEvaluationResult | None,
     error: dict | None,
+    *,
+    is_transient_error: bool = False,
 ) -> tuple[AlertCheck, bool]:
     """Persist an AlertCheck row and return it plus a decision on whether notification is needed.
+
+    A transient error keeps the alert state and sends no notification, but the check row still
+    records the failure as ERRORED.
 
     ``targets_notified`` is always created empty; ``notify_alert`` activity fills it on
     successful delivery and treats a non-empty value as the idempotency sentinel on retry.
@@ -614,6 +619,7 @@ def add_alert_check(
         threshold_breached=bool(result.breaches),
         error_message=error_message,
         now=datetime.now(UTC),
+        is_transient_error=is_transient_error,
     )
     state_fields = apply_outcome(alert, outcome)
 
@@ -626,7 +632,7 @@ def add_alert_check(
         calculated_value=result.value,
         condition=alert.condition,
         targets_notified={},
-        state=alert.state,
+        state=AlertState.ERRORED if error is not None else alert.state,
         triggered_metadata=result.triggered_metadata,
         error=error,
         anomaly_scores=result.anomaly_scores,

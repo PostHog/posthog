@@ -82,6 +82,13 @@ class AlertDataUnavailableError(AlertExtractionError):
     """This check lacks usable data; keep the alert enabled for future checks."""
 
 
+# What the owner reads on a check that a shared ClickHouse failure stopped. The same failure
+# stops every alert that checks in that window, so the check keeps the alert state and sends
+# no email. The code lets this message past the serializer's allowlist.
+EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE = "evaluation_temporarily_unavailable"
+EVALUATION_TEMPORARILY_UNAVAILABLE_MESSAGE = "PostHog could not run this check because of a temporary problem. The alert is still on and the next check tries again."
+
+
 def lookback_intervals_for(condition: AlertCondition) -> int:
     """How many trailing intervals an extractor must fetch for this condition.
 

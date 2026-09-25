@@ -1313,6 +1313,38 @@ class TestRecordFailedEvaluation:
         assert result.alert_check_id is not None
         assert [call.args[0] for call in mock_outcome.call_args_list] == expected_outcomes
 
+    @pytest.mark.parametrize(
+        "prior_state,error_type,expected_state,expected_notify,expected_code",
+        [
+            (AlertState.NOT_FIRING, "NetworkError", AlertState.NOT_FIRING, False, "evaluation_temporarily_unavailable"),
+            (AlertState.FIRING, "ClickHouseAtCapacity", AlertState.FIRING, False, "evaluation_temporarily_unavailable"),
+            (AlertState.NOT_FIRING, "ClickHouseQueryMemoryLimitExceeded", AlertState.ERRORED, True, None),
+            (AlertState.NOT_FIRING, "ValueError", AlertState.ERRORED, True, None),
+        ],
+    )
+    async def test_shared_clickhouse_failure_keeps_alert_state_and_skips_notification(
+        self, alert_with_user, prior_state, error_type, expected_state, expected_notify, expected_code
+    ) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.id).update)(state=prior_state)
+
+        result = await ActivityEnvironment().run(
+            record_failed_evaluation,
+            RecordFailedEvaluationActivityInputs(
+                alert_id=str(alert_with_user.id),
+                error_message="Code: 209. (host:9440)",
+                error_type=error_type,
+                team_id=alert_with_user.team_id,
+            ),
+        )
+
+        await alert_with_user.arefresh_from_db()
+        check = await sync_to_async(AlertCheck.objects.get)(id=result.alert_check_id)
+        assert alert_with_user.state == expected_state
+        assert alert_with_user.next_check_at > datetime.now(UTC)
+        assert result.should_notify is expected_notify
+        assert check.state == AlertState.ERRORED
+        assert check.error.get("code") == expected_code
+
     async def test_does_not_count_an_unavailable_outcome_it_never_recorded(self, alert_with_user) -> None:
         # A disable between prepare and evaluate writes no errored check, so it is not a failed
         # detector check either and must not move the health counter.

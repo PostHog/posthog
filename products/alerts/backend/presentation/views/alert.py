@@ -72,7 +72,10 @@ from posthog.tasks.alerts.utils import (
 )
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE,
+    AlertExtractionError,
+)
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
@@ -574,7 +577,12 @@ class AlertCheckSerializer(serializers.ModelSerializer):
         # Only reasons written for the alert's owner pass through. Anything else may carry an
         # internal detail, so the history shows a generic message instead.
         code = instance.error.get("code")
-        if code in ("email_unavailable", "invalid_configuration", LLM_DETECTOR_UNAVAILABLE_ERROR_CODE):
+        if code in (
+            "email_unavailable",
+            "invalid_configuration",
+            LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+            EVALUATION_TEMPORARILY_UNAVAILABLE_ERROR_CODE,
+        ):
             return {"code": code, "message": message}
         return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
