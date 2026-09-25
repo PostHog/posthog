@@ -30,10 +30,8 @@ import {
   spendStopMessage,
   useSpendStop,
 } from "@posthog/ui/features/billing/useSpendStop";
-import {
-  TaskRepositoryChip,
-  TaskRepositoryDialog,
-} from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
+import { TaskRepositoryChip } from "@posthog/ui/features/canvas/components/TaskRepositoryChip";
+import { TaskRepositoryDialog } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import {
   resolveTaskRepositoryDraft,
@@ -969,6 +967,7 @@ export function TaskInput({
 
   useWarmTask({
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
+    codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
     selectedRepository: selectedCloudRepository,
     repositories: repoOptional ? taskRepositories : undefined,
@@ -1483,10 +1482,19 @@ export function TaskInput({
                   {repoOptional ? (
                     <TaskRepositoryChip
                       cloud={workspaceMode === "cloud"}
-                      repositoryCount={taskRepositories.length}
+                      repositories={taskRepositories}
+                      integrationId={taskGithubIntegration}
                       hasFolder={!!taskFolder}
                       disabled={isCreatingTask || cloudGithubUnavailable}
-                      onOpen={() => setRepositoryDialogOpen(true)}
+                      onRepositoriesChange={(repositories, githubIntegration) =>
+                        setRepositoryDraft(repositoryDraftKey, {
+                          repositories,
+                          githubIntegration,
+                          folder: taskFolder,
+                        })
+                      }
+                      onOpenSettings={() => setRepositoryDialogOpen(true)}
+                      settingsOpen={repositoryDialogOpen}
                     />
                   ) : (
                     <>

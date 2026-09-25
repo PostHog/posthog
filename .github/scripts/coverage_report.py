@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["diff-cover>=9,<11", "defusedxml~=0.7"]
+# dependencies = ["diff-cover>=9,<11", "defusedxml~=0.7", "coverage~=7.12"]
 # ///
 """Per-product backend coverage reporter.
 
-Reads the coverage.xml files produced by the turbo-tests product matrix (one per
+Reads the coverage data files produced by the turbo-tests product matrix (one per
 product, written into each product's working dir by `--cov=backend`), computes a
 line-coverage percentage per touched product, and renders a bar-chart summary.
 
-Only touched products run in CI, so whatever coverage.xml files are present *are*
+The test shards save only the raw coverage data. An XML report parses every measured
+source file, which is slow, so this job writes it once per product and once for core
+instead of once on every shard.
+
+Only touched products run in CI, so whatever coverage files are present *are*
 the touched set — no need to be told which products changed.
 
-Split products write partial coverage.xml across several shards; this unions the
-covered line numbers per source file across all shards for a product, so the
-percentage is exact rather than a per-shard average.
+Split products write partial coverage data across several shards; this combines the
+data per product, so the percentage is exact rather than a per-shard average.
 
 Render-only: this script produces the markdown report and the machine-readable
 diff-cover JSON, nothing else. Posting into the shared CI report comment — and the
 comment-only-when-actionable logic — lives in .github/scripts/post-coverage-section.mjs.
 
-Near-stdlib — diff-cover for patch coverage, defusedxml for parsing artifact XML
-(semgrep blocks stdlib xml parsing; artifacts are PR-controlled input).
+Near-stdlib — coverage to turn the shards' data into XML, diff-cover for patch coverage,
+defusedxml for parsing that XML (semgrep blocks stdlib xml parsing; the data comes from
+PR-controlled shards).
 """
 
 from __future__ import annotations
@@ -40,9 +44,11 @@ from pathlib import Path
 # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml (only used to build the output XML; all parsing goes through defusedxml)
 from xml.etree import ElementTree
 
+import coverage
 import defusedxml.ElementTree as DefusedElementTree
 
 BAR_WIDTH = 20
+CORE_COVERAGE_CONFIG = ".github/coverage-core.cfg"
 
 
 def sanitize_path(path: str) -> str:
@@ -64,9 +70,9 @@ class ProductCoverage:
 def product_from_path(xml_path: Path) -> str | None:
     """Derive the product name from a coverage XML path.
 
-    CI stages each file as <product>.xml (the product survives upload-artifact's
-    path collapse). Fall back to the .../products/<name>/coverage.xml layout for
-    files read straight from a checkout.
+    CI stages each data file as <product>.coverage (the product survives upload-artifact's
+    path collapse), and convert_product_data writes <product>.xml beside it. Fall back to
+    the .../products/<name>/coverage.xml layout for files read straight from a checkout.
     """
     if xml_path.stem != "coverage":
         return sanitize_path(xml_path.stem)
@@ -105,6 +111,55 @@ def parse_xml(xml_path: Path, covered_lines: dict[str, set[int]], valid_lines: d
         if not filename:
             continue
         _accumulate_class_lines(cls, filename, covered_lines, valid_lines)
+
+
+def write_xml_from_data(
+    data_paths: list[Path],
+    xml_path: Path,
+    source: list[str],
+    config_file: str | bool = False,
+    path_aliases: dict[str, list[str]] | None = None,
+) -> None:
+    """Combine the shards' coverage data files and write one Cobertura XML from the result."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cov = coverage.Coverage(data_file=str(Path(tmp) / ".coverage"), source=source, config_file=config_file)
+        if path_aliases:
+            cov.set_option("paths", path_aliases)
+        cov.combine([str(path) for path in data_paths], keep=True)
+        measured = cov.get_data().measured_files()
+        if measured and not any(Path(f).exists() for f in measured):
+            # An empty report would read as "no measured lines changed" and clear a real warning.
+            sys.exit(f"::error::none of the {len(measured)} files in {data_paths[0]} exist in this checkout")
+        try:
+            # A file that master deleted after the PR branched is measured but absent from this checkout.
+            cov.xml_report(outfile=str(xml_path), ignore_errors=True)
+        except coverage.exceptions.NoDataError:
+            sys.stderr.write(f"::warning::no coverage data in {', '.join(map(str, data_paths))}\n")
+
+
+def convert_product_data(artifacts_dir: Path, repo_root: Path) -> None:
+    """Write <product>.xml from each product's <product>.coverage files, one per shard."""
+    data_by_product: dict[str, list[Path]] = defaultdict(list)
+    for data_path in sorted(artifacts_dir.rglob("*.coverage")):
+        data_by_product[data_path.stem].append(data_path)
+    for product, data_paths in data_by_product.items():
+        # --cov=backend names the source this way, and the XML filenames are relative to it.
+        source = str(repo_root / "products" / product / "backend")
+        # The shards record absolute paths. Map them onto this checkout, which can sit at another path.
+        write_xml_from_data(
+            data_paths,
+            artifacts_dir / f"{product}.xml",
+            source=[source],
+            path_aliases={"backend": [source, f"*/products/{product}/backend"]},
+        )
+
+
+def convert_core_data(core_dir: Path) -> None:
+    """Write one coverage-core.xml from the core shards' .coverage files."""
+    data_paths = sorted(core_dir.rglob(".coverage"))
+    if data_paths:
+        # No source roots: the XML report strips them from filenames, so posthog/x.py and ee/x.py would collide.
+        write_xml_from_data(data_paths, core_dir / "coverage-core.xml", source=[], config_file=CORE_COVERAGE_CONFIG)
 
 
 # product -> filename -> set of line numbers
@@ -413,8 +468,8 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
         "",
         "_Report-only. Patch coverage = changed backend lines covered vs `origin/master`. Sorted lowest first._",
         # Known blind spots, so "uncovered" isn't read as gospel: the Django Temporal segment runs
-        # without coverage instrumentation, and core XMLs come from the PR-head tree while the diff
-        # is computed on the merge ref (line drift when master touched the same core file).
+        # without coverage instrumentation, and core coverage data comes from the PR-head tree while
+        # the XML report and the diff use the merge ref (line drift when master touched the same core file).
         "_Known gaps: lines covered only by Temporal tests show as uncovered; core line numbers may drift if `master` changed the same file._",
     ]
     if patch_data is not None:
@@ -424,7 +479,9 @@ def render_markdown(results: list[ProductCoverage], patch_data: dict | None) -> 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifacts", required=True, type=Path, help="dir holding downloaded coverage-xml-* artifacts")
+    parser.add_argument(
+        "--artifacts", required=True, type=Path, help="dir holding downloaded coverage-products-* artifacts"
+    )
     parser.add_argument("--out", type=Path, help="also write the markdown to this path")
     parser.add_argument(
         "--combined-out", type=Path, help="write a repo-relative combined Cobertura XML here (enables patch coverage)"
@@ -436,11 +493,13 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    convert_product_data(args.artifacts, Path.cwd())
     covered, valid = aggregate(args.artifacts)
 
     core_covered: dict[str, set[int]] = {}
     core_valid: dict[str, set[int]] = {}
     if args.core_artifacts is not None and args.core_artifacts.exists():
+        convert_core_data(args.core_artifacts)
         core_covered, core_valid = aggregate_core(args.core_artifacts)
 
     results = collect(covered, valid)  # per-product table is products only; core feeds patch coverage

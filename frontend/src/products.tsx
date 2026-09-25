@@ -266,6 +266,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
+    '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
+    '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -1053,6 +1055,20 @@ export const productConfiguration: Record<string, any> = {
         description: 'Latency distribution and sample traces for a single operation.',
         iconType: 'tracing',
     },
+    TracingRetentionNew: {
+        name: 'New retention rule',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        iconType: 'tracing',
+    },
+    TracingRetentionDetail: {
+        name: 'Retention rule',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        iconType: 'tracing',
+    },
     UserInterviews: {
         name: 'User research',
         projectBased: true,
@@ -1646,6 +1662,8 @@ export const productUrls = {
             name: spanName,
             ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
         }).url,
+    tracingRetentionNew: (): string => '/tracing/retention-rules/new',
+    tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -1823,12 +1841,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
         staleAfterDays: 90,
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
-    {
-        productKey: ProductKey.MCP_ANALYTICS,
-        hasDataEvents: ['$mcp_tool_call'],
-        waitingEvents: ['$mcp_initialize'],
-        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
-    },
+    { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
     { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
@@ -2480,7 +2493,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
         href: urls.mcpAnalytics(),
-        flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
         sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
@@ -2753,7 +2765,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing', 'TracingOperation'],
+        sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
         path: 'User research',
