@@ -324,10 +324,13 @@ def fetch_message_assets_for_person(
 # tab" links. So explicit targets are rewritten too. The base tag has no href, so relative
 # URLs resolve as before.
 _NEW_TAB_BASE_TAG = '<base target="_blank">'
-_HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^>]*)?>", re.IGNORECASE)
 # Any tag before the doctype puts the page in quirks mode, so with no head the base tag goes after it.
 _LEADING_DOCTYPE = re.compile(r"\s*<!doctype\b[^>]*>", re.IGNORECASE)
-_LINK_OPEN_TAG = re.compile(r"""<(?:a|area)\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
+# Both tag patterns stop at a `<` outside quotes, so an unclosed tag fails at the next tag start.
+# Without that stop, each unclosed tag rescans the rest of the body, and the cost grows with the
+# square of the body size.
+_HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^<>]*)?>", re.IGNORECASE)
+_LINK_OPEN_TAG = re.compile(r"""<(?:a|area)\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
 # Requires whitespace before `target` so a `&target=` inside a click-tracking href is left alone.
 _TARGET_ATTRIBUTE = re.compile(r"""(\s)target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)""", re.IGNORECASE)
 

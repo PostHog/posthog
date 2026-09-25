@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -401,8 +402,12 @@ class TestWithNewTabLinkTarget:
             ),
             ("link_without_target", '<a href="https://x.com">Go</a>', '<a href="https://x.com">Go</a>'),
             ("non_link_element", '<form target="_self"></form>', '<form target="_self"></form>'),
+            # Malformed HTML must not make the tag patterns rescan the rest of the body from each start.
+            ("unclosed_link_tag_run", "<a " * 32000, "<a " * 32000),
+            ("unclosed_head_tag_run", "<head " * 16000, "<head " * 16000),
         ]
     )
+    @pytest.mark.timeout(1, func_only=True)
     def test_opens_every_link_in_a_new_tab(self, _name: str, html: str, expected_body: str):
         # An explicit target wins over the base tag, so without the rewrite a "same tab" link
         # navigates the viewer's iframe and the viewer goes blank.
