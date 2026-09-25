@@ -322,7 +322,7 @@ def get_pull_request_friction(
 ) -> PullRequestFrictionDetail:
     """One merged pull request's friction as a multiple of the typical pull request, with the counts behind it."""
     return logic.build_pull_request_friction(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), number=pr_number
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), repo=repo, number=pr_number
     )
 
 

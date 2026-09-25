@@ -186,22 +186,24 @@ class TestFrictionScore(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("merged_in_window", _population(), 305, True, (2, 2)),
-            ("not_in_window", _population(), 999, True, None),
-            ("no_view_yet", None, 305, False, None),
+            ("merged_in_window", _population(), "PostHog/posthog", 305, True, (2, 2)),
+            ("not_in_window", _population(), "PostHog/posthog", 999, True, None),
+            ("same_number_in_another_repository", _population(), "PostHog/posthog.com", 305, True, None),
+            ("no_view_yet", None, "PostHog/posthog", 305, False, None),
         ]
     )
     def test_pull_request(
         self,
         _name: str,
         prs: list[PullRequestFriction] | None,
+        repo: str,
         number: int,
         available: bool,
         counts: tuple[int, int] | None,
     ) -> None:
         curated = _Curated([_row(pr) for pr in prs] if prs is not None else None, _MEMBERS)
 
-        detail = build_pull_request_friction(curated=curated, number=number)  # type: ignore[arg-type]
+        detail = build_pull_request_friction(curated=curated, repo=repo, number=number)  # type: ignore[arg-type]
 
         assert detail.available is available
         breakdown = detail.pull_request
@@ -211,3 +213,11 @@ class TestFrictionScore(SimpleTestCase):
             author_page = build_author_friction_detail(curated=curated, author="blocked")  # type: ignore[arg-type]
             listed = next(pr for pr in author_page.pull_requests if pr.number == number)
             assert breakdown.score == pytest.approx(listed.score)
+
+    def test_pull_request_scores_when_nobody_has_enough_pull_requests(self) -> None:
+        curated = _Curated([_row(_pr("newcomer", 700, master_red_count=2)), _row(_pr("other", 701))], _MEMBERS)
+
+        detail = build_pull_request_friction(curated=curated, repo="PostHog/posthog", number=700)  # type: ignore[arg-type]
+
+        assert detail.pull_request is not None
+        assert detail.pull_request.score > 1

@@ -290,8 +290,14 @@ class FrictionScorer:
         return bands
 
     def pull_request_scores(self, author: str) -> list[_PullRequestScore]:
-        """Each of the author's pull requests as a multiple of the typical pull request, with the group split."""
-        pooled = self._pooled(self._present(self._values))
+        """Each of the author's pull requests as a multiple of the typical pull request, with the group split.
+
+        The typical pull request pools every pull request in the window, not only those of scored authors,
+        so a repository where nobody has enough pull requests to score still has a baseline."""
+        everyone = {
+            author: [[metric.value(pr) for pr in prs] for metric in METRICS] for author, prs in self._by_author.items()
+        }
+        pooled = self._pooled(self._present(everyone))
         weight_in_use = sum(w for m, w in enumerate(self._weights) if pooled[m] > 0)
         scored: list[_PullRequestScore] = []
         for pr in self._by_author.get(author, []):
@@ -544,7 +550,7 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
     )
 
 
-def build_pull_request_friction(*, curated: CuratedGitHubSource, number: int) -> PullRequestFrictionDetail:
+def build_pull_request_friction(*, curated: CuratedGitHubSource, repo: str, number: int) -> PullRequestFrictionDetail:
     """One pull request's friction as a multiple of the typical pull request, with the counts behind it.
 
     The score needs the whole repository as its baseline, so the read scores every pull request in the
@@ -553,10 +559,19 @@ def build_pull_request_friction(*, curated: CuratedGitHubSource, number: int) ->
     pull_requests = _query_pull_requests(curated)
     if pull_requests is None:
         return PullRequestFrictionDetail(available=False, window_days=window_days, pull_request=None)
-    pr = next((pr for pr in pull_requests if pr.number == number), None)
+    # The source can fall back to another repository when ``repo`` matches none of its repositories, so
+    # the number alone could pick a different repository's pull request.
+    pr = next(
+        (
+            pr
+            for pr in pull_requests
+            if pr.number == number and f"{pr.repo_owner}/{pr.repo_name}".casefold() == repo.casefold()
+        ),
+        None,
+    )
     if pr is None:
         return PullRequestFrictionDetail(available=True, window_days=window_days, pull_request=None)
-    scored = next(s for s in FrictionScorer(pull_requests).pull_request_scores(pr.author) if s.pr.number == number)
+    scored = next(s for s in FrictionScorer(pull_requests).pull_request_scores(pr.author) if s.pr is pr)
     return PullRequestFrictionDetail(
         available=True,
         window_days=window_days,
