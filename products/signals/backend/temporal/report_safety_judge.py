@@ -27,8 +27,8 @@ from products.signals.backend.typesafe_decision import (
 logger = structlog.get_logger(__name__)
 
 _SIGNAL_DATA_TAG = re.compile(r"<(/?)signal_data\b", re.IGNORECASE)
-# A UTF-8 byte can become one token, so this leaves room under JevK5's 16,384-token cap for question framing.
-JEV_REPORT_STATE_MAX_BYTES = 12 * 1024
+# A UTF-8 byte can become one token, so this leaves room under the deployed model's 8,192-token cap for framing.
+JEV_REPORT_STATE_MAX_BYTES = 6 * 1024
 
 
 class SafetyJudgeResponse(BaseModel):

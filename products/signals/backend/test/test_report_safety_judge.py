@@ -125,7 +125,7 @@ async def test_typesafe_only_checks_a_large_report_in_complete_chunks() -> None:
     signals = [
         SignalData(
             signal_id=f"signal-{index}",
-            content=character * 6000,
+            content=character * 1500,
             source_product="error_tracking",
             source_type="issue_created",
             source_id=f"issue-{index}",
@@ -145,8 +145,8 @@ async def test_typesafe_only_checks_a_large_report_in_complete_chunks() -> None:
     assert decide.call_count == 2
     states = [call.args[0].state for call in decide.call_args_list]
     assert all(len(json.dumps(state, ensure_ascii=False).encode()) <= JEV_REPORT_STATE_MAX_BYTES for state in states)
-    assert "a" * 6000 in states[0]["report"]
-    assert "b" * 6000 in states[1]["report"]
+    assert "a" * 1500 in states[0]["report"]
+    assert "b" * 1500 in states[1]["report"]
 
 
 @pytest.mark.asyncio
