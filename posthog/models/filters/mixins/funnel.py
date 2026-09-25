@@ -2,7 +2,10 @@ import json
 import datetime
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
-from posthog.models.property import Property
+import posthoganalytics
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models.property import Property, PropertyValidationError
 
 if TYPE_CHECKING:
     from posthog.models.entity import Entity
@@ -395,8 +398,33 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
-                    except:
-                        continue
+                    except (PropertyValidationError, ValidationError, TypeError) as e:
+                        # Same construct-report-skip treatment as
+                        # PropertyMixin._parse_properties: PropertyValidationError covers
+                        # every failure Property.__init__ itself raises; ValidationError
+                        # covers validate_group_type_index's own DRF error, which
+                        # Property.__init__ leaves unwrapped; TypeError covers
+                        # `Property(**prop_params)` failing to unpack prop_params as a
+                        # mapping before __init__ even runs. Dropping a malformed leaf here
+                        # only affects funnel correlation-persons display, but it must
+                        # still be visible instead of failing silent. Report structure
+                        # only -- never the property's own value/event_filters -- since
+                        # those can carry real user data. Code-variable capture would
+                        # attach those same values from this frame's locals regardless, so
+                        # it's disabled for this call.
+                        error_type = type(e).__name__
+                        property_field_count = len(prop_params) if isinstance(prop_params, dict) else 0
+                    # Outside the handler there is no active exception for the
+                    # telemetry logger to chain to the raw validation message.
+                    with posthoganalytics.new_context():
+                        posthoganalytics.set_capture_exception_code_variables_context(False)
+                        capture_exception(
+                            ValueError(f"Malformed correlation property ({error_type})"),
+                            additional_properties={
+                                "property_field_count": property_field_count,
+                            },
+                        )
+                    continue
             return _properties
         return None
 
