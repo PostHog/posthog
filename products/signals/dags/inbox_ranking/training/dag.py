@@ -64,12 +64,7 @@ from products.signals.backend.ranking.features import (
     Extras,
     FeatureSet,
 )
-from products.signals.backend.ranking.serving_manifest import (
-    DEFAULT_MODEL_KIND,
-    METADATA_FILE as SERVING_METADATA_FILE,
-    ServingManifest,
-    serving_manifest_key,
-)
+from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     PARQUET_PART_NAME,
@@ -859,9 +854,10 @@ def _publish_manifest(
         return {"published": dagster.MetadataValue.bool(False)}
 
     manifest = decision.manifest
+    manifest_key = serving_manifest_key(prefix)
     copied, present, bytes_copied = publish_serving_models(context, client, bucket, prefix, manifest)
     object_storage.write(
-        serving_manifest_key(prefix),
+        manifest_key,
         manifest.model_dump_json(indent=2),
         extras={"ContentType": "application/json"},
     )
@@ -884,7 +880,7 @@ def _publish_manifest(
     )
     return {
         "published": dagster.MetadataValue.bool(True),
-        "manifest_key": dagster.MetadataValue.text(serving_manifest_key(prefix)),
+        "manifest_key": dagster.MetadataValue.text(manifest_key),
         "manifest_version": dagster.MetadataValue.text(manifest.manifest_version),
         "served_key": dagster.MetadataValue.text(manifest.served.key),
         "models": dagster.MetadataValue.json(
@@ -913,13 +909,13 @@ def publish_serving_models(
     present: list[str] = []
     bytes_copied = 0
     for entry in manifest.models:
-        target_metadata = f"{entry.prefix}/{SERVING_METADATA_FILE}"
+        target_metadata = f"{entry.prefix}/{METADATA_FILE}"
         # A version is immutable, so its metadata record standing in for the whole prefix is safe
         # and saves re-reading a 1536-column booster every day.
         if object_storage.head_object(target_metadata) is not None:
             present.append(entry.key)
             continue
-        for name in (SERVING_METADATA_FILE, *(f"{head}.ubj" for head in entry.heads)):
+        for name in (METADATA_FILE, *(f"{head}.ubj" for head in entry.heads)):
             body = _read_bytes_if_exists(
                 client, bucket, model_object_key(prefix, entry.model_name, entry.model_version, name)
             )

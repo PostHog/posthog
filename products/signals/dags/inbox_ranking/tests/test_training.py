@@ -2314,22 +2314,23 @@ def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
     assert len(manifest.models) == 2
 
 
-@pytest.mark.parametrize("fail_on,dataset_objects", [("open.ubj", None), (None, {})])
-def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, fail_on, dataset_objects):
+@pytest.mark.parametrize("fail_on,source_present", [("open.ubj", True), (None, False)])
+def test_a_failed_copy_leaves_the_previous_manifest_serving(monkeypatch, fail_on, source_present):
     # Writing the manifest before the copies finished would point the sweep at a model whose
     # booster never arrived, which fails every report rather than leaving yesterday's order.
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     previous = b'{"manifest_version": "2026-08-18T06:00:00+00:00"}'
     store = _AppObjectStore({serving_manifest_key(prefix): previous}, fail_on=fail_on)
-    if dataset_objects is not None:
-        dataset_objects = {
-            champion_object_key(prefix, EMBEDDINGS_MODEL_NAME): json.dumps(
-                _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
-            ).encode()
-        }
+    # Without the source objects the champion pointer still composes a manifest, and the copy then
+    # has nothing to read.
+    champion_only = {
+        champion_object_key(prefix, EMBEDDINGS_MODEL_NAME): json.dumps(
+            _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15", heads=("open",))
+        ).encode()
+    }
 
     with pytest.raises((dagster.Failure, RuntimeError)):
-        _run_serving_manifest(monkeypatch, store, dataset_objects=dataset_objects)
+        _run_serving_manifest(monkeypatch, store, dataset_objects=None if source_present else champion_only)
 
     assert store.objects[serving_manifest_key(prefix)] == previous
 

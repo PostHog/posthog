@@ -188,7 +188,6 @@ def serving_manifest_event(
             "manifest_version": manifest.manifest_version,
             "served_key": manifest.served.key,
             "model_keys": [entry.key for entry in manifest.models],
-            # One property per entry, so a chart can filter to the role a key held that day.
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
         }
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
