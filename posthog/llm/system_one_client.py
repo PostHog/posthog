@@ -1,9 +1,10 @@
 """Picks the System One server a caller reaches, the way ``build_openai_client`` picks a chat gateway.
 
 The Go ai-gateway serves System One models that PostHog hosts, and bills the wallet of the team that
-owns ``AI_GATEWAY_API_KEY``. TypeSafe serves Jev and is the fallback where no gateway is configured.
-The two serve different models, so a caller names one model for each, and the result says which
-model answered.
+owns ``AI_GATEWAY_API_KEY``. TypeSafe serves Jev, but a caller reaches it only by passing a
+``TypeSafeFallback``: TypeSafe is a third party, approved for experiments that send no customer data
+(see ``posthog/egress/typesafe/README.md``). The two serve different models, so the fallback names
+its own, and the result says which model answered.
 """
 
 from collections.abc import Mapping
@@ -38,9 +39,12 @@ GATEWAY_MAX_CHOICE_OPTIONS = 16
 
 
 @frozen
-class SystemOneModels:
-    gateway: str
-    typesafe: str
+class TypeSafeFallback:
+    """Where no gateway is configured, ask TypeSafe for ``model`` from the ``source`` egress budget."""
+
+    model: str
+    source: str
+    priority: Priority = Priority.NORMAL
 
 
 @frozen
@@ -111,26 +115,27 @@ def _carries_credentials_safely(gateway_url: str) -> bool:
     return parsed.scheme == "https" or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
 
 
-def system_one_configured() -> bool:
-    return resolve_ai_gateway_config() is not None or bool(settings.TYPESAFE_API_KEY)
+def system_one_configured(typesafe_fallback: TypeSafeFallback | None = None) -> bool:
+    if resolve_ai_gateway_config() is not None:
+        return True
+    return typesafe_fallback is not None and bool(settings.TYPESAFE_API_KEY)
 
 
 def build_system_one_client(
     *,
-    models: SystemOneModels,
+    model: str,
     ai_product: str,
-    typesafe_source: str,
-    priority: Priority = Priority.NORMAL,
+    typesafe_fallback: TypeSafeFallback | None = None,
     distinct_id: str | None = None,
     trace_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> SystemOneClient:
-    """A client for the Go ai-gateway when it is configured, else for TypeSafe.
+    """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe when the
+    caller passes ``typesafe_fallback``.
 
-    ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event.
-    ``typesafe_source`` and ``priority`` pick TypeSafe's egress budget lane. Raises
-    :class:`SystemOneNotConfigured` when neither server is configured.
+    ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. Raises
+    :class:`SystemOneNotConfigured` when no server the caller allows is configured.
     """
     gateway = resolve_ai_gateway_config()
     if gateway is not None:
@@ -143,11 +148,16 @@ def build_system_one_client(
                 ai_product=ai_product, trace_id=trace_id, properties=properties, distinct_id=distinct_id
             )
             or {},
-            model=models.gateway,
+            model=model,
             timeout=timeout,
         )
-    if settings.TYPESAFE_API_KEY:
-        return TypeSafeSystemOneClient(
-            model=models.typesafe, source=typesafe_source, priority=priority, timeout=timeout
-        )
-    raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY")
+    if typesafe_fallback is None:
+        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
+    if not settings.TYPESAFE_API_KEY:
+        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY")
+    return TypeSafeSystemOneClient(
+        model=typesafe_fallback.model,
+        source=typesafe_fallback.source,
+        priority=typesafe_fallback.priority,
+        timeout=timeout,
+    )

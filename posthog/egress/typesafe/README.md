@@ -4,8 +4,9 @@ TypeSafe serves Jev, a System One model that answers typed questions (`noul`, `c
 It returns probabilities, not free text.
 
 The request and answer types live in `posthog/llm/system_one.py`, because the Go ai-gateway serves the same API with models PostHog hosts.
-A caller that can use either server builds its client with `build_system_one_client` from `posthog/llm/system_one_client.py`.
-It reaches the ai-gateway where `AI_GATEWAY_URL` is set and falls back to this domain elsewhere.
+A caller builds its client with `build_system_one_client` from `posthog/llm/system_one_client.py`.
+It reaches the ai-gateway where `AI_GATEWAY_URL` is set.
+It falls back to this domain only when the caller passes a `TypeSafeFallback`, and every caller that does so meets the usage policy below.
 
 ## Usage policy
 

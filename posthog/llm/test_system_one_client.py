@@ -20,12 +20,13 @@ from posthog.llm.system_one import (
 from posthog.llm.system_one_client import (
     GatewaySystemOneClient,
     SystemOneClient,
-    SystemOneModels,
+    TypeSafeFallback,
     TypeSafeSystemOneClient,
     build_system_one_client,
 )
 
-MODELS = SystemOneModels(gateway="posthog/hogference/jevk5-fp8-0.2", typesafe="jev-1.13.0")
+GATEWAY_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+FALLBACK = TypeSafeFallback(model="jev-1.13.0", source="test", priority=Priority.BATCH)
 GATEWAY = {"AI_GATEWAY_URL": "https://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 NOTHING = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "TYPESAFE_API_KEY": ""}
 QUESTIONS: dict[str, Question] = {
@@ -33,7 +34,7 @@ QUESTIONS: dict[str, Question] = {
     "team": ChoiceQuestion(instructions="Which team handles this?", criteria={"billing": None, "support": None}),
 }
 ANSWERS = {
-    "model": MODELS.gateway,
+    "model": GATEWAY_MODEL,
     "answers": {
         "urgent": {"type": "noul", "noul": 0.8},
         "team": {
@@ -47,17 +48,17 @@ ANSWERS = {
 }
 
 
-def _build():
+def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK) -> SystemOneClient:
     return build_system_one_client(
-        models=MODELS, ai_product="test_product", typesafe_source="test", distinct_id="team-7"
+        model=GATEWAY_MODEL, ai_product="test_product", typesafe_fallback=typesafe_fallback, distinct_id="team-7"
     )
 
 
 class TestBuildSystemOneClient(SimpleTestCase):
     @parameterized.expand(
         [
-            ("gateway_wins", {**GATEWAY, "TYPESAFE_API_KEY": "ts-key"}, GatewaySystemOneClient, MODELS.gateway),
-            ("typesafe_fallback", {"TYPESAFE_API_KEY": "ts-key"}, TypeSafeSystemOneClient, MODELS.typesafe),
+            ("gateway_wins", {**GATEWAY, "TYPESAFE_API_KEY": "ts-key"}, GatewaySystemOneClient, GATEWAY_MODEL),
+            ("typesafe_fallback", {"TYPESAFE_API_KEY": "ts-key"}, TypeSafeSystemOneClient, FALLBACK.model),
         ]
     )
     def test_picks_the_server_and_its_model(
@@ -71,16 +72,21 @@ class TestBuildSystemOneClient(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("nothing_configured", NOTHING),
+            ("nothing_configured", NOTHING, FALLBACK),
+            # A caller that passes no fallback must never reach TypeSafe, even with its key set.
+            ("typesafe_not_allowed", {**NOTHING, "TYPESAFE_API_KEY": "ts-key"}, None),
             (
                 "gateway_key_over_plain_http",
                 {**NOTHING, "AI_GATEWAY_URL": "http://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"},
+                FALLBACK,
             ),
         ]
     )
-    def test_refuses_without_a_usable_server(self, _name: str, configured: dict) -> None:
+    def test_refuses_without_a_usable_server(
+        self, _name: str, configured: dict, typesafe_fallback: TypeSafeFallback | None
+    ) -> None:
         with override_settings(**configured), self.assertRaises(SystemOneNotConfigured):
-            _build()
+            _build(typesafe_fallback)
 
     def test_gateway_request_reaches_the_system_one_route_with_its_labels(self) -> None:
         with override_settings(**{**NOTHING, **GATEWAY}):
@@ -93,8 +99,8 @@ class TestBuildSystemOneClient(SimpleTestCase):
         assert request.headers["Authorization"] == "Bearer phs_test"
         assert request.headers["X-PostHog-Product"] == "test_product"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-7"
-        assert json.loads(request.content)["model"] == MODELS.gateway
-        assert result.model == MODELS.gateway
+        assert json.loads(request.content)["model"] == GATEWAY_MODEL
+        assert result.model == GATEWAY_MODEL
         assert result.answers == {
             "urgent": NoulAnswer(probability=0.8),
             "team": ChoiceAnswer(choice="billing", confidence=0.7, probabilities={"billing": 0.7, "support": 0.3}),
@@ -103,7 +109,7 @@ class TestBuildSystemOneClient(SimpleTestCase):
     @parameterized.expand(
         [
             ("http_error", httpx.Response(404, json={"error": "not found"}), 404),
-            ("unparseable_answer", httpx.Response(200, json={"model": MODELS.gateway, "answers": {}}), None),
+            ("unparseable_answer", httpx.Response(200, json={"model": GATEWAY_MODEL, "answers": {}}), None),
             ("unreachable", httpx.ConnectError("refused"), None),
         ]
     )
@@ -128,11 +134,9 @@ class TestBuildSystemOneClient(SimpleTestCase):
 
     def test_typesafe_fallback_sends_its_model_and_lane(self) -> None:
         with override_settings(**{**NOTHING, "TYPESAFE_API_KEY": "ts-key"}):
-            client = build_system_one_client(
-                models=MODELS, ai_product="test_product", typesafe_source="test", priority=Priority.BATCH
-            )
+            client = _build()
         with patch("posthog.llm.system_one_client.system_one") as system_one:
             client.decide(state="x", questions=QUESTIONS)
 
         kwargs = system_one.call_args.kwargs
-        assert (kwargs["source"], kwargs["model"], kwargs["priority"]) == ("test", MODELS.typesafe, Priority.BATCH)
+        assert (kwargs["source"], kwargs["model"], kwargs["priority"]) == ("test", FALLBACK.model, Priority.BATCH)
