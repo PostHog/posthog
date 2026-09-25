@@ -20,6 +20,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, patch
 
 from django.conf import settings
+from django.test import override_settings
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -43,12 +44,14 @@ from posthog.session_recordings.queries.session_recording_list_from_query import
     SessionRecordingQueryResult,
 )
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
     filter_recordings_by,
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.queries.utils import REPLAY_PERSON_PROPERTY_CHECK_FLAG
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -5673,3 +5676,86 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
         assert sorted(r["session_id"] for r in result.results) == sorted(oldest_two)
         assert result.has_more_recording is False
+
+
+@time_machine.travel("2021-01-01T13:46:23", tick=False)
+@override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=True)
+class TestNoEventSessionPersonPropertyFiltering(ClickhouseTestMixin, APIBaseTest):
+    """Sessions with no events, listed with negative person-property filters in PoE mode.
+
+    The events-based negative blocklist cannot exclude a session with no events, so the listing
+    runs a post-selection person check, gated by REPLAY_PERSON_PROPERTY_CHECK_FLAG.
+    """
+
+    def setUp(self):
+        super().setUp()
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    @property
+    def an_hour_ago(self):
+        return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
+
+    def _session_with_no_events(self, label: str, email: str | None) -> str:
+        distinct_id = f"{label}-user"
+        if email is not None:
+            create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": email})
+        session_id = f"{label}-session"
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+            ensure_analytics_event_in_session=False,
+        )
+        return session_id
+
+    def _person_check_flag(self, enabled: bool):
+        return patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: enabled and flag == REPLAY_PERSON_PROPERTY_CHECK_FLAG,
+        )
+
+    def test_negative_person_filter_drops_no_event_sessions_of_matching_persons(self):
+        blocked_session = self._session_with_no_events("person-check-blocked", "sales@internal.example.com")
+        kept_session = self._session_with_no_events("person-check-kept", "visitor@customer.example.com")
+        anonymous_session = self._session_with_no_events("person-check-anonymous", None)
+
+        query = {
+            "properties": [
+                {"key": "email", "value": "internal.example.com", "operator": "not_icontains", "type": "person"}
+            ]
+        }
+
+        with self._person_check_flag(enabled=True):
+            assert_query_matches_session_ids(team=self.team, query=query, expected=[kept_session, anonymous_session])
+
+        with self._person_check_flag(enabled=False):
+            assert_query_matches_session_ids(
+                team=self.team, query=query, expected=[blocked_session, kept_session, anonymous_session]
+            )
+
+    def test_test_account_filters_drop_no_event_sessions_of_matching_persons(self):
+        self._session_with_no_events("test-accounts-blocked", "sales@internal.example.com")
+        kept_session = self._session_with_no_events("test-accounts-kept", "visitor@customer.example.com")
+
+        self.team.test_account_filters = [
+            {"key": "email", "value": "internal.example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+
+        with self._person_check_flag(enabled=True):
+            assert_query_matches_session_ids(
+                team=self.team, query={"filter_test_accounts": True}, expected=[kept_session]
+            )
+
+    def test_blocked_distinct_ids_query_needs_negative_filters_and_the_and_operand(self):
+        negative = {"key": "email", "value": "internal.example.com", "operator": "not_icontains", "type": "person"}
+        positive = {"key": "email", "value": "internal.example.com", "operator": "icontains", "type": "person"}
+
+        def blocked_query(properties: list[dict], operand: str = "AND"):
+            query = RecordingsQuery.model_validate({"properties": properties, "operand": operand})
+            return PersonsPropertiesSubQuery(self.team, query).get_blocked_distinct_ids_query(["a-distinct-id"])
+
+        assert blocked_query([negative]) is not None
+        assert blocked_query([positive]) is None
+        assert blocked_query([negative], operand="OR") is None

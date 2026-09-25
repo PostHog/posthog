@@ -19,6 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tags_context
@@ -36,6 +37,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_person_property_check_enabled,
     is_session_property,
     test_account_scoped_query,
 )
@@ -303,7 +305,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 next_cursor = self._paginator.get_next_cursor()
 
             return SessionRecordingQueryResult(
-                results=(self._data_to_return(self._paginator.results)),
+                results=self._without_person_blocked_sessions(self._data_to_return(self._paginator.results)),
                 has_more_recording=self._paginator.has_more(),
                 timings=paginated_response.timings,
                 next_cursor=next_cursor,
@@ -479,6 +481,53 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def matches_on_events(self) -> bool:
         """Whether any filter narrows sessions by their events, so `events_timestamp_floor` can cost results."""
         return any(b.get_queries_for_session_id_matching() for b in self._events_filter_builders())
+
+    @tracer.start_as_current_span("SessionRecordingListFromQuery._without_person_blocked_sessions")
+    def _without_person_blocked_sessions(self, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Drop fetched sessions whose person a negative person-property filter excludes.
+
+        In PoE mode those filters are events-based, so a session with no events passes them even
+        when its person matches the excluded value (the "filter out internal and test users" case).
+        The check needs the fetched rows' distinct ids, so it runs after selection: the page can
+        come back short, but the cursor comes from the unfiltered rows, so pagination skips
+        nothing. Fail-open on error, which returns the page the listing already produced.
+        """
+        if not results:
+            return results
+
+        distinct_ids = list({row["distinct_id"] for row in results if row.get("distinct_id")})
+        if not distinct_ids:
+            return results
+
+        scoped_queries = [self._query]
+        if self._test_account_filters:
+            scoped_queries.append(test_account_scoped_query(self._query, self._test_account_filters))
+
+        blocked_queries = [
+            q
+            for scoped in scoped_queries
+            if (q := PersonsPropertiesSubQuery(self._team, scoped).get_blocked_distinct_ids_query(distinct_ids))
+        ]
+        if not blocked_queries or not is_person_property_check_enabled(self._team):
+            return results
+
+        blocked_distinct_ids: set[str] = set()
+        try:
+            for blocked_query in blocked_queries:
+                response = execute_hogql_query(
+                    query=blocked_query,
+                    team=self._team,
+                    query_type="SessionRecordingListPersonPropertyCheck",
+                    modifiers=self._hogql_query_modifiers,
+                )
+                blocked_distinct_ids |= {row[0] for row in response.results or []}
+        except Exception as e:
+            capture_exception(e)
+            return results
+
+        if not blocked_distinct_ids:
+            return results
+        return [row for row in results if row["distinct_id"] not in blocked_distinct_ids]
 
     def _events_filter_builders(self) -> list[ReplayFiltersEventsSubQuery]:
         """Every builder that can contribute an events subquery: the query's own, plus test accounts."""
