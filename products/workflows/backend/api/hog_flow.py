@@ -1995,7 +1995,6 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
 
 
 MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
-MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 
 
 class HogFlowConversionSerializer(serializers.Serializer):
@@ -2023,17 +2022,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         help_text=(
             "How long after entering the workflow a conversion still counts, as a duration string: "
             "'7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, "
-            "and at most '365d'. Omit it to use the default of 90 days. "
-            "Set this or 'window_minutes', not both."
-        ),
-    )
-    window_minutes = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text=(
-            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
-            "person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. "
-            "Set this or 'window', not both."
+            "and at most '365d'. Omit it to use the default of 90 days."
         ),
     )
     # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
@@ -2055,36 +2044,6 @@ class HogFlowConversionSerializer(serializers.Serializer):
         if minutes > MAX_CONVERSION_WINDOW_MINUTES:
             raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
         return value
-
-    def _stored_window_minutes(self) -> int | None:
-        # The value this workflow already holds, or None on create. `conversion` is nested only under
-        # HogFlowSerializer, so self.root.instance is the HogFlow being updated.
-        stored = getattr(self.root.instance, "conversion", None)
-        if isinstance(stored, dict):
-            return stored.get("window_minutes")
-        return None
-
-    def validate_window_minutes(self, value: int | None) -> int | None:
-        if value is None:
-            return value
-        # Grandfather an over-ceiling value the row already holds. The builder resends the whole
-        # conversion on every save, so a plain value ceiling would 400 an unrelated edit (a rename or a
-        # step change) on a workflow that predates the ceiling, naming a field the builder cannot show.
-        # Reject the value only when this write introduces or changes it.
-        if value > MAX_LEGACY_WINDOW_MINUTES and value != self._stored_window_minutes():
-            # Almost every value this large is a second count in a field that takes minutes, so name the
-            # unit and show what the number means rather than silently shortening it.
-            raise serializers.ValidationError(
-                f"window_minutes is in minutes, so {value} means {value // 1440} days. "
-                f"The maximum is {MAX_LEGACY_WINDOW_MINUTES}. Use 'window' with a duration string "
-                f"such as '7d' instead."
-            )
-        return value
-
-    def validate(self, data: dict) -> dict:
-        if data.get("window") is not None and data.get("window_minutes") is not None:
-            raise serializers.ValidationError("Set either 'window' or the deprecated 'window_minutes', not both.")
-        return data
 
     def to_internal_value(self, data):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).
@@ -2940,7 +2899,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
             "events: event-based goals [{filters: {events: [...]}}]; "
             "window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', "
-            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. "
+            "maximum '365d'. "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."
         ),
