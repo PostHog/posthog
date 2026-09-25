@@ -532,6 +532,9 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
 
         left = self.visit(node.left)
         if isinstance(node.right, ast.SelectQuery):
+            # Same guard as the base class: an already expanded subquery must not be lifted.
+            if has_generated_lazy_join(node.right):
+                return ast.Constant(value=self.tombstone_string)
             right = clone_expr(node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True)
         else:
             right = self.visit(node.right)
