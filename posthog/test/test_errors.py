@@ -22,6 +22,7 @@ class TestWrapClickhouseQueryError:
             (80, "INCORRECT_QUERY"),
             (122, "INCOMPATIBLE_COLUMNS"),
             (174, "CYCLIC_ALIASES"),
+            (190, "SIZES_OF_ARRAYS_DONT_MATCH"),
             (207, "AMBIGUOUS_IDENTIFIER"),
             (211, "EMPTY_QUERY"),
             (264, "INCOMPATIBLE_TYPE_OF_JOIN"),
