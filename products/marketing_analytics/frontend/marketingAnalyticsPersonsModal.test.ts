@@ -34,6 +34,20 @@ describe('marketingAnalyticsActorsQuery', () => {
             conversionGoalId: 'purchases',
             breakdown: { value: 'winter-sale', source: 'google' },
         })
+        expect(actorsQuery?.orderBy).toEqual(['id'])
+    })
+
+    it.each([
+        [MarketingAnalyticsDrillDownLevel.Campaign, MarketingAnalyticsBaseColumns.Campaign],
+        [MarketingAnalyticsDrillDownLevel.ChannelSource, 'Channel'],
+    ])('does not broaden %s drill-downs when Source is hidden', (level, column) => {
+        expect(
+            marketingAnalyticsActorsQuery({
+                conversionGoalId: 'purchases',
+                query: tableQuery(level),
+                record: [{ key: column, value: 'winter-sale' }],
+            })
+        ).toBeNull()
     })
 
     it('uses the selected UTM dimension without adding a source filter', () => {

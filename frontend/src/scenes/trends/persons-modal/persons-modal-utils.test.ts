@@ -1,10 +1,35 @@
 import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
 
-import { BreakdownItem, FunnelsActorsQuery } from '~/queries/schema/schema-general'
+import { ActorsQuery, BreakdownItem, FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 
-import { funnelBreakdownSelectValue, funnelStepBreakdownFromSelectValue } from './persons-modal-utils'
+import {
+    funnelBreakdownSelectValue,
+    funnelStepBreakdownFromSelectValue,
+    personsModalExportContext,
+} from './persons-modal-utils'
 
 describe('persons modal funnel breakdown helpers', () => {
+    it('exports a direct actors query with its attribution filters and without recordings', () => {
+        const query: ActorsQuery = {
+            kind: NodeKind.ActorsQuery,
+            select: ['actor', 'matched_recordings'],
+            orderBy: ['id'],
+            search: 'example',
+            source: {
+                kind: NodeKind.MarketingAnalyticsActorsQuery,
+                source: {
+                    kind: NodeKind.MarketingAnalyticsTableQuery,
+                    properties: [],
+                    dateRange: { date_from: '-7d' },
+                },
+                conversionGoalId: 'purchases',
+                breakdown: { value: 'winter-sale', source: 'google' },
+            },
+        }
+        expect(personsModalExportContext(query, '')).toEqual({ source: { ...query, select: ['actor'] } })
+        expect(personsModalExportContext(null, '/api/projects/1/persons')).toEqual({ path: '/api/projects/1/persons' })
+    })
+
     const options: BreakdownItem[] = [
         { label: 'Baseline', value: BREAKDOWN_BASELINE_STRING_LABEL },
         { label: 'Chrome', value: 'Chrome' },

@@ -156,6 +156,7 @@ export interface PersonModalLogicProps {
 }
 
 export interface ListActorsResponse {
+    precomputeNotReady?: boolean
     results: {
         count: number
         people: ActorType[]
@@ -288,12 +289,18 @@ export interface personsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         actorLabel: (
             actors: ActorType[],
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
         selectFields: (arg: any) => string[]
-        actorsQuery: (arg: any, arg2: any, query: any, searchTerm: string, selectFields: string[]) => ActorsQuery | null
+        actorsQuery: (
+            arg: any,
+            arg2: any,
+            query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode> | null,
+            searchTerm: string,
+            selectFields: string[]
+        ) => ActorsQuery | null
         exploreUrl: (actorsQuery: ActorsQuery | null) => string | null
         insightEventsQueryUrl: (actorsQuery: ActorsQuery | null) => string | null
         sessionIdsFromLoadedActors: (actors: ActorType[]) => string[]
@@ -376,6 +383,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
                         const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
+                            precomputeNotReady: response.precomputeNotReady,
                             results: [
                                 {
                                     count: response.results.length,

@@ -2016,10 +2016,7 @@ class ConversionGoalProcessor:
         )
         return build_source_normalization_expr(source_expr, source_mappings)
 
-    def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
-        """Build final aggregation query with organic defaults"""
-        level = self.config.drill_down_level
-
+    def build_attributed_field_exprs(self, table_alias: str | None = None) -> dict[str, ast.Expr]:
         # Build organic-default expressions for each tracked field
         # Campaign and source use config-driven organic defaults; others use TrackedField defaults
         organic_overrides = {
@@ -2031,10 +2028,16 @@ class ConversionGoalProcessor:
             default = organic_overrides.get(field.name, field.default_value)
             field_expr: ast.Expr
             if field.name == "source":
-                field_expr = self._normalize_source_field(self._build_source_expr(field, default))
+                field_expr = self._normalize_source_field(self._build_source_expr(field, default, table_alias))
             else:
-                field_expr = self._build_organic_default_expr(field.attributed_name, default)
+                field_expr = self._build_organic_default_expr(field.attributed_name, default, table_alias)
             field_exprs[field.name] = field_expr
+        return field_exprs
+
+    def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
+        """Build final aggregation query with organic defaults"""
+        level = self.config.drill_down_level
+        field_exprs = self.build_attributed_field_exprs()
 
         campaign_expr = field_exprs["campaign"]
         source_expr = field_exprs["source"]
@@ -2118,18 +2121,21 @@ class ConversionGoalProcessor:
             group_by=group_by,
         )
 
-    def _build_organic_default_expr(self, field_name: str, default_value: str) -> ast.Call:
+    def _build_organic_default_expr(
+        self, field_name: str, default_value: str, table_alias: str | None = None
+    ) -> ast.Call:
         """Build expression with organic default"""
+        field = ast.Field(chain=[table_alias, field_name] if table_alias else [field_name])
         return ast.Call(
             name="if",
             args=[
-                ast.Call(name="notEmpty", args=[ast.Field(chain=[field_name])]),
-                ast.Field(chain=[field_name]),
+                ast.Call(name="notEmpty", args=[field]),
+                field,
                 ast.Constant(value=default_value),
             ],
         )
 
-    def _build_source_expr(self, source: TrackedField, default_value: str) -> ast.Expr:
+    def _build_source_expr(self, source: TrackedField, default_value: str, table_alias: str | None = None) -> ast.Expr:
         """Attributed source, naming the ad network when only a click id identifies it.
 
         A pageview qualifies as a touchpoint on a click id alone, and channel_type reads those
@@ -2137,13 +2143,14 @@ class ConversionGoalProcessor:
         default would put an organic source next to a paid channel on one row, and would leave
         the conversion in the organic bucket on the campaign and source levels.
         """
-        source_field = ast.Field(chain=[source.attributed_name])
+        prefix = [table_alias] if table_alias else []
+        source_field = ast.Field(chain=[*prefix, source.attributed_name])
         fallback: ast.Expr = ast.Constant(value=default_value)
         for field in reversed(CLICK_ID_FIELDS):
             fallback = ast.Call(
                 name="if",
                 args=[
-                    ast.Call(name="notEmpty", args=[ast.Field(chain=[field.attributed_name])]),
+                    ast.Call(name="notEmpty", args=[ast.Field(chain=[*prefix, field.attributed_name])]),
                     ast.Constant(value=field.click_id_source),
                     fallback,
                 ],

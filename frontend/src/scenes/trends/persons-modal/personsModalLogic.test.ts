@@ -4,7 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -20,6 +20,43 @@ describe('personsModalLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it('preserves direct query ordering and shows precompute readiness instead of an empty result', async () => {
+        const actorsQuery: ActorsQuery = {
+            kind: NodeKind.ActorsQuery,
+            orderBy: ['id'],
+            source: {
+                kind: NodeKind.MarketingAnalyticsActorsQuery,
+                source: {
+                    kind: NodeKind.MarketingAnalyticsTableQuery,
+                    properties: [],
+                    dateRange: { date_from: '-7d' },
+                },
+                conversionGoalId: 'purchases',
+                breakdown: { value: 'winter-sale', source: 'google' },
+            },
+        }
+        const requests: ActorsQuery[] = []
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const body = (await request.json()) as { query: ActorsQuery }
+                    requests.push(body.query)
+                    return [200, { results: [], columns: ['actor'], precomputeNotReady: true, hasMore: false }]
+                },
+            },
+        })
+        logic = personsModalLogic({ actorsQuery })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                actorsResponseLoading: false,
+                actorsResponse: { precomputeNotReady: true, results: [{ count: 0, people: [] }] },
+            })
+        expect(requests).toHaveLength(1)
+        expect(requests[0]).toMatchObject({ orderBy: ['id'], source: actorsQuery.source })
     })
 
     describe('sessionIdsFromLoadedActors', () => {

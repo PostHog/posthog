@@ -25,7 +25,10 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
-import { openMarketingAnalyticsPersonsModal } from 'products/marketing_analytics/frontend/marketingAnalyticsPersonsModal'
+import {
+    marketingAnalyticsActorsQuery,
+    openMarketingAnalyticsPersonsModal,
+} from 'products/marketing_analytics/frontend/marketingAnalyticsPersonsModal'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -109,6 +112,14 @@ export const MarketingAnalyticsTable = ({
                                     typeof props.value.value === 'number'
                                         ? props.value.value
                                         : null
+                                const actorsQuery =
+                                    conversionGoal && currentValue !== null && currentValue > 0
+                                        ? marketingAnalyticsActorsQuery({
+                                              conversionGoalId: conversionGoal.conversion_goal_id,
+                                              query: props.query as DataTableNode,
+                                              record: props.record,
+                                          })
+                                        : null
                                 return (
                                     <MarketingAnalyticsCell
                                         {...props}
@@ -116,13 +127,11 @@ export const MarketingAnalyticsTable = ({
                                             maxWidth: isGroupingColumn ? '200px' : undefined,
                                         }}
                                         onClick={
-                                            conversionGoal && currentValue !== null && currentValue > 0
+                                            conversionGoal && actorsQuery
                                                 ? () =>
                                                       openMarketingAnalyticsPersonsModal({
-                                                          conversionGoalId: conversionGoal.conversion_goal_id,
                                                           conversionGoalName: conversionGoal.conversion_goal_name,
-                                                          query: props.query as DataTableNode,
-                                                          record: props.record,
+                                                          actorsQuery,
                                                       })
                                                 : undefined
                                         }

@@ -195,6 +195,11 @@ The list retains the table's date range, filters, attribution settings, and brea
 It shows distinct people, so its count can differ from event totals or fractional attribution credit.
 Ad-platform reported conversions do not link to people because they do not identify PostHog persons.
 The details query reuses the attribution pipeline before aggregation and follows the table's precompute-readiness rules.
+The table and people list use the same click-ID source fallback and source normalization.
+Campaign and channel/source rows need the Source column to identify the clicked group; hiding it disables the conversion link.
+People appear in a stable order, and CSV exports retain the selected goal and attribution filters.
+If conversion details are not ready, the list shows a preparation message and requests a background calculation.
+The people query requires viewer access to Web analytics, including when it serves cached results.
 
 ## Marketing metric chart
 

@@ -40,6 +40,12 @@ export function marketingAnalyticsActorsQuery({
     if (breakdownValue === null) {
         return null
     }
+    const needsSource =
+        level === MarketingAnalyticsDrillDownLevel.Campaign || level === MarketingAnalyticsDrillDownLevel.ChannelSource
+    const breakdownSource = rowValue(record, MarketingAnalyticsBaseColumns.Source)
+    if (needsSource && breakdownSource === null) {
+        return null
+    }
 
     const sourceQuery: MarketingAnalyticsActorsQuery = {
         kind: NodeKind.MarketingAnalyticsActorsQuery,
@@ -47,36 +53,24 @@ export function marketingAnalyticsActorsQuery({
         conversionGoalId,
         breakdown: {
             value: breakdownValue,
-            source:
-                level === MarketingAnalyticsDrillDownLevel.Campaign ||
-                level === MarketingAnalyticsDrillDownLevel.ChannelSource
-                    ? (rowValue(record, MarketingAnalyticsBaseColumns.Source) ?? undefined)
-                    : undefined,
+            source: needsSource ? (breakdownSource ?? undefined) : undefined,
         },
     }
 
     return {
         kind: NodeKind.ActorsQuery,
         source: sourceQuery,
+        orderBy: ['id'],
     }
 }
 
 export function openMarketingAnalyticsPersonsModal({
-    conversionGoalId,
     conversionGoalName,
-    query,
-    record,
+    actorsQuery,
 }: {
-    conversionGoalId: string
     conversionGoalName: string
-    query: DataTableNode
-    record: unknown
+    actorsQuery: MarketingAnalyticsActorsRequest
 }): void {
-    const actorsQuery = marketingAnalyticsActorsQuery({ conversionGoalId, query, record })
-    if (!actorsQuery) {
-        return
-    }
-
     openPersonsModal({
         title: `${conversionGoalName}: people attributed to ${actorsQuery.source.breakdown.value}`,
         actorsQuery,

@@ -4,6 +4,7 @@ import { delay, HttpResponse } from 'msw'
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
@@ -16,6 +17,40 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+
+export const ConversionDetailsPreparing: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': {
+                    results: [],
+                    columns: ['actor'],
+                    precomputeNotReady: true,
+                },
+            },
+        })
+        return (
+            <PersonsModalComponent
+                title="Purchases: people attributed to winter-sale"
+                actorsQuery={{
+                    kind: NodeKind.ActorsQuery,
+                    orderBy: ['id'],
+                    source: {
+                        kind: NodeKind.MarketingAnalyticsActorsQuery,
+                        source: {
+                            kind: NodeKind.MarketingAnalyticsTableQuery,
+                            properties: [],
+                            dateRange: { date_from: '-7d' },
+                        },
+                        conversionGoalId: 'purchases',
+                        breakdown: { value: 'winter-sale', source: 'google' },
+                    },
+                }}
+                inline
+            />
+        )
+    },
+}
 
 export const WithResults: Story = {
     render: () => {

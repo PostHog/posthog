@@ -36,6 +36,10 @@ from posthog.slo.context import tag_current_slo
 from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
 
+class ActorsQueryNotReady(Exception):
+    pass
+
+
 class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
     query: ActorsQuery
     cached_response: CachedActorsQueryResponse
@@ -278,8 +282,21 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         try:
             self.calculating = True
             return self._calculate_internal()
+        except ActorsQueryNotReady:
+            return ActorsQueryResponse(
+                results=[],
+                columns=self.input_columns(),
+                hogql="",
+                precomputeNotReady=True,
+                **self.paginator.response_params(),
+            )
         finally:
             self.calculating = False
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        if self.source_query_runner is not None:
+            return self.source_query_runner.validate_query_runner_access(user)
+        return super().validate_query_runner_access(user)
 
     def validate(self) -> None:
         super().validate()

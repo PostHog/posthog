@@ -1305,6 +1305,9 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "precomputeNotReady": {
+                    "type": "boolean"
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -6992,6 +6995,9 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "precomputeNotReady": {
+                    "type": "boolean"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -18314,6 +18320,9 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "precomputeNotReady": {
+                                    "type": "boolean"
                                 },
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
@@ -40646,6 +40655,9 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "precomputeNotReady": {
+                            "type": "boolean"
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -43488,6 +43500,9 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "precomputeNotReady": {
+                            "type": "boolean"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

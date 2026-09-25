@@ -5,6 +5,7 @@ import { pluralize } from 'lib/utils/strings'
 import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
 
 import {
+    ActorsQuery,
     BreakdownItem,
     FunnelsActorsQuery,
     InsightActorsQuery,
@@ -13,7 +14,23 @@ import {
 } from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { StepOrderValue } from '~/types'
+import { ExportContext, StepOrderValue } from '~/types'
+
+export function personsModalExportContext(actorsQuery: ActorsQuery | null, originalUrl: string): ExportContext {
+    if (!actorsQuery) {
+        return { path: originalUrl }
+    }
+    return {
+        source: {
+            ...actorsQuery,
+            select: actorsQuery.select?.filter((column) => column !== 'matched_recordings'),
+            source:
+                actorsQuery.source && 'includeRecordings' in actorsQuery.source
+                    ? { ...actorsQuery.source, includeRecordings: false }
+                    : actorsQuery.source,
+        },
+    }
+}
 
 export const funnelTitle = (props: {
     converted: boolean

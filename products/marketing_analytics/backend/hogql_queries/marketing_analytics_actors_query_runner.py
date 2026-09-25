@@ -6,12 +6,17 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.hogql_queries.actors_query_runner import ActorsQueryNotReady
 from posthog.models import Team
 from posthog.models.user import User
 
-from .conversion_goal_processor import TRACKED_FIELDS, ConversionGoalProcessor
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_table_query_runner import MarketingAnalyticsTableQueryRunner
+from .marketing_lazy_precompute import handle_not_ready
 
 
 class MarketingAnalyticsActorsQueryRunner(MarketingAnalyticsTableQueryRunner):
@@ -39,7 +44,17 @@ class MarketingAnalyticsActorsQueryRunner(MarketingAnalyticsTableQueryRunner):
             user=user,
         )
 
+    def validate_query_runner_access(self, user: User) -> bool:
+        return UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("web_analytics", "viewer")
+
     def to_actors_query(self) -> ast.SelectQuery:
+        try:
+            return self._build_actors_query()
+        except MarketingPrecomputeNotReady as not_ready:
+            handle_not_ready(team=self.team, query=not_ready.query or self.query)
+            raise ActorsQueryNotReady from not_ready
+
+    def _build_actors_query(self) -> ast.SelectQuery:
         self._apply_drill_down_level()
         valid_goals, self._skipped_conversion_goals = self._filter_invalid_conversion_goals(
             self._get_team_conversion_goals()
@@ -79,16 +94,7 @@ class MarketingAnalyticsActorsQueryRunner(MarketingAnalyticsTableQueryRunner):
         )
 
         alias = "attributed_conversions"
-        field_exprs: dict[str, ast.Expr] = {}
-        organic_overrides = {
-            "campaign": self.config.organic_campaign,
-            "source": self.config.organic_source,
-        }
-        for field in TRACKED_FIELDS:
-            raw = ast.Field(chain=[alias, field.attributed_name])
-            default = organic_overrides.get(field.name, field.default_value)
-            field_exprs[field.name] = processor._apply_organic_default(raw, default)
-        field_exprs["source"] = processor._normalize_source_field(field_exprs["source"])
+        field_exprs = processor.build_attributed_field_exprs(table_alias=alias)
 
         level = self.config.drill_down_level
         source_expr = field_exprs["source"]
