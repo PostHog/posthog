@@ -4056,7 +4056,9 @@ class ScoutToolCatalogueEntrySerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="The API scopes a token must carry to call the tool. Empty for a tool that needs none.",
     )
-    read_only = serializers.BooleanField(
+    # Not `read_only`: that name is a DRF `Field` attribute, so a field declared under it
+    # shadows the base class and fails the typecheck.
+    is_read_only = serializers.BooleanField(
         source="definition.read_only",
         help_text="True when the tool only reads. A false value means the tool can change the project's data.",
     )

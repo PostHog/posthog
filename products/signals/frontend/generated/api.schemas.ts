@@ -3695,7 +3695,7 @@ export interface ScoutToolCatalogueEntryApi {
     /** The API scopes a token must carry to call the tool. Empty for a tool that needs none. */
     required_scopes: string[]
     /** True when the tool only reads. A false value means the tool can change the project's data. */
-    read_only: boolean
+    is_read_only: boolean
     /** True when the tool is hidden until the project consents to AI features. */
     requires_ai_consent: boolean
     /** True when a scout run can hold every scope the tool requires. A false value means no scout reaches the tool, whatever it is granted, so it cannot be configured for one. */
