@@ -44,6 +44,7 @@ export const fonts = {
 export const drawer = {
   widthFraction: 0.82,
   sceneRadius: 44,
+  swipeEdgeWidth: 60,
 };
 
 export const radius = {
