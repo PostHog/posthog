@@ -233,7 +233,7 @@ export function NavBar(): JSX.Element {
                     )}
                 >
                     <div
-                        className={cn('flex gap-1 rounded-md w-full px-2 pt-2 pb-1', {
+                        className={cn('flex gap-1 rounded-md w-full px-1 pt-2 pb-1', {
                             'items-center': isSimpleSidepanelEnabled,
                             'flex-col items-center pt-2 pb-0': isLayoutNavCollapsed,
                         })}

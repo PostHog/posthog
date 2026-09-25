@@ -28,6 +28,50 @@ export interface BroadcastRowDetails {
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
 export const BROADCASTS_PAGE_SIZE = 100
 
+/** Mirrors the list API's broadcast_eligible filter: a batch trigger, one email step, nothing else. */
+export function isBroadcastShaped(
+    actions: { type?: string; config?: { type?: string } }[] | null | undefined
+): boolean {
+    const steps = actions ?? []
+    return (
+        steps.some((step) => step.type === 'trigger' && step.config?.type === 'batch') &&
+        steps.filter((step) => step.type === 'function_email').length === 1 &&
+        steps.every((step) => ['trigger', 'function_email', 'exit'].includes(step.type ?? ''))
+    )
+}
+
+const DEFAULT_RECIPIENT = '{{ person.properties.email }}'
+
+type FlowStep = { id?: string; type?: string; config?: Record<string, any> }
+type FlowEdge = { from?: string; to?: string }
+
+/**
+ * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
+ * wizard only models a person audience sent to each person's own email along trigger, email, exit;
+ * anything else opens as the read-only summary instead.
+ */
+export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
+    const steps = actions ?? []
+    const [trigger, email, exit] = ['trigger', 'function_email', 'exit'].map((type) =>
+        steps.filter((step) => step.type === type)
+    )
+    // One of each and nothing else, so the steps the wizard edits are the only ones there are.
+    if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
+        return false
+    }
+    const recipient = email[0].config?.inputs?.email?.value?.to?.email
+    // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
+    // that skips the email.
+    const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
+    return (
+        trigger[0].config?.filters?.audience_type !== 'accounts' &&
+        (!recipient || recipient === DEFAULT_RECIPIENT) &&
+        paths.size === 2 &&
+        paths.has(`${trigger[0].id}->${email[0].id}`) &&
+        paths.has(`${email[0].id}->${exit[0].id}`)
+    )
+}
+
 export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product'>): boolean {
     return flow.origin_product !== 'broadcasts'
 }

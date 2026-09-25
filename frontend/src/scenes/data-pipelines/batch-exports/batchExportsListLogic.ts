@@ -87,6 +87,7 @@ export const batchExportsListLogic = kea<batchExportsListLogicType>([
             {
                 loadBatchExports: async () => {
                     const firstPage = await batchExportsList(String(values.currentTeamId))
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const otherPages = await api.loadPaginatedResults<BatchExportApi>(firstPage.next ?? null)
                     return [...firstPage.results, ...otherPages]
                 },
