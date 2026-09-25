@@ -2492,13 +2492,13 @@ Diffed against: <https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci
 - [x] `/v2/customers/my/invoices/{invoice_uuid} (invoice items) and /invoices/{invoice_uuid}/summary` — per-resource invoice line items; invoices are synced as headers only, so spend cannot be attributed to droplets or databases (high)
 - [x] `/v2/sizes` — lookup resolving the droplet size slug on every droplet into vCPU, memory, disk and hourly/monthly price (high)
 - [x] `/v2/regions` — lookup resolving the region slug carried by droplets, databases, load balancers and volumes (high)
-- [ ] `/v2/projects/{project_id}/resources (and /v2/projects/default/resources)` — the join table mapping every synced resource URN to a project — projects are synced but the membership is not (high)
+- [x] `/v2/projects/{project_id}/resources (and /v2/projects/default/resources)` — the join table mapping every synced resource URN to a project — projects are synced but the membership is not (high) — added as `project_resources` (`/v2/projects/default/resources` is an alias for the project flagged `is_default`, which the fan-out over `/v2/projects` already visits)
 - [x] `/v2/actions (and /v2/droplets/{droplet_id}/actions)` — account-wide action history: creates, resizes, power cycles with status and timing — the state-transition log for infrastructure (high)
 - [ ] `/v2/apps/{app_id}/deployments (+ /v2/apps/{app_id}/events)` — App Platform deployment history and phase transitions; apps are synced but not their deploy activity (medium)
 - [ ] `/v2/kubernetes/clusters/{cluster_id}/node_pools` — node pool sizing per cluster, needed to explain Kubernetes cost and capacity (medium)
-- [ ] `/v2/tags/{tag_id}/resources` — resolves tags (already synced as names) to the resources they are applied to (medium)
-- [ ] `/v2/domains/{domain_name}/records` — DNS records under the domains already synced (medium)
-- [ ] `/v2/databases/{database_cluster_uuid}/backups and /v2/databases/{database_cluster_uuid}/events` — backup inventory and cluster event history for managed databases (medium)
+- [ ] `/v2/tags/{tag_id}/resources` — resolves tags (already synced as names) to the resources they are applied to (medium) — not buildable: the spec exposes only POST and DELETE on this path, so tag membership cannot be read back. `/v2/tags` carries per-resource-type counts and a `last_tagged_uri`, which is the closest available data and is already synced.
+- [x] `/v2/domains/{domain_name}/records` — DNS records under the domains already synced (medium) — added as `domain_records`
+- [x] `/v2/databases/{database_cluster_uuid}/backups and /v2/databases/{database_cluster_uuid}/events` — backup inventory and cluster event history for managed databases (medium) — added as `database_backups` and `database_events`
 - [ ] `/v2/uptime/checks (+ /checks/{check_id}/state)` — uptime check inventory and current state for availability reporting (low)
 - [ ] `/v2/registry/{registry_name}/repositories (+ /tags, /digests)` — container registry repository and tag inventory with sizes (low)
 
@@ -2602,21 +2602,21 @@ Note: Doppler publishes no OpenAPI file; the resource list was read from the doc
 
 ## Dovetail — gaps
 
-Today (8): `Contacts`, `Data`, `DocComments`, `Docs`, `Highlights`, `Projects`, `Tags`, `Users`
+Today (9): `Contacts`, `Data`, `DocComments`, `Docs`, `Fields`, `Highlights`, `Projects`, `Tags`, `Users`
 
 Diffed against: <https://developers.dovetail.com/llms.txt>
 
-- [ ] `GET /v1/insights` — insights are a first-class Dovetail object alongside docs and the main research output; entirely missing (high)
-- [ ] `GET /v1/notes` — notes are a top-level content type parallel to docs and are not synced at all (high)
-- [ ] `GET /v1/fields` — custom field definition lookup that resolves the field IDs carried on projects, data, and contacts (high)
-- [ ] `GET /v1/insights/{insightId}/comments` — insight comments; DocComments already syncs the doc-side equivalent, leaving half the comment corpus behind (medium)
+- [ ] `GET /v1/insights` — insights are a first-class Dovetail object alongside docs and the main research output; entirely missing (high) — not building: the vendor renamed insights to docs, the endpoint is marked `deprecated` and returns a `Deprecation` header, and `Docs` already syncs the same records
+- [ ] `GET /v1/notes` — notes are a top-level content type parallel to docs and are not synced at all (high) — not building: the vendor renamed notes to data, and `Data` already syncs the same records
+- [x] `GET /v1/fields` — custom field definition lookup that resolves the field IDs carried on projects, data, and contacts (high)
+- [ ] `GET /v1/insights/{insightId}/comments` — insight comments; DocComments already syncs the doc-side equivalent, leaving half the comment corpus behind (medium) — not building: deprecated alongside the insights resource, and `DocComments` already syncs the same comments
 - [ ] `GET /v1/channels` — feedback channel lookup for channel-sourced data records (medium)
 - [ ] `GET /v1/channels/{channelId}/themes` — aggregated themes per channel — the analytical breakdown dimension over feedback (medium)
 - [ ] `GET /v1/folders and /v1/folders/{folderId}/contents` — folder hierarchy that organizes projects and docs (medium)
 - [ ] `GET /v1/channels/{channelId}/data` — channel↔data-record junction linking feedback items to their source channel (low)
 - [ ] `GET /v1/projects/templates` — project template lookup (low)
 
-Note: The source already does per-doc fan-out for DocComments, so insight comments and channel sub-resources follow the same pattern. Dovetail publishes no OpenAPI file; the endpoint list came from the docs llms.txt reference index.
+Note: The source already does per-doc fan-out for DocComments, so insight comments and channel sub-resources follow the same pattern. Dovetail publishes no OpenAPI file; the endpoint list came from the docs llms.txt reference index. `insights` and `notes` are the vendor's former names for `docs` and `data`: both sets of endpoints are marked deprecated or superseded in the reference and return the records the source already syncs, so they stay unbuilt rather than duplicating two tables. `/v1/fields` takes no date filter and requires `filter[field_set_type]`, so `Fields` is a full-refresh fan-out over projects that runs one pass per field set type.
 
 ## Drata — gaps
 

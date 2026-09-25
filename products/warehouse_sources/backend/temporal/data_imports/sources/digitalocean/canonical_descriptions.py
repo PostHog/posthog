@@ -276,4 +276,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "credits_and_adjustments": "Credits and adjustments contributing to the invoice.",
         },
     },
+    "project_resources": {
+        "description": "Membership table mapping each resource URN to the project it is assigned to.",
+        "docs_url": "https://docs.digitalocean.com/reference/api/api-reference/#tag/Project-Resources",
+        "columns": {
+            "project_id": "UUID of the project the resource belongs to, taken from the parent project.",
+            "urn": "Uniform resource name of the assigned resource, such as `do:droplet:13457723`.",
+            "assigned_at": "Time the resource was assigned to the project (ISO 8601).",
+            "links": "Links object whose `self` URI retrieves the resource.",
+            "status": "Status of assigning and fetching the resource (e.g. ok, not_found).",
+        },
+    },
+    "domain_records": {
+        "description": "DNS records configured under each domain in the account.",
+        "docs_url": "https://docs.digitalocean.com/reference/api/api-reference/#tag/Domain-Records",
+        "columns": {
+            "domain_name": "Name of the domain the record belongs to, taken from the parent domain.",
+            "id": "Identifier of the record, unique within its domain.",
+            "type": "Type of the DNS record (e.g. A, CNAME, MX, TXT).",
+            "name": "Host name, alias, or service the record defines.",
+            "data": "Value of the record, which varies by record type.",
+            "priority": "Priority for SRV and MX records, null for other types.",
+            "port": "Port for SRV records, null for other types.",
+            "ttl": "Time to live for the record, in seconds.",
+            "weight": "Weight for SRV records, null for other types.",
+            "flags": "Unsigned integer between 0 and 255 used by CAA records.",
+            "tag": "Parameter tag for CAA records (issue, issuewild, or iodef).",
+        },
+    },
+    "database_backups": {
+        "description": "Backups available for each managed database cluster. Caching and Valkey clusters have none.",
+        "docs_url": "https://docs.digitalocean.com/reference/api/api-reference/#tag/Databases",
+        "columns": {
+            "database_cluster_uuid": "UUID of the cluster the backup belongs to, taken from the parent cluster.",
+            "created_at": "Time the backup was created (ISO 8601).",
+            "size_gigabytes": "Size of the backup, in gigabytes.",
+            "incremental": "Whether the backup is incremental rather than full. MySQL only.",
+        },
+    },
+    "database_events": {
+        "description": "Event log for each managed database cluster, covering creates, updates, maintenance, and power cycles.",
+        "docs_url": "https://docs.digitalocean.com/reference/api/api-reference/#tag/Databases",
+        "columns": {
+            "database_cluster_uuid": "UUID of the cluster the event belongs to, taken from the parent cluster.",
+            "id": "Identifier of the event.",
+            "cluster_name": "Name of the cluster the event was recorded on.",
+            "event_type": "Type of the event (e.g. cluster_create, cluster_maintenance_perform).",
+            "create_time": "Time the event was generated (ISO 8601).",
+        },
+    },
 }
