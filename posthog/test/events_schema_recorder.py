@@ -36,11 +36,15 @@ EVENTS_JSON_TABLE_NAME = re.compile(rf"(?<!\w)(?:{'|'.join(EVENTS_JSON_TABLES)})
 # cleanup statements do not count.
 FIXTURE_INSERT_MARKER = "JSONCleanPostHogTemporaryProperties(source.c3) FROM values("
 SETUP_STATEMENT = re.compile(r"\s*(?:CREATE|DROP|TRUNCATE)\b", re.IGNORECASE)
+AS_SELECT = re.compile(r"\bAS\s+SELECT\b", re.IGNORECASE)
 
 
 def names_events_json_table(sql: str) -> bool:
-    if FIXTURE_INSERT_MARKER in sql or SETUP_STATEMENT.match(sql):
+    if FIXTURE_INSERT_MARKER in sql:
         return False
+    if SETUP_STATEMENT.match(sql):
+        select = AS_SELECT.search(sql)
+        return select is not None and EVENTS_JSON_TABLE_NAME.search(sql, select.end()) is not None
     return EVENTS_JSON_TABLE_NAME.search(sql) is not None
 
 
@@ -78,11 +82,12 @@ class EventsSchemaRecorder:
 
     def _observe_sql(self, method: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(method)
-        def observed(client: Any, query: Any = None, *args: Any, **kwargs: Any) -> Any:
+        def observed(client: Any, *args: Any, **kwargs: Any) -> Any:
+            query = args[0] if args else kwargs.get("query")
             self._ran_clickhouse = True
             if isinstance(query, str) and names_events_json_table(query):
                 self._hit()
-            return method(client, query, *args, **kwargs)
+            return method(client, *args, **kwargs)
 
         return observed
 

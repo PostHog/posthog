@@ -22,6 +22,8 @@ from posthog.test.events_schema_recorder import names_events_json_table
         ("SELECT count() FROM events_json AS events WHERE team_id = 1", True),
         ("ALTER TABLE sharded_events_json DELETE WHERE team_id = 1", True),
         ("INSERT INTO writable_events_json SELECT * FROM events_json", True),
+        ("CREATE TABLE events_copy ENGINE = Memory AS SELECT * FROM events_json", True),
+        ("CREATE TABLE events_copy ENGINE = Memory AS SELECT * FROM events", False),
     ],
 )
 def test_names_events_json_table(sql: str, expected: bool) -> None:
