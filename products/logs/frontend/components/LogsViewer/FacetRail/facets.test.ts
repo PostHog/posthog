@@ -11,6 +11,7 @@ import {
     filterFacetsByName,
     mergeSelectedIntoOptions,
     presenceProbeKeys,
+    presenceProbeWindow,
     resolveFacets,
 } from './facets'
 
@@ -333,6 +334,24 @@ describe('facets', () => {
         it.each(presenceProbeKeys(CONFIGURED_FACETS))('a reported %s keeps a resource facet on it', (key) => {
             const resolved = resolveFacets(CONFIGURED_FACETS, [key])
             expect(resolved.some((f) => f.source.type === 'resourceAttribute' && f.source.key === key)).toBe(true)
+        })
+    })
+
+    describe('presenceProbeWindow', () => {
+        it.each<
+            [string, { date_from?: string | null; date_to?: string | null }, ReturnType<typeof presenceProbeWindow>]
+        >([
+            ['no selection uses the default window', {}, null],
+            ['a recent relative selection uses the default window', { date_from: '-1h' }, null],
+            ['a recent absolute selection uses the default window', { date_from: new Date().toISOString() }, null],
+            ['an older relative selection is probed as-is', { date_from: '-30d' }, { date_from: '-30d' }],
+            [
+                'an older absolute selection keeps its end',
+                { date_from: '2020-01-01T00:00:00.000Z', date_to: '2020-01-02T00:00:00.000Z' },
+                { date_from: '2020-01-01T00:00:00.000Z', date_to: '2020-01-02T00:00:00.000Z' },
+            ],
+        ])('%s', (_, range, expected) => {
+            expect(presenceProbeWindow(range)).toEqual(expected)
         })
     })
 

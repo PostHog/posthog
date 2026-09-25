@@ -218,6 +218,14 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.",
     )
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Start of the date range, as a flat param. Only read when dateRange is not sent.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="End of the date range, as a flat param. Only read when dateRange is not sent.",
+    )
     serviceNames = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -1870,6 +1878,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except (json.JSONDecodeError, ValidationError, ValueError):
             # Default to last hour if dateRange is malformed
             dateRange = DateRange(date_from="-1h")
+        # Flat params let clients that cannot send a JSON query param (the generated frontend client) scope the window.
+        if "dateRange" not in request.GET and (request.GET.get("date_from") or request.GET.get("date_to")):
+            dateRange = DateRange(date_from=request.GET.get("date_from"), date_to=request.GET.get("date_to"))
 
         try:
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))

@@ -1,3 +1,6 @@
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+
 import { UniversalFiltersGroup } from '~/types'
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
@@ -232,6 +235,29 @@ export function presenceProbeKeys(facets: FacetConfig[]): string[] {
         facet.source.type === 'resourceAttribute' ? [facet.source.key, ...(facet.source.aliasKeys ?? [])] : []
     )
     return Array.from(new Set(keys))
+}
+
+/** The window the attributes endpoint scans when no date range is sent. */
+export const PRESENCE_DEFAULT_LOOKBACK_DAYS = 7
+
+/**
+ * The window the presence probe scans. `null` means the endpoint default (the last 7 days), which covers any
+ * selection that starts inside it. A selection that starts earlier is probed as-is, so a key that appears only
+ * in older logs still gets its facet while those logs are on screen. The read stays bounded by the user's range.
+ */
+export function presenceProbeWindow(range: {
+    date_from?: string | null
+    date_to?: string | null
+}): { date_from: string; date_to?: string } | null {
+    const from = range.date_from
+    if (!from) {
+        return null
+    }
+    const start = dayjs(from).isValid() ? dayjs(from) : dateStringToDayJs(from)
+    if (!start || !start.isBefore(dayjs().subtract(PRESENCE_DEFAULT_LOOKBACK_DAYS, 'day'))) {
+        return null
+    }
+    return range.date_to ? { date_from: from, date_to: range.date_to } : { date_from: from }
 }
 
 /**

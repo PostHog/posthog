@@ -112150,6 +112150,16 @@ export namespace Schemas {
      */
     dateRange?: _DateRange;
     /**
+     * Start of the date range, as a flat param. Only read when dateRange is not sent.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as a flat param. Only read when dateRange is not sent.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Property filters to narrow which logs are scanned for attributes.
      */
     filterGroup?: _LogPropertyFilter[];

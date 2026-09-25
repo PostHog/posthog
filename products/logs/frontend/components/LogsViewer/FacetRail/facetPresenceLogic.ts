@@ -1,5 +1,6 @@
 import { MakeLogicType, connect, events, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -7,12 +8,12 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 
 import { logsAttributesRetrieve } from '../../../generated/api'
 import { customFacetsLogic } from './customFacetsLogic'
-import { FACETS, FacetConfig, presenceProbeKeys, resolveFacets } from './facets'
+import { FACETS, FacetConfig, presenceProbeKeys, presenceProbeWindow, resolveFacets } from './facets'
 
 // The curated keys the probe asks about. Asking for exact keys, rather than listing the top-N keys by
 // volume, keeps a facet from vanishing for tenants that emit many resource attributes.
-// No dateRange is sent: the generated client String()s object params, and the endpoint's default window
-// (the last 7 days) is the one we want anyway.
+// The window goes out as flat date_from/date_to: the generated client String()s object params, so a
+// dateRange object would arrive as "[object Object]" and the backend would fall back to the last hour.
 const PRESENCE_KEYS = presenceProbeKeys(FACETS)
 
 export interface FacetPresenceLogicProps {
@@ -23,9 +24,16 @@ export interface FacetPresenceLogicProps {
 export interface facetPresenceLogicValues {
     customFacets: FacetConfig[] // customFacetsLogic
     currentTeamId: number | null // teamLogic
+    presenceWindow: { date_from: string; date_to?: string } | null
+    presenceWindowSignature: string
     presentResourceKeys: string[]
     presentResourceKeysLoading: boolean
     resolvedFacets: FacetConfig[]
+    utcDateRange: {
+        date_from: string | null | undefined
+        date_to: string | null | undefined
+        explicitDate: boolean | null | undefined
+    } // logsViewerFiltersLogic
     visibleFacets: FacetConfig[]
 }
 
@@ -55,6 +63,12 @@ export interface facetPresenceLogicActions {
 export interface facetPresenceLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        presenceWindow: (utcDateRange: {
+            date_from: string | null | undefined
+            date_to: string | null | undefined
+            explicitDate: boolean | null | undefined
+        }) => { date_from: string; date_to?: string } | null
+        presenceWindowSignature: (presenceWindow: { date_from: string; date_to?: string } | null) => string
         resolvedFacets: (presentResourceKeys: string[]) => FacetConfig[]
         visibleFacets: (resolvedFacets: FacetConfig[], customFacets: FacetConfig[]) => FacetConfig[]
     }
@@ -79,7 +93,14 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
     path((key) => ['products', 'logs', 'frontend', 'components', 'LogsViewer', 'FacetRail', 'facetPresenceLogic', key]),
 
     connect((props: FacetPresenceLogicProps) => ({
-        values: [teamLogic, ['currentTeamId'], customFacetsLogic, ['customFacets']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            customFacetsLogic,
+            ['customFacets'],
+            logsViewerFiltersLogic({ id: props.id }),
+            ['utcDateRange'],
+        ],
         actions: [logsViewerFiltersLogic({ id: props.id }), ['bumpFacetRefresh']],
     })),
 
@@ -96,6 +117,7 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
                         attribute_type: 'resource',
                         keys: PRESENCE_KEYS.join(','),
                         limit: PRESENCE_KEYS.length,
+                        ...values.presenceWindow,
                     })
                     return response.results.map((r) => r.name)
                 },
@@ -104,6 +126,9 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
     })),
 
     selectors({
+        presenceWindow: [(s) => [s.utcDateRange], (utcDateRange) => presenceProbeWindow(utcDateRange)],
+        // A string, so a fresh-but-equal window object doesn't re-probe.
+        presenceWindowSignature: [(s) => [s.presenceWindow], (presenceWindow) => JSON.stringify(presenceWindow)],
         // Column facets always render; resource-attribute facets only when the tenant emits the key (or one
         // of its aliases, which resolution rewrites the facet onto). Custom facets skip that presence gate
         // entirely — the user picked them from a live taxonomic list, so they're known to exist already —
@@ -125,6 +150,15 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
 
     listeners(({ actions }) => ({
         bumpFacetRefresh: () => actions.loadPresentResourceKeys(),
+    })),
+
+    subscriptions(({ actions }) => ({
+        // Only a selection that starts before the default window moves the probe; ranges inside it don't refetch.
+        presenceWindowSignature: (signature: string, previous: string | undefined) => {
+            if (previous !== undefined && signature !== previous) {
+                actions.loadPresentResourceKeys()
+            }
+        },
     })),
 
     events(({ actions }) => ({

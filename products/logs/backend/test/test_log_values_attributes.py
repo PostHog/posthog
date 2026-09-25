@@ -518,6 +518,32 @@ class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
     def test_empty_keys_does_not_filter(self):
         self.assertEqual(len(self._names({"keys": ""})), 100)
 
+    @parameterized.expand(
+        [
+            ("window_over_the_seed", "2025-12-16T09:00:00Z", "2025-12-16T11:00:00Z", ["deployment.environment"]),
+            ("window_before_the_seed", "2025-12-15T09:00:00Z", "2025-12-15T11:00:00Z", []),
+        ]
+    )
+    def test_flat_date_params_scope_window(self, _name, date_from, date_to, expected):
+        # The generated frontend client cannot send the JSON dateRange, so it scopes the window with flat params.
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/logs/attributes",
+            {
+                "attribute_type": "resource",
+                "keys": "deployment.environment",
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([r["name"] for r in response.json()["results"]], expected)
+
+    def test_date_range_json_wins_over_flat_params(self):
+        names = self._names(
+            {"keys": "deployment.environment", "date_from": "2025-12-15T09:00:00Z", "date_to": "2025-12-15T11:00:00Z"}
+        )
+        self.assertEqual(names, ["deployment.environment"])
+
     def test_too_many_keys_returns_400(self):
         response = self._get({"keys": ",".join(f"key.{i}" for i in range(101))})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

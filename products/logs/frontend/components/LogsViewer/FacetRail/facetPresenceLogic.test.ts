@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetPresenceLogic } from './facetPresenceLogic'
 import { FACETS, presenceProbeKeys } from './facets'
 
@@ -45,6 +46,18 @@ describe('facetPresenceLogic', () => {
         expect(requestParams?.get('keys')?.split(',')).toEqual(presenceProbeKeys(FACETS))
         // An object param goes out as "[object Object]", which the backend reads as "last hour".
         expect(Array.from(requestParams?.values() ?? [])).not.toContain('[object Object]')
+        // A recent selection leaves the endpoint's default window in charge.
+        expect(requestParams?.has('date_from')).toBe(false)
+    })
+
+    it('probes an older selection so its keys keep their facets', async () => {
+        await mountAndLoad()
+
+        logsViewerFiltersLogic({ id: ID }).actions.setFilters({ dateRange: { date_from: '-30d', date_to: null } })
+        await expectLogic(logic).toDispatchActions(['loadPresentResourceKeys', 'loadPresentResourceKeysSuccess'])
+
+        expect(requestParams?.get('date_from')).toEqual('-30d')
+        expect(requestParams?.has('dateRange')).toBe(false)
     })
 
     it('shows the environment facet when only the env alias is emitted', async () => {
