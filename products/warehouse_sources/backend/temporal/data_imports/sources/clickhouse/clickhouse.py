@@ -77,6 +77,10 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
 
+# Page sizes for re-reading a table whose single query hits a host's per-query result or memory cap.
+PAGED_READ_INITIAL_ROWS = 500_000
+PAGED_READ_MIN_ROWS = 1_000
+
 # Quoter for user-supplied row-filter column names — the allowlist-validated
 # safety rail the shared predicate renderer expects. Trusted internal
 # identifiers (table/incremental columns) keep using `_quote_identifier`.
@@ -1351,6 +1355,25 @@ def _last_value_param(last_value: Any, incremental_field_type: Optional[Incremen
     return last_value
 
 
+def _build_conditions(
+    *,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> tuple[list[str], dict[str, Any]]:
+    """WHERE conditions of the extraction query: the incremental cursor, then the row filters."""
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+    if not should_use_incremental_field:
+        return filter_conditions, filter_params
+
+    if incremental_field is None:
+        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
+
+    cursor_condition = f"{_quote_identifier(incremental_field)} > {_last_value_expr(incremental_field_type)}"
+    return [cursor_condition, *filter_conditions], filter_params
+
+
 def _build_query(
     *,
     database: str,
@@ -1360,6 +1383,7 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    page_conditions: Sequence[str] = (),
 ) -> tuple[str, dict[str, Any]]:
     """Build the data extraction query and its bound parameters.
 
@@ -1373,20 +1397,72 @@ def _build_query(
     qualified = _qualified_table(database, table_name)
     select_list = _build_select_list(columns)
 
-    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+    conditions, filter_params = _build_conditions(
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field=incremental_field,
+        incremental_field_type=incremental_field_type,
+        row_filters=row_filters,
+    )
+    conditions = [*conditions, *page_conditions]
 
-    if not should_use_incremental_field:
-        if filter_conditions:
-            return f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(filter_conditions)}", filter_params
-        return f"SELECT {select_list} FROM {qualified}", filter_params
-
-    if incremental_field is None:
-        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
-
-    quoted_field = _quote_identifier(incremental_field)
-    conditions = [f"{quoted_field} > {_last_value_expr(incremental_field_type)}", *filter_conditions]
-    query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
+    query = f"SELECT {select_list} FROM {qualified}"
+    if conditions:
+        query += f" WHERE {' AND '.join(conditions)}"
+    if should_use_incremental_field and incremental_field is not None:
+        query += f" ORDER BY {_quote_identifier(incremental_field)} ASC"
     return query, filter_params
+
+
+def _page_key(
+    columns: Sequence[ClickHouseColumn],
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    primary_keys: Optional[list[str]],
+) -> list[str] | None:
+    """Columns whose values split the table into pages, or None when the table has none.
+
+    A NULL fails every comparison, so a nullable sorting-key column would drop its NULL rows from
+    every page. The incremental cursor has no such problem: the cursor condition already skips them.
+    """
+    if should_use_incremental_field:
+        return [incremental_field] if incremental_field else None
+    if not primary_keys:
+        return None
+    nullable_by_name = {column.name: column.nullable for column in columns}
+    if any(nullable_by_name.get(key, True) for key in primary_keys):
+        return None
+    return primary_keys
+
+
+def _page_conditions(
+    key: list[str], lower: Sequence[str] | None, upper: Sequence[str] | None
+) -> tuple[list[str], dict[str, Any]]:
+    """Conditions that keep the rows whose key is above `lower` and at most `upper`.
+
+    Bounds are the key values as ClickHouse renders them with toString(). ClickHouse parses each one
+    back into its column type for the comparison, so no precision is lost in the round trip.
+    """
+    key_tuple = f"({', '.join(_quote_identifier(column) for column in key)})"
+    conditions: list[str] = []
+    parameters: dict[str, Any] = {}
+    for name, operator, bound in (("page_lower", ">", lower), ("page_upper", "<=", upper)):
+        if bound is None:
+            continue
+        placeholders = [f"%({name}_{index})s" for index in range(len(bound))]
+        conditions.append(f"{key_tuple} {operator} ({', '.join(placeholders)})")
+        parameters.update({f"{name}_{index}": value for index, value in enumerate(bound)})
+    return conditions, parameters
+
+
+def _build_page_bound_query(
+    *, database: str, table_name: str, key: list[str], conditions: Sequence[str], page_rows: int
+) -> str:
+    """Query for the key of the last row of a page that starts after the given conditions."""
+    quoted_key = [_quote_identifier(column) for column in key]
+    query = f"SELECT {', '.join(f'toString({column})' for column in quoted_key)} FROM {_qualified_table(database, table_name)}"
+    if conditions:
+        query += f" WHERE {' AND '.join(conditions)}"
+    return f"{query} ORDER BY {', '.join(quoted_key)} LIMIT 1 OFFSET {page_rows - 1}"
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -1429,6 +1505,15 @@ _ARROW_FORMAT_REJECTED_SUBSTRING = "format ArrowStream"
 
 def _is_arrow_format_rejected(message: str) -> bool:
     return _ARROW_FORMAT_REJECTED_SUBSTRING in message
+
+
+# Per-query caps some hosts enforce and a user can't raise. Tinybird caps each result at 500 MiB and
+# each query's memory, and fails the query before it sends any row.
+_QUERY_LIMIT_EXCEEDED_SUBSTRINGS: tuple[str, ...] = ("TOO_MANY_ROWS_OR_BYTES", "MEMORY_LIMIT_EXCEEDED")
+
+
+def _is_query_limit_exceeded(message: str) -> bool:
+    return any(substring in message for substring in _QUERY_LIMIT_EXCEEDED_SUBSTRINGS)
 
 
 _TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
@@ -1568,6 +1653,7 @@ def clickhouse_source(
 
             # Project to the user-selected columns (always keeping PK + cursor).
             projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
+            page_key = _page_key(list(table.columns), should_use_incremental_field, incremental_field, primary_keys)
 
             # Warn when the incremental cursor isn't the sorting-key prefix.
             # ClickHouse can only skip the sort if the ORDER BY column leads
@@ -1645,10 +1731,7 @@ def clickhouse_source(
             )
 
             try:
-                query, filter_params = _build_query(
-                    database=database,
-                    table_name=table_name,
-                    columns=projected_columns,
+                base_conditions, filter_params = _build_conditions(
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
                     incremental_field_type=incremental_field_type,
@@ -1662,7 +1745,66 @@ def clickhouse_source(
                         last_value = incremental_type_to_initial_value(incremental_field_type)
                     parameters["last_value"] = _last_value_param(last_value, incremental_field_type)
 
-                logger.info(f"ClickHouse query: {query}")
+                def read_batches() -> Generator[pa.RecordBatch]:
+                    """Read the table in one query, or in pages of key ranges once a host limit rejects that.
+
+                    A page is retried with half as many rows while the host rejects it before it sends a
+                    row. A rejection after rows were read raises, because the retry would read them again.
+                    """
+                    page_rows: int | None = None
+                    lower: list[str] | None = None
+                    while True:
+                        read_any = False
+                        try:
+                            upper: list[str] | None = None
+                            page_conditions: list[str] = []
+                            page_parameters: dict[str, Any] = {}
+                            if page_rows is not None and page_key is not None:
+                                lower_conditions, lower_parameters = _page_conditions(page_key, lower, None)
+                                bound_query = _build_page_bound_query(
+                                    database=database,
+                                    table_name=table_name,
+                                    key=page_key,
+                                    conditions=[*base_conditions, *lower_conditions],
+                                    page_rows=page_rows,
+                                )
+                                bound_rows = stream_client.query(
+                                    bound_query, parameters={**parameters, **lower_parameters}
+                                ).result_rows
+                                upper = list(bound_rows[0]) if bound_rows else None
+                                page_conditions, page_parameters = _page_conditions(page_key, lower, upper)
+
+                            query, _ = _build_query(
+                                database=database,
+                                table_name=table_name,
+                                columns=projected_columns,
+                                should_use_incremental_field=should_use_incremental_field,
+                                incremental_field=incremental_field,
+                                incremental_field_type=incremental_field_type,
+                                row_filters=row_filters,
+                                page_conditions=page_conditions,
+                            )
+                            logger.info(f"ClickHouse query: {query}")
+                            with closing(
+                                _stream_record_batches(
+                                    stream_client, query, {**parameters, **page_parameters}, projected_columns, logger
+                                )
+                            ) as batches:
+                                for batch in batches:
+                                    read_any = read_any or batch.num_rows > 0
+                                    yield batch
+                        except ClickHouseError as e:
+                            if read_any or page_key is None or not _is_query_limit_exceeded(str(e)):
+                                raise
+                            if page_rows is not None and page_rows // 2 < PAGED_READ_MIN_ROWS:
+                                raise
+                            page_rows = PAGED_READ_INITIAL_ROWS if page_rows is None else page_rows // 2
+                            logger.warning(f"ClickHouse query exceeded a host limit, reading {page_rows} rows per page")
+                            continue
+
+                        if upper is None:
+                            return
+                        lower = upper
 
                 # The stream yields pa.RecordBatch chunks — one per
                 # ClickHouse block, capped by max_block_size. We accumulate
@@ -1672,9 +1814,7 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with closing(
-                    _stream_record_batches(stream_client, query, parameters, projected_columns, logger)
-                ) as stream:
+                with closing(read_batches()) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue

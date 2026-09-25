@@ -218,7 +218,7 @@ DRAFT_CONTENT_FIELDS = (
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
 # been through validation. Comparing them would make an unchanged condition look edited.
-_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "bytecode_contract", "source")
 
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
@@ -232,6 +232,24 @@ def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
         **condition,
         "filters": {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
     }
+
+
+def _without_bytecode_contracts(node: Any) -> Any:
+    # Every recompile writes the current runtime's stamp beside each filter and input bytecode. A flow
+    # stored before stamping, or under an older runtime, gets a new stamp on its next save even when
+    # nobody changed it, so the revision comparison must not count the stamp as content. A stamp only
+    # ever sits next to a `bytecode` key, so a same-named key inside a person's own JSON value stays
+    # content and still versions the flow.
+    if isinstance(node, dict):
+        derived = "bytecode" in node
+        return {
+            key: _without_bytecode_contracts(value)
+            for key, value in node.items()
+            if not (derived and key == "bytecode_contract")
+        }
+    if isinstance(node, list):
+        return [_without_bytecode_contracts(item) for item in node]
+    return node
 
 
 def _wait_condition_already_stored(action: dict, context: dict) -> bool:
@@ -4592,8 +4610,8 @@ class HogFlowViewSet(
         # recovered into `actions` (stripping happens later in save()), while `before` is the persisted
         # stripped snapshot; without this a secret-bearing flow would bump on every actions-carrying save.
         template_cache: TemplateCache = {}
-        old_content = strip_content_secrets(raw_old, template_cache)
-        new_content = strip_content_secrets(raw_new, template_cache)
+        old_content = _without_bytecode_contracts(strip_content_secrets(raw_old, template_cache))
+        new_content = _without_bytecode_contracts(strip_content_secrets(raw_new, template_cache))
         if new_content == old_content:
             return False
         instance.version = (before.version or 0) + 1
@@ -6277,11 +6295,21 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
                     # Dispatch outside the transaction so HTTP calls don't hold the row lock.
                     if batch_job_params:
-                        HogFlowBatchJob.objects.create(
-                            **batch_job_params,
-                            status=HogFlowBatchJob.State.QUEUED,
-                        )
-                        processed.append(str(schedule_id))
+                        with transaction.atomic():
+                            # Re-read the status under the flow's lock, so a stop that committed after
+                            # the check above wins, and a stop that lands later sees this job.
+                            still_active = (
+                                HogFlow.objects.select_for_update()
+                                .filter(id=batch_job_params["hog_flow"].id, status=HogFlow.State.ACTIVE)
+                                .exists()
+                            )
+                            if still_active:
+                                HogFlowBatchJob.objects.create(
+                                    **batch_job_params,
+                                    status=HogFlowBatchJob.State.QUEUED,
+                                )
+                        if still_active:
+                            processed.append(str(schedule_id))
                     elif schedule_invocation_params:
                         response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
                         response.raise_for_status()
