@@ -1,5 +1,6 @@
 import sys
 import subprocess
+from pathlib import Path
 
 # A clean interpreter: pytest has already imported the test tree, so this process cannot tell
 # which import pulled a test module in.
@@ -18,7 +19,7 @@ import posthog.management.commands.start_temporal_worker
 import posthog.management.commands.start_temporal_workflow
 import posthog.management.commands.execute_temporal_workflow
 
-repo_root = Path.cwd()
+repo_root = Path(sys.argv[1])
 
 
 def is_test_file(module):
@@ -42,7 +43,10 @@ print(",".join(pulled))
 
 
 def test_temporal_commands_do_not_import_test_packages() -> None:
-    result = subprocess.run([sys.executable, "-c", _SNAPSHOT], capture_output=True, text=True, timeout=300)
+    repo_root = Path(__file__).parents[3]
+    result = subprocess.run(
+        [sys.executable, "-c", _SNAPSHOT, str(repo_root)], capture_output=True, text=True, timeout=300
+    )
 
     assert result.returncode == 0, f"import failed:\n{result.stderr[-2000:]}"
     assert result.stdout.strip() == "", (
