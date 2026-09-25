@@ -1,3 +1,5 @@
+import { createHash } from 'crypto'
+
 import { ASYNC_STL, BYTECODE_STL, STL } from '@posthog/hogvm'
 
 import { ClickHouseTimestamp, ProjectId, RawClickHouseEvent } from '../../types'
@@ -122,6 +124,29 @@ export function describeFilterRuntime(): FilterRuntime {
     return { roots: fromInvocation, callables, functions, template_roots: Object.keys(templateRoots).sort() }
 }
 
+/**
+ * One value that changes whenever the contract does. Django stamps it on the bytecode it compiles, so
+ * a filter that fails on a global or a function can be told apart from one compiled against an older
+ * runtime.
+ */
+export function runtimeContractHash(runtime: FilterRuntime = describeFilterRuntime()): string {
+    const canonical = JSON.stringify({
+        roots: runtime.roots,
+        callables: runtime.callables,
+        functions: Object.fromEntries(Object.entries(runtime.functions).sort(([a], [b]) => a.localeCompare(b))),
+        template_roots: runtime.template_roots,
+    })
+    return createHash('sha256').update(canonical).digest('hex').slice(0, 16)
+}
+
+let cachedRuntimeContractHash: string | undefined
+
+/** The hash for this process. Computed on first use, because the description walks the whole standard library. */
+export function currentRuntimeContractHash(): string {
+    cachedRuntimeContractHash ??= runtimeContractHash()
+    return cachedRuntimeContractHash
+}
+
 export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
     return (
         JSON.stringify(
@@ -133,14 +158,16 @@ export function renderFilterGlobalsFile(runtime: FilterRuntime): string {
                     'ones a filter can pass as a callback. functions are every standard-library name a filter can ' +
                     'call directly, with the argument count the VM enforces as [min, max]. template_roots are the ' +
                     'names an input template can read. Django reads this to refuse a filter or an input the ' +
-                    'runtime could not evaluate.',
+                    'runtime could not evaluate. contract is a hash of the rest, stamped on compiled bytecode.',
+                contract: runtimeContractHash(runtime),
                 roots: runtime.roots,
                 callables: runtime.callables,
                 functions: runtime.functions,
                 template_roots: runtime.template_roots,
             },
             null,
-            // Matches what the pre-commit hook (bin/hogli format:yaml) writes, so a regenerate is a no-op.
+            // The pre-commit formatter is kept off this file by an ignorePatterns entry in .oxfmtrc.json, so
+            // this output is byte-stable and the staleness test can compare the file as text.
             4
         ) + '\n'
     )
