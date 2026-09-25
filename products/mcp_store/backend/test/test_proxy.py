@@ -26,7 +26,7 @@ from products.mcp_store.backend.models import (
     MCPServerTemplate,
     MCPToolPolicy,
 )
-from products.mcp_store.backend.oauth import TokenRefreshRejectedError
+from products.mcp_store.backend.oauth import TokenRefreshError, TokenRefreshRejectedError
 from products.mcp_store.backend.proxy import (
     _build_sse_response,
     build_upstream_auth_headers,
@@ -285,8 +285,6 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
     def test_proxy_returns_401_on_refresh_failure(self, mock_refresh):
-        from products.mcp_store.backend.oauth import TokenRefreshError
-
         installation = self._create_oauth_installation(
             sensitive_configuration={
                 "access_token": "expired-token",
@@ -330,6 +328,69 @@ class TestMCPProxyEndpoint(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["error"] == "Installation needs re-authentication"
         installation.refresh_from_db()
         assert installation.sensitive_configuration["needs_reauth"]
+
+    @parameterized.expand(
+        [
+            ("revoked_credential", 401, {}, TokenRefreshRejectedError("rejected"), 401, True),
+            (
+                "invalid_token_challenge",
+                403,
+                {"www-authenticate": 'Bearer error="invalid_token"'},
+                TokenRefreshRejectedError("rejected"),
+                401,
+                True,
+            ),
+            ("transient_refresh_failure", 401, {}, TokenRefreshError("boom"), 401, False),
+            ("refreshable_credential", 401, {}, None, 200, False),
+        ]
+    )
+    @patch("products.mcp_store.backend.proxy.pinned_client")
+    @patch("products.mcp_store.backend.oauth.refresh_oauth_token")
+    def test_proxy_answers_an_upstream_credential_rejection(
+        self,
+        _name,
+        upstream_status,
+        upstream_headers,
+        refresh_error,
+        expected_status,
+        expected_needs_reauth,
+        mock_refresh,
+        mock_client_cls,
+    ):
+        # A provider that revokes the app rejects a token that still looks current here, so
+        # nothing refreshes it proactively and the row would keep reading as connected.
+        installation = self._create_oauth_installation()
+        if refresh_error is not None:
+            mock_refresh.side_effect = refresh_error
+        else:
+            mock_refresh.return_value = {
+                "access_token": "new-token-789",
+                "refresh_token": "new-refresh",
+                "expires_in": 3600,
+            }
+        rejection = MagicMock()
+        rejection.status_code = upstream_status
+        rejection.headers = {"content-type": "application/json", **upstream_headers}
+        rejection.read.return_value = b'{"error": "invalid_token"}'
+        retry = MagicMock()
+        retry.status_code = 200
+        retry.headers = {"content-type": "application/json"}
+        retry.content = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+        mock_client = self._mock_client_with_response(mock_client_cls, rejection)
+        mock_client.send.side_effect = [rejection, retry]
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        installation.refresh_from_db()
+        assert ("needs_reauth" in installation.sensitive_configuration) is expected_needs_reauth
+        if expected_status == 200:
+            _, kwargs = mock_client.build_request.call_args
+            assert kwargs["headers"]["Authorization"] == "Bearer new-token-789"
 
     def test_proxy_returns_403_for_disabled_installation(self):
         installation = self._create_installation(

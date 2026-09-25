@@ -5,6 +5,7 @@ import secrets
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Literal
 from urllib.parse import urlparse
 
 from django.db import transaction
@@ -740,6 +741,36 @@ def refresh_installation_token(installation: MCPServerInstallation) -> dict:
 
     logger.info("OAuth token refreshed successfully", installation_id=str(installation.id))
     return updated
+
+
+RejectedCredentialOutcome = Literal["refreshed", "needs_reauth", "refresh_failed"]
+
+
+def refresh_credential_rejected_upstream(installation: MCPServerInstallation) -> RejectedCredentialOutcome:
+    """Answer an upstream rejection of a stored credential with a refresh attempt.
+
+    A provider that revokes an app answers every call with 401 while the stored
+    access token still looks current, so no proactive refresh runs and the row keeps
+    reading as connected. One refresh separates the two cases: a token that the
+    provider still honors comes back renewed, and a revoked authorization is turned
+    down, which flags the row for reauthorization.
+
+    ``refresh_failed`` is a transport fault, not a verdict on the credential, so the
+    row keeps its state and the caller sees the upstream rejection unchanged.
+    """
+    if installation.auth_type != "oauth":
+        return "refresh_failed"
+    try:
+        refresh_installation_token(installation)
+    except TokenRefreshRejectedError:
+        return "needs_reauth"
+    except TokenRefreshError:
+        logger.warning(
+            "Could not refresh an MCP credential the upstream server rejected",
+            installation_id=str(installation.id),
+        )
+        return "refresh_failed"
+    return "refreshed"
 
 
 def exchange_oauth_token(

@@ -19,7 +19,13 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
-from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
+from .oauth import (
+    TokenRefreshError,
+    TokenRefreshRejectedError,
+    is_token_expiring,
+    refresh_credential_rejected_upstream,
+    refresh_installation_token,
+)
 from .oauth_credentials import oauth_credentials_source_is_allowed
 from .policy import GatewayCaller, PolicyContext
 from .url_policy import resolve_mcp_url_policy, trust_environment_proxy
@@ -517,6 +523,18 @@ def _write_audit_events(
         logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
 
 
+def upstream_rejected_credential(response: httpx.Response) -> bool:
+    """True when the upstream server refused the credential itself.
+
+    OAuth bearer rejection is a 401, and RFC 6750 servers name the cause in the
+    challenge. A provider that keeps the challenge but answers 403 is covered too,
+    because `invalid_token` is a statement about the credential either way.
+    """
+    if response.status_code == 401:
+        return True
+    return "invalid_token" in response.headers.get("www-authenticate", "").lower()
+
+
 def proxy_mcp_request(
     request: Any,
     installation: MCPServerInstallation,
@@ -613,8 +631,9 @@ def proxy_mcp_request(
         timeout=UPSTREAM_TIMEOUT,
         trust_env=trust_environment_proxy(installation.url, installation.team_id),
     )
-    try:
-        upstream_response, upstream_url = send_mcp_request_with_same_origin_redirect(
+
+    def send_upstream() -> tuple[httpx.Response, str]:
+        return send_mcp_request_with_same_origin_redirect(
             client,
             "POST",
             installation.url,
@@ -622,6 +641,36 @@ def proxy_mcp_request(
             headers=headers,
             stream=True,
         )
+
+    try:
+        upstream_response, upstream_url = send_upstream()
+        if installation.auth_type == "oauth" and upstream_rejected_credential(upstream_response):
+            rejection_body = upstream_response.read()
+            rejection_content_type = upstream_response.headers.get("content-type", "application/json")
+            rejection_status = upstream_response.status_code
+            upstream_response.close()
+            outcome = refresh_credential_rejected_upstream(installation)
+            if outcome == "needs_reauth":
+                client.close()
+                logger.warning(
+                    "Upstream MCP server rejected a revoked credential",
+                    installation_id=str(installation.id),
+                    url=installation.url,
+                )
+                return HttpResponse(
+                    '{"error": "Installation needs re-authentication"}',
+                    content_type="application/json",
+                    status=401,
+                )
+            if outcome == "refresh_failed":
+                client.close()
+                return HttpResponse(
+                    rejection_body,
+                    content_type=rejection_content_type,
+                    status=rejection_status,
+                )
+            headers.update(build_upstream_auth_headers(installation))
+            upstream_response, upstream_url = send_upstream()
     except (SSRFBlockedError, httpx.ProxyError):
         client.close()
         logger.warning("Upstream MCP connection blocked by URL or proxy policy")
