@@ -1,7 +1,7 @@
 """Temporal workflows and activities for autoresearch inference, validation, and training.
 
 `start_temporal_worker` imports WORKFLOWS and ACTIVITIES from here and
-registers them on the `autoresearch-task-queue`.
+registers them on `settings.AUTORESEARCH_TASK_QUEUE`.
 """
 
 from .workflows import (

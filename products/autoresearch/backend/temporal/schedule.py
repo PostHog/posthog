@@ -49,6 +49,9 @@ async def create_autoresearch_daily_schedule(client: Client) -> None:
     )
 
     if await a_schedule_exists(client, _SCHEDULE_ID):
+        # Keep the live state, so a deploy does not resume a schedule an operator paused to stop spend.
+        description = await client.get_schedule_handle(_SCHEDULE_ID).describe()
+        schedule.state = description.schedule.state
         await a_update_schedule(client, _SCHEDULE_ID, schedule)
     else:
         await a_create_schedule(client, _SCHEDULE_ID, schedule, trigger_immediately=False)
