@@ -22,6 +22,18 @@ class InputRefresh:
     skipped: int
 
 
+def _compilable_value(value: Any, item_type: str | None) -> Any:
+    """The part of a stored value the save path compiles.
+
+    An email input carries the visual editor's design beside the body, and the save path leaves it
+    out. Compiling it here would fail on designs the template parser refuses, and the input would
+    lose its stamp for a reason the save path never had.
+    """
+    if item_type in ("email", "native_email") and isinstance(value, dict):
+        return {key: value[key] for key in value if key != "design"}
+    return value
+
+
 def refresh_input_templates(hog_function: HogFunction) -> InputRefresh:
     """
     Recompile every hog input template from its stored value, the way a save through the API does,
@@ -31,6 +43,9 @@ def refresh_input_templates(hog_function: HogFunction) -> InputRefresh:
     run time exactly as before, and an unstamped failure is classified as the owner's to fix.
     """
     is_dwh_source = (hog_function.filters or {}).get("source") in DATA_WAREHOUSE_SOURCES
+    item_types = {
+        entry.get("key"): entry.get("type") for entry in (hog_function.inputs_schema or []) if isinstance(entry, dict)
+    }
     stamped = 0
     skipped = 0
     for store_name in ("inputs", "encrypted_inputs"):
@@ -41,7 +56,7 @@ def refresh_input_templates(hog_function: HogFunction) -> InputRefresh:
                 continue
             try:
                 bytecode = generate_template_bytecode(
-                    item.get("value"),
+                    _compilable_value(item.get("value"), item_types.get(key)),
                     set(),
                     function_type=hog_function.type,
                     is_dwh_source=is_dwh_source,
@@ -141,11 +156,14 @@ class Command(BaseCommand):
                 try:
                     total_processed += 1
                     refreshed = refresh_input_templates(hog_function)
-                    inputs_stamped += refreshed.stamped
-                    inputs_skipped += refreshed.skipped
                     if dry_run:
+                        inputs_stamped += refreshed.stamped
+                        inputs_skipped += refreshed.skipped
                         continue
                     hog_function.save()
+                    # Counted after the save, so the summary reports what reached the database.
+                    inputs_stamped += refreshed.stamped
+                    inputs_skipped += refreshed.skipped
                     total_updated += 1
                 except Exception as e:
                     error_count += 1

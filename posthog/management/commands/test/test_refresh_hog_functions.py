@@ -144,7 +144,6 @@ class TestRefreshHogFunctions(BaseTest):
         self.assertIn("No HogFunctions found matching criteria", output)
 
     def _unstamped(self, inputs: dict, inputs_schema: list, encrypted_inputs: dict | None = None) -> HogFunction:
-        """A destination as it was saved before stamping existed: bytecode everywhere, no stamp anywhere."""
         with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
             fn = HogFunction.objects.create(
                 team=self.team,
@@ -158,7 +157,7 @@ class TestRefreshHogFunctions(BaseTest):
                 filters={"events": [{"id": "$pageview", "type": "events"}]},
             )
         # The model save stamps the filters. Strip it so the fixture is honestly pre-stamping.
-        filters = {key: value for key, value in fn.filters.items() if key != "bytecode_contract"}
+        filters = {key: value for key, value in (fn.filters or {}).items() if key != "bytecode_contract"}
         HogFunction.objects.filter(pk=fn.pk).update(filters=filters)
         return HogFunction.objects.get(pk=fn.pk)
 
@@ -171,37 +170,48 @@ class TestRefreshHogFunctions(BaseTest):
                 "body": {"value": {"id": "{event.uuid}"}, "bytecode": {"id": template}},
                 "note": {"value": "{{ event.uuid }}", "templating": "liquid"},
                 "method": {"value": "POST"},
+                "email": {
+                    "value": {"subject": "{event.uuid}", "design": {"html": "{nosuch.thing}"}},
+                    "bytecode": {"subject": template},
+                },
             },
             inputs_schema=[
                 {"key": "url", "type": "string"},
                 {"key": "body", "type": "json"},
                 {"key": "note", "type": "string"},
                 {"key": "method", "type": "string"},
+                {"key": "email", "type": "email"},
                 {"key": "token", "type": "string", "secret": True},
             ],
             encrypted_inputs={"token": {"value": "{event.uuid}", "bytecode": template}},
         )
-        assert "bytecode_contract" not in fn.filters
-        assert "bytecode_contract" not in fn.inputs["url"]
+        assert "bytecode_contract" not in (fn.filters or {})
+        assert "bytecode_contract" not in (fn.inputs or {})["url"]
 
         out = StringIO()
         call_command("refresh_hog_functions", hog_function_id=str(fn.id), stdout=out)
 
         fn.refresh_from_db()
-        assert fn.filters["bytecode_contract"] == RUNTIME_CONTRACT
-        assert fn.inputs["url"] == {
+        filters = fn.filters or {}
+        inputs = fn.inputs or {}
+        encrypted_inputs = fn.encrypted_inputs or {}
+        assert filters["bytecode_contract"] == RUNTIME_CONTRACT
+        assert inputs["url"] == {
             "value": "{event.uuid}",
             "bytecode": template,
             "bytecode_contract": RUNTIME_CONTRACT,
         }
-        assert fn.inputs["body"]["bytecode_contract"] == RUNTIME_CONTRACT
-        assert fn.inputs["body"]["bytecode"] == {"id": template}
+        assert inputs["body"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert inputs["body"]["bytecode"] == {"id": template}
         # Secret templates are compiled the same way, and the value never leaves the process.
-        assert fn.encrypted_inputs["token"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert encrypted_inputs["token"]["bytecode_contract"] == RUNTIME_CONTRACT
         # Liquid has no bytecode and a plain value compiles to nothing that could drift.
-        assert fn.inputs["note"] == {"value": "{{ event.uuid }}", "templating": "liquid"}
-        assert fn.inputs["method"] == {"value": "POST"}
-        assert "Inputs stamped: 3" in out.getvalue()
+        assert inputs["note"] == {"value": "{{ event.uuid }}", "templating": "liquid"}
+        assert inputs["method"] == {"value": "POST"}
+        # The visual editor's design is not compiled, so a design the parser refuses costs no stamp.
+        assert inputs["email"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert inputs["email"]["value"]["design"] == {"html": "{nosuch.thing}"}
+        assert "Inputs stamped: 4" in out.getvalue()
         assert mock_reload.call_count == 1
 
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
@@ -222,9 +232,10 @@ class TestRefreshHogFunctions(BaseTest):
         call_command("refresh_hog_functions", hog_function_id=str(fn.id), stdout=out)
 
         fn.refresh_from_db()
-        assert fn.inputs["url"]["bytecode_contract"] == RUNTIME_CONTRACT
-        assert fn.inputs["bad"] == {"value": "{nosuch.thing}", "bytecode": stale}
-        assert fn.filters["bytecode_contract"] == RUNTIME_CONTRACT
+        inputs = fn.inputs or {}
+        assert inputs["url"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert inputs["bad"] == {"value": "{nosuch.thing}", "bytecode": stale}
+        assert (fn.filters or {})["bytecode_contract"] == RUNTIME_CONTRACT
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Inputs skipped: 1" in out.getvalue()
 
@@ -240,8 +251,8 @@ class TestRefreshHogFunctions(BaseTest):
         call_command("refresh_hog_functions", hog_function_id=str(fn.id), dry_run=True, stdout=out)
 
         fn.refresh_from_db()
-        assert "bytecode_contract" not in fn.filters
-        assert "bytecode_contract" not in fn.inputs["url"]
+        assert "bytecode_contract" not in (fn.filters or {})
+        assert "bytecode_contract" not in (fn.inputs or {})["url"]
         assert mock_reload.call_count == 0
         assert "Inputs stamped: 1" in out.getvalue()
         assert "Dry run" in out.getvalue()
