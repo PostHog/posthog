@@ -134,6 +134,42 @@ describe('sourceWizardLogic', () => {
         }
     })
 
+    it('opens the webhook step with the reason auto-creation is blocked', async () => {
+        const stripeSource = buildSourceConfig({ name: 'Stripe' })
+        const reason = 'Stripe does not let apps create webhooks.'
+        const create = jest.spyOn(api.externalDataSources, 'create').mockResolvedValue({ id: 'source-1' } as any)
+        const getWebhookInfo = jest
+            .spyOn(api.externalDataSources, 'getWebhookInfo')
+            .mockResolvedValue({ auto_creation_blocked_reason: reason } as any)
+        const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource } })
+        const unmount = logic.mount()
+
+        try {
+            logic.actions.selectConnector(stripeSource)
+            logic.actions.setDatabaseSchemas([
+                {
+                    table: 'Customer',
+                    supports_webhooks: true,
+                    sync_type: 'webhook',
+                    should_sync: true,
+                } as ExternalDataSourceSyncSchema,
+            ])
+            logic.actions.setStep(3)
+
+            await expectLogic(logic, () => {
+                logic.actions.createSource()
+            }).toFinishAllListeners()
+
+            expect(getWebhookInfo).toHaveBeenCalledWith('source-1')
+            expect(logic.values.currentStep).toEqual(4)
+            expect(logic.values.webhookAutoCreationBlockedReason).toEqual(reason)
+        } finally {
+            unmount()
+            create.mockRestore()
+            getWebhookInfo.mockRestore()
+        }
+    })
+
     it('does not hydrate the same source URL again after the wizard has started', () => {
         const postgresSource = buildSourceConfig({ name: 'Postgres' })
 
