@@ -24,7 +24,11 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
+from products.alerts.backend.facade.api import (
+    INSIGHT_ALERT_EVENT_IDS,
+    LLMDetectorOutOfCreditsError,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
@@ -3197,6 +3201,20 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
         assert response.json()["code"] == "llm_detector_unavailable"
+
+    @mock.patch(
+        "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight",
+        side_effect=LLMDetectorOutOfCreditsError("Your organization has used all its AI credits."),
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_simulate_reports_exhausted_ai_credits_as_400_with_the_reason(self, _flag, _simulate) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "used all its AI credits" in response.json()["detail"]
 
     @parameterized.expand([("rolled_out", True), ("not_rolled_out", False)])
     def test_retrieve_reports_whether_the_creator_can_use_the_ai_detector(self, _name, rolled_out) -> None:

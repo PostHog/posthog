@@ -26,12 +26,14 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend.facade.contracts import DestinationType
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     LLMDetectorError,
     LLMDetectorMisconfiguredError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.llm_detector_limits import (
@@ -189,6 +191,7 @@ def snooze_alert_from_slack(
 
 
 __all__ = [
+    "LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
     "MAX_CONCURRENT_MODEL_CALLS",
@@ -197,6 +200,7 @@ __all__ = [
     "LLMAlertWrite",
     "LLMDetectorError",
     "LLMDetectorMisconfiguredError",
+    "LLMDetectorOutOfCreditsError",
     "LLMDetectorUnavailableError",
     "admit_llm_alert_write",
     "is_llm_detector_config",

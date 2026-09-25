@@ -84,10 +84,12 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     LLMDetectorMisconfiguredError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
     is_llm_detector_config,
 )
@@ -679,6 +681,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # retry-exhausted path records an errored check, the same outcome as any other
             # evaluation that never produced a value.
             raise
+        except LLMDetectorOutOfCreditsError as err:
+            # Not retried, and the alert stays on: the next check runs once credits are available.
+            record_ai_detector_check_outcome("out_of_credits")
+            error = {"code": LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE, "message": str(err)}
         except LLMDetectorMisconfiguredError as err:
             # Same fail-loud outcome as a bad query shape below, counted apart because a
             # withdrawn consent or rollout is the owner's to fix and never a provider failure.

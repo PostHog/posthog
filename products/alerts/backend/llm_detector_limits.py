@@ -55,7 +55,9 @@ LLM_DETECTOR_CONSENT_MESSAGE = (
 LLM_DETECTOR_ROLLOUT_MESSAGE = "The AI detector is not enabled for your account."
 
 LLM_DETECTOR_AI_CREDITS_MESSAGE = (
-    "Your organization is out of PostHog AI credits, and the AI detector uses them on every check."
+    "Your organization has used all its AI credits, so the AI detector cannot check this alert. "
+    "The alert stays on and runs again when credits are available. Switch it to a statistical "
+    "detector to keep it running now."
 )
 
 LLM_DETECTOR_NO_CREATOR_MESSAGE = (

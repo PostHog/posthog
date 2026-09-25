@@ -46,11 +46,18 @@ class LLMDetectorUnavailableError(LLMDetectorError):
     """A transport failure, timeout, or unusable model output. Worth retrying."""
 
 
+class LLMDetectorOutOfCreditsError(LLMDetectorError):
+    """The organization is over its AI credit budget.
+
+    Retrying the check cannot help, but the alert stays on, because the next check can run once
+    credits are available.
+    """
+
+
 class LLMDetectorMisconfiguredError(LLMDetectorError):
     """The judge cannot run as configured, so retrying cannot help.
 
-    The creator is missing, AI data processing consent is withdrawn, the rollout is disabled, or the
-    organization is over its AI credit budget.
+    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
     """
 
 
@@ -60,6 +67,7 @@ class LLMDetectorMisconfiguredError(LLMDetectorError):
 # the outcome and not a cause: the same error also covers a rollout lookup that returned nothing,
 # a worker with no free model-call slot, and a model reply the judge could not read.
 LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
+LLM_DETECTOR_OUT_OF_CREDITS_ERROR_CODE = "llm_detector_out_of_credits"
 LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
     "The AI detector could not complete this check. The alert is still on and the next check tries again."
 )

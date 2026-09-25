@@ -29,6 +29,7 @@ from products.alerts.backend.judge.contract import (
     MAX_PROMPT_POINTS,
     JudgeAttribution,
     LLMDetectorMisconfiguredError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
@@ -198,11 +199,14 @@ class LLMSeriesJudge:
             is_team_over_ai_credit_budget,
         )
 
-        if is_team_over_ai_credit_budget(attribution.team.api_token):
-            raise LLMDetectorMisconfiguredError(
-                f"{LLM_DETECTOR_AI_CREDITS_MESSAGE} This alert cannot be checked until credits are available. "
-                "Switch it to a statistical detector to keep it running."
-            )
+        try:
+            over_budget = is_team_over_ai_credit_budget(attribution.team.api_token)
+        except Exception:
+            # Fail open: a quota cache that cannot be read must not error every AI alert.
+            logger.warning("alerts.llm_detector.credit_budget_check_failed", exc_info=True)
+            over_budget = False
+        if over_budget:
+            raise LLMDetectorOutOfCreditsError(LLM_DETECTOR_AI_CREDITS_MESSAGE)
 
         memo_key = _verdict_memo_key(series, attribution, data=data, window=window, judge_every_point=judge_every_point)
         memoized = _memoized_verdict(memo_key)
