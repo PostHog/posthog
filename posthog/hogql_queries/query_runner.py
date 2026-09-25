@@ -68,6 +68,7 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
@@ -573,6 +574,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
@@ -1567,6 +1569,15 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
             user=user,
+        )
+
+    if kind == NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
+            MarketingAnalyticsSearchQueryRunner,
+        )
+
+        return MarketingAnalyticsSearchQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
         )
 
     if kind == NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY:

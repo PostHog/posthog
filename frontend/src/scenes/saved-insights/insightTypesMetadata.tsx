@@ -575,6 +575,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsSearchQuery]: {
+        name: 'Marketing analytics search performance',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
         icon: IconPieChart,

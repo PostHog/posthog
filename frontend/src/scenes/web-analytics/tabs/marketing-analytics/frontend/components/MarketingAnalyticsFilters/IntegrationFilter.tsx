@@ -11,13 +11,18 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { MarketingSourceStatus, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { StatusIcon } from '../settings/StatusIcon'
 
-export function IntegrationFilter(): JSX.Element {
+export function IntegrationFilter({ sourceTypes }: { sourceTypes?: string[] } = {}): JSX.Element {
     const { allAvailableSourcesWithStatus, integrationFilter } = useValues(marketingAnalyticsLogic)
     const { setIntegrationFilter } = useActions(marketingAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
 
-    const selectedIds = integrationFilter.integrationSourceIds || []
-    const allSourceIds = allAvailableSourcesWithStatus.map((s) => s.id)
+    const availableSources = sourceTypes
+        ? allAvailableSourcesWithStatus.filter((source) => sourceTypes.includes(source.source_type))
+        : allAvailableSourcesWithStatus
+    const selectedIds = (integrationFilter.integrationSourceIds || []).filter((id) =>
+        availableSources.some((source) => source.id === id)
+    )
+    const allSourceIds = availableSources.map((s) => s.id)
     const isAllSelected = selectedIds.length === allSourceIds.length && allSourceIds.length > 0
     const isSomeSelected = selectedIds.length > 0 && selectedIds.length < allSourceIds.length
     // Absent means included, so only an explicit false hides these rows.
@@ -51,19 +56,19 @@ export function IntegrationFilter(): JSX.Element {
     const displayValue = (): string => {
         // Hiding the non-integrated rows changes what the table reports, so the button says so at
         // every selection, not only when the sources are all in or all out.
-        const suffix = includeNonIntegrated ? '' : ', integrated only'
+        const suffix = sourceTypes || includeNonIntegrated ? '' : ', integrated only'
         if (selectedIds.length === 0 || isAllSelected) {
-            return includeNonIntegrated ? 'All integrations' : 'Integrated only'
+            return sourceTypes || includeNonIntegrated ? 'All integrations' : 'Integrated only'
         }
         if (selectedIds.length === 1) {
-            const source = allAvailableSourcesWithStatus.find((s) => s.id === selectedIds[0])
+            const source = availableSources.find((s) => s.id === selectedIds[0])
             return `${source ? formatSourceLabel(source) : '1 integration'}${suffix}`
         }
         return `${selectedIds.length} integrations${suffix}`
     }
 
     // Don't show the filter if there are no available sources
-    if (allAvailableSourcesWithStatus.length === 0) {
+    if (availableSources.length === 0) {
         return <></>
     }
 
@@ -85,7 +90,7 @@ export function IntegrationFilter(): JSX.Element {
                         </span>
                     </LemonButton>
                     <div className="border-t border-border my-1" />
-                    {allAvailableSourcesWithStatus.map((source) => (
+                    {availableSources.map((source) => (
                         <LemonButton
                             key={source.id}
                             fullWidth
@@ -110,19 +115,23 @@ export function IntegrationFilter(): JSX.Element {
                             </span>
                         </LemonButton>
                     ))}
-                    <div className="border-t border-border my-1" />
-                    <LemonButton
-                        fullWidth
-                        size="small"
-                        onClick={handleToggleNonIntegrated}
-                        className="justify-start"
-                        tooltip="Traffic no integration reports cost for, like organic, email, or a source you haven't mapped yet."
-                    >
-                        <span className="flex items-center gap-2">
-                            <LemonCheckbox checked={includeNonIntegrated} className="pointer-events-none" />
-                            <span className="flex-1">No integration</span>
-                        </span>
-                    </LemonButton>
+                    {sourceTypes === undefined && (
+                        <>
+                            <div className="border-t border-border my-1" />
+                            <LemonButton
+                                fullWidth
+                                size="small"
+                                onClick={handleToggleNonIntegrated}
+                                className="justify-start"
+                                tooltip="Traffic no integration reports cost for, like organic, email, or a source you haven't mapped yet."
+                            >
+                                <span className="flex items-center gap-2">
+                                    <LemonCheckbox checked={includeNonIntegrated} className="pointer-events-none" />
+                                    <span className="flex-1">No integration</span>
+                                </span>
+                            </LemonButton>
+                        </>
+                    )}
                 </div>
             }
         >

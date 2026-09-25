@@ -87,6 +87,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     AD_PERFORMANCE = 'ad-performance',
+    SEARCH_PERFORMANCE = 'search-performance',
     PAGE_VISIBILITY = 'page-visibility',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',

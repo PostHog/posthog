@@ -66,6 +66,17 @@ request
 A miss costs one live-path serve; the background warm makes the next identical request a bucket hit.
 The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
+## Marketing search performance
+
+`MarketingAnalyticsSearchQuery` reads synced ad-platform tables through HogQL and the query result cache, independently of the web-event serving tiers above.
+The Search performance tab requires `marketing-analytics-organic-keywords` in both the legacy and new Marketing analytics dashboards.
+Google Ads requires the `keyword` and `keyword_stats` tables; Bing Ads requires `keyword_performance_report`.
+The integration filter selects connected search-ad sources, and the date and comparison controls select the current and comparison periods.
+Metrics group targeted keywords by platform, match type and account currency; spend is never added across currencies.
+Conversions retain the ad platform's attribution, while CTR, CPC and CPA use the summed metrics in each period.
+Comparison includes keywords present in either period and applies the top-100 limit after matching the periods.
+The query type tag is `marketing_analytics_search_query`.
+
 ## Per-runner dispatch
 
 ### WebOverviewQuery (`web_overview.py`)

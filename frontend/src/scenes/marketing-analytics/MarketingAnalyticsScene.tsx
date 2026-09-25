@@ -31,6 +31,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/frontend/dashboard/NewMarketingAnalyticsDashboard'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
+import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -282,6 +283,15 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.SEARCH_PERFORMANCE,
+                      label: 'Search performance',
+                      content: <SearchPerformanceTab />,
+                  },
+              ]
+            : []),
         ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
             ? [
                   {
@@ -376,6 +386,8 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
+    [MarketingAnalyticsTab.SEARCH_PERFORMANCE]:
+        'Compare paid search keywords, spend and conversions across Google Ads and Bing Ads.',
     [MarketingAnalyticsTab.PAGE_VISIBILITY]:
         'Explore page traffic, Google search visibility, AI referrals, crawler activity, and conversions.',
     [MarketingAnalyticsTab.AD_PERFORMANCE]: 'Compare ad spend, clicks and impressions across your connected platforms.',

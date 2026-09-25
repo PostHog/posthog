@@ -1918,6 +1918,16 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
+class Platform(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+
+
+class SourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+
+
 class MatchField(StrEnum):
     CAMPAIGN_NAME = "campaign_name"
     CAMPAIGN_ID = "campaign_id"
@@ -2167,6 +2177,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
+    MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
