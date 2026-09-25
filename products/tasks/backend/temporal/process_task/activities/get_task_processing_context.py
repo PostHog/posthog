@@ -87,10 +87,12 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 
-@dataclass
+@frozen
 class GetTaskProcessingContextInput:
     run_id: str
     create_pr: bool = True
+    resumed_sandbox_id: str | None = None
+    resumed_sandbox_backend: str | None = None
 
 
 @dataclass(frozen=False)
@@ -1564,11 +1566,23 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
     )
+    sandbox_backend_state = state
+    resumed_backend = input.resumed_sandbox_backend
+    if (
+        resumed_backend not in ("modal", "hogland")
+        and input.resumed_sandbox_id is not None
+        and input.resumed_sandbox_id == state.get("sandbox_id")
+    ):
+        persisted_backend = state.get("sandbox_backend")
+        resumed_backend = persisted_backend if persisted_backend in ("modal", "hogland") else "modal"
+    if resumed_backend in ("modal", "hogland"):
+        sandbox_backend_state = {**state, "sandbox_backend": resumed_backend}
+
     sandbox_backend = _resolve_sandbox_backend(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
-        state=state,
+        state=sandbox_backend_state,
         task_runtime=task.runtime,
         # Only a real user/environment image is a hogland incapability. The org default
         # image (default_custom_image, applied when the user picked none) is not — hogland
