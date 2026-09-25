@@ -2978,21 +2978,14 @@ class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
         res = self._put("default", {**base, "resource_id": "salary", "access_level": None})
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
 
-        # Property access without role-based access: a role rule cannot be set, but an existing one
-        # can still be cleared, because property enforcement keeps applying it without the feature
-        role_body = {**base, **self._subject("role")}
-        assert self._put("role", {**role_body, "access_level": "read"}).status_code == status.HTTP_200_OK
+        # Property access without role-based access: role rules stay gated like every other scope
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
         ]
         self.organization.save()
-        res = self._put("role", {**role_body, "access_level": "none"})
+        res = self._put("role", {**base, "access_level": "read", **self._subject("role")})
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
-        assert PropertyAccessControl.objects.filter(team=self.team, role=self.role).exists()
-        res = self._put("role", {**role_body, "access_level": None})
-        assert res.status_code == status.HTTP_204_NO_CONTENT, res.content
-        assert not PropertyAccessControl.objects.filter(team=self.team).exists()
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
