@@ -2,6 +2,9 @@ from typing import Any
 
 from posthog.test.base import BaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from posthog.api.advanced_activity_logs.fields_cache import _get_cache_key, get_client
 from posthog.models.activity_logging.activity_log import ActivityLog
 
@@ -12,6 +15,10 @@ class FieldDiscoveryTest(BaseTest):
     def setUp(self):
         super().setUp()
         self.discovery = AdvancedActivityLogFieldDiscovery(self.organization.id)
+        self._clear_fields_cache()
+
+    def _clear_fields_cache(self) -> None:
+        get_client().delete(_get_cache_key(str(self.organization.id)))
 
     def _create_activity_log(self, scope: str, detail: dict[str, Any]) -> ActivityLog:
         return ActivityLog.objects.create(
@@ -99,14 +106,56 @@ class FieldDiscoveryTest(BaseTest):
         for field_pattern, expected_types, test_value in supported_patterns:
             with self.subTest(pattern=field_pattern):
                 ActivityLog.objects.filter(organization_id=self.organization.id).delete()
-                try:
-                    client = get_client()
-                    cache_key = _get_cache_key(str(self.organization.id))
-                    client.delete(cache_key)
-                except Exception:
-                    pass
+                self._clear_fields_cache()
 
                 detail = self._generate_test_data_from_pattern(field_pattern, test_value)
                 self._create_activity_log("Dashboard", detail)
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
+
+    def test_static_filters_dedupe_in_sql_for_an_ordered_queryset(self):
+        for index in range(3):
+            self._create_activity_log("Dashboard", {"field": f"value_{index}"})
+
+        # The viewset always orders its queryset, and Django puts the ordering columns into the
+        # DISTINCT key, so this is the shape that turns a dedupe back into a full scan.
+        ordered_queryset = ActivityLog.objects.filter(organization_id=self.organization.id).order_by(
+            "-created_at", "-id"
+        )
+
+        with CaptureQueriesContext(connection) as context:
+            results = self.discovery.get_available_filters(ordered_queryset)
+
+        static_filters = results["static_filters"]
+        scopes = [entry["value"] for entry in static_filters["scopes"]]
+        self.assertIn("Dashboard", scopes)
+        self.assertIn("updated", [entry["value"] for entry in static_filters["activities"]])
+        self.assertEqual([entry["value"] for entry in static_filters["users"]], [str(self.user.uuid)])
+
+        statements = [query["sql"] for query in context.captured_queries]
+        for column in ["scope", "activity", "client"]:
+            with self.subTest(column=column):
+                prefix = f'SELECT DISTINCT "posthog_activitylog"."{column}" AS "{column}" FROM'
+                self.assertTrue(
+                    any(statement.startswith(prefix) for statement in statements),
+                    f"No deduped statement for '{column}'. Statements: {statements}",
+                )
+
+        user_statements = [
+            statement for statement in statements if statement.startswith('SELECT DISTINCT "posthog_user"."uuid"')
+        ]
+        self.assertTrue(user_statements, f"No deduped statement for users. Statements: {statements}")
+        self.assertNotIn('"posthog_activitylog"."created_at"', user_statements[0])
+
+    def test_second_request_of_a_small_org_reads_the_cache(self):
+        self._create_activity_log("Dashboard", {"field": "value"})
+        self._run_field_discovery()
+
+        with CaptureQueriesContext(connection) as context:
+            results = self._run_field_discovery()
+
+        activity_log_statements = [
+            query["sql"] for query in context.captured_queries if "posthog_activitylog" in query["sql"]
+        ]
+        self.assertEqual(activity_log_statements, [])
+        self.assertIn("Dashboard", [entry["value"] for entry in results["static_filters"]["scopes"]])

@@ -27,12 +27,15 @@ class AdvancedActivityLogFieldDiscovery:
         self.organization_id = organization_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
+        # The cache read comes first for every organization size, because the count below and the
+        # discovery it guards both scan the organization's activity log rows.
+        cached = get_cached_fields(str(self.organization_id))
+        if cached:
+            return cached
+
         record_count = self._get_org_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id))
-            if cached:
-                return cached
             return {
                 "static_filters": {"users": [], "scopes": [], "activities": [], "clients": []},
                 "detail_fields": {},
@@ -58,36 +61,35 @@ class AdvancedActivityLogFieldDiscovery:
         }
 
     def _get_available_users(self, queryset: QuerySet) -> list[dict[str, str]]:
-        users_query = queryset.values("user__uuid", "user__first_name", "user__last_name", "user__email").distinct()
-        seen_users = set()
-        unique_users = []
+        users_query = (
+            queryset.exclude(user__isnull=True)
+            .order_by("user__email")
+            .values("user__uuid", "user__first_name", "user__last_name", "user__email")
+            .distinct()
+        )
 
-        for user in users_query:
-            if user["user__uuid"] and user["user__uuid"] not in seen_users:
-                seen_users.add(user["user__uuid"])
-                unique_users.append(
-                    {
-                        "value": str(user["user__uuid"]),
-                        "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
-                    }
-                )
-
-        return unique_users
+        return [
+            {
+                "value": str(user["user__uuid"]),
+                "label": f"{user['user__first_name']} {user['user__last_name']}".strip() or user["user__email"],
+            }
+            for user in users_query
+        ]
 
     def _get_available_scopes(self, queryset: QuerySet) -> list[dict[str, str]]:
-        scopes_query = queryset.values_list("scope", flat=True)
-        scopes = set(scopes_query)
-        return [{"value": scope} for scope in sorted(scopes) if scope]
+        return [{"value": scope} for scope in self._get_distinct_values(queryset, "scope")]
 
     def _get_available_activities(self, queryset: QuerySet) -> list[dict[str, str]]:
-        activities_query = queryset.values_list("activity", flat=True)
-        activities = set(activities_query)
-        return [{"value": activity} for activity in sorted(activities) if activity]
+        return [{"value": activity} for activity in self._get_distinct_values(queryset, "activity")]
 
     def _get_available_clients(self, queryset: QuerySet) -> list[dict[str, str]]:
-        clients_query = queryset.values_list("client", flat=True)
-        clients = set(clients_query)
-        return [{"value": client} for client in sorted(c for c in clients if c)]
+        return [{"value": client} for client in self._get_distinct_values(queryset, "client")]
+
+    def _get_distinct_values(self, queryset: QuerySet, column: str) -> list[str]:
+        # Django puts the caller's ordering columns into the DISTINCT key, which makes every row
+        # unique again, so the ordering must be replaced before the dedupe reaches SQL.
+        values = queryset.order_by(column).values_list(column, flat=True).distinct()
+        return [value for value in values if value]
 
     def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
         fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
