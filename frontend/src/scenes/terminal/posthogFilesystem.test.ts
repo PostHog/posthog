@@ -5,7 +5,12 @@ import apiMutator from 'lib/api-orval-mutator'
 import { fileSystemCreate, fileSystemDestroy, fileSystemList, fileSystemRetrieve } from '~/generated/core/api'
 import type { FileSystemApi } from '~/generated/core/api.schemas'
 
-import { notebooksList, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
+import {
+    notebooksCreate,
+    notebooksList,
+    notebooksPartialUpdate,
+    notebooksRetrieve,
+} from 'products/notebooks/frontend/generated/api'
 import type { NotebookApi } from 'products/notebooks/frontend/generated/api.schemas'
 import { insightsList } from 'products/product_analytics/frontend/generated/api'
 
@@ -25,6 +30,7 @@ jest.mock('lib/api-orval-mutator', () => {
     return { __esModule: true, default: mutator, apiMutator: mutator }
 })
 jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksCreate: jest.fn(),
     notebooksRetrieve: jest.fn(),
     notebooksList: jest.fn(),
     notebooksPartialUpdate: jest.fn(),
@@ -67,6 +73,260 @@ describe('PostHog filesystem projection', () => {
             results: [entry('note1', 'Research/Notes')],
         })
         jest.mocked(notebooksRetrieve).mockResolvedValue(notebook)
+    })
+
+    it.each([
+        { folder: '', name: 'Blank.md', flags: 1, text: '' },
+        { folder: 'Research', name: 'Notes.md', flags: 577, text: '' },
+        { folder: 'Research', name: 'Notes%2Fdraft.md', flags: 577, text: '# New notes\n' },
+        { folder: 'Research', name: 'Draft.md', flags: 577, text: '# New notes\n', concurrent: true },
+    ])('creates and reopens $folder/$name with content "$text"', async ({ folder, name, flags, text, concurrent }) => {
+        const title = decodeURIComponent(name)
+        const createdEntry = entry('created', folder ? `${folder}/${title.replaceAll('/', '\\/')}` : title)
+        let current = {
+            ...notebook,
+            short_id: 'created',
+            content: {
+                type: 'doc',
+                content: [{ type: 'ph-markdown-notebook', attrs: { nodeId: 'markdown-notebook-v2', markdown: '' } }],
+            },
+        }
+        jest.mocked(fileSystemList).mockResolvedValue({ count: 0, results: [] })
+        jest.mocked(notebooksCreate).mockImplementation(async () => {
+            const entries = concurrent ? [entry('another', createdEntry.path), createdEntry] : [createdEntry]
+            jest.mocked(fileSystemList).mockResolvedValue({ count: entries.length, results: entries })
+            return current
+        })
+        jest.mocked(notebooksRetrieve).mockImplementation(async (_, id) => (id === 'another' ? notebook : current))
+        jest.mocked(notebooksPartialUpdate).mockImplementation(async (_, __, body) => {
+            current = { ...current, content: body!.content as typeof current.content, version: current.version! + 1 }
+            return current
+        })
+        const confirm = jest.fn().mockResolvedValue(true)
+        const signal = new AbortController().signal
+        const fs = new PosthogFilesystem('42', signal, confirm, true)
+        await fs.load()
+        const files = fs.root.children!.get('files')!
+        if (folder) {
+            jest.mocked(fileSystemCreate).mockResolvedValue(entry('folder', folder, 'folder'))
+            await files.mkdir!(folder)
+            confirm.mockClear()
+        }
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<NinePReader> => {
+            const response = new NinePReader(
+                await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            )
+            response.number(4)
+            expect(response.number(1)).toBe(type + 1)
+            response.number(2)
+            return response
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string('').number(0, 4))
+        const walk = new NinePWriter()
+            .number(1, 4)
+            .number(2, 4)
+            .number(folder ? 2 : 1, 2)
+            .string('files')
+        if (folder) {
+            walk.string(folder)
+        }
+        await request(110, walk)
+        await request(14, new NinePWriter().number(2, 4).string(name).number(flags, 4).number(0o644, 4).number(0, 4))
+        expect(notebooksCreate).toHaveBeenCalledWith(
+            '42',
+            expect.objectContaining({ title, _create_in_folder: folder, text_content: '', content: current.content }),
+            { signal }
+        )
+        expect(confirm).toHaveBeenCalledTimes(1)
+        if (text) {
+            const data = new TextEncoder().encode(text)
+            await request(118, new NinePWriter().number(2, 4).number(0, 8).number(data.length, 4).data(data))
+            await request(50, new NinePWriter().number(2, 4).number(0, 4))
+        }
+        await request(120, new NinePWriter().number(2, 4))
+        expect(notebooksCreate).toHaveBeenCalledTimes(1)
+        expect(notebooksPartialUpdate).toHaveBeenCalledTimes(text ? 1 : 0)
+        expect(fs.writers.size).toBe(0)
+        await fs.load()
+        const parent = folder ? files.children!.get(folder)! : files
+        const createdName = concurrent ? `${name}~created.md` : name
+        const file = await parent.children!.get(createdName)!.open!()
+        expect(decoder.decode(file.bytes)).toBe(text)
+        expect(fs.resolveReference(createdName, fs.folderPath(folder), 'notebook')).toBe('created')
+        expect(await fs.navigationUrl(createdName, fs.folderPath(folder))).toBe('/notebooks/created')
+        if (concurrent) {
+            expect(fs.resolveReference(name, fs.folderPath(folder), 'notebook')).toBe('another')
+            await file.save!(new TextEncoder().encode('Edit after refresh'))
+            expect(notebooksPartialUpdate).toHaveBeenLastCalledWith(
+                '42',
+                'created',
+                expect.objectContaining({ text_content: 'Edit after refresh' }),
+                expect.anything()
+            )
+            const other = await parent.children!.get(name)!.open!()
+            expect(decoder.decode(other.bytes)).toBe('# Hello 🦔')
+        }
+    })
+
+    it.each([
+        { name: 'Draft.md', allowed: false, fails: false, errno: 5 },
+        { name: 'Draft.md', allowed: true, fails: true, errno: 5 },
+        { name: 'Notes.md', allowed: true, fails: false, errno: 17 },
+        { name: 'Draft.sql', allowed: true, fails: false, errno: 95 },
+        { name: 'Draft.md~', allowed: true, fails: false, errno: 95 },
+    ])('rejects creation of $name with allowed=$allowed and fails=$fails', async ({ name, allowed, fails, errno }) => {
+        const confirm = jest.fn().mockResolvedValue(allowed)
+        jest.mocked(notebooksCreate).mockRejectedValue(new Error('Permission denied'))
+        const fs = new PosthogFilesystem('42', new AbortController().signal, confirm, true)
+        await fs.load()
+        const folder = fs.root.children!.get('files')!.children!.get('Research')!
+        const before = [...folder.children!.entries()]
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<{ type: number; body: NinePReader }> => {
+            const response = new NinePReader(
+                await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            )
+            response.number(4)
+            const responseType = response.number(1)
+            response.number(2)
+            return { type: responseType, body: response }
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string('').number(0, 4))
+        await request(110, new NinePWriter().number(1, 4).number(2, 4).number(2, 2).string('files').string('Research'))
+        const response = await request(
+            14,
+            new NinePWriter().number(2, 4).string(name).number(1, 4).number(0o644, 4).number(0, 4)
+        )
+        expect(response.type).toBe(7)
+        expect(response.body.number(4)).toBe(errno)
+        expect(notebooksCreate).toHaveBeenCalledTimes(fails ? 1 : 0)
+        expect([...folder.children!.entries()]).toEqual(before)
+        expect(fs.writers.size).toBe(0)
+    })
+
+    it.each(['lookup error', 'missing entry', 'open error'])(
+        'recovers a created notebook after %s without duplicating it',
+        async (failure) => {
+            jest.mocked(notebooksCreate).mockImplementation(async () => {
+                jest.mocked(fileSystemList).mockResolvedValue({
+                    count: 2,
+                    next: null,
+                    results: [entry('note1', 'Research/Notes'), entry('created', 'Research/Draft.md')],
+                })
+                if (failure === 'lookup error') {
+                    jest.mocked(fileSystemList).mockRejectedValueOnce(new Error('Network error'))
+                } else if (failure === 'missing entry') {
+                    jest.mocked(fileSystemList).mockResolvedValueOnce({ count: 0, results: [] })
+                } else {
+                    jest.mocked(notebooksRetrieve).mockRejectedValueOnce(new Error('Network error'))
+                }
+                return { ...notebook, short_id: 'created' }
+            })
+            const fs = new PosthogFilesystem(
+                '42',
+                new AbortController().signal,
+                jest.fn().mockResolvedValue(true),
+                true
+            )
+            await fs.load()
+            const server = new NinePServer(fs, jest.fn())
+            const request = async (type: number, body: NinePWriter): Promise<{ type: number; body: NinePReader }> => {
+                const response = new NinePReader(
+                    await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+                )
+                response.number(4)
+                const responseType = response.number(1)
+                response.number(2)
+                return { type: responseType, body: response }
+            }
+            const create = async (fid: number): Promise<number> => {
+                await request(
+                    110,
+                    new NinePWriter().number(1, 4).number(fid, 4).number(2, 2).string('files').string('Research')
+                )
+                const response = await request(
+                    14,
+                    new NinePWriter().number(fid, 4).string('Draft.md').number(1, 4).number(0o644, 4).number(0, 4)
+                )
+                return response.type === 7 ? response.body.number(4) : 0
+            }
+            await request(
+                104,
+                new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string('').number(0, 4)
+            )
+
+            expect(await create(2)).toBe(5)
+            expect(await create(3)).toBe(17)
+            expect(notebooksCreate).toHaveBeenCalledTimes(1)
+            expect(fs.root.children!.get('files')!.children!.get('Research')!.children!.has('Draft.md')).toBe(true)
+            expect(
+                (await request(110, new NinePWriter().number(3, 4).number(4, 4).number(1, 2).string('Draft.md'))).type
+            ).toBe(111)
+            expect((await request(12, new NinePWriter().number(4, 4).number(0, 4))).type).toBe(13)
+            const content = await request(116, new NinePWriter().number(4, 4).number(0, 8).number(1024, 4))
+            expect(content.type).toBe(117)
+            expect(decoder.decode(content.body.data(content.body.number(4)))).toBe('# Hello 🦔')
+            expect((await request(120, new NinePWriter().number(4, 4))).type).toBe(121)
+            expect(fs.writers.size).toBe(0)
+        }
+    )
+
+    it.each(['confirmation', 'post'])('handles a guest flush during %s without an untracked create', async (phase) => {
+        let approve!: (approved: boolean) => void
+        const confirm = jest.fn(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    approve = resolve
+                })
+        )
+        let completePost!: () => void
+        jest.mocked(notebooksCreate).mockImplementation(async () => {
+            if (phase === 'post') {
+                await new Promise<void>((resolve) => {
+                    completePost = resolve
+                })
+            }
+            jest.mocked(fileSystemList).mockResolvedValue({
+                count: 1,
+                results: [entry('created', 'Research/Draft.md')],
+            })
+            return { ...notebook, short_id: 'created' }
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal, confirm, true)
+        await fs.load()
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<number> => {
+            const response = new NinePReader(
+                await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            )
+            response.number(4)
+            return response.number(1)
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string('').number(0, 4))
+        await request(110, new NinePWriter().number(1, 4).number(2, 4).number(2, 2).string('files').string('Research'))
+        const reply = jest.fn()
+        server.handle(
+            new NinePWriter().number(2, 4).string('Draft.md').number(1, 4).number(0o644, 4).number(0, 4).frame(14, 77),
+            reply
+        )
+        await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1))
+        if (phase === 'post') {
+            approve(true)
+            await waitFor(() => expect(notebooksCreate).toHaveBeenCalledTimes(1))
+        }
+        expect(await request(108, new NinePWriter().number(77, 2))).toBe(109)
+        if (phase === 'confirmation') {
+            approve(true)
+        } else {
+            completePost()
+        }
+        expect(await request(50, new NinePWriter().number(2, 4).number(0, 4))).toBe(51)
+        expect(reply).not.toHaveBeenCalled()
+        expect(notebooksCreate).toHaveBeenCalledTimes(phase === 'post' ? 1 : 0)
+        const folder = fs.root.children!.get('files')!.children!.get('Research')!
+        expect(folder.children!.has('Draft.md')).toBe(phase === 'post')
+        expect(fs.writers.size).toBe(0)
     })
 
     it('edits SQL while preserving insight options and exposes editable JSON metadata', async () => {

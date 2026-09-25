@@ -25,6 +25,7 @@ import {
   type BedrockGatewayVariant,
   CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
+  CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
   SPOKEN_NARRATION_FLAG,
 } from "@posthog/shared";
@@ -165,6 +166,9 @@ function buildSessionServiceDeps(): SessionServiceDeps {
         ...state,
         claudeCloudSubscriptionEnabled: featureFlags.isEnabled(
           CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG,
+        ),
+        codexCloudSubscriptionEnabled: featureFlags.isEnabled(
+          CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG,
         ),
         customInstructions: getEffectiveCustomInstructions(state),
         spokenNarrationEnabled: shouldEnableSpokenNarration(

@@ -19,6 +19,7 @@ So don't read the files to find an owner. Ask the resolver: `owners who <path>` 
 GitHub's `CODEOWNERS` can stay in place for required approvals.
 
 The format is defined in [SPEC.md](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md).
+The website at [owners-yaml.posthog.dev](https://owners-yaml.posthog.dev) walks through setup with commands you can copy.
 PostHog's monorepo uses it for about 30 teams.
 The same files route review requests, give every agent-opened pull request one accountable owner, and send daily digests, flaky-test reports, and alerts to the right team channel.
 
@@ -67,7 +68,7 @@ uvx owners-yaml --help        # run it once without installing
 The package installs two identical commands, `owners` and `owners-yaml`.
 An unrelated project on PyPI is named `owners`, so always write `owners-yaml` when you install or run it: `uvx owners` fetches that other package.
 After `uv tool install owners-yaml`, the `owners` command on your PATH is this one.
-In CI, pin the version (`owners-yaml==0.2.1`), because a new release can change how paths resolve.
+In CI, pin the version (`owners-yaml==0.3.0`), because a new release can change how paths resolve.
 
 Requirements: Python 3.10 or later, PyYAML, and click.
 The commands read tracked files through `git`. Outside a git worktree, pass `--repo-root` and they read the files from disk.
@@ -171,7 +172,7 @@ To list what nobody owns, run `owners unowned`. Paths under `owners: null` are l
 ### Lint in CI
 
 ```console
-$ uvx owners-yaml==0.2.1 lint
+$ uvx owners-yaml==0.3.0 lint
 ⚠ coverage: 0 of 5 tracked file(s) resolve to unowned
 
 ✓ owners.yaml lint passed (1 warning(s))
@@ -208,7 +209,7 @@ Submodules can change between minor releases.
 From any language, pipe paths to the JSON entrypoint. `uvx` fetches the package from PyPI, so the machine needs only `uv`:
 
 ```bash
-echo "billing/api/invoices.py" | uvx --from owners-yaml==0.2.1 python -m owners_yaml --repo-root path/to/repo
+echo "billing/api/invoices.py" | uvx --from owners-yaml==0.3.0 python -m owners_yaml --repo-root path/to/repo
 ```
 
 The entrypoint imports only PyYAML. A tool that already has the source can run it with no install: `PYTHONPATH=path/to/packages/owners-yaml python3 -m owners_yaml`.
@@ -300,6 +301,7 @@ Moving an existing CODEOWNERS file into `owners.yaml` files is a one-time migrat
 
 ## Project
 
+- [Website](https://owners-yaml.posthog.dev)
 - [Changelog](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/CHANGELOG.md)
 - [Specification](https://github.com/PostHog/posthog/blob/master/packages/owners-yaml/SPEC.md)
 - [Issues](https://github.com/PostHog/posthog/issues)
@@ -310,12 +312,12 @@ Run its tests with `uv run --no-project --with pyyaml --with click --with pytest
 To release, bump `version` in `pyproject.toml`, add the matching section to `CHANGELOG.md`, merge, then tag `master`:
 
 ```bash
-git tag owners-yaml-v0.2.1 && git push origin owners-yaml-v0.2.1
+git tag owners-yaml-v0.3.0 && git push origin owners-yaml-v0.3.0
 ```
 
 The tag starts [`publish-owners-yaml.yml`](https://github.com/PostHog/posthog/blob/master/.github/workflows/publish-owners-yaml.yml).
 It checks that the tag matches the version, builds and tests the wheel, and publishes to PyPI with trusted publishing.
 It then creates a GitHub release from the changelog section.
-To retry a failed run, dispatch the workflow on the same tag: `gh workflow run publish-owners-yaml.yml --ref owners-yaml-v0.2.1`.
+To retry a failed run, dispatch the workflow on the same tag: `gh workflow run publish-owners-yaml.yml --ref owners-yaml-v0.3.0`.
 
 MIT licensed.

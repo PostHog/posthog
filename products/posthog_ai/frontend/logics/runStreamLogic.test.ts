@@ -449,6 +449,29 @@ describe('runStreamLogic', () => {
             expect(logic.values.currentMode).toEqual('plan')
         })
 
+        it('replaces availableCommands on each available_commands_update frame', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'available_commands_update',
+                        availableCommands: [
+                            { name: 'compact', description: 'Compact the conversation', input: null },
+                            { name: 'querying-posthog-data', description: 'Query data', input: { hint: 'question' } },
+                            { description: 'no name, dropped' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'available_commands_update',
+                        availableCommands: [{ name: '/clear', description: 'Clear history' }],
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.availableCommands).toEqual([{ name: 'clear', description: 'Clear history' }])
+        })
+
         it('sets currentProgress on a _posthog/progress frame and clears it on turn complete', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/progress', { label: 'Querying events' }))

@@ -14,6 +14,8 @@ import { annotationsList } from '../generated/api'
 export const annotationsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ANNOTATIONS,
     path: ['products', 'annotations', 'frontend', 'emptyState', 'annotationsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await annotationsList(projectId, { limit: 1 })
