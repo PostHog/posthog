@@ -190,6 +190,39 @@ describe('reportListLogic', () => {
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
         })
 
+        it('keeps a row removed while the next page is in flight out of the appended list', async () => {
+            let releasePage: () => void = () => {}
+            const heldPage = new Promise<void>((resolve) => {
+                releasePage = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await heldPage
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: null,
+                                previous: null,
+                                results: SECOND_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadMore()
+            logic.actions.removeReport(FIRST_PAGE[3].id)
+            releasePage()
+            await expectLogic(logic).toDispatchActions(['loadMoreReportsSuccess'])
+
+            expect(logic.values.reports.map((r) => r.id)).toEqual([
+                ...FIRST_PAGE.filter((r) => r.id !== FIRST_PAGE[3].id).map((r) => r.id),
+                ...SECOND_PAGE.map((r) => r.id),
+            ])
+        })
+
         // A refetch reloads only the first page, so a reviewer edit must drop the row in place or the
         // reader loses their scroll position in a long list.
         it.each([

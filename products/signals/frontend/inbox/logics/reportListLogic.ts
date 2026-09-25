@@ -409,7 +409,7 @@ export const reportListLogic = kea<reportListLogicType>([
         applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         // Cheap count-only request – populates the state's count before its rows load. `count_only`
         // lets the backend answer with one `COUNT(*)`, skipping ordering, row serialization, and
         // the per-row metadata lookups.
@@ -442,6 +442,10 @@ export const reportListLogic = kea<reportListLogicType>([
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     const current = values.reportsResponse?.results ?? []
+                    // `removeReport` records ids here while the request is in flight. `current` predates
+                    // those removals, so filter them out or a removed report comes back when the page lands.
+                    const removedWhilePending = new Set<string>()
+                    cache.removedWhilePageLoads = removedWhilePending
                     const response = await api.signalReports.list({
                         ...params,
                         offset: current.length,
@@ -449,7 +453,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     })
                     return {
                         ...response,
-                        results: [...current, ...response.results],
+                        results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
                         requestParams: params,
                         requestContext,
                     }
@@ -621,7 +625,7 @@ export const reportListLogic = kea<reportListLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // Announce this section's open pull requests so their CI state is resolved in one batch. Both
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
@@ -632,6 +636,9 @@ export const reportListLogic = kea<reportListLogicType>([
         loadMoreReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
+        },
+        removeReport: ({ reportId }) => {
+            cache.removedWhilePageLoads?.add(reportId)
         },
         // One page of ids per request, sent one after the other so a page open never fans out into
         // parallel query bursts. A newer page load supersedes an in-flight refresh at the breakpoint.
