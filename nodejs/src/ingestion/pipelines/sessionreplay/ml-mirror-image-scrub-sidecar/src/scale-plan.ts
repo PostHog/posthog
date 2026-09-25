@@ -36,7 +36,7 @@ export interface ScalePlan {
     text: { content: Dims; canvas: Dims }
     /** What YuNet sees. Its input is a fixed square, so this is how much of the frame reaches it. */
     face: { scale: number }
-    /** What zxing sees. It works on the frame directly. */
+    /** What zxing sees, as a fraction of the frame. */
     code: { scale: number }
     /** What gets written, and is the only copy that exists. */
     stored: Dims
@@ -175,6 +175,10 @@ export function faceInputScale(dims: Dims, side: number, tileAbove: number, tile
     return Math.min(1, side / faceWindowLong(long, short, tileAbove, tileAspect))
 }
 
+// A resize has a fixed cost that a small reduction does not win back in zxing time, so zxing reads the frame as it
+// is unless the plan takes it below this. Reading more than the ratio asks for cannot break rule 4.
+const CODE_RESIZE_BELOW = 0.85
+
 /**
  * The plan for one source image.
  *
@@ -194,11 +198,15 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
 
     const ratio = bindingRatio() * limits.safetyFactor
     const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels)))
+    // zxing's cost grows with the pixels it reads and no model fixes its input, so it gets exactly the ratio. That is
+    // measured against the stored axes as kept, because flooring an axis to a whole pixel keeps more than was asked.
+    const keptScale = Math.max(stored.width / frame.width, stored.height / frame.height)
+    const codeScale = Math.min(1, ratio * keptScale)
     return {
         frame,
         text,
         face: { scale: faceScale },
-        code: { scale: 1 },
+        code: { scale: codeScale < CODE_RESIZE_BELOW ? codeScale : 1 },
         stored,
     }
 }

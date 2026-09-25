@@ -8,16 +8,17 @@
  * --limit keeps the first N frame, code, size and degradation combinations. --shard k/n renders and
  * checks every nth of those, starting at k, so n processes together cover the whole set once.
  *
- * zxing reads the full frame today. A code only leaks if a reader can decode it from the stored
- * image, and the stored image is several times smaller than the frame, so zxing may not need the
- * whole frame to find every code that could leak. Each generated image is checked twice: zxing on the
- * unredacted stored image (at 1x, 2x and 3x, since an attacker can upscale) decides whether the code
- * could leak, and zxing on the frame at each scale decides whether the scrub would have covered it.
+ * A code only leaks if a reader can decode it from the stored image, and the stored image is several
+ * times smaller than the frame, so zxing does not need the whole frame to find every code that could
+ * leak. Each generated image is checked twice: zxing on the unredacted stored image (at 1x, 2x and
+ * 3x, since an attacker can upscale) decides whether the code could leak, and zxing on the frame at
+ * each scale decides whether the scrub would have covered it. Each scale's time includes the resize
+ * to it, which production pays too.
  *
  * Scales are either a fraction of the frame (fN), a multiple of the stored image's scale (sN), or
- * "plan": the multiple the scale plan already requires of every detector (binding ratio times the
- * safety factor). None is ever above the frame. The sN points answer the ratio question directly: the smallest multiple at
- * which every leakable code is still covered is the ratio codes need.
+ * "plan": the scale src/scale-plan.ts gives zxing in production. None is ever above the frame. The sN
+ * points answer the ratio question directly: the smallest multiple at which every leakable code is
+ * still covered is the ratio codes need, which src/floors.ts records as CODE_FLOOR.
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -26,7 +27,6 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
-import { bindingRatio } from '../src/floors.ts'
 import { detectCodes } from '../src/qr.ts'
 import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc } from '../src/src-image.ts'
@@ -239,21 +239,14 @@ async function main(): Promise<void> {
         const points: [string, number][] = [
             ...FRAME_SCALES.map((f): [string, number] => [`f${f}`, f]),
             ...STORED_MULTIPLES.map((m): [string, number] => [`s${m}`, Math.min(1, m * storedScale)]),
-            ['plan', Math.min(1, bindingRatio() * limits.safetyFactor * storedScale)],
+            ['plan', plan.code.scale],
         ]
         for (const [point, scale] of points) {
             const w = Math.max(1, Math.round(src.W * scale))
             const h = Math.max(1, Math.round(src.H * scale))
-            const input = await scaled(src, w, h)
             const t0 = performance.now()
-            const boxes = await detectCodes(input)
+            const boxes = await detectCodes(src, scale)
             const ms = performance.now() - t0
-            const back = boxes.map((b) => ({
-                left: Math.floor((b.left * src.W) / w),
-                top: Math.floor((b.top * src.H) / h),
-                width: Math.ceil((b.width * src.W) / w),
-                height: Math.ceil((b.height * src.H) / h),
-            }))
             const codeSideAtZxing = s.codeSide * fx * (w / src.W)
             results.push({
                 file: s.file,
@@ -266,7 +259,7 @@ async function main(): Promise<void> {
                 zxingPixels: w * h,
                 modulePxAtZxing: codeSideAtZxing / s.modules,
                 ms,
-                coverage: coverage(back, gt),
+                coverage: coverage(boxes, gt),
             })
         }
         if ((i + 1) % 50 === 0) {
