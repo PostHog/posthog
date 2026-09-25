@@ -70,7 +70,7 @@ import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsL
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
-import { isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
+import { findTreeItem, isJoined, queryDatabaseLogic } from './queryDatabaseLogic'
 
 export function getSidebarAddJoinSourceTableName(
     recordType: string | undefined,
@@ -103,6 +103,28 @@ export function getColumnInsertText(record: Record<string, any> | undefined): st
         return record.hogqlExpression
     }
     return escapeDottedHogQLIdentifier(record.columnName)
+}
+
+export function getDragInsertText(record: Record<string, any> | undefined): string | null {
+    switch (record?.type) {
+        case 'column':
+            return getColumnInsertText(record)
+        case 'table':
+            return record.table?.name ? escapeDottedHogQLIdentifier(record.table.name) : null
+        case 'view':
+        case 'managed-view':
+            return record.view?.name ? escapeDottedHogQLIdentifier(record.view.name) : null
+        default:
+            return null
+    }
+}
+
+function getDragReleasePoint(dragEvent: DragEndEvent): { x: number; y: number } | null {
+    const { activatorEvent, delta } = dragEvent
+    if (!(activatorEvent instanceof MouseEvent)) {
+        return null
+    }
+    return { x: activatorEvent.clientX + delta.x, y: activatorEvent.clientY + delta.y }
 }
 
 /**
@@ -190,6 +212,7 @@ export const QueryDatabase = ({
         setQueryInput,
         setSourceQuery,
         insertTextAtCursor,
+        insertTextAtClientPoint,
     } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
@@ -388,14 +411,15 @@ export const QueryDatabase = ({
         return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
     }, [extraTreeSections, displayedTreeData, searchTerm])
 
+    const isMovableSavedView = (item: TreeDataItem): boolean =>
+        !searchTerm && !isBIEditor && item.record?.type === 'view' && !!item.record?.isSavedQuery
+
     const tree = (
         <LemonTree
             ref={treeRef}
             data={treeData}
             enableDragAndDrop={!searchTerm && !isBIEditor}
-            isItemDraggable={(item) =>
-                !searchTerm && !isBIEditor && item.record?.type === 'view' && item.record?.isSavedQuery
-            }
+            isItemDraggable={isMovableSavedView}
             isItemDroppable={(item) =>
                 !searchTerm &&
                 ((item.record?.type === 'folder' && item.record?.folderType === 'view-folder') ||
@@ -409,10 +433,14 @@ export const QueryDatabase = ({
             }}
             onDragCancel={clearDraggedViewState}
             onDragEnd={(dragEvent: DragEndEvent) => {
-                moveDraggedViewToDropTarget(
-                    String(dragEvent.active.id),
-                    dragEvent.over?.id ? String(dragEvent.over.id) : null
-                )
+                const viewId = String(dragEvent.active.id)
+                const dropTargetId = dragEvent.over?.id ? String(dragEvent.over.id) : null
+                const releasePoint = getDragReleasePoint(dragEvent)
+                const viewInsertText = getDragInsertText(findTreeItem(treeData, viewId)?.record)
+                if (!dropTargetId && releasePoint && viewInsertText) {
+                    insertTextAtClientPoint(viewInsertText, releasePoint.x, releasePoint.y)
+                }
+                moveDraggedViewToDropTarget(viewId, dropTargetId)
             }}
             expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={
@@ -473,6 +501,8 @@ export const QueryDatabase = ({
                           }
                         : null
                 const canDragBIField = isBIEditor && !!biField && isBIFieldCompatible(biConfig.source, biField)
+                // A native drag cancels the pointer events that the folder move of a saved view needs
+                const sqlDragText = isBIEditor || isMovableSavedView(item) ? null : getDragInsertText(item.record)
                 const columnType = isColumn ? item.record?.field?.type : null
                 const savedExpression =
                     isColumn && item.record?.table && item.record?.field
@@ -503,8 +533,15 @@ export const QueryDatabase = ({
                             isBIEditor && isColumn && 'cursor-grab',
                             isBIEditor && isColumn && !canDragBIField && 'cursor-not-allowed opacity-40'
                         )}
-                        draggable={canDragBIField}
+                        draggable={canDragBIField || !!sqlDragText}
                         onDragStart={(event) => {
+                            // Stop the drag here because the row's link would otherwise put its URL in the drag data
+                            if (sqlDragText) {
+                                event.stopPropagation()
+                                event.dataTransfer.effectAllowed = 'copy'
+                                event.dataTransfer.setData('text/plain', sqlDragText)
+                                return
+                            }
                             if (!biField || !canDragBIField) {
                                 event.preventDefault()
                                 return

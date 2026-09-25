@@ -1,4 +1,4 @@
-import { getColumnInsertText, getSidebarAddJoinSourceTableName } from './QueryDatabase'
+import { getColumnInsertText, getDragInsertText, getSidebarAddJoinSourceTableName } from './QueryDatabase'
 
 describe('QueryDatabase', () => {
     describe('getColumnInsertText', () => {
@@ -22,6 +22,32 @@ describe('QueryDatabase', () => {
             ],
         ])('%s', (_name, record, expected) => {
             expect(getColumnInsertText(record)).toEqual(expected)
+        })
+    })
+
+    describe('getDragInsertText', () => {
+        test.each([
+            [
+                'a column drags its HogQL expression',
+                {
+                    type: 'column',
+                    columnName: 'properties.checkout.step',
+                    hogqlExpression: 'properties."checkout.step"',
+                },
+                'properties."checkout.step"',
+            ],
+            ['a table drags its name', { type: 'table', table: { name: 'events' } }, 'events'],
+            [
+                'a dotted table name drags with each part escaped',
+                { type: 'table', table: { name: 'stripe.my-charges' } },
+                'stripe."my-charges"',
+            ],
+            ['a saved view drags its name', { type: 'view', view: { name: 'my_view' } }, 'my_view'],
+            ['a managed view drags its name', { type: 'managed-view', view: { name: 'revenue' } }, 'revenue'],
+            ['a table with no name drags nothing', { type: 'table', table: {} }, null],
+            ['a folder drags nothing', { type: 'folder' }, null],
+        ])('%s', (_name, record, expected) => {
+            expect(getDragInsertText(record)).toEqual(expected)
         })
     })
 

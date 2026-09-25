@@ -324,12 +324,15 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
         }
 
         const contextMenuContent = itemContextMenu?.(item)
+        const linkTarget = item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'
 
         const linkEl = (
             <Link
                 data-id={item.id}
                 data-attr={`menu-item-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
-                to={item.disabledReason || isEmptyFolder ? '#' : item.record?.href || '#'}
+                to={linkTarget}
+                // A placeholder link has no page to drag, and a browser link drag would drop the current page URL as text
+                draggable={linkTarget === '#' ? false : undefined}
                 onClick={(e) => {
                     if (item.disabledReason) {
                         e.preventDefault()
@@ -1770,7 +1773,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 </ScrollableShadows>
 
                 {/* Custom drag overlay */}
-                <DragOverlay dropAnimation={null}>
+                {/* The preview sits under the pointer, so it must not hide the drop point from hit tests */}
+                <DragOverlay dropAnimation={null} className="pointer-events-none">
                     {activeDragItem && (
                         <ButtonPrimitive className="min-w-[var(--project-panel-inner-width)] ">
                             <div className="shrink-0">
