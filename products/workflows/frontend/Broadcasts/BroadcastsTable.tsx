@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -14,21 +14,12 @@ import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/ap
 
 import {
     BROADCASTS_PAGE_SIZE,
-    BroadcastStatus,
     BroadcastsStatusFilter,
     broadcastsLogic,
     getBroadcastStatus,
     isEligibleWorkflow,
 } from './broadcastsLogic'
-
-const STATUS_CONFIG: Record<Exclude<BroadcastStatus, 'unknown'>, { label: string; type: LemonTagType }> = {
-    draft: { label: 'Draft', type: 'default' },
-    scheduled: { label: 'Scheduled', type: 'warning' },
-    sending: { label: 'Sending', type: 'completion' },
-    sent: { label: 'Sent', type: 'success' },
-    failed: { label: 'Failed', type: 'danger' },
-    archived: { label: 'Archived', type: 'muted' },
-}
+import { BroadcastStatusTag } from './BroadcastStatusTag'
 
 const METRIC_COLUMNS: { title: string; metricName: string }[] = [
     { title: 'Sent', metricName: 'email_sent' },
@@ -74,12 +65,7 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                const status = getBroadcastStatus(item, rowDetailsById[item.id])
-                if (status === 'unknown') {
-                    return <span className="text-muted">…</span>
-                }
-                const config = STATUS_CONFIG[status]
-                return <LemonTag type={config.type}>{config.label}</LemonTag>
+                return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
             },
         },
         ...METRIC_COLUMNS.map(({ title, metricName }) => ({

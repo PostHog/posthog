@@ -21,6 +21,20 @@ The adapter accepts both Campaign Management API 5 `installs` and Ads Platform A
 Spend uses the currency in Apple's `localSpend` object and the reporting date to convert into the project's currency.
 Apple does not report conversion revenue through these reports, so reported conversion value is zero.
 
+## OpenAI Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-openai-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `campaigns` and `campaign_insights` to include OpenAI Ads campaign delivery in Marketing analytics.
+Spend is already in major currency units; the importer adds `currency_code` from the account metadata so reports can convert spend at each bucket date.
+Existing connections need a full resync of `campaign_insights` to populate currency on historical rows.
+Cost tiles are unavailable without the currency column; queries with empty historical currency values stop with a resync message.
+Reported conversions and revenue are zero because the importer currently requests delivery metrics only.
+Ad groups and individual ads are not included in the native integration.
+
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).

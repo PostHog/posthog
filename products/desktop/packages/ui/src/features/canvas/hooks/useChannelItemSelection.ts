@@ -1,13 +1,13 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import type { Task } from "@posthog/shared/domain-types";
 import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useChannelTasksRunState";
-import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
 import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import type { MouseEvent, RefObject } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 export interface ChannelItemSelection {
   selectedTaskIds: string[];
@@ -17,31 +17,35 @@ export interface ChannelItemSelection {
   marquee: ReturnType<typeof useMarqueeSelection>;
   listAnchorRef: RefObject<HTMLDivElement | null>;
   onRowClick: (item: ChannelItemModel, event: MouseEvent) => void;
+  selectFromClick: (taskId: string, event: MouseEvent) => boolean;
 }
 
 export function useChannelItemSelection({
   listItems,
   activeKey,
   open,
+  marqueeFromRows = false,
 }: {
   listItems: readonly ChannelItemModel[];
   activeKey: string | null;
   open: (item: ChannelItemModel) => void;
+  marqueeFromRows?: boolean;
 }): ChannelItemSelection {
   const selectableTaskIds = useMemo(
     () => listItems.filter((i) => i.kind === "task").map((i) => i.id),
     [listItems],
   );
-  const selectedTaskIds = useTaskSelectionStore((s) => s.selectedTaskIds);
-  const toggleTaskSelection = useTaskSelectionStore(
-    (s) => s.toggleTaskSelection,
-  );
-  const selectRange = useTaskSelectionStore((s) => s.selectRange);
-  const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
-  const pruneSelection = useTaskSelectionStore((s) => s.pruneSelection);
+  const selectionStore = useScopedTaskSelectionStore();
+  const selectedTaskIds = selectionStore((s) => s.selectedTaskIds);
+  const toggleTaskSelection = selectionStore((s) => s.toggleTaskSelection);
+  const selectRange = selectionStore((s) => s.selectRange);
+  const clearSelection = selectionStore((s) => s.clearSelection);
+  const pruneSelection = selectionStore((s) => s.pruneSelection);
   useClearSelectionOnEscape();
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
-  const marquee = useMarqueeSelection(listAnchorRef);
+  const marquee = useMarqueeSelection(listAnchorRef, {
+    startOnRows: marqueeFromRows,
+  });
 
   useEffect(() => {
     pruneSelection(selectableTaskIds);
@@ -67,23 +71,36 @@ export function useChannelItemSelection({
   );
   const archiveConfirm = useBulkArchiveConfirm(bulkActions);
 
+  const selectFromClick = useCallback(
+    (taskId: string, event: MouseEvent): boolean => {
+      if (event.shiftKey) {
+        event.preventDefault();
+        selectRange(taskId, selectableTaskIds, activeTaskId);
+        return true;
+      }
+      if (event.metaKey || event.ctrlKey) {
+        event.preventDefault();
+        toggleTaskSelection(taskId);
+        return true;
+      }
+      clearSelection();
+      return false;
+    },
+    [
+      activeTaskId,
+      clearSelection,
+      selectRange,
+      selectableTaskIds,
+      toggleTaskSelection,
+    ],
+  );
+
   const onRowClick = (item: ChannelItemModel, event: MouseEvent) => {
     if (item.kind !== "task") {
       open(item);
       return;
     }
-    if (event.shiftKey) {
-      event.preventDefault();
-      selectRange(item.id, selectableTaskIds, activeTaskId);
-      return;
-    }
-    if (event.metaKey || event.ctrlKey) {
-      event.preventDefault();
-      toggleTaskSelection(item.id);
-      return;
-    }
-    clearSelection();
-    open(item);
+    if (!selectFromClick(item.id, event)) open(item);
   };
 
   return {
@@ -94,5 +111,6 @@ export function useChannelItemSelection({
     marquee,
     listAnchorRef,
     onRowClick,
+    selectFromClick,
   };
 }

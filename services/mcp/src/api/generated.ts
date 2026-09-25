@@ -21697,6 +21697,44 @@ export namespace Schemas {
       Community: 'community',
     } as const;
 
+    /**
+     * * `skill` - Skill
+     * * `scout` - Scout
+     */
+    export type CommunitySkillKindEnum = typeof CommunitySkillKindEnum[keyof typeof CommunitySkillKindEnum];
+
+
+    export const CommunitySkillKindEnum = {
+      Skill: 'skill',
+      Scout: 'scout',
+    } as const;
+
+    /**
+     * The scout settings a published scout travels with. Every field is optional. An omitted field
+     * means the scout-create form's own default applies.
+     */
+    export interface CommunitySkillScoutConfig {
+      /**
+         * How often the scout runs, in minutes. Ignored when run_cron_schedule is set.
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * Five-field cron expression for the scout's schedule, which takes precedence over the interval.
+         * @maxLength 100
+         */
+      run_cron_schedule?: string;
+      /** Whether the scout writes its reports to the inbox. False means it runs as a dry run. */
+      emit?: boolean;
+      /**
+         * Tags used to group the scout in the fleet.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
+    }
+
     export interface CommunitySkillFileManifest {
       /** @maxLength 500 */
       path: string;
@@ -21744,6 +21782,13 @@ export namespace Schemas {
        * * `verified` - Verified
        * * `community` - Community */
       trust_tier: CommunitySkillTrustTierEnum;
+      /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
       /** GitHub handle (or name) of the contributor who published the skill. */
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
@@ -21814,6 +21859,13 @@ export namespace Schemas {
        * * `verified` - Verified
        * * `community` - Community */
       trust_tier: CommunitySkillTrustTierEnum;
+      /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
       /** GitHub handle (or name) of the contributor who published the skill. */
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
@@ -21842,6 +21894,45 @@ export namespace Schemas {
       pr_number: number;
       /** Name of the branch created in the community-skills repo. */
       branch: string;
+    }
+
+    /**
+     * Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills.
+     */
+    export type CommunitySkillRenderVariables = {[key: string]: string};
+
+    export interface CommunitySkillRender {
+      /** Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills. */
+      variables?: CommunitySkillRenderVariables;
+    }
+
+    /**
+     * The {name: value} map the body was rendered with. Empty for a non-template skill.
+     */
+    export type CommunitySkillRenderResponseVariableBindings = {[key: string]: string};
+
+    /**
+     * A catalog entry with its template variables bound, for prefilling a create form. Nothing is
+     * persisted by rendering — the caller submits the result through the product's own create path.
+     */
+    export interface CommunitySkillRenderResponse {
+      /** Slug of the rendered community skill. */
+      slug: string;
+      /** Whether the rendered entry is a 'skill' or a 'scout'.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Display name of the community skill. */
+      name: string;
+      /** What the skill does and when to use it. */
+      description: string;
+      /** The SKILL.md instruction content, with template variables bound. */
+      body: string;
+      /** Schedule, emit posture and tags to prefill a scout with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
+      /** The {name: value} map the body was rendered with. Empty for a non-template skill. */
+      variable_bindings: CommunitySkillRenderResponseVariableBindings;
     }
 
     export interface CommunitySkillVoteResponse {
@@ -43009,6 +43100,18 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * @minimum 1
+         * @maximum 90
+         * @nullable
+         */
+      full_refresh_interval_days?: number | null;
+      /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+         * @nullable
+         */
+      readonly next_full_refresh_at: string | null;
       /** @nullable */
       readonly description: string | null;
       /**
@@ -43115,6 +43218,13 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * @minimum 1
+         * @maximum 90
+         * @nullable
+         */
+      full_refresh_interval_days?: number | null;
       /**
          * Column names for primary key deduplication.
          * @nullable
@@ -51726,6 +51836,8 @@ export namespace Schemas {
     }
 
     export interface LogAttributesQuery {
+      /** Return only attribute keys that exactly match an entry in this list. */
+      attributeKeys?: string[] | null;
       attributeType: string;
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
@@ -55828,6 +55940,13 @@ export namespace Schemas {
          * @minimum 1
          */
       expected_version: number;
+      /**
+         * Category of the skill the publisher reviewed. Registering a skill as a scout changes its category without raising its version, so the version alone would let a skill reviewed as an ordinary one publish as a scout. The request returns 409 if the category changed. Omit it to skip that check.
+         * @maxLength 64
+         */
+      expected_category?: string;
+      /** Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout. */
+      scout_config?: CommunitySkillScoutConfig;
       /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
@@ -62545,6 +62664,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -62560,6 +62680,7 @@ export namespace Schemas {
 
 
     export const SettingEnum = {
+      DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
       DiscussionsMentioned: 'discussions_mentioned',
       ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
       ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -62575,6 +62696,7 @@ export namespace Schemas {
     export interface OrganizationNotificationLock {
       /** Notification setting this rule enforces.
        *
+       * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
        * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -62597,6 +62719,7 @@ export namespace Schemas {
       user_id: number;
       /** Notification setting to lock or unlock.
        *
+       * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
        * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -73126,6 +73249,18 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * @minimum 1
+         * @maximum 90
+         * @nullable
+         */
+      full_refresh_interval_days?: number | null;
+      /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+         * @nullable
+         */
+      readonly next_full_refresh_at?: string | null;
       /** @nullable */
       readonly description?: string | null;
       /**
@@ -88826,6 +88961,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       suggestion_id?: string;
+      /**
+         * Optional description, in the user's own words, of what the new scout should watch. The chat then opens on this request instead of asking from scratch. `author_scout` only, and not together with `suggestion_id`.
+         * @maxLength 2000
+         */
+      user_prompt?: string;
     }
 
     /**
@@ -89077,6 +89217,16 @@ export namespace Schemas {
       available: boolean;
     }
 
+    /**
+     * A scope preset a scout run can be dispatched with.
+     */
+    export interface ScoutScopePreset {
+      /** The preset's name. `signals_scout` is what every scout holds; `signals_scout_reports` adds the report channel and is used only by a scout whose skill opted into it. */
+      name: string;
+      /** Every scope a token minted from this preset carries, including the internal ones. */
+      scopes: string[];
+    }
+
     export interface ScoutSuggestionProposedConfig {
       /**
          * Suggested five-field cron schedule in the project timezone, or null for an interval.
@@ -89165,6 +89315,69 @@ export namespace Schemas {
       fleet_snapshot: string[];
       /** Suggestions not yet dismissed or created, best first. Up to 5. */
       items: ScoutSuggestionItem[];
+    }
+
+    /**
+     * One MCP tool, with what a scout would need to call it.
+     */
+    export interface ScoutToolCatalogueEntry {
+      /** The tool's permanent identifier, for example `insight-get`. This is the name a scout calls. */
+      name: string;
+      /** The label people read, for example `Get insight`. */
+      title: string;
+      /** One line on what the tool does. The tool's full description runs to several kilobytes on some tools, so it is not part of this listing. */
+      summary: string;
+      /** The product area the tool belongs to, for example `Error tracking`. Use it to group the listing. */
+      category: string;
+      /** The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`. */
+      feature: string;
+      /** The API scopes a token must carry to call the tool. Empty for a tool that needs none. */
+      required_scopes: string[];
+      /** True when the tool only reads. A false value means the tool can change the project's data. */
+      is_read_only: boolean;
+      /** True when the tool is hidden until the project consents to AI features. */
+      requires_ai_consent: boolean;
+      /** True when a scout run can hold every scope the tool requires. A false value means no scout reaches the tool, whatever it is granted, so it cannot be configured for one. */
+      holdable: boolean;
+      /** Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these are what the scout has to be granted, or the preset it has to opt into. On a tool that is not holdable they include every scope no scout can reach, and can also include scopes a person can grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart. */
+      missing_scopes: string[];
+      /**
+         * Feature flag key that gates the tool, or null when the tool is always served. The flag resolves per project, so evaluate it for the project you are configuring before you offer the tool.
+         * @nullable
+         */
+      feature_flag: string | null;
+      /**
+         * How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` (served only while the flag is off). Null means the default, `enable`.
+         * @nullable
+         */
+      feature_flag_behavior: string | null;
+      /**
+         * Variant of `feature_flag` the tool needs, or null when any truthy value serves it.
+         * @nullable
+         */
+      feature_flag_variant: string | null;
+      /**
+         * A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.
+         * @nullable
+         */
+      hidden_when_flag_on: string | null;
+      /**
+         * Plan feature the organization must have for the tool to be served, or null when the tool is free.
+         * @nullable
+         */
+      feature_entitlement: string | null;
+    }
+
+    /**
+     * The MCP tool catalogue, with the scout scope postures to read it against.
+     */
+    export interface ScoutToolCatalogue {
+      /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
+      tools: ScoutToolCatalogueEntry[];
+      /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
+      presets: ScoutScopePreset[];
+      /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
+      grantable_write_scopes: string[];
     }
 
     /**
@@ -95774,6 +95987,15 @@ export namespace Schemas {
       readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
+    export interface StartTrainingRequest {
+      /**
+         * Override the pipeline iteration budget for this training run.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
     /**
      * Result of an upload: where the file landed and its content hash.
      */
@@ -99665,6 +99887,19 @@ export namespace Schemas {
     }
 
     /**
+     * Payload for adding a private note to a ticket. It has no privacy field: the note is always private.
+     */
+    export interface TicketNoteCreateRequest {
+      /**
+         * Note content in markdown. The note is visible to your team only and is never sent to the customer.
+         * @maxLength 5000
+         */
+      message: string;
+      /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+      rich_content?: unknown;
+    }
+
+    /**
      * Payload for posting a reply or internal note to a ticket.
      */
     export interface TicketReplyRequest {
@@ -100013,6 +100248,42 @@ export namespace Schemas {
     export interface UpdateWebhookInputsResponse {
       /** Whether the inputs were saved and pushed to the external service. */
       success: boolean;
+    }
+
+    /**
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     */
+    export type WizardTaskStatusEnum = typeof WizardTaskStatusEnum[keyof typeof WizardTaskStatusEnum];
+
+
+    export const WizardTaskStatusEnum = {
+      Created: 'created',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface UpdateWizardRunTask {
+      /**
+         * Task name, unique within this run and stable across snapshots.
+         * @maxLength 255
+         */
+      name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      status: WizardTaskStatusEnum;
+    }
+
+    export interface UpdateWizardRunTaskList {
+      /** Complete task snapshot. An empty list clears the run's tasks. */
+      tasks: UpdateWizardRunTask[];
     }
 
     export interface UploadReceipt {
@@ -102069,6 +102340,45 @@ export namespace Schemas {
     export const WizardRunPullRequestArtifactArtifactTypeEnum = {
       PullRequest: 'pull_request',
     } as const;
+
+    export interface WizardRunTask {
+      /** Task name, unique within this run. */
+      readonly name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: WizardTaskStatusEnum;
+      /** When the server first received this task. */
+      readonly created_at: string;
+      /**
+         * When the server first observed this task running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the server first observed this task completed.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /**
+         * When the server first observed this task failed.
+         * @nullable
+         */
+      readonly failed_at: string | null;
+      /**
+         * Task failure explanation, or null when none is available.
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    export interface WizardRunTaskList {
+      /** Complete task list in snapshot order. */
+      readonly tasks: readonly WizardRunTask[];
+    }
 
     /**
      * Whether PostHog paused this one workflow's email sending, and why.
@@ -107554,6 +107864,14 @@ export namespace Schemas {
 
     export type CommunitySkillsListParams = {
     /**
+     * Filter to skills or to scouts. Omit to return both.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout
+     * @minLength 1
+     */
+    kind?: CommunitySkillsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -107595,6 +107913,14 @@ export namespace Schemas {
      */
     trust_tier?: CommunitySkillsListTrustTier;
     };
+
+    export type CommunitySkillsListKind = typeof CommunitySkillsListKind[keyof typeof CommunitySkillsListKind];
+
+
+    export const CommunitySkillsListKind = {
+      Skill: 'skill',
+      Scout: 'scout',
+    } as const;
 
     export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
 
@@ -113431,9 +113757,24 @@ export namespace Schemas {
      */
     dateRange?: _DateRange;
     /**
+     * Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Property filters to narrow which logs are scanned for attributes.
      */
     filterGroup?: _LogPropertyFilter[];
+    /**
+     * Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.
+     * @minLength 1
+     */
+    keys?: string;
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -117802,7 +118143,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by one or more comma-separated run statuses.
+     */
+    status?: WizardRunsListStatusItem[];
     };
+
+    export type WizardRunsListStatusItem = typeof WizardRunsListStatusItem[keyof typeof WizardRunsListStatusItem];
+
+
+    export const WizardRunsListStatusItem = {
+      Cancelled: 'cancelled',
+      Completed: 'completed',
+      Created: 'created',
+      Failed: 'failed',
+      Running: 'running',
+    } as const;
 
     export type WizardRunsArtifactsListParams = {
     /**

@@ -12,6 +12,7 @@ import * as ort from 'onnxruntime-node'
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
+import { type PerPlane, rgbToNormalizedChw } from './pixel-convert.ts'
 import { type Dims } from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
@@ -45,8 +46,8 @@ const DET_SHARPEN = numFromEnv('DET_SHARPEN', 1, 0, 10)
  *  recall on grainy scans. */
 const DET_SHARPEN_BELOW = numFromEnv('DET_SHARPEN_BELOW', 0.6, 0.05, 1)
 
-const MEAN = [0.485, 0.456, 0.406]
-const STD = [0.229, 0.224, 0.225]
+const MEAN: PerPlane = [0.485, 0.456, 0.406]
+const STD: PerPlane = [0.229, 0.224, 0.225]
 
 export interface DbnetModel {
     session: ort.InferenceSession
@@ -90,13 +91,8 @@ async function preprocess(
         .raw()
         .toBuffer({ resolveWithObject: true })
     const chw = new Float32Array(3 * rw * rh)
-    const plane = rw * rh
     // PaddleOCR decodes with OpenCV, so the model takes BGR planes, with the statistics applied in that order.
-    for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-        chw[p] = (data[i + 2] / 255 - MEAN[0]) / STD[0]
-        chw[plane + p] = (data[i + 1] / 255 - MEAN[1]) / STD[1]
-        chw[2 * plane + p] = (data[i] / 255 - MEAN[2]) / STD[2]
-    }
+    rgbToNormalizedChw(data, chw, 'bgr', MEAN, STD)
     return { data: chw, rw, rh, sx: src.W / cw, sy: src.H / ch }
 }
 

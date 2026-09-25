@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use uuid::Uuid;
 
+use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::person_sql::{person_boundaries_sql, person_scan_sql, PersonScanSpec};
 use super::scan_volume::{self, ScanKind};
@@ -31,11 +32,11 @@ struct PersonIdRow {
 
 #[derive(Clone)]
 pub struct PersonScanner {
-    client: clickhouse::Client,
+    client: ClickHouseClient,
 }
 
 impl PersonScanner {
-    pub fn new(client: clickhouse::Client) -> Self {
+    pub fn new(client: ClickHouseClient) -> Self {
         Self { client }
     }
 
