@@ -1272,6 +1272,21 @@ export namespace Schemas {
       readonly display_name: string;
     }
 
+    export interface AccountPresence {
+      /** Customer analytics account ID. */
+      readonly account_id: string;
+      /** People viewing this account. */
+      readonly viewers: readonly AccountPresenceViewer[];
+    }
+
+    export interface AccountPresenceListRequest {
+      /**
+         * Up to 100 account IDs to read presence for.
+         * @maxItems 100
+         */
+      account_ids: string[];
+    }
+
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
@@ -25102,74 +25117,6 @@ export namespace Schemas {
       widget?: DashboardPatchWidgetOpenApi;
     }
 
-    export interface DashboardSavedViewFilters {
-      /** @maxLength 200 */
-      search?: string;
-      createdBy?: number[] | 'All users';
-      pinned?: boolean;
-      shared?: boolean;
-      /**
-         * @maxItems 50
-         * @items.maxLength 100
-         */
-      tags?: string[];
-      /**
-         * @maxLength 4000
-         * @nullable
-         */
-      folder?: string | null;
-    }
-
-    /**
-     * * `private` - Private
-     * * `team` - Team
-     */
-    export type DashboardSavedViewScopeEnum = typeof DashboardSavedViewScopeEnum[keyof typeof DashboardSavedViewScopeEnum];
-
-
-    export const DashboardSavedViewScopeEnum = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
-
-    export interface DashboardSavedView {
-      readonly id: string;
-      /**
-         * Name shown in the dashboard list view picker.
-         * @maxLength 200
-         */
-      name: string;
-      /** Dashboard list filters stored by this view. */
-      filters: DashboardSavedViewFilters;
-      /** Whether only the creator or all team members can use this view.
-       *
-       * * `private` - Private
-       * * `team` - Team */
-      scope?: DashboardSavedViewScopeEnum;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** @nullable */
-      readonly created_by: number | null;
-      /** Whether the current user can change this view's visibility. */
-      readonly can_change_scope: boolean;
-    }
-
-    export interface DashboardSavedViewWrite {
-      /**
-         * Name shown in the dashboard list view picker.
-         * @maxLength 200
-         */
-      name: string;
-      /** Dashboard list filters stored by this view. */
-      filters: DashboardSavedViewFilters;
-      /** Whether only the creator or all team members can use this view.
-       *
-       * * `private` - Private
-       * * `team` - Team */
-      scope?: DashboardSavedViewScopeEnum;
-    }
-
     export interface DashboardSubscribeNudgeResponse {
       /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
       created: boolean;
@@ -43120,6 +43067,18 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * @minimum 1
+         * @maximum 90
+         * @nullable
+         */
+      full_refresh_interval_days?: number | null;
+      /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+         * @nullable
+         */
+      readonly next_full_refresh_at: string | null;
       /** @nullable */
       readonly description: string | null;
       /**
@@ -43226,6 +43185,13 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row. Re-imported rows count toward usage, and workflows and destinations that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * @minimum 1
+         * @maximum 90
+         * @nullable
+         */
+      full_refresh_interval_days?: number | null;
       /**
          * Column names for primary key deduplication.
          * @nullable
@@ -63659,14 +63625,6 @@ export namespace Schemas {
       results: DashboardBasic[];
     }
 
-    export interface PaginatedDashboardSavedViewList {
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DashboardSavedView[];
-    }
-
     export interface PaginatedDashboardTemplateList {
       count: number;
       /** @nullable */
@@ -71584,29 +71542,6 @@ export namespace Schemas {
       readonly updated_at?: string | null;
     }
 
-    export interface PatchedDashboardSavedView {
-      readonly id?: string;
-      /**
-         * Name shown in the dashboard list view picker.
-         * @maxLength 200
-         */
-      name?: string;
-      /** Dashboard list filters stored by this view. */
-      filters?: DashboardSavedViewFilters;
-      /** Whether only the creator or all team members can use this view.
-       *
-       * * `private` - Private
-       * * `team` - Team */
-      scope?: DashboardSavedViewScopeEnum;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      /** @nullable */
-      readonly created_by?: number | null;
-      /** Whether the current user can change this view's visibility. */
-      readonly can_change_scope?: boolean;
-    }
-
     export interface PatchedDashboardTemplate {
       readonly id?: string;
       /**
@@ -73250,6 +73185,18 @@ export namespace Schemas {
          * @nullable
          */
       sync_time_of_day?: string | null;
+      /**
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * @minimum 1
+         * @maximum 90
+         * @nullable
+         */
+      full_refresh_interval_days?: number | null;
+      /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+         * @nullable
+         */
+      readonly next_full_refresh_at?: string | null;
       /** @nullable */
       readonly description?: string | null;
       /**
@@ -100241,6 +100188,42 @@ export namespace Schemas {
       success: boolean;
     }
 
+    /**
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     */
+    export type WizardTaskStatusEnum = typeof WizardTaskStatusEnum[keyof typeof WizardTaskStatusEnum];
+
+
+    export const WizardTaskStatusEnum = {
+      Created: 'created',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface UpdateWizardRunTask {
+      /**
+         * Task name, unique within this run and stable across snapshots.
+         * @maxLength 255
+         */
+      name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      status: WizardTaskStatusEnum;
+    }
+
+    export interface UpdateWizardRunTaskList {
+      /** Complete task snapshot. An empty list clears the run's tasks. */
+      tasks: UpdateWizardRunTask[];
+    }
+
     export interface UploadReceipt {
       /** One acknowledgment per referenced item. */
       items: ItemReceipt[];
@@ -102295,6 +102278,45 @@ export namespace Schemas {
     export const WizardRunPullRequestArtifactArtifactTypeEnum = {
       PullRequest: 'pull_request',
     } as const;
+
+    export interface WizardRunTask {
+      /** Task name, unique within this run. */
+      readonly name: string;
+      /** Current task status reported by the setup agent.
+       *
+       * * `created` - created
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed */
+      readonly status: WizardTaskStatusEnum;
+      /** When the server first received this task. */
+      readonly created_at: string;
+      /**
+         * When the server first observed this task running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the server first observed this task completed.
+         * @nullable
+         */
+      readonly completed_at: string | null;
+      /**
+         * When the server first observed this task failed.
+         * @nullable
+         */
+      readonly failed_at: string | null;
+      /**
+         * Task failure explanation, or null when none is available.
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    export interface WizardRunTaskList {
+      /** Complete task list in snapshot order. */
+      readonly tasks: readonly WizardRunTask[];
+    }
 
     /**
      * Whether PostHog paused this one workflow's email sending, and why.
@@ -108209,33 +108231,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type DashboardSavedViewsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Return saved views with this visibility scope.
-     *
-     * * `private` - Private
-     * * `team` - Team
-     * @minLength 1
-     */
-    scope?: DashboardSavedViewsListScope;
-    };
-
-    export type DashboardSavedViewsListScope = typeof DashboardSavedViewsListScope[keyof typeof DashboardSavedViewsListScope];
-
-
-    export const DashboardSavedViewsListScope = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
 
     export type DashboardTemplatesListParams = {
     /**
@@ -118059,7 +118054,22 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by one or more comma-separated run statuses.
+     */
+    status?: WizardRunsListStatusItem[];
     };
+
+    export type WizardRunsListStatusItem = typeof WizardRunsListStatusItem[keyof typeof WizardRunsListStatusItem];
+
+
+    export const WizardRunsListStatusItem = {
+      Cancelled: 'cancelled',
+      Completed: 'completed',
+      Created: 'created',
+      Failed: 'failed',
+      Running: 'running',
+    } as const;
 
     export type WizardRunsArtifactsListParams = {
     /**

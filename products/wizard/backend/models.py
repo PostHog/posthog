@@ -135,6 +135,13 @@ class WizardRun(UUIDModel, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
     cancellation_requested_at = models.DateTimeField(null=True, blank=True)
     cancellation_dispatched_at = models.DateTimeField(null=True, blank=True)
 
+    # unified snapshot model of wizard tasks
+    # we might want to have a log of task list changes,
+    # so this fields holds what we consider to be the
+    # latest and most correct snapshot of the task list
+    tasks_snapshot = models.JSONField(null=True, blank=True)
+    tasks_snapshot_updated_at = models.DateTimeField(null=True, blank=True)
+
     class Meta(TeamScopedRootMixin.Meta):
         constraints = [
             models.UniqueConstraint(

@@ -98,7 +98,7 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 1. **Apply the image policy**: reject an image when its XMP `plus:DataMining` value prohibits AI training.
 2. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
    An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
-   Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
+   Faces are detected at up to 640 px on the long side, never enlarged or squashed; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
 3. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
@@ -156,7 +156,7 @@ src/  (production — ships)
   src-image.ts    decode the source once to raw RGB, to the size the plan asked for
   geometry.ts     shared Box type + grid rounding
   safety.ts       NSFW/gore gate (SwiftFormer image-safety classifier, ONNX)
-  smoke.ts        image-build-time smoke test: models load + one scrub, with networking disabled
+  smoke.ts        image-build-time smoke test: models load + text and face fixtures scrubbed, with networking disabled
   env.ts          validated numeric env knobs — invalid values refuse to start (never fail open)
   metrics.ts      Prometheus registry: HTTP outcomes + scrub outcome signals
   image-input.ts  accepted image decoders, pixel limits, and embedded metadata policy
@@ -189,7 +189,7 @@ npm run build:native # build the Rust addon into native/ (needs cargo); again af
 npm run test:unit    # fast unit tests (no models/network, but the addon)
 npm run eval         # scrub-quality suite (text + face) over real images
 npm run bench        # latency + per-stage breakdown
-npm run smoke        # models load + one scrub end to end (what the image build runs)
+npm run smoke        # models load + text and face fixtures scrubbed end to end (what the image build runs)
 npm run start        # the sidecar server (needs `npm run setup` for the models)
 ```
 
@@ -246,7 +246,7 @@ Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (
 
 The three ONNX models (safety gate, YuNet, DBNet) are `ADD`ed in `Dockerfile.ml-mirror-image-scrub` (repo root) from commit-pinned upstream URLs with BuildKit `--checksum` verification (same pins + sha256 checks as `dev/setup.ts` — keep them in sync).
 zxing's wasm loads from `node_modules`.
-A build-time smoke test (`src/smoke.ts`) then loads the models and runs one scrub with networking disabled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
+A build-time smoke test (`src/smoke.ts`) then loads the models and scrubs a text fixture and a face fixture with networking disabled. It checks that text is found and that the face is filled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
 The sidecar makes no network fetches at startup.
 
 ## The native addon
