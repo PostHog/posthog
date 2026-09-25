@@ -8,7 +8,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { DecideRequestApi, DecideResponseApi } from './api.schemas'
+import type {
+    DecideRequestApi,
+    DecideResponseApi,
+    SearchIntentRequestApi,
+    SearchIntentResponseApi,
+} from './api.schemas'
 
 export const getMlInferenceDecisionsDecideCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ml_inference/decisions/decide/`
@@ -28,5 +33,26 @@ export const mlInferenceDecisionsDecideCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(decideRequestApi),
+    })
+}
+
+export const getMlInferenceSearchIntentClassifyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ml_inference/search_intent/classify/`
+}
+
+/**
+ * Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.
+ * @summary Classify a filter picker search
+ */
+export const mlInferenceSearchIntentClassifyCreate = async (
+    projectId: string,
+    searchIntentRequestApi: SearchIntentRequestApi,
+    options?: RequestInit
+): Promise<SearchIntentResponseApi> => {
+    return apiMutator<SearchIntentResponseApi>(getMlInferenceSearchIntentClassifyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(searchIntentRequestApi),
     })
 }

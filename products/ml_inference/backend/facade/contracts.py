@@ -6,7 +6,7 @@ Uses ``pydantic.dataclasses.dataclass`` so a malformed gateway answer fails at c
 
 from pydantic.dataclasses import dataclass
 
-from .enums import DecisionQuestionType
+from .enums import DecisionQuestionType, SearchIntentSource
 
 DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 
@@ -101,3 +101,25 @@ class DecisionResult:
     answers: dict[str, DecisionAnswer]
     input_tokens: int
     latency_ms: float | None = None
+
+
+@dataclass(frozen=True)
+class SearchIntentRequest:
+    """What a person typed into the filter picker, and the tabs the picker shows them."""
+
+    team_id: int
+    query: str
+    active_group_type: str
+    available_group_types: tuple[str, ...]
+    scene: str | None = None
+
+
+@dataclass(frozen=True)
+class SearchIntent:
+    """The picker tab the search most likely belongs to. ``group_type`` is None when nothing was classified."""
+
+    group_type: str | None
+    confidence: float
+    is_confident: bool
+    source: SearchIntentSource
+    suggests_switch: bool = False

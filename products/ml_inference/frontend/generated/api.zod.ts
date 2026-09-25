@@ -56,3 +56,37 @@ export const MlInferenceDecisionsDecideCreateBody = /* @__PURE__ */ zod.object({
         .default(mlInferenceDecisionsDecideCreateBodyModelDefault)
         .describe('The decision model to ask, as a gateway model id.'),
 })
+
+/**
+ * Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.
+ * @summary Classify a filter picker search
+ */
+export const mlInferenceSearchIntentClassifyCreateBodyQueryMax = 200
+
+export const mlInferenceSearchIntentClassifyCreateBodyActiveGroupTypeMax = 100
+
+export const mlInferenceSearchIntentClassifyCreateBodyAvailableGroupTypesItemMax = 100
+
+export const mlInferenceSearchIntentClassifyCreateBodyAvailableGroupTypesMax = 64
+
+export const mlInferenceSearchIntentClassifyCreateBodySceneRegExp = new RegExp('^[A-Za-z0-9_-]{1,64}$')
+
+export const MlInferenceSearchIntentClassifyCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(mlInferenceSearchIntentClassifyCreateBodyQueryMax)
+        .describe('What the person typed into the filter picker search box.'),
+    active_group_type: zod
+        .string()
+        .max(mlInferenceSearchIntentClassifyCreateBodyActiveGroupTypeMax)
+        .describe('The picker tab that is open, as a taxonomic group type such as event_properties.'),
+    available_group_types: zod
+        .array(zod.string().max(mlInferenceSearchIntentClassifyCreateBodyAvailableGroupTypesItemMax))
+        .max(mlInferenceSearchIntentClassifyCreateBodyAvailableGroupTypesMax)
+        .describe('The taxonomic group types the picker shows. The answer is always one of these, or null.'),
+    scene: zod
+        .string()
+        .regex(mlInferenceSearchIntentClassifyCreateBodySceneRegExp)
+        .nullish()
+        .describe('The id of the scene the picker is open in, such as Insight or Replay.'),
+})

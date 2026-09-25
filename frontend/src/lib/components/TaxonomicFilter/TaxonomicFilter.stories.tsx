@@ -845,3 +845,50 @@ export const EmptyEventsWithStaleToggle: Story = {
         },
     },
 }
+
+export const SearchIntentSuggestsAnotherTab: Story = {
+    render: (args) => {
+        const logicKey = args.taxonomicFilterLogicKey as string
+        const { setActiveTab, setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey })
+        )
+        useOnMountEffect(() => {
+            setActiveTab(TaxonomicFilterGroupType.EventProperties)
+            setSearchQuery('email')
+        })
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'search-intent-banner',
+        taxonomicGroupTypes: [
+            TaxonomicFilterGroupType.SuggestedFilters,
+            TaxonomicFilterGroupType.EventProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.SessionProperties,
+        ],
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/ml_inference/search_intent/classify/': () => [
+                    200,
+                    {
+                        group_type: 'person_properties',
+                        confidence: 0.9,
+                        is_confident: true,
+                        suggests_switch: true,
+                        method: 'model',
+                    },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'banner' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"]' },
+    },
+}

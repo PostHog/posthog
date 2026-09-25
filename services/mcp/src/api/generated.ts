@@ -89560,6 +89560,65 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SearchIntentRequest {
+      /**
+         * What the person typed into the filter picker search box.
+         * @maxLength 200
+         */
+      query: string;
+      /**
+         * The picker tab that is open, as a taxonomic group type such as event_properties.
+         * @maxLength 100
+         */
+      active_group_type: string;
+      /**
+         * The taxonomic group types the picker shows. The answer is always one of these, or null.
+         * @maxItems 64
+         * @items.maxLength 100
+         */
+      available_group_types: string[];
+      /**
+         * The id of the scene the picker is open in, such as Insight or Replay.
+         * @nullable
+         * @pattern ^[A-Za-z0-9_-]{1,64}$
+         */
+      scene?: string | null;
+    }
+
+    /**
+     * * `rule` - Matched a value pattern
+     * * `model` - Asked the decision model
+     * * `skipped` - Not classified
+     */
+    export type SearchIntentSourceEnum = typeof SearchIntentSourceEnum[keyof typeof SearchIntentSourceEnum];
+
+
+    export const SearchIntentSourceEnum = {
+      Rule: 'rule',
+      Model: 'model',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface SearchIntentResponse {
+      /**
+         * The taxonomic group type the search most likely belongs to, or null if it was not classified.
+         * @nullable
+         */
+      group_type: string | null;
+      /** How far the chosen group stands out from the rest, from 0 (a coin flip) to 1. */
+      confidence: number;
+      /** Whether the confidence is high enough to act on, for example to suggest a different tab. */
+      is_confident: boolean;
+      /** Whether the picker should suggest switching from the open tab to group_type. */
+      suggests_switch: boolean;
+      /** How the answer was found: a value pattern, the decision model, or not at all.
+       *
+       * * `rule` - Matched a value pattern
+       * * `model` - Asked the decision model
+       * * `skipped` - Not classified */
+      method: SearchIntentSourceEnum;
+    }
+
     export interface SearchSuggestionsQuery {
       /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
       scanner_id?: string;
