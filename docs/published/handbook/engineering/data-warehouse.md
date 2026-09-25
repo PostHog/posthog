@@ -6,6 +6,23 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## Rokt Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-rokt-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `CampaignPerformance` to include Rokt Ads in Marketing analytics.
+The report provides campaign identity and daily metrics in one table, so the integration aggregates it without joining the report to itself.
+Spend uses `gross_cost`, clicks use `referrals`, and reported conversions and revenue use `conversions` and `conversion_value`.
+Missing optional conversion metrics show zero.
+The importer stores the requested report currency on each row, defaulting to USD, and conversion uses each report date.
+Changing the source currency affects newly synced rows; historical rows retain their own currency.
+Existing connections need a full resync of `CampaignPerformance` to backfill currency before using monetary metrics.
+Missing currency columns prevent monetary tiles, and empty historical currency values stop queries with a resync message.
+Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
+
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).

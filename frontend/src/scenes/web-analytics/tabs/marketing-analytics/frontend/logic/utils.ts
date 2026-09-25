@@ -1,4 +1,4 @@
-import type { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 
 import {
     AttributionMode,
@@ -30,10 +30,9 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'azure',
 ]
 
-// Map of native sources that require a feature flag to be enabled. Empty today
-// (all current sources are fully rolled out), but kept so a new source can be
-// gated behind a flag while it's being rolled out.
-export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {}
+export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+}
 
 /**
  * Filter native marketing sources based on feature flags
@@ -46,7 +45,7 @@ export function getEnabledNativeMarketingSources(
     return VALID_NATIVE_MARKETING_SOURCES.filter((source) => {
         const featureFlagKey = NATIVE_SOURCE_FEATURE_FLAGS[source]
         if (featureFlagKey) {
-            return !!featureFlags[featureFlagKey]
+            return featureFlags[featureFlagKey] === true
         }
         return true
     })
@@ -58,7 +57,12 @@ export const MAX_ITEMS_TO_SHOW = 3
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = Object.fromEntries(
     VALID_NATIVE_MARKETING_SOURCES.map((source) => [
         source,
-        [MARKETING_INTEGRATION_CONFIGS[source].campaignTableName, MARKETING_INTEGRATION_CONFIGS[source].statsTableName],
+        [
+            ...new Set([
+                MARKETING_INTEGRATION_CONFIGS[source].campaignTableName,
+                MARKETING_INTEGRATION_CONFIGS[source].statsTableName,
+            ]),
+        ],
     ])
 ) as Record<NativeMarketingSource, string[]>
 
@@ -71,6 +75,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     BingAds: 'Bing Ads',
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
+    RoktAds: 'Rokt Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -318,8 +323,10 @@ interface SourceColumnMappings {
     reportedConversion: string
     reportedConversionValue: string
     costNeedsDivision?: boolean
+    currencyTimestampColumn?: string
     currencyColumn?: string
     fallbackCurrency?: string
+    missingCurrencyMessage?: string
 }
 
 interface ConversionExprResult extends Partial<DataWarehouseNode> {
@@ -359,6 +366,29 @@ function buildConversionExpr(
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
+    RoktAds: {
+        idField: 'campaign_id',
+        timestampField: 'datetime',
+        columnMappings: {
+            cost: 'gross_cost',
+            impressions: 'impressions',
+            clicks: 'referrals',
+            reportedConversion: 'conversions',
+            reportedConversionValue: 'conversion_value',
+            currencyColumn: 'currency_code',
+            currencyTimestampColumn: 'datetime',
+            missingCurrencyMessage: 'Rokt Ads currency is missing. Fully resync CampaignPerformance, then try again.',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('conversions', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('conversion_value', table)
+            }
+            return null
+        },
+    },
     GoogleAds: {
         // idField is a column on the stats table, which flattens `campaign.id` to
         // `campaign_id` and has no bare `id`.
@@ -647,7 +677,13 @@ function wrapWithCurrencyConversion(
     const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
 
     if (hasCurrencyColumn) {
-        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
+        const dateArgument = mappings.currencyTimestampColumn
+            ? `, coalesce(toDate(${mappings.currencyTimestampColumn}), today())`
+            : ''
+        const converted = `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
+        return mappings.missingCurrencyMessage
+            ? `(${converted} + throwIf(countIf(empty(coalesce(${currencyColumn}, ''))) > 0, '${mappings.missingCurrencyMessage}'))`
+            : converted
     }
     if (fallbackCurrency) {
         return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
@@ -700,9 +736,29 @@ export function createMarketingTile(
         return null
     }
 
-    const table = source.tables.find((t) => t.name.split('.').pop() === integrationConfig.statsTableName)
+    const table = source.tables.find(
+        (t) => extractSchemaName(t.name, sourceType) === integrationConfig.statsTableName.toLowerCase()
+    )
     if (!table) {
         return null
+    }
+
+    if (sourceType === 'RoktAds') {
+        if (
+            !['campaign_id', 'datetime', 'impressions', 'referrals', 'gross_cost'].every(
+                (field) => field in table.fields
+            )
+        ) {
+            return null
+        }
+        const monetaryColumn =
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+            tileColumnSelection === 'roas' ||
+            tileColumnSelection === 'cost_per_reported_conversion'
+        if (monetaryColumn && !('currency_code' in table.fields)) {
+            return null
+        }
     }
 
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
@@ -714,7 +770,16 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             tileConfig.columnMappings.reportedConversionValue
         )
-        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
+        let totalValueExpr = conversionValueExpr
+        let totalCostExpr = `SUM(${costExpr})`
+        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+            const perRowValue =
+                tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
+                    ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
+            totalValueExpr = wrapWithCurrencyConversion(perRowValue, tileConfig.columnMappings, table, baseCurrency)
+            totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+        }
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${totalValueExpr} / nullIf(${totalCostExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 
@@ -727,7 +792,10 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const mathHogql = conversionExpr === '0' ? '0' : `SUM(${costExpr}) / nullIf(${conversionExpr}, 0)`
+        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
+            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+            : `SUM(${costExpr})`
+        const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 

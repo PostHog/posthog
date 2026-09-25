@@ -8394,6 +8394,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'BingAds',
     'SnapchatAds',
     'PinterestAds',
+    'RoktAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8564,9 +8565,20 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         adTableName: 'ads' as const,
         adStatsTableName: 'ad_analytics' as const,
     },
+    RoktAds: {
+        sourceType: 'RoktAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'CampaignPerformance',
+        statsTableName: 'CampaignPerformance',
+        defaultSources: ['rokt', 'rokt_ads'] as const,
+        primarySource: 'rokt',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
+
+export type RoktAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RoktAds']['defaultSources'][number]
 
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]

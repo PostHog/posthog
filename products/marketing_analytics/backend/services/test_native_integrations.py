@@ -1,6 +1,11 @@
+from unittest.mock import patch
+
 from parameterized import parameterized
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.models.integration import OauthIntegration
+from posthog.models.team import Team
 
 from products.marketing_analytics.backend.services.native_integrations import (
     DISPLAY_NAMES,
@@ -11,6 +16,7 @@ from products.marketing_analytics.backend.services.native_integrations import (
     aliases_for,
     canonical_source_aliases,
     display_name_for_key,
+    is_native_source_enabled,
     lookup_alias,
     normalize,
 )
@@ -104,6 +110,7 @@ class TestAliasesFor:
 class TestDisplayNames:
     @parameterized.expand(
         [
+            ("rokt_ads", "Rokt Ads"),
             ("google_ads", "Google Ads"),
             ("meta_ads", "Meta Ads"),
             ("bing_ads", "Bing Ads"),
@@ -120,13 +127,15 @@ class TestDisplayNames:
 
 class TestStructuralInvariants:
     def test_native_to_key_is_bijection_with_key_to_native(self):
+        assert set(NATIVE_TO_KEY) == set(NativeMarketingSource)
         assert {v: k for k, v in NATIVE_TO_KEY.items()} == KEY_TO_NATIVE
 
     def test_display_names_cover_all_natives(self):
-        for native in NATIVE_TO_KEY.keys():
+        for native in NativeMarketingSource:
             assert native in DISPLAY_NAMES
 
     def test_external_source_type_resolves_to_native(self):
+        assert set(EXTERNAL_SOURCE_TYPE_TO_NATIVE.values()) == set(NativeMarketingSource)
         for source_type, native in EXTERNAL_SOURCE_TYPE_TO_NATIVE.items():
             assert native in NATIVE_TO_KEY
             assert isinstance(source_type, str)
@@ -138,6 +147,25 @@ class TestStructuralInvariants:
 
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
 
-    def test_every_native_integration_has_an_oauth_kind(self):
-        for native in NATIVE_TO_KEY:
-            assert native in OAUTH_KIND_BY_NATIVE, f"{native} has no OAuth kind, so it can't be connected"
+    def test_only_credential_based_integrations_lack_an_oauth_kind(self) -> None:
+        assert set(NativeMarketingSource) - set(OAUTH_KIND_BY_NATIVE) == {NativeMarketingSource.ROKT_ADS}
+
+
+class TestNativeSourceFeatureFlags:
+    @parameterized.expand([(False,), (True,)])
+    def test_source_rollout_does_not_disable_existing_integrations(self, enabled: bool) -> None:
+        team = Team(id=1, organization_id="00000000-0000-0000-0000-000000000001")
+        with patch(
+            "products.marketing_analytics.backend.services.native_integrations.feature_enabled_or_false",
+            return_value=enabled,
+        ) as evaluate:
+            assert is_native_source_enabled("RoktAds", team) is enabled
+            evaluate.assert_called_once_with(
+                "marketing-analytics-rokt-ads",
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+            )
+            evaluate.reset_mock()
+            assert is_native_source_enabled("GoogleAds", team)
+            evaluate.assert_not_called()

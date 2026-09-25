@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import {
     ConversionGoalFilter,
     DatabaseSchemaDataWarehouseTable,
@@ -26,9 +28,11 @@ import {
 
 describe('marketing analytics utils', () => {
     describe('getEnabledNativeMarketingSources', () => {
-        it('returns every native source when no source is flag-gated', () => {
-            const result = getEnabledNativeMarketingSources({})
-            expect([...result]).toEqual([...VALID_NATIVE_MARKETING_SOURCES])
+        it.each([undefined, false, true, 'test'])('gates RoktAds when its flag is %s', (enabled) => {
+            const flags = enabled === undefined ? {} : { [FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS]: enabled }
+            expect(getEnabledNativeMarketingSources(flags)).toEqual(
+                VALID_NATIVE_MARKETING_SOURCES.filter((source) => source !== 'RoktAds' || enabled === true)
+            )
         })
     })
 
@@ -271,6 +275,16 @@ describe('marketing analytics utils', () => {
 
         // All fields each source could reference, so the mock table has them all
         const sourceFields: Record<NativeMarketingSource, string[]> = {
+            RoktAds: [
+                'campaign_id',
+                'datetime',
+                'currency_code',
+                'gross_cost',
+                'impressions',
+                'referrals',
+                'conversions',
+                'conversion_value',
+            ],
             GoogleAds: [
                 'metrics_cost_micros',
                 'metrics_impressions',
@@ -322,6 +336,7 @@ describe('marketing analytics utils', () => {
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
+            RoktAds: ['campaign_id', 'datetime', 'currency_code', 'gross_cost', 'impressions', 'referrals'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
             LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],
@@ -362,6 +377,38 @@ describe('marketing analytics utils', () => {
                 ],
             }
         }
+
+        it.each(['GBP', 'AUD'])('uses stored Rokt currency after the source setting changes to %s', (currency) => {
+            const source = makeMockSource('RoktAds', sourceFields.RoktAds)
+            source.source.job_inputs = { currency_code: currency }
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.math_hogql).toContain("convertCurrency(coalesce(currency_code, 'EUR'), 'EUR'")
+            expect(result?.math_hogql).not.toContain(`'${currency}'`)
+            expect(result?.math_hogql).toContain('toDate(datetime)')
+            expect(result?.math_hogql).toContain('throwIf(countIf(empty(coalesce(currency_code')
+        })
+
+        it.each(['currency_code', 'datetime'])('omits Rokt monetary tiles missing %s', (field) => {
+            const source = makeMockSource(
+                'RoktAds',
+                sourceFields.RoktAds.filter((name) => name !== field)
+            )
+            for (const column of [
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                'roas',
+                'cost_per_reported_conversion',
+            ] as const) {
+                expect(createMarketingTile(source, column, 'EUR')).toBeNull()
+            }
+        })
+
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves RoktAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('RoktAds', sourceFields.RoktAds)
+            source.tables[0].name = `${prefix}roktads_${MARKETING_INTEGRATION_CONFIGS.RoktAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
 
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(

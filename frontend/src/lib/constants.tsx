@@ -164,6 +164,7 @@ export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 // variant keys separated by commas, e.g. `multivariate=control,test,something_else`
 export const FEATURE_FLAGS = {
     POSTHOG_TERMINAL: 'posthog-terminal', // owner: @mariusandra
+
     // Eternal feature flags, shouldn't be removed, helpful for debugging/maintenance reasons
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: #team-billing, see `Billing.tsx`, used to raise a warning when billing is having problems
     COMING_SOON_WAITLIST_SURVEYS: 'coming-soon-waitlist-surveys', // owner: #team-growth, see `FeaturePreviews.tsx`, swaps concept-stage one-click for an email waitlist survey
@@ -392,6 +393,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_NEW_DASHBOARD: 'new-marketing-analytics-dashboard', // owner: @jabahamondes #team-web-analytics — gates the redesigned dashboard and all of its sections
     MARKETING_ANALYTICS_RETENTION: 'marketing-analytics-retention', // owner: @jabahamondes #team-web-analytics — gates the legacy Retention explorer tab; the new dashboard ignores it
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
+    MARKETING_ANALYTICS_ROKT_ADS: 'marketing-analytics-rokt-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai

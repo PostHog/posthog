@@ -2085,6 +2085,7 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    ROKT_ADS = "RoktAds"
 
 
 class NodeKind(StrEnum):
@@ -2656,6 +2657,11 @@ class RetentionType(StrEnum):
     RETENTION_RECURRING = "retention_recurring"
     RETENTION_FIRST_TIME = "retention_first_time"
     RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
+
+
+class RoktAdsDefaultSources(StrEnum):
+    ROKT = "rokt"
+    ROKT_ADS = "rokt_ads"
 
 
 class XScale(StrEnum):

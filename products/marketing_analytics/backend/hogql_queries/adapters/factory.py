@@ -20,6 +20,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads i
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
+from products.marketing_analytics.backend.services.native_integrations import is_native_source_enabled
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 from ..constants import (
@@ -46,6 +47,7 @@ from .base import (
 )
 from .bigquery import BigQueryAdapter
 from .google_ads import GoogleAdsAdapter
+from .rokt_ads import RoktAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +78,7 @@ class MarketingSourceFactory:
     # Registry of adapter classes
     _adapter_registry: dict[str, type[MarketingSourceAdapter]] = {
         # Native adapters
+        "RoktAds": RoktAdsAdapter,
         "GoogleAds": GoogleAdsAdapter,
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
@@ -96,6 +99,7 @@ class MarketingSourceFactory:
     # A new native source needs an entry here, in TABLE_PATTERNS (constants.py), and
     # optionally in NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES if it has ad-group / ad tables.
     _native_source_specs: dict[str, tuple[NativeMarketingSource, type[HierarchicalNativeAdsConfig]]] = {
+        "RoktAds": (NativeMarketingSource.ROKT_ADS, HierarchicalNativeAdsConfig),
         "GoogleAds": (NativeMarketingSource.GOOGLE_ADS, GoogleAdsConfig),
         "LinkedinAds": (NativeMarketingSource.LINKEDIN_ADS, LinkedinAdsConfig),
         "RedditAds": (NativeMarketingSource.REDDIT_ADS, RedditAdsConfig),
@@ -205,6 +209,8 @@ class MarketingSourceFactory:
         for source in self._external_sources:
             if source.source_type not in VALID_NATIVE_MARKETING_SOURCES:
                 continue
+            if not is_native_source_enabled(source.source_type, self.context.team):
+                continue
 
             tables = self._tables_by_source_id.get(str(source.id), [])
             if not tables:
@@ -264,6 +270,8 @@ class MarketingSourceFactory:
             # the campaign columns the adapter goes on to reference.
             if schema_name == patterns["campaign_table_name"]:
                 campaign_table = table
+                if schema_name in patterns["stats_table_keywords"]:
+                    campaign_stats_table = table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
             elif schema_name == hierarchy_names.get("adset_table"):
