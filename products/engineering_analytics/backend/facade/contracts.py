@@ -1789,6 +1789,74 @@ class AuthorFriction:
     rank: int
     rank_low: int
     rank_high: int
+    # The author's GitHub teams, empty when the membership table is not synced.
+    teams: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TeamFriction:
+    """A team's median member friction. Shown only above a floor of scored members, so one or two people
+    never read as a team's figure (SPEC §2)."""
+
+    github_team: str
+    median_score: float
+    scored_author_count: int
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionItem:
+    """One pull request's friction, as a multiple of the typical pull request in the repository."""
+
+    number: int
+    repo_owner: str
+    repo_name: str
+    title: str
+    score: float
+    groups: list[FrictionGroupShare]
+
+
+@dataclass(frozen=True)
+class AuthorFrictionDetail:
+    available: bool
+    window_days: int
+    ranked_author_count: int
+    has_membership_data: bool
+    # None when the author has fewer merged pull requests than a score needs.
+    author: AuthorFriction | None
+    pr_count: int
+    # The author's teams without the author, each only above the floor of other scored members.
+    teams: list[TeamFriction]
+    pull_requests: list[PullRequestFrictionItem]
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionBreakdown:
+    """One merged pull request's friction, and the counts from the per-PR friction view behind it."""
+
+    score: float
+    groups: list[FrictionGroupShare]
+    flake_red_count: int
+    master_red_count: int
+    unknown_red_count: int
+    own_red_count: int
+    futile_rerun_count: int
+    push_count: int
+    # CI running time of each push, oldest first.
+    ci_wait_seconds: list[float]
+    # None when the pull request's ready-for-review moment or first approval is not observed.
+    first_approval_wait_seconds: float | None
+    pushes_after_approval: int | None
+    # None when the pull request never entered the merge queue.
+    queue_seconds: float | None
+    kickout_count: int | None
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionDetail:
+    available: bool
+    window_days: int
+    # None when the pull request did not merge in the window, or a bot authored it.
+    pull_request: PullRequestFrictionBreakdown | None
 
 
 @dataclass(frozen=True)
@@ -1801,6 +1869,8 @@ class AuthorFrictionList:
     github_team: str | None
     has_membership_data: bool
     items: list[AuthorFriction]
+    # Every team above the floor of scored members, most friction first.
+    teams: list[TeamFriction] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

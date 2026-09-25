@@ -24,6 +24,7 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    AuthorFrictionDetail,
     AuthorFrictionList,
     BranchPRMatch,
     BrokenTestsResult,
@@ -42,6 +43,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
+    PullRequestFrictionDetail,
     PullRequestList,
     PullRequestTimelines,
     QuarantineFile,
@@ -293,6 +295,34 @@ def get_author_friction(
     return logic.build_author_friction(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         github_team=github_team.strip() if github_team and github_team.strip() else None,
+    )
+
+
+def get_author_friction_detail(
+    *,
+    team: Team,
+    author: str,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorFrictionDetail:
+    """One author's friction next to their teams, and the pull requests that added the most of it."""
+    return logic.build_author_friction_detail(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), author=author
+    )
+
+
+def get_pull_request_friction(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PullRequestFrictionDetail:
+    """One merged pull request's friction as a multiple of the typical pull request, with the counts behind it."""
+    return logic.build_pull_request_friction(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), repo=repo, number=pr_number
     )
 
 

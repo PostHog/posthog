@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AuthorFrictionDetailApi,
     AuthorFrictionListApi,
     BranchPRMatchApi,
     BrokenTestsResultApi,
@@ -20,6 +21,7 @@ import type {
     DeliveryComparisonApi,
     DeliverySummaryApi,
     DoraOverviewApi,
+    EngineeringAnalyticsAuthorFrictionDetailParams,
     EngineeringAnalyticsAuthorFrictionParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
@@ -35,6 +37,7 @@ import type {
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
+    EngineeringAnalyticsPullRequestFrictionParams,
     EngineeringAnalyticsPullRequestTimelinesParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
@@ -57,6 +60,7 @@ import type {
     MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
+    PullRequestFrictionDetailApi,
     PullRequestListApi,
     PullRequestTimelinesApi,
     QuarantineFileApi,
@@ -105,6 +109,39 @@ export const engineeringAnalyticsAuthorFriction = async (
     options?: RequestInit
 ): Promise<AuthorFrictionListApi> => {
     return apiMutator<AuthorFrictionListApi>(getEngineeringAnalyticsAuthorFrictionUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsAuthorFrictionDetailUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorFrictionDetailParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_friction_detail/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_friction_detail/`
+}
+
+/**
+ * One author's friction over pull requests merged in the last 30 days, next to the median of each of the author's teams, and the author's pull requests that added the most friction. Bots are excluded.
+ */
+export const engineeringAnalyticsAuthorFrictionDetail = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorFrictionDetailParams,
+    options?: RequestInit
+): Promise<AuthorFrictionDetailApi> => {
+    return apiMutator<AuthorFrictionDetailApi>(getEngineeringAnalyticsAuthorFrictionDetailUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -601,6 +638,39 @@ export const engineeringAnalyticsPrRuns = async (
     options?: RequestInit
 ): Promise<WorkflowRunDetailApi[]> => {
     return apiMutator<WorkflowRunDetailApi[]>(getEngineeringAnalyticsPrRunsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsPullRequestFrictionUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsPullRequestFrictionParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pull_request_friction/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pull_request_friction/`
+}
+
+/**
+ * One merged pull request's friction as a multiple of the typical pull request, with the counts behind it: red CI by cause, re-runs that failed again, CI time per push, the wait for the first approval, merge-queue time and kickouts, and rework. Covers pull requests merged in the last 30 days.
+ */
+export const engineeringAnalyticsPullRequestFriction = async (
+    projectId: string,
+    params: EngineeringAnalyticsPullRequestFrictionParams,
+    options?: RequestInit
+): Promise<PullRequestFrictionDetailApi> => {
+    return apiMutator<PullRequestFrictionDetailApi>(getEngineeringAnalyticsPullRequestFrictionUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

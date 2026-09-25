@@ -12,6 +12,9 @@ tools:
     engineering-analytics-author-friction:
         operation: engineering_analytics_author_friction
         enabled: false
+    engineering-analytics-author-friction-detail:
+        operation: engineering_analytics_author_friction_detail
+        enabled: false
     engineering-analytics-author-workflow-costs:
         operation: engineering_analytics_author_workflow_costs
         enabled: false
@@ -167,6 +170,9 @@ tools:
         feature_flag: engineering-analytics
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
+        enabled: false
+    engineering-analytics-pull-request-friction:
+        operation: engineering_analytics_pull_request_friction
         enabled: false
     engineering-analytics-pull-request-timelines:
         operation: engineering_analytics_pull_request_timelines

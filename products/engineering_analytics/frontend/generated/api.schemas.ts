@@ -51,11 +51,24 @@ export interface AuthorFrictionApi {
     rank_low: number
     /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
     rank_high: number
+    /** The author's GitHub teams. Empty when the membership table isn't synced. */
+    teams?: string[]
+}
+
+export interface TeamFrictionApi {
+    /** GitHub team slug. */
+    github_team: string
+    /** The median friction of the team's scored members, in 'x typical' units. */
+    median_score: number
+    /** Members with enough merged pull requests to score. A team shows only above a floor, so one or two people never read as a team's figure. */
+    scored_author_count: number
 }
 
 export interface AuthorFrictionListApi {
     /** Authors by friction, most first. */
     items: AuthorFrictionApi[]
+    /** Teams with at least 3 scored members, by median member friction, most first. */
+    teams: TeamFrictionApi[]
     /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
     available: boolean
     /** Pull requests merged in this many days before the view last refreshed. */
@@ -69,6 +82,40 @@ export interface AuthorFrictionListApi {
     github_team: string | null
     /** False when the team membership table isn't synced, so a team filter matches nobody. */
     has_membership_data: boolean
+}
+
+export interface PullRequestFrictionItemApi {
+    /** The pull request's friction split by kind. */
+    groups: FrictionGroupShareApi[]
+    /** Pull request number. */
+    number: number
+    /** Repository owner. */
+    repo_owner: string
+    /** Repository name. */
+    repo_name: string
+    /** Pull request title, empty when the snapshot has none. */
+    title: string
+    /** Friction as a multiple of the typical pull request in the repository. */
+    score: number
+}
+
+export interface AuthorFrictionDetailApi {
+    /** The author's score and rank. Null below 3 merged pull requests in the window. */
+    author: AuthorFrictionApi | null
+    /** The author's teams without the author, each only with at least 2 other scored members. */
+    teams: TeamFrictionApi[]
+    /** The author's pull requests that added the most friction, most first. */
+    pull_requests: PullRequestFrictionItemApi[]
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
+    /** Authors ranked in the repository: the denominator of rank. */
+    ranked_author_count: number
+    /** False when the team membership table isn't synced. */
+    has_membership_data: boolean
+    /** The author's merged pull requests in the window. */
+    pr_count: number
 }
 
 export interface WorkflowCostApi {
@@ -1034,6 +1081,56 @@ export interface WorkflowRunDetailApi {
     commit_pr_number: number | null
     /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
     is_merge_queue: boolean
+}
+
+export interface PullRequestFrictionBreakdownApi {
+    /** The pull request's friction split by kind. */
+    groups: FrictionGroupShareApi[]
+    /** Friction as a multiple of the typical pull request in the repository. */
+    score: number
+    /** Red stretches that a re-run of the same commit turned green. */
+    flake_red_count: number
+    /** Red stretches where the same job failed on the default branch within 12 hours. */
+    master_red_count: number
+    /** Red stretches with no provable cause. */
+    unknown_red_count: number
+    /** Red stretches that a later push fixed. */
+    own_red_count: number
+    /** Re-runs that failed again. */
+    futile_rerun_count: number
+    /** Pushes that triggered CI. */
+    push_count: number
+    /** CI running time of each push, oldest first. */
+    ci_wait_seconds: number[]
+    /**
+     * From ready for review to the first approval. Null when either is not observed.
+     * @nullable
+     */
+    first_approval_wait_seconds: number | null
+    /**
+     * Pushes after the first approval. Null without an approval.
+     * @nullable
+     */
+    pushes_after_approval: number | null
+    /**
+     * Time in the merge queue. Null when the pull request never entered it.
+     * @nullable
+     */
+    queue_seconds: number | null
+    /**
+     * Times the merge queue removed the pull request. Null without queue data.
+     * @nullable
+     */
+    kickout_count: number | null
+}
+
+export interface PullRequestFrictionDetailApi {
+    /** Null when the pull request did not merge in the window, or a bot authored it. */
+    pull_request: PullRequestFrictionBreakdownApi | null
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
 }
 
 export interface PRTimelinePushApi {
@@ -2170,6 +2267,21 @@ export type EngineeringAnalyticsAuthorFrictionParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsAuthorFrictionDetailParams = {
+    /**
+     * GitHub login of the author to show.
+     */
+    author: string
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
 export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     /**
      * GitHub handle whose CI spend to break down.
@@ -2471,6 +2583,21 @@ export type EngineeringAnalyticsPrLifecycleParams = {
 export type EngineeringAnalyticsPrRunsParams = {
     /**
      * Pull request number whose runs to list.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsPullRequestFrictionParams = {
+    /**
+     * Pull request number to show.
      */
     pr_number: number
     /**
