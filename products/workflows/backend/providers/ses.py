@@ -15,7 +15,7 @@ import dns.name
 import dns.resolver
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from rest_framework import exceptions
+from rest_framework import exceptions, status
 
 from posthog.dataclasses import frozen
 
@@ -264,6 +264,36 @@ def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSend
     )
 
 
+# SES error codes that mean our own credential or permission setup is wrong, never the customer's
+# domain. Without a mapping they reach the customer as a 500 carrying a raw botocore message.
+SES_CREDENTIAL_ERROR_CODES = frozenset(
+    {
+        "AccessDenied",
+        "AccessDeniedException",
+        "AuthFailure",
+        "ExpiredToken",
+        "ExpiredTokenException",
+        "InvalidAccessKeyId",
+        "InvalidClientTokenId",
+        "SignatureDoesNotMatch",
+        "UnrecognizedClientException",
+    }
+)
+
+
+class EmailProviderUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = (
+        "Couldn't reach the email provider. Try again in a few minutes, and if it keeps happening contact support."
+    )
+
+
+def _reject_unusable_ses_credentials(error: ClientError) -> None:
+    if error.response["Error"]["Code"] in SES_CREDENTIAL_ERROR_CODES:
+        logger.exception("SES rejected our credentials")
+        raise EmailProviderUnavailable() from error
+
+
 class SESProvider:
     ses_client: "SESClient"
     ses_v2_client: "SESV2Client"
@@ -271,23 +301,30 @@ class SESProvider:
 
     def __init__(self):
         # Initialize the boto3 clients
+        # Empty outside development, where boto3 resolves the real AWS endpoint instead. KEEP IN
+        # SYNC with the Node email worker's sesEndpoint (nodejs/src/cdp/services/messaging/
+        # email.service.ts): an endpoint only one of the two services honors makes them disagree.
+        endpoint_url = settings.SES_ENDPOINT or None
         self.sts_client = boto3.client(
             "sts",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            endpoint_url=endpoint_url,
         )
         self.ses_client = boto3.client(
             "ses",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            endpoint_url=endpoint_url,
         )
         self.ses_v2_client = boto3.client(
             "sesv2",
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            endpoint_url=endpoint_url,
         )
         # Separate client for the metric fan-out only, so bounding it cannot slow identity and
         # tenant calls, which are allowed to take longer.
@@ -296,6 +333,7 @@ class SESProvider:
             aws_access_key_id=settings.SES_ACCESS_KEY_ID,
             aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
             region_name=settings.SES_REGION,
+            endpoint_url=endpoint_url,
             config=Config(
                 connect_timeout=METRIC_CONNECT_TIMEOUT_SECONDS,
                 read_timeout=METRIC_READ_TIMEOUT_SECONDS,
@@ -494,6 +532,7 @@ class SESProvider:
         except ClientError as e:
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                _reject_unusable_ses_credentials(e)
                 raise
 
         if verification_token:
@@ -514,6 +553,7 @@ class SESProvider:
             dkim_tokens = dkim_resp["DkimTokens"]
         except ClientError as e:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                _reject_unusable_ses_credentials(e)
                 raise
 
         for t in dkim_tokens:
@@ -546,6 +586,7 @@ class SESProvider:
             )
         except ClientError as e:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                _reject_unusable_ses_credentials(e)
                 raise
 
         ses_region = getattr(settings, "SES_REGION", "us-east-1")
