@@ -143,7 +143,33 @@ jobs:
         needs: changes
         if: needs.changes.outputs.python == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 30
+        timeout-minutes: 55
+        name: semgrep-python (${{ matrix.label }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - label: 1.167.0-a
+                      image: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
+                    - label: 1.167.0-b
+                      image: semgrep/semgrep:1.167.0@sha256:06938c1f365d3f67b8cedd8bc117607ae64253f88a0e768e9da9408548927dd6
+                    - label: 1.170.0
+                      image: semgrep/semgrep:1.170.0@sha256:c98f8829eea377274ee4b10656458b078b88232469b2ff913f091c2317347c9d
+                    - label: 1.172.0
+                      image: semgrep/semgrep:1.172.0@sha256:65dcd4408adda7c183a6b4550cb1e9b19f7f627a6fbb7e0559bd466bedc44d7b
+                    - label: 1.174.0
+                      image: semgrep/semgrep:1.174.0@sha256:f1f7b71861c7b28b6e0f661225a2c4f58a484f5d0f182465c6d6b3b22f972ade
+                    - label: 1.175.0
+                      image: semgrep/semgrep:1.175.0@sha256:b94b53d02fd4a022f9eac4e2af1380f5c3c4c21400e79d3336bdff1d1db5e796
+                    - label: 1.177.0
+                      image: semgrep/semgrep:1.177.0@sha256:acaac22ffc7b7cc5926de0751b223bce0b2491c33d18422fa72f632c78d81198
+                    - label: 1.178.0-a
+                      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+                    - label: 1.178.0-b
+                      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+                    - label: 1.178.0-jobs2
+                      image: semgrep/semgrep:1.178.0@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+                      jobs: 2
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
@@ -163,10 +189,13 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Start memory sampler
+              run: nohup sh -c 'while true; do date -u +%T; free -m; sleep 15; done' > "$RUNNER_TEMP/mem.log" 2>&1 &
+
             - name: Run Semgrep
               uses: ./.github/actions/semgrep-ci
               with:
-                  image: ${{ env.SEMGREP_IMAGE }}
+                  image: ${{ matrix.image }}
                   args: >-
                       --config p/python
                       --config p/owasp-top-ten
@@ -185,7 +214,11 @@ jobs:
                       --include /services/stripe-mock
                       --include /tools
                       --exclude products/desktop
-                      --jobs 4
+                      --jobs ${{ matrix.jobs || 4 }}
+
+            - name: Memory samples
+              if: always()
+              run: cat "$RUNNER_TEMP/mem.log"
 
     semgrep-go:
         needs: changes
