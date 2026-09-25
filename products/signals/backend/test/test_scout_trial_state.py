@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 import time_machine
-from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
@@ -14,7 +15,9 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.scoping import team_scope
 from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV, SIGNALS_APP_ID_DEV
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScratchpad
@@ -151,7 +154,7 @@ class TestScoutTrialState(APIBaseTest):
 
 
 @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="https://gateway.example")
-class TestScoutTrialReportCapture(NonAtomicAPIBaseTest):
+class TestScoutTrialReportCapture(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
@@ -387,12 +390,10 @@ class TestScoutTrialReportCapture(NonAtomicAPIBaseTest):
         self.judge.assert_not_called()
         assert self.store.reports() == []
 
-    @parameterized.expand([False, True])
-    def test_unsupported_report_links_invalidate_comparison(self, asynchronous: bool) -> None:
+    def test_unsupported_report_links_invalidate_comparison(self) -> None:
         report_id = self._emit()
-        edit = async_to_sync(edit_report) if asynchronous else edit_report_sync
         with self.assertRaisesMessage(InvalidScoutReportError, "Report links are not supported"):
-            edit(
+            edit_report_sync(
                 team=self.team,
                 run=self.scout_run,
                 report_id=report_id,
@@ -480,3 +481,25 @@ class TestScoutTrialReportCapture(NonAtomicAPIBaseTest):
             result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", {"view": "actionable"})
         assert result.status_code == 400
         assert self.store.invalid_reason() is not None
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="https://gateway.example")
+def test_async_report_links_invalidate_comparison(team: Team) -> None:
+    with team_scope(team.id):
+        run = _make_run(team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+    with (
+        patch(
+            "products.signals.backend.scout_harness.tools.report.create_trial_gateway_token",
+            return_value="synthetic-token",
+        ),
+        patch("products.signals.backend.scout_harness.tools.report.revoke_trial_gateway_token"),
+        pytest.raises(InvalidScoutReportError, match="Report links are not supported"),
+    ):
+        async_to_sync(edit_report)(
+            team=team,
+            run=run,
+            report_id=str(uuid4()),
+            links=[ReportLinkInput(kind="depends_on", report_id=str(uuid4()))],
+        )
+    assert ScoutTrialStore(run).invalid_reason() is not None
