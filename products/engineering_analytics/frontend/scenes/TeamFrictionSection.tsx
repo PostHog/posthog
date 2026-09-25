@@ -27,7 +27,8 @@ export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX
                 </span>
             }
             right={
-                team ? (
+                // During a reload the median still belongs to the previous scope, so it waits for the answer.
+                team && !frictionLoading ? (
                     <span className="tabular-nums text-secondary">
                         {timesTypical(team.median_score)} median across {team.scored_author_count} members
                     </span>
