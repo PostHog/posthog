@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -16,6 +18,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -36,20 +39,18 @@ export const scene: SceneExport = {
 }
 
 export function Dashboards(): JSX.Element {
+    const { searchParams } = useValues(router)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
+    const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
             label: 'All dashboards',
         },
         { key: DashboardsTab.Yours, label: 'My dashboards' },
-        {
-            key: DashboardsTab.Templates,
-            label: 'Templates',
-        },
     ]
 
     return (
@@ -57,6 +58,21 @@ export function Dashboards(): JSX.Element {
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
+            <LemonModal
+                title="Dashboard templates"
+                isOpen={templatesModalOpen}
+                onClose={() =>
+                    router.actions.push(urls.dashboards(), {
+                        ...searchParams,
+                        templates: undefined,
+                        templateFilter: undefined,
+                    })
+                }
+                width="min(1200px, calc(100vw - 3rem))"
+                data-attr="dashboard-templates-modal"
+            >
+                {templatesModalOpen && <DashboardTemplatesTable />}
+            </LemonModal>
             <DashboardTemplateEditor />
             <DashboardTemplateModal />
 
@@ -84,6 +100,14 @@ export function Dashboards(): JSX.Element {
                                     data-attr="new-dashboard"
                                     onClick={showNewDashboardModal}
                                     type="primary"
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        tooltip: 'View dashboard templates',
+                                        'aria-label': 'View dashboard templates',
+                                        'data-attr': 'view-dashboard-templates',
+                                        onClick: () =>
+                                            router.actions.push(urls.dashboards(), { ...searchParams, templates: '1' }),
+                                    }}
                                 >
                                     New dashboard
                                 </LemonButton>
@@ -103,13 +127,7 @@ export function Dashboards(): JSX.Element {
                 rightSlotClassName="!static !justify-start !bg-transparent"
             />
 
-            <div>
-                {currentTab === DashboardsTab.Templates ? (
-                    <DashboardTemplatesTable />
-                ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                    <DashboardsTableContainer />
-                ) : null}
-            </div>
+            <div>{dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}</div>
         </SceneContent>
     )
 }

@@ -314,7 +314,7 @@ class TestV2PilotLifecycle(AdmittedV2TestCase):
         assert "pilot-flag" not in {
             f["key"] for f in _get_flags_response_for_local_evaluation_batch([self.team])[self.team.id]["flags"]
         }
-        assert "pilot-flag" not in {f["key"] for f in _get_feature_flags_for_service(self.team)["flags"]}
+        assert "pilot-flag" in {f["key"] for f in _get_feature_flags_for_service(self.team)["flags"]}
 
         replacement = config(
             targeted(rule_id=stored["rules"][0]["id"], value=False),

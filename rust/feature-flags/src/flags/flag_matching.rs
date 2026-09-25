@@ -7,6 +7,8 @@ use crate::cohorts::cohort_operations::{
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::{pool_names, PostgresRouter};
+use crate::flags::config_v2::Config;
+use crate::flags::evaluate_v2::{Evaluation, EvaluationContext, Evaluator, PersonProperties};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -40,6 +42,7 @@ use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
@@ -403,6 +406,8 @@ pub struct FeatureFlagMatcher {
     /// relative dates), so flag evaluation matches HogQL/ClickHouse cohort behavior.
     /// Parsed once per request and reused across every property comparison.
     timezone: Tz,
+    /// Request evaluation time. Only v2 relative-date predicates read it; tests pin it.
+    now: DateTime<Utc>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -473,7 +478,13 @@ impl FeatureFlagMatcher {
             detailed_analysis: false,
             only_use_override_person_properties: false,
             timezone: Tz::UTC,
+            now: Utc::now(),
         }
+    }
+
+    pub fn with_now(mut self, now: DateTime<Utc>) -> Self {
+        self.now = now;
+        self
     }
 
     /// Sets the team timezone used to interpret naive datetime filter values.
@@ -866,7 +877,7 @@ impl FeatureFlagMatcher {
             if self.filtered_out_flag_ids.contains(&flag.id) {
                 continue;
             }
-            if let Err(error) = flag.filters.require_v1() {
+            if let Err(error) = flag.filters.require_supported() {
                 evaluated_flags_map.insert(
                     flag.key.clone(),
                     FlagDetails::create_error(flag, &error, None),
@@ -883,7 +894,7 @@ impl FeatureFlagMatcher {
         let flags: Vec<&FeatureFlag> = evaluation_stages
             .iter()
             .flatten()
-            .filter(|flag| flag.filters.is_v1())
+            .filter(|flag| flag.filters.is_supported())
             .collect();
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
@@ -891,6 +902,7 @@ impl FeatureFlagMatcher {
             let hash_key_error = FlagError::HashKeyOverrideError;
             for flag in flags.iter().filter(|flag| {
                 !self.filtered_out_flag_ids.contains(&flag.id)
+                    && flag.filters.is_v1()
                     && flag.ensure_experience_continuity.unwrap_or(false)
             }) {
                 evaluated_flags_map.insert(
@@ -1418,6 +1430,9 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        if let Some(config) = flag.filters.supported_v2() {
+            return self.get_match_v2(config, person_property_overrides);
+        }
         flag.filters.require_v1()?;
         // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
         // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
@@ -1684,6 +1699,63 @@ impl FeatureFlagMatcher {
             variant: None,
             reason: highest_match,
             condition_index: highest_index,
+            payload: None,
+        })
+    }
+
+    /// Projects a v2 outcome onto the v1 match shape: `enabled` is the boolean value (null
+    /// default is false), never a variant or payload; the subject is the request distinct ID.
+    fn get_match_v2(
+        &self,
+        config: &Config,
+        person_property_overrides: Option<&HashMap<String, Value>>,
+    ) -> Result<FeatureFlagMatch, FlagError> {
+        // A config without predicates never reads properties, so skip the merge.
+        let merged = if config.rules.iter().any(|rule| !rule.targeting.is_empty()) {
+            Some(self.get_person_properties(person_property_overrides)?)
+        } else {
+            None
+        };
+        // An overrides-only request treats its map as authoritative, as v1 does.
+        let properties = match &merged {
+            Some(map)
+                if self.only_use_override_person_properties
+                    || self.flag_evaluation_state.get_person_properties().is_some() =>
+            {
+                PersonProperties::Complete(map)
+            }
+            Some(map) if person_property_overrides.is_some() => PersonProperties::Partial(map),
+            _ => PersonProperties::Unavailable,
+        };
+        let evaluation = Evaluator::new(config).evaluate(&EvaluationContext {
+            person_identifier: &self.distinct_id,
+            properties,
+            timezone: self.timezone,
+            use_explicit_exact_matching: self.use_explicit_exact_matching,
+            now: self.now,
+        })?;
+        let (matches, reason, condition_index) = match evaluation {
+            Evaluation::TargetingMatch { value, rule } => (
+                value,
+                FeatureFlagMatchReason::ConditionMatch,
+                Some(rule.index),
+            ),
+            Evaluation::RolloutMiss { value, rule } => (
+                value.unwrap_or(false),
+                FeatureFlagMatchReason::OutOfRolloutBound,
+                Some(rule.index),
+            ),
+            Evaluation::NoRuleMatch { value } => (
+                value.unwrap_or(false),
+                FeatureFlagMatchReason::NoConditionMatch,
+                None,
+            ),
+        };
+        Ok(FeatureFlagMatch {
+            matches,
+            variant: None,
+            reason,
+            condition_index,
             payload: None,
         })
     }

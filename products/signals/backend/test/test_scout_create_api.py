@@ -315,7 +315,7 @@ class TestSignalScoutCreateAPI(APIBaseTest):
             parent_team=self.team,
             name="Child environment",
         )
-        with patch("products.signals.backend.scout_harness.views.UserAccessControl") as user_access_control:
+        with patch("products.signals.backend.scout_harness.create_access.UserAccessControl") as user_access_control:
             user_access_control.return_value.check_access_level_for_resource.return_value = False
             response = self.client.post(
                 f"/api/projects/{environment.id}/signals/scout/",
