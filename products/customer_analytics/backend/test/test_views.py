@@ -674,6 +674,15 @@ class TestAccountViewSet(APIBaseTest):
         self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json")
 
         self.client.force_login(self.user)
+        expected_teammate = [{"user_id": teammate.id, "display_name": "Alex Rivera"}]
+        self.assertEqual(
+            self.client.post(f"{self.endpoint_base}{first_account.id}/presence/", format="json").json(),
+            expected_teammate,
+        )
+        self.assertEqual(
+            self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json").json(),
+            expected_teammate,
+        )
         response = self.client.post(
             f"{self.endpoint_base}presence_list/",
             {"account_ids": [str(first_account.id), str(second_account.id)]},
@@ -684,14 +693,8 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(
             response.json(),
             [
-                {
-                    "account_id": str(first_account.id),
-                    "viewers": [{"user_id": teammate.id, "display_name": "Alex Rivera"}],
-                },
-                {
-                    "account_id": str(second_account.id),
-                    "viewers": [{"user_id": teammate.id, "display_name": "Alex Rivera"}],
-                },
+                {"account_id": str(first_account.id), "viewers": expected_teammate},
+                {"account_id": str(second_account.id), "viewers": expected_teammate},
             ],
         )
 

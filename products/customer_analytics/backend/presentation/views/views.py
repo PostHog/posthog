@@ -1884,7 +1884,13 @@ class AccountViewSet(
     )
     def presence_list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         account_ids = [str(account_id) for account_id in request.validated_data["account_ids"]]
-        presence = api.list_accounts_presence(self.team_id, account_ids, self.user_access_control)
+        viewer_user_id = None if is_service_auth(request) else cast(User, request.user).id
+        presence = api.list_accounts_presence(
+            self.team_id,
+            account_ids,
+            self.user_access_control,
+            viewer_user_id=viewer_user_id,
+        )
         return Response(AccountPresenceSerializer(instance=presence, many=True).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
