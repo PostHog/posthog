@@ -213,6 +213,11 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         return updated
 
 
+# In `sync_type_config`: set while the S3 change buffer carries this table's snapshot. Cleared by the
+# snapshot to streaming flip. See cdc/snapshot_lane.py.
+CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
+
+
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     Status = ExternalDataSchemaStatus
@@ -716,23 +721,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         partition_mode: Optional[PartitionMode],
         partition_format: Optional[PartitionFormat],
     ) -> None:
-        self.sync_type_config["partitioning_enabled"] = True
-        self.sync_type_config["partition_count"] = partition_count
-        self.sync_type_config["partition_size"] = partition_size
-        self.sync_type_config["partitioning_keys"] = partitioning_keys
-        self.sync_type_config["partition_mode"] = partition_mode
-        self.sync_type_config["partition_format"] = partition_format
-        # Consume any operator-pinned overrides: they've now been baked into the effective
-        # settings above, so drop them. This makes the pin one-shot — a later reset falls
-        # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
-        # repartition action if needed).
-        self.sync_type_config.pop("partition_count_override", None)
-        self.sync_type_config.pop("partition_size_override", None)
-        self.sync_type_config.pop("partition_mode_override", None)
-        self.sync_type_config.pop("partitioning_keys_override", None)
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT (see save()).
-        self.save(skip_activity_log=True)
+        # Merged under the row lock rather than saved from this copy, which the loader holds for the
+        # whole run while CDC capture writes the same JSON (the snapshot marker among it).
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id,
+            self.team_id,
+            updates={
+                "partitioning_enabled": True,
+                "partition_count": partition_count,
+                "partition_size": partition_size,
+                "partitioning_keys": partitioning_keys,
+                "partition_mode": partition_mode,
+                "partition_format": partition_format,
+            },
+            # Consume any operator-pinned overrides: they've now been baked into the effective
+            # settings above, so drop them. This makes the pin one-shot — a later reset falls
+            # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
+            # repartition action if needed).
+            removes=[
+                "partition_count_override",
+                "partition_size_override",
+                "partition_mode_override",
+                "partitioning_keys_override",
+            ],
+        )
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -1041,24 +1053,26 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return str(value)
 
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
-        self.sync_type_config.pop("reset_pipeline", None)
-        # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
-        # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
-        # survives the reset it timestamps.
-        self.sync_type_config.pop("column_type_widened", None)
-        self.sync_type_config.pop("incremental_field_last_value", None)
-        self.sync_type_config.pop("incremental_field_earliest_value", None)
-        self.sync_type_config.pop("incremental_staged", None)
-        self.sync_type_config.pop("incremental_staged_pending", None)
-        self.sync_type_config.pop("partitioning_enabled", None)
-        self.sync_type_config.pop("partition_size", None)
-        self.sync_type_config.pop("partition_count", None)
-        self.sync_type_config.pop("partitioning_keys", None)
-        self.sync_type_config.pop("partition_mode", None)
-        self.sync_type_config.pop("backfilled_partition_format", None)
-        self.sync_type_config.pop("xmin_last_value", None)
-        self.sync_type_config.pop("xmin_ceiling", None)
-        self.sync_type_config.pop("xmin_num_wraparound", None)
+        removes = [
+            "reset_pipeline",
+            # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
+            # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
+            # survives the reset it timestamps.
+            "column_type_widened",
+            "incremental_field_last_value",
+            "incremental_field_earliest_value",
+            "incremental_staged",
+            "incremental_staged_pending",
+            "partitioning_enabled",
+            "partition_size",
+            "partition_count",
+            "partitioning_keys",
+            "partition_mode",
+            "backfilled_partition_format",
+            "xmin_last_value",
+            "xmin_ceiling",
+            "xmin_num_wraparound",
+        ]
         # We don't reset partition_format
         # We don't reset chunk_size_override
         # We intentionally don't reset partition_count_override / partition_size_override /
@@ -1071,10 +1085,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # it false between runs whenever a sync wrote zero rows (no Delta table means post-load
         # never re-set it). Explicit resets (reset_pipeline, corruption rebuild, sync-method
         # change, delete_table) keep clearing so CDC's False->True streaming flip still fires.
+        extra_model_fields = {"initial_sync_complete": False} if clear_initial_sync_complete else None
+
+        # Merged under the row lock rather than saved from this copy: the sync loaded it when it
+        # started, and CDC capture writes the same JSON meanwhile (the snapshot marker among it).
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id, self.team_id, removes=removes, extra_model_fields=extra_model_fields
+        )
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
-
-        self.save(skip_activity_log=True)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -1624,6 +1643,8 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
         if schema.is_cdc and schema.cdc_mode == "snapshot":
             config = schema.sync_type_config or {}
             config["cdc_mode"] = "streaming"
+            # In the same lock as the flip, so a hand-over retried after a failed flip still finds it.
+            config.pop(CDC_SNAPSHOT_LANE_KEY, None)
             schema.sync_type_config = config
             update_fields.append("sync_type_config")
 

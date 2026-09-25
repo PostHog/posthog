@@ -60,6 +60,10 @@ import {
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
 import {
+  CODEX_CLOUD_ACCOUNT_HOST,
+  type CodexCloudAccountHost,
+} from "@posthog/core/integrations/codexCloudAccountService";
+import {
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -303,6 +307,7 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [CODEX_CLOUD_ACCOUNT_HOST]: CodexCloudAccountHost;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;

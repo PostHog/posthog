@@ -20,6 +20,7 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
@@ -31,6 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import retire_orphaned_companions
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    cancel_running_sync,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFERED_BEFORE_KEY,
     serves_buffered_lane,
@@ -118,6 +123,9 @@ class Command(BaseCommand):
             # schemas that consume the buffer (scheduled_sync_consumes_buffer), so the flip does
             # not depend on the team's general rollout flag.
             self._require_no_reserved_columns(eligible)
+        if rollback:
+            for schema in self._snapshots_in_buffer(source):
+                self.stdout.write(f"  {schema.name}: snapshot running in the buffer, will restart on legacy")
         if dry_run:
             self.stdout.write(self.style.WARNING("Dry run — no changes made."))
             return
@@ -126,6 +134,36 @@ class Command(BaseCommand):
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
             self._flip_to_buffered(source, eligible, cdc_schemas, options["drain_timeout"])
+
+    def _snapshots_in_buffer(self, source: ExternalDataSource) -> list[ExternalDataSchema]:
+        return sorted(
+            (
+                s
+                for s in ExternalDataSchema.objects.filter(source_id=source.id, deleted=False)
+                if s.is_cdc and snapshot_in_buffer(s)
+            ),
+            key=lambda s: s.name,
+        )
+
+    def _demote_snapshots_in_buffer(self, source: ExternalDataSource) -> None:
+        """Restart every snapshot the buffer carries as a legacy snapshot.
+
+        Only the buffer holds such a table's changes since its snapshot began, and legacy's hand-over
+        purges the whole buffer. Capture is idle here, so a snapshot that starts after this point reads
+        every change up to where capture stopped, and legacy capture defers the rest. The running
+        snapshot is cancelled first, so it cannot hand over without those changes.
+        """
+        for schema in self._snapshots_in_buffer(source):
+            cancel_running_sync(schema)
+            purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
+            update_sync_type_config_keys(
+                schema.id,
+                schema.team_id,
+                updates={"cdc_mode": "snapshot", "reset_pipeline": True},
+                removes=[CDC_SNAPSHOT_LANE_KEY, "cdc_last_log_position"],
+                extra_model_fields={"initial_sync_complete": False},
+            )
+            self.stdout.write(f"  {schema.name}: snapshot restarted on legacy")
 
     def _require_no_reserved_columns(self, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a schema whose source table has a column named `_ph_cdc_seq`.
@@ -302,6 +340,12 @@ class Command(BaseCommand):
         pause_cdc_extraction_schedule(source_id)
         self.stdout.write("2/6 waiting for the in-flight extraction run to finish")
         self._wait_for_extraction_idle(source_id, drain_timeout)
+        # Only once capture is idle, so no run can start another snapshot in the buffer afterwards.
+        try:
+            self._demote_snapshots_in_buffer(source)
+        except BaseException:
+            unpause_cdc_extraction_schedule(source_id)
+            raise
 
         # The buffer's tail holds WAL the slot has already advanced past — it exists nowhere else.
         # The consumer must apply it BEFORE legacy delivery resumes, or it is lost for good. Capture
