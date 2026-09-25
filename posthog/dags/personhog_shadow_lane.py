@@ -77,6 +77,16 @@ def require_shadow_dsn(connection_url: str) -> None:
     production state.
     """
     parsed = urlparse(connection_url)
+    # psycopg2 also accepts libpq key/value strings ("host=... dbname=..."),
+    # which urlparse leaves whole in .path, so every check below would see an
+    # empty authority and pass on "shadow" appearing in any field.
+    if parsed.scheme not in ("postgres", "postgresql"):
+        raise dagster.Failure(
+            description=(
+                "Connection URL must be a postgres:// or postgresql:// URI. "
+                "Refusing a key/value DSN whose target the guard cannot check."
+            )
+        )
     # libpq resolves the connection target from more than the URL authority:
     # host, hostaddr, dbname, and service query parameters override it, and a
     # comma in the host names several servers. Any of those lets a URL carry
@@ -198,7 +208,16 @@ def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int
     first transaction's cached one.
     """
     with connection.cursor() as cursor:
-        cursor.execute("SELECT COALESCE(SUM(n_tup_ins + n_tup_upd + n_tup_del), 0) AS writes FROM pg_stat_user_tables")
+        # The identity service's lifecycle GC deletes completed lifecycle_op
+        # rows past retention on a timer, and it keeps running while the lane
+        # is scaled to zero. After a run longer than the retention window those
+        # deletes land every sweep, so counting them would never let the wait
+        # settle. They remove nothing the reset would otherwise keep.
+        cursor.execute(
+            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd"
+            " + CASE WHEN relname LIKE 'lifecycle\\_op%' THEN 0 ELSE n_tup_del END), 0) AS writes"
+            " FROM pg_stat_user_tables"
+        )
         return int(cursor.fetchone()["writes"])
 
 
