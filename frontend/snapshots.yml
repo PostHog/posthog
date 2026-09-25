@@ -8396,6 +8396,14 @@ snapshots:
         hash: v1.k794b7964.2912a039cef968631e879d37ceb383cd890aa58a309fe994e54048d32c03fea0.ignhhu_rS-LmWB_l7JsirYO_2D5bsWCZSX5FJr_VMIs
     scenes-app-engineering-analytics-author--author-without-reviews-or-deploys--light:
         hash: v1.k794b7964.3cf36ae2af60fafbf05aa99aa8d21b91acfcec55cbc9e68eb880c28bbbb5428e.4LKTJhufJZrTUSXzWSLpd4drYCzho0V1sd5IwbPH52U
+    scenes-app-engineering-analytics-authors--author-friction--dark:
+        hash: v1.k794b7964.88728c06ce00b8f11db949d90b27a1b2093f0cb8673c28a3bacc0b5ff9a56b5e.OhfSy6zVs-UDsLgYDEhzFETfYob5SWTgB7RTbEuDb_c
+    scenes-app-engineering-analytics-authors--author-friction--light:
+        hash: v1.k794b7964.eca39040c911e5915e0248649d8a301e9c9d279040f7ba8cb3b3c976d85d0c6b.HgkKTUfXLlpPr13D0Qvmewacq9avFmnPKohtIcUBT9s
+    scenes-app-engineering-analytics-authors--author-friction-not-ready--dark:
+        hash: v1.k794b7964.92889e0db2ca295765d91586d19fdd5183d8b6af425237baf4c5e6d0273b4949.q-FafIaHo1UO3RKISmWRKJWxEtw8-pgrKYWP4q9DoR8
+    scenes-app-engineering-analytics-authors--author-friction-not-ready--light:
+        hash: v1.k794b7964.0f7bab03614efa0a14f40334900064ed8f915efd5193e19b6c7845dd7e79bd87.0Xgyj3Z2Vl3_EpcL0OvpPt1TXIPBlCVD8WCSPJcl79o
     scenes-app-engineering-analytics-delivery-pipeline--all-stages--dark:
         hash: v1.k794b7964.e6fc5778d62714ed6fd4174b65c767a850d116b902223aa6f2086ce967edcaed.HoZOw65AQI9tW_L6CG_9JN6y7lmyhzy_Q1PQL__zCsk
     scenes-app-engineering-analytics-delivery-pipeline--all-stages--light:
