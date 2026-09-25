@@ -80,8 +80,8 @@ export class MetadataFooter {
                 this.metaStatusEl.className = 'status-idle'
                 this.metaStatusEl.textContent = '[IDLE]'
             } else {
-                this.metaStatusEl.className = ''
-                this.metaStatusEl.textContent = ''
+                this.metaStatusEl.className = 'status-active'
+                this.metaStatusEl.textContent = '[ACTIVE]'
             }
         }
     }
