@@ -45,7 +45,7 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly urlImageWrites = new Counter({
         name: 'ml_mirror_image_scrub_consumer_url_image_writes_total',
-        help: 'URL image writes to S3 by outcome. The object key names the team, month and URL and is written once, so already_exists counts an image the fetch lane fetched and this lane scrubbed again for nothing. already_exists / (created + already_exists) is the share of repeated fetch and scrub work that crawl-history dedup let through',
+        help: 'URL image writes to S3 by outcome. The object key names the team, month and URL and is written once, so already_exists counts a scrubbed image that S3 already held. A repeated fetch, a duplicate ref in one poll batch, and a replay after a rebalance all end this way. already_exists / (created + already_exists) is the share of URL image scrub work that produced nothing new',
         labelNames: ['outcome'],
     })
     private static readonly invalidKey = new Counter({
