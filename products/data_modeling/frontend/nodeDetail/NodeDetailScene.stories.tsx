@@ -57,7 +57,7 @@ const savedQuery = {
     ],
 }
 
-const upstreamNames = [
+const upstreamNodes = [
     'raw_orders',
     'raw_customers',
     'raw_regions',
@@ -70,37 +70,34 @@ const upstreamNames = [
     'stg_refunds',
     'dim_region',
     'dim_channel',
-]
+].map((name, index) => ({
+    ...node,
+    id: `upstream-${index}`,
+    name,
+    type: index < 5 ? 'table' : 'matview',
+    saved_query_id: undefined,
+    upstream_count: 0,
+    downstream_count: 1,
+}))
+const downstreamNode = {
+    ...node,
+    id: 'downstream',
+    name: 'exec_revenue_dashboard',
+    type: 'endpoint',
+    saved_query_id: undefined,
+    upstream_count: 1,
+    downstream_count: 0,
+}
 const lineage = {
-    nodes: [
-        ...upstreamNames.map((name, index) => ({
-            ...node,
-            id: `upstream-${index}`,
-            name,
-            type: index < 5 ? 'table' : 'matview',
-            saved_query_id: undefined,
-            upstream_count: 0,
-            downstream_count: 1,
-        })),
-        node,
-        {
-            ...node,
-            id: 'downstream-0',
-            name: 'exec_revenue_dashboard',
-            type: 'endpoint',
-            saved_query_id: undefined,
-            upstream_count: 1,
-            downstream_count: 0,
-        },
-    ],
+    nodes: [...upstreamNodes, node, downstreamNode],
     edges: [
-        ...upstreamNames.map((_, index) => ({
-            id: `edge-upstream-${index}`,
-            source_id: `upstream-${index}`,
+        ...upstreamNodes.map((upstream) => ({
+            id: `edge-${upstream.id}`,
+            source_id: upstream.id,
             target_id: node.id,
             dag: node.dag,
         })),
-        { id: 'edge-downstream-0', source_id: node.id, target_id: 'downstream-0', dag: node.dag },
+        { id: 'edge-downstream', source_id: node.id, target_id: downstreamNode.id, dag: node.dag },
     ],
     currentNodeId: node.id,
 }
