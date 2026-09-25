@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
+import structlog
 from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -13,6 +14,8 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from posthoganalytics import capture_exception
+from prometheus_client import Counter
 from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
@@ -33,9 +36,16 @@ from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, i
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantMessageUnion
 
+logger = structlog.get_logger(__name__)
+
 T = TypeVar("T", bound=AssistantMessageUnion)
 
 LangchainTools = Sequence[dict[str, Any] | type | Callable | BaseTool]
+
+TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER = Counter(
+    "posthog_ai_token_count_estimate_fallback_total",
+    "Conversation token counts that fell back to the local estimate because the model counter failed",
+)
 
 
 class InsertionResult(BaseModel):
@@ -119,9 +129,15 @@ class ConversationCompactionManager(ABC):
                 if not (isinstance(tool, dict) and tool.get("type", "").startswith("web_search_"))
             ]
         if len(human_messages) <= 2:
-            tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
-            return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
-        return await self._get_token_count(model, messages, tools, **kwargs)
+            return self._get_estimated_token_count(messages, tools)
+        try:
+            return await self._get_token_count(model, messages, tools, **kwargs)
+        except Exception as e:
+            # The counter can reject the model, or fail on the network. The estimate keeps the turn alive.
+            TOKEN_COUNT_ESTIMATE_FALLBACK_COUNTER.inc()
+            logger.exception("Model token counting failed, falling back to an estimate")
+            capture_exception(e)
+            return self._get_estimated_token_count(messages, tools)
 
     def update_window(
         self,
@@ -329,6 +345,13 @@ class ConversationCompactionManager(ABC):
         elif isinstance(message, AssistantToolCallMessage):
             char_count = len(message.content)
         return round(char_count / self.APPROXIMATE_TOKEN_LENGTH)
+
+    def _get_estimated_token_count(self, messages: list[BaseMessage], tools: LangchainTools | None = None) -> int:
+        """
+        Estimate the token count of a conversation without a model-specific counter.
+        """
+        tool_tokens = self._get_estimated_tools_tokens(tools) if tools else 0
+        return sum(self._get_estimated_langchain_message_tokens(message) for message in messages) + tool_tokens
 
     def _get_estimated_langchain_message_tokens(self, message: BaseMessage) -> int:
         """
