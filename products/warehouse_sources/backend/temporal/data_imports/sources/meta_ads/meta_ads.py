@@ -323,18 +323,14 @@ def _is_timeout_error(response: Response) -> bool:
     shrink ladders instead of spending retries on a request Meta has already
     told us is too big.
     """
-    try:
-        error = response.json().get("error", {})
+    error = _meta_error_body(response)
+    if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
+        return True
 
-        if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
-            return True
-
-        # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
-        # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
-        message = str(error.get("message") or "").lower()
-        return error.get("code") == 1 and "reduce the amount of data" in message
-    except (ValueError, KeyError, AttributeError):
-        return False
+    # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
+    # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
+    message = str(error.get("message") or "").lower()
+    return error.get("code") == 1 and "reduce the amount of data" in message
 
 
 def _should_shrink_request(response: Response) -> bool:
@@ -369,12 +365,14 @@ def _is_transient_error(response: Response) -> bool:
     Distinct from the too-much-data timeout (``_is_timeout_error``), which has its own
     limit-shrinking recovery; a transient error is retried with the request unchanged.
     """
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
+    payload = _parse_json_leniently(response)
+    if payload is None:
         # A 5xx with no parseable body (occasionally a completely empty response) carries no
         # error code to classify by, but a bare server-side failure is itself the signature of
         # a momentary blip — unlike a 4xx, which more likely reflects a bad request of ours.
+        return response.status_code >= 500
+    error = payload.get("error", {})
+    if not isinstance(error, dict):
         return response.status_code >= 500
     return error.get("is_transient") is True or error.get("code") in META_TRANSIENT_ERROR_CODES
 
@@ -473,12 +471,34 @@ META_INVALID_CURSOR_ERROR_MESSAGE = "Meta's pagination cursor for this sync beca
 SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the smallest request size"
 
 
+def _parse_json_leniently(response: Response) -> dict | None:
+    """Parse a Meta API response body as JSON, tolerating trailing garbage after it.
+
+    Meta's backend occasionally appends a second, unrelated error object right after the
+    real one in the same body — the same kind of serialization glitch already handled for
+    truncated 200 bodies elsewhere in this module (see ``MALFORMED_JSON_MAX_ATTEMPTS``).
+    ``response.json()`` rejects the extra data outright ("Extra data" ``JSONDecodeError``),
+    which would otherwise make every classifier below treat an error that is actually
+    classifiable as completely unparseable. Recovering just the leading JSON value keeps
+    classification working for that case. Returns ``None``, same as a genuinely unparseable
+    body, when even the leading value can't be recovered.
+    """
+    try:
+        payload = response.json()
+    except (ValueError, AttributeError):
+        payload = None
+    if payload is None:
+        try:
+            payload, _ = json.JSONDecoder().raw_decode(response.text.lstrip())
+        except (ValueError, TypeError, AttributeError):
+            return None
+    return payload if isinstance(payload, dict) else None
+
+
 def _meta_error_body(response: Response) -> dict:
     """The ``error`` object of a Meta error response, or an empty dict if it carries none."""
-    try:
-        error = response.json().get("error", {})
-    except (ValueError, AttributeError):
-        return {}
+    payload = _parse_json_leniently(response)
+    error = payload.get("error", {}) if isinstance(payload, dict) else {}
     return error if isinstance(error, dict) else {}
 
 
