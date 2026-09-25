@@ -2228,8 +2228,10 @@ Note: Pulled the raw Postman collection JSON behind the published documenter lin
 
 ## DagsterCloud — gaps
 
-Today (10): `asset_materializations`, `asset_nodes`, `asset_observations`, `assets`, `backfills`,
-`instigation_states`, `instigation_ticks`, `runs`, `schedules`, `sensors`
+Today (18): `asset_materializations`, `asset_nodes`, `asset_observations`, `assets`, `backfills`,
+`custom_roles`, `deployments`, `insights_asset_metrics`, `insights_deployment_metrics`,
+`insights_job_metrics`, `instigation_states`, `instigation_ticks`, `run_logs`, `runs`, `schedules`,
+`sensors`, `teams`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/dagster-io/dagster/master/python_modules/libraries/dagster-dg-cli/dagster_dg_cli/cli/plus/schema.graphql>
 
@@ -2237,16 +2239,22 @@ Diffed against: <https://raw.githubusercontent.com/dagster-io/dagster/master/pyt
 - [x] `assetNodes / assetNodeOrError` — asset definition metadata (group, owning job, description, dependencies, freshness policy) — lookup resolving the bare asset keys we sync (high)
 - [x] `schedulesOrError / sensorsOrError` — automation definitions and their status; lookup resolving the schedule/sensor tags carried on runs (high)
 - [x] `instigationStatesOrError / InstigationTick history (autoMaterializeTicks)` — schedule and sensor tick success/failure/skip history — orchestration reliability analysis (high)
-- [ ] `deployments / fullDeployments / branchDeployments` — lookup resolving which Dagster+ deployment each run and asset belongs to (high)
-- [ ] `reportingMetricsByJob / reportingMetricsByAsset / reportingMetricsByDeployment (Dagster+ Insights)` — Dagster+'s headline metrics — credits consumed, run duration, materialization and retry counts per job/asset/deployment (high)
+- [x] `deployments / fullDeployments / branchDeployments` — lookup resolving which Dagster+ deployment each run and asset belongs to (high)
+- [x] `reportingMetricsByJob / reportingMetricsByAsset / reportingMetricsByDeployment (Dagster+ Insights)` — Dagster+'s headline metrics — credits consumed, run duration, materialization and retry counts per job/asset/deployment (high)
 - [ ] `assetCheckExecutions` — data quality check results per asset over time (medium)
 - [ ] `repositoriesOrError / workspaceOrError (code locations, jobs, pipelines)` — lookup resolving repositoryOrigin and jobName already present on run rows (medium)
-- [ ] `logsForRun (run event / step log)` — step-level timings, failures and retries inside runs we already sync (medium)
-- [ ] `usersOrError / teamPermissions / customRoles` — org membership and role assignment for attributing runs and backfills to people (medium)
+- [x] `logsForRun (run event / step log)` — step-level timings, failures and retries inside runs we already sync (medium)
+- [x] `usersOrError / teamPermissions / customRoles` — org membership and role assignment for attributing runs and backfills to people (medium)
 - [ ] `auditLog` — who changed deployments, code locations and automation settings (medium)
 - [ ] `slasForAssets / assetSlaTimeline` — asset SLA state and breach timeline for freshness reporting (low)
 
 Note: Diffed against the Dagster+ cloud GraphQL schema snapshot vendored in dagster-dg-cli (type CloudQuery), which is a superset of the OSS webserver schema at js_modules/ui-core/src/graphql/schema.graphql. The `assets` table stays thin by design — ASSETS_QUERY is the asset-key enumeration the `asset_nodes`, `asset_materializations` and `asset_observations` fan-outs walk, and the metadata and event history land in those tables instead.
+
+Note: `deployments / fullDeployments / branchDeployments` land as one `deployments` table. All three resolvers return `DagsterCloudDeployment`, and `deployments` is the subset the caller can reach, so the table unions `fullDeployments` with `branchDeployments` and each row carries `isBranchDeployment`. `branchDeployments` takes a required limit and exposes no cursor, so the sync asks for 500 and logs a warning when a response comes back at that cap.
+
+Note: the Insights tables are one row per metric, entity and time bucket, at DAILY granularity. `reportingMetricsBy*` takes one required `metricName` per request, so each sync reads the deployment's metric catalog (`metricTypesForJob` / `ForAsset` / `ForDeployment`) and walks it. `reportingMetricsByAssetGroup` and `reportingMetricsByAssetSelection` were left out: they report the same metrics rolled up over a grouping that the asset table already carries as a column.
+
+Note: `run_logs` has no timestamp filter of its own, so an incremental sync bounds the parent run walk with `RunsFilter.updatedAfter` and `updatedBefore` instead and re-reads only the runs that moved inside that window. Child rows carry the parent's `updateTime` and checkpoint on it rather than on their own event timestamp, because the two advance independently. A run event carries no identifier, so the key is the run id plus the event's position in the run's append-only stream, which also means the walk restarts a run rather than resuming mid-stream.
 
 Note: `autoMaterializeTicks` was not implemented separately. It returns the ticks of the legacy global auto-materialize daemon; current Dagster runs automation as an asset daemon whose ticks are an ordinary instigation state, so `instigation_ticks` already covers them.
 
