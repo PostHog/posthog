@@ -3735,6 +3735,8 @@ export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDa
 export interface MCPToolQualityRowItem {
     tool: string
     total_calls: integer
+    /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
+    previous_calls: integer
     errors: integer
     error_rate_pct: number
     p50_duration_ms: number
@@ -3744,6 +3746,9 @@ export interface MCPToolQualityRowItem {
     sessions: integer
     first_seen: string
     last_seen: string
+    /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a
+     * large tool's surge. Not a percentage; only meaningful for ordering. */
+    trend_score: number
 }
 
 export type MCPToolQualitySortColumn =
@@ -3755,6 +3760,7 @@ export type MCPToolQualitySortColumn =
     | 'users'
     | 'sessions'
     | 'last_seen'
+    | 'trend_score'
 
 export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
 
@@ -3762,6 +3768,8 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
     results: MCPToolQualityRowItem[]
     /** Number of tools matching the date, category, and search filters. */
     totalCount: integer
+    /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+    totalSessions: integer
 }
 
 /** One row per effective MCP tool name, with server-side search, sorting, and pagination. */

@@ -6089,9 +6089,25 @@ class MCPToolQualityRowItem(BaseModel):
     p50_duration_ms: float
     p95_duration_ms: float
     p99_duration_ms: float
+    previous_calls: int = Field(
+        ...,
+        description=(
+            "Calls in the previous period: the same length of time right before the"
+            ' window, or for a to-date range ("This month") the same part of the'
+            " previous unit."
+        ),
+    )
     sessions: int
     tool: str
     total_calls: int
+    trend_score: float = Field(
+        ...,
+        description=(
+            "Sort key ranking growth relative to volume, so a small tool's spike"
+            " doesn't outrank a large tool's surge. Not a percentage; only meaningful"
+            " for ordering."
+        ),
+    )
     users: int
 
 
@@ -13193,6 +13209,13 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
         ...,
         description="Number of tools matching the date, category, and search filters.",
     )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -19114,6 +19137,13 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
         ...,
         description="Number of tools matching the date, category, and search filters.",
     )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
+    )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
         description=("Connector-synced data warehouse sources referenced by this query, if any."),
@@ -24251,6 +24281,13 @@ class QueryResponseAlternative104(BaseModel):
     totalCount: int = Field(
         ...,
         description="Number of tools matching the date, category, and search filters.",
+    )
+    totalSessions: int = Field(
+        ...,
+        description=(
+            "Distinct sessions with any tool call in the window, ignoring category and"
+            " search filters. The denominator for each row's session share."
+        ),
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,

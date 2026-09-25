@@ -1823,6 +1823,7 @@ class MCPToolQualitySortColumn(StrEnum):
     USERS = "users"
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
+    TREND_SCORE = "trend_score"
 
 
 class MCPToolQualitySortDirection(StrEnum):

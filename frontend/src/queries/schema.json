@@ -11598,6 +11598,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of tools matching the date, category, and search filters."
                 },
+                "totalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -11627,7 +11631,8 @@
                 "next_allowed_client_refresh",
                 "results",
                 "timezone",
-                "totalCount"
+                "totalCount",
+                "totalSessions"
             ],
             "type": "object"
         },
@@ -33600,6 +33605,10 @@
                 "p99_duration_ms": {
                     "type": "number"
                 },
+                "previous_calls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Calls in the previous period: the same length of time right before the window, or for a to-date range (\"This month\") the same part of the previous unit."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33609,6 +33618,10 @@
                 "total_calls": {
                     "$ref": "#/definitions/integer"
                 },
+                "trend_score": {
+                    "description": "Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a large tool's surge. Not a percentage; only meaningful for ordering.",
+                    "type": "number"
+                },
                 "users": {
                     "$ref": "#/definitions/integer"
                 }
@@ -33616,6 +33629,7 @@
             "required": [
                 "tool",
                 "total_calls",
+                "previous_calls",
                 "errors",
                 "error_rate_pct",
                 "p50_duration_ms",
@@ -33624,7 +33638,8 @@
                 "users",
                 "sessions",
                 "first_seen",
-                "last_seen"
+                "last_seen",
+                "trend_score"
             ],
             "type": "object"
         },
@@ -33737,6 +33752,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of tools matching the date, category, and search filters."
                 },
+                "totalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -33759,7 +33778,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "totalCount"],
+            "required": ["results", "totalCount", "totalSessions"],
             "type": "object"
         },
         "MCPToolQualitySortColumn": {
@@ -33771,7 +33790,8 @@
                 "p99_duration_ms",
                 "users",
                 "sessions",
-                "last_seen"
+                "last_seen",
+                "trend_score"
             ],
             "type": "string"
         },
@@ -48360,6 +48380,10 @@
                             "$ref": "#/definitions/integer",
                             "description": "Number of tools matching the date, category, and search filters."
                         },
+                        "totalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                        },
                         "used_data_warehouse_sources": {
                             "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                             "items": {
@@ -48382,7 +48406,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results", "totalCount"],
+                    "required": ["results", "totalCount", "totalSessions"],
                     "type": "object"
                 },
                 {
