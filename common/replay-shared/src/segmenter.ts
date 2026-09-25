@@ -122,6 +122,11 @@ export const createSegments = (
 
         for (const windowId of windowIds) {
             const snapshots = snapshotsByWindowId[windowId]
+            // A candidate window can have no snapshots: the viewer's tracked window may not be loaded,
+            // and a snapshot with no window id buckets under a key that reads back as NaN
+            if (!snapshots?.length) {
+                continue
+            }
             if (snapshots[0].timestamp <= timestamp && snapshots[snapshots.length - 1].timestamp >= timestamp) {
                 return windowId
             }
