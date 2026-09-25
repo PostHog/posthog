@@ -1642,25 +1642,24 @@ class TestPostgresSourceNonRetryableErrors:
         assert "Widen the local" in friendly[0]
 
     @pytest.mark.parametrize(
-        "error_msg",
+        "error_msg,expected_fragment",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)).
-            'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
+            (
+                'invalid input syntax for type timestamp: "\\N"\nCONTEXT:  column "created_at" of foreign table "events"',
+                "timestamp type",
+            ),
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
-            'InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"',
+            ('InvalidDatetimeFormat: invalid input syntax for type timestamp: "\\N"', "timestamp type"),
+            ('invalid input syntax for type uuid: "abc123"', "valid UUID"),
+            ('InvalidTextRepresentation: invalid input syntax for type uuid: "abc123"', "valid UUID"),
         ],
     )
-    def test_fdw_timestamp_mismatch_is_non_retryable(self, source, error_msg):
+    def test_declared_column_type_mismatch_is_non_retryable(self, source, error_msg, expected_fragment):
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"FDW timestamp mismatch error should be non-retryable: {error_msg}"
-
-    def test_fdw_timestamp_mismatch_returns_friendly_message(self, source):
-        non_retryable = source.get_non_retryable_errors()
-        error_msg = 'invalid input syntax for type timestamp: "\\N"'
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "FDW timestamp mismatch error should surface an actionable message"
-        assert "timestamp" in friendly[0]
+        assert friendly, f"Column type mismatch error should be non-retryable: {error_msg}"
+        assert expected_fragment in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",

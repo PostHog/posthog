@@ -1199,6 +1199,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "wasn't translated to a real NULL. Fix the remote data or the foreign table's column "
                 "type, or remove the foreign table from the sync, then re-enable the sync."
             ),
+            # A selected relation declares a uuid column over data that isn't a uuid (SQLSTATE 22P02).
+            # Postgres validates uuid values at write time on ordinary tables, so this surfaces from a
+            # foreign table's separately-declared type or a view that casts text to uuid. A row filter
+            # value on a uuid column also gets past validation, because row filters treat uuid as a
+            # string. `uuid` is never an incremental field type, so the cursor can't cause it. Each
+            # retry re-runs the identical statement. The volatile offending value is excluded.
+            "invalid input syntax for type uuid": (
+                "One of the tables you selected to sync has a uuid column that holds a value that isn't a "
+                'valid UUID (PostgreSQL reported "invalid input syntax for type uuid"). This can happen '
+                "with a foreign table or a view that casts text to uuid. Fix the data or the column's "
+                "declared type, or remove the table from the sync. If you set a row filter on a uuid "
+                "column, make sure its value is a valid UUID. Then re-enable the sync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:
