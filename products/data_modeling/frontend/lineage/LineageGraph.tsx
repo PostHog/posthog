@@ -130,7 +130,10 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             proOptions={{ hideAttribution: true }}
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-            {props.showControls && <Controls showInteractive={false} position="bottom-right" />}
+            {props.showControls && (
+                // The button runs its own fitView, so it needs the caller's options to respect the same zoom cap
+                <Controls showInteractive={false} position="bottom-right" fitViewOptions={props.fitViewOptions} />
+            )}
             {props.showMinimap && (
                 <MiniMap
                     zoomable
