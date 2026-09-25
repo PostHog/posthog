@@ -286,7 +286,15 @@ def _verify_and_fix_batch(
         cache_batch_data = {}
 
     # Batch-check expiry tracking
-    expiry_status = batch_check_expiry_tracking(teams, config)
+    expiry_status: dict[str | int, bool] = {}
+    try:
+        expiry_status = batch_check_expiry_tracking(teams, config)
+    except SoftTimeLimitExceeded:
+        raise
+    except Exception as e:
+        # An empty status makes the loop below skip the expiry check for this batch only,
+        # so a Redis failure costs one batch rather than the rest of the sweep.
+        logger.warning("Batch expiry tracking check failed, skipping expiry checks", error=str(e))
 
     # Batch-check which teams should skip fixes (e.g., grace period for recently updated flags)
     # This is done once per batch to avoid N+1 queries

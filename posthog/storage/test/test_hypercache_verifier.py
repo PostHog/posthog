@@ -523,6 +523,53 @@ class TestVerifyAndFixBatch(BaseTest):
             assert result.skipped_for_grace_period == 1
             mock_config.update_fn.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("timeout", TimeoutError("Timeout connecting to server")),
+            ("connection", ConnectionError("redis down")),
+        ]
+    )
+    def test_expiry_tracking_failure_does_not_abort_the_batch(self, _name: str, exception: Exception) -> None:
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.get_team_ids_to_skip_fix_fn = None
+
+        result = VerificationResult()
+
+        def verify_fn(team: Team, db_batch_data: dict | None, cache_batch_data: dict | None) -> dict:
+            return {"status": "match", "issue": None}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", side_effect=exception):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        assert result.total == 1
+        assert result.errors == 0
+        mock_config.update_fn.assert_not_called()
+
+    def test_expiry_tracking_soft_time_limit_propagates(self) -> None:
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+
+        with patch(
+            "posthog.storage.hypercache_verifier.batch_check_expiry_tracking", side_effect=SoftTimeLimitExceeded()
+        ):
+            with self.assertRaises(SoftTimeLimitExceeded):
+                _verify_and_fix_batch(
+                    teams=[self.team],
+                    config=mock_config,
+                    verify_team_fn=lambda team, db, cache: {"status": "match", "issue": None},
+                    cache_type="test_cache",
+                    result=VerificationResult(),
+                )
+
     def test_expiry_missing_triggers_fix_for_match_status(self):
         """Test that missing expiry tracking triggers fix even when cache matches."""
         mock_config = MagicMock()
