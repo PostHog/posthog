@@ -8,12 +8,23 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ScoutTrialLaunchApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ScoutTrialEvaluationApi,
+    ScoutTrialEvaluationRequestApi,
+    ScoutTrialLaunchApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { ScoutTrials } from './ScoutTrials'
-import { trialFixtureConfig, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
+import {
+    trialFixtureConfig,
+    trialFixtureEvaluation,
+    trialFixtureReport,
+    trialFixtureResult,
+    trialFixtureSetup,
+} from './scoutTrialsFixtures'
 
 const submissions = new Map<string, ScoutTrialLaunchApi>()
+const evaluations = new Map<string, ScoutTrialEvaluationApi>()
 
 const meta: Meta<typeof ScoutTrials> = {
     title: 'Scenes-App/Inbox/Scout comparisons interactive',
@@ -29,6 +40,10 @@ const meta: Meta<typeof ScoutTrials> = {
         },
         mswDecorator({
             get: {
+                '/api/projects/:team/signals/scout/configs/:config/trial_evaluation/': ({ request }) => {
+                    const evaluation = evaluations.get(new URL(request.url).searchParams.get('evaluation_id')!)
+                    return evaluation ? [200, evaluation] : [404, { detail: 'Evaluation not found.' }]
+                },
                 '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, id: 42, is_staff: true }],
                 '/api/projects/:team/signals/scout/configs/': () => [200, [trialFixtureConfig]],
                 '/api/projects/:team/signals/scout/configs/:config/trial_setup/': () => [200, trialFixtureSetup],
@@ -51,6 +66,67 @@ const meta: Meta<typeof ScoutTrials> = {
                 },
             },
             post: {
+                '/api/projects/:team/signals/scout/configs/:config/trial_evaluation/': async ({ request }) => {
+                    const payload = (await request.json()) as ScoutTrialEvaluationRequestApi
+                    const evaluation: ScoutTrialEvaluationApi = {
+                        ...trialFixtureEvaluation,
+                        evaluation_id: payload.evaluation_id,
+                        request: payload,
+                        report: {
+                            ...trialFixtureReport,
+                            evaluation_id: payload.evaluation_id,
+                            baseline_variant_id: payload.baseline_variant_id,
+                            summary:
+                                'This Storybook report uses fixed mock judgments to demonstrate scoring and evidence inspection.',
+                            variants: payload.variants.map((variant) => {
+                                const baseline = variant.id === payload.baseline_variant_id
+                                return {
+                                    ...trialFixtureReport.variants[baseline ? 0 : 1],
+                                    variant_id: variant.id,
+                                    label: variant.label,
+                                    is_baseline: baseline,
+                                    total_runs: variant.launch_ids.length,
+                                    judged_runs: variant.launch_ids.length,
+                                    score: baseline ? 0.5 : 1,
+                                    baseline_delta: baseline ? null : 0.5,
+                                    criteria: trialFixtureReport.variants[0].criteria.map((criterion) => ({
+                                        ...criterion,
+                                        passed:
+                                            baseline && criterion.criterion_id === 'evidence'
+                                                ? 0
+                                                : variant.launch_ids.length,
+                                        failed:
+                                            baseline && criterion.criterion_id === 'evidence'
+                                                ? variant.launch_ids.length
+                                                : 0,
+                                        pass_rate: baseline && criterion.criterion_id === 'evidence' ? 0 : 1,
+                                        baseline_delta: baseline ? null : criterion.criterion_id === 'evidence' ? 1 : 0,
+                                    })),
+                                }
+                            }),
+                            runs: payload.variants.flatMap((variant) =>
+                                variant.launch_ids.map((launchId) => ({
+                                    ...trialFixtureReport.runs[variant.id === payload.baseline_variant_id ? 0 : 2],
+                                    launch_id: launchId,
+                                    variant_id: variant.id,
+                                }))
+                            ),
+                            evidence: payload.variants.flatMap((variant) =>
+                                variant.launch_ids.map((launchId) => ({
+                                    ...trialFixtureReport.evidence[0],
+                                    launch_id: launchId,
+                                    variant_id: variant.id,
+                                    model: submissions.get(launchId)?.model ?? trialFixtureResult.model,
+                                    reasoning_effort:
+                                        submissions.get(launchId)?.reasoning_effort ??
+                                        trialFixtureResult.reasoning_effort,
+                                }))
+                            ),
+                        },
+                    }
+                    evaluations.set(payload.evaluation_id, evaluation)
+                    return [202, evaluation]
+                },
                 '/api/projects/:team/signals/scout/configs/:config/trial/': async ({ request }) => {
                     const payload = (await request.json()) as ScoutTrialLaunchApi
                     submissions.set(payload.launch_id, payload)

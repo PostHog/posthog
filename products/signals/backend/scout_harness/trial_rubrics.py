@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 from uuid import UUID
 
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 
 type RubricDocument = dict[str, JsonValue]
 
@@ -18,10 +18,8 @@ class ScoutRubricReader(Protocol):
 
 class MockScoutRubricReader:
     def read(self, *, config_id: UUID, skill_name: str) -> RubricDocument:
-        fixture = Path(__file__).resolve().parent.parent / "fixtures" / "mock-scout-rubric.json"
-        document: JsonValue = json.loads(fixture.read_text())
-        if not isinstance(document, dict):
-            raise ValueError("The mock rubric must be a JSON object.")
+        fixture = Path(__file__).with_name("mock_scout_rubric.json")
+        document: RubricDocument = TypeAdapter(RubricDocument).validate_json(fixture.read_text())
         return {**document, "config_id": str(config_id), "skill_name": skill_name}
 
 
