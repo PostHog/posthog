@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonInputSelect, lemonToast } from '@posthog/lemon-ui'
@@ -67,6 +68,14 @@ export function BulkUpdateTagsForm({
                 tags: selectedTags,
             })) as BulkUpdateTagsResult
             const { updated, skipped } = response
+            posthog.capture('tags updated', {
+                resource,
+                action: tagAction,
+                tags_count: selectedTags.length,
+                requested_count: selectedIds.length,
+                processed_count: updated.length,
+                skipped_count: skipped.length,
+            })
             if (skipped.length === 0) {
                 lemonToast.success(`Updated tags on ${updated.length} item${updated.length !== 1 ? 's' : ''}`)
             } else {

@@ -8,6 +8,7 @@ import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { BulkUpdateTagsModal } from 'lib/components/BulkActions/BulkUpdateTagsModal'
 import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -256,6 +257,7 @@ const ExperimentsTable = ({
     const [matchingExperimentIdsLoading, setMatchingExperimentIdsLoading] = useState(false)
     // State rather than a ref so mounting the slot re-renders and the bar's portal finds it.
     const [bulkSelectionBarContainer, setBulkSelectionBarContainer] = useState<HTMLDivElement | null>(null)
+    const [tagsModalExperiment, setTagsModalExperiment] = useState<Experiment | null>(null)
 
     // Changing a filter changes which experiments the bulk bar refers to, so drop the selection and
     // any cached "all matching" IDs. Page is excluded: selections deliberately span pages.
@@ -501,6 +503,20 @@ const ExperimentsTable = ({
                                         })
                                     }}
                                 />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Experiment}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={experiment.user_access_level}
+                                >
+                                    <LemonButton
+                                        onClick={() => setTagsModalExperiment(experiment)}
+                                        data-attr={`experiment-${experiment.id}-dropdown-edit-tags`}
+                                        size="small"
+                                        fullWidth
+                                    >
+                                        Edit tags
+                                    </LemonButton>
+                                </AccessControlAction>
                                 {canArchiveExperiment(experiment) && (
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.Experiment}
@@ -702,6 +718,18 @@ const ExperimentsTable = ({
                     }}
                 />
             </div>
+
+            <BulkUpdateTagsModal
+                resource="experiments"
+                selectedIds={tagsModalExperiment ? [tagsModalExperiment.id as number] : []}
+                isOpen={!!tagsModalExperiment}
+                title={tagsModalExperiment ? `Edit tags for ${tagsModalExperiment.name}` : undefined}
+                onClose={() => setTagsModalExperiment(null)}
+                onSuccess={() => {
+                    setTagsModalExperiment(null)
+                    loadExperiments()
+                }}
+            />
         </SceneContent>
     )
 }
