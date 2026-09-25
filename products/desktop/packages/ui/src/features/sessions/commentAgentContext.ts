@@ -88,6 +88,13 @@ export function commentAgentContext(
   };
 }
 
+export function withScreenshot(
+  context: CommentAgentContext | null,
+  screenshot: string | null,
+): CommentAgentContext | null {
+  return context && screenshot ? { ...context, screenshot } : context;
+}
+
 export function commentComposerContent({
   comment,
   draftEmpty,

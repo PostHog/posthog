@@ -1,3 +1,4 @@
+import { screenshotArea } from "@posthog/shared";
 import type {
   TaskPreviewFrameProps,
   TaskPreviewPin,
@@ -13,7 +14,6 @@ import {
   sanitizeTaskPreviewGuestMessage,
   type TaskPreviewHostMessage,
 } from "../../shared/task-preview-message";
-import { screenshotArea } from "../../shared/task-preview-screenshot";
 
 type CapturedImage = {
   isEmpty: () => boolean;

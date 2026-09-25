@@ -174,6 +174,10 @@ import {
   NOTIFICATIONS_SERVICE,
 } from "@posthog/platform/notifications";
 import type {
+  IScreenCapture,
+  SCREEN_CAPTURE_SERVICE,
+} from "@posthog/platform/screen-capture";
+import type {
   ISettingsBackupFiles,
   SETTINGS_BACKUP_FILES,
 } from "@posthog/platform/settings-backup-files";
@@ -314,6 +318,7 @@ export interface RendererBindings {
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
   [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
+  [SCREEN_CAPTURE_SERVICE]: IScreenCapture;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;

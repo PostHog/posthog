@@ -37,7 +37,11 @@ function ImageCommentCreationLayer({
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
-  onSendToAgent?: (anchor: CommentAnchor, content: string) => void;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onCancel: () => void;
 }) {
   const [pendingAnchor, setPendingAnchor] =
@@ -88,7 +92,8 @@ function ImageCommentCreationLayer({
         }}
         onSendToAgent={
           onSendToAgent && pendingAnchor
-            ? (content) => onSendToAgent(pendingAnchor, content)
+            ? (content, screenshot) =>
+                onSendToAgent(pendingAnchor, content, screenshot)
             : undefined
         }
       />
@@ -124,7 +129,11 @@ export function AnnotatedArtifactImage({
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
-  onSendToAgent?: (anchor: CommentAnchor, content: string) => void;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onError: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);

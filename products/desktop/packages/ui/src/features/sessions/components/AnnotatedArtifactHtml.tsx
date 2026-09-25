@@ -63,7 +63,11 @@ export function AnnotatedArtifactHtml({
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
-  onSendToAgent?: (anchor: CommentAnchor, content: string) => void;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }) {
   const channelRef = useRef(`artifact-comments-${crypto.randomUUID()}`);
@@ -226,7 +230,8 @@ export function AnnotatedArtifactHtml({
         }}
         onSendToAgent={
           onSendToAgent && pendingAnchor
-            ? (content) => onSendToAgent(pendingAnchor, content)
+            ? (content, screenshot) =>
+                onSendToAgent(pendingAnchor, content, screenshot)
             : undefined
         }
       />

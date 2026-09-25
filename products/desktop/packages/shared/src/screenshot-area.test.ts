@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { screenshotArea } from "./task-preview-screenshot";
+import { screenshotArea } from "./screenshot-area";
 
 function rect(left: number, top: number, width: number, height: number) {
   return {

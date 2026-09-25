@@ -40,6 +40,10 @@
       "types": "./dist/feedback-context.d.ts",
       "import": "./dist/feedback-context.js"
     },
+    "./screen-capture": {
+      "types": "./dist/screen-capture.d.ts",
+      "import": "./dist/screen-capture.js"
+    },
     "./secure-storage": {
       "types": "./dist/secure-storage.d.ts",
       "import": "./dist/secure-storage.js"

@@ -121,7 +121,11 @@ export function ArtifactPreviewContent({
     content: string,
     mentions?: number[],
   ) => Promise<void>;
-  sendCommentToAgent: (anchor: CommentAnchor, content: string) => void;
+  sendCommentToAgent: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
   imageCommenting: boolean;
   setImageCommenting: Dispatch<SetStateAction<boolean>>;

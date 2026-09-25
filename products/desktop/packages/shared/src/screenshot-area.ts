@@ -1,5 +1,3 @@
-import type { TaskPreviewRect } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
-
 const MARGIN = 96;
 const MIN_WIDTH = 360;
 const MIN_HEIGHT = 220;
@@ -35,8 +33,15 @@ function span(
   return [Math.round(from), Math.round(to)];
 }
 
+export type ScreenshotTarget = {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+};
+
 export function screenshotArea(
-  element: TaskPreviewRect,
+  element: ScreenshotTarget,
   viewport: { width: number; height: number },
 ): ScreenshotArea | null {
   if (viewport.width <= 0 || viewport.height <= 0) return null;

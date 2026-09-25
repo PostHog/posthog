@@ -186,6 +186,7 @@ export function AnnotatedTaskPreview({
         initiallyExpanded
         members={members}
         onDismiss={dismissPending}
+        captureScreenshot={false}
         onSubmit={(_start, _end, content, mentions) =>
           submit(content, mentions ?? [])
         }

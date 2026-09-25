@@ -139,7 +139,11 @@ interface ArtifactTextAnnotationsProps {
     content: string,
     mentions?: number[],
   ) => void | Promise<void>;
-  onSendToAgent?: (anchor: CommentAnchor, content: string) => void;
+  onSendToAgent?: (
+    anchor: CommentAnchor,
+    content: string,
+    screenshot: string | null,
+  ) => void;
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }
 
@@ -406,7 +410,8 @@ export function ArtifactTextAnnotations({
         }}
         onSendToAgent={
           onSendToAgent && pendingAnchor
-            ? (content) => onSendToAgent(pendingAnchor, content)
+            ? (content, screenshot) =>
+                onSendToAgent(pendingAnchor, content, screenshot)
             : undefined
         }
       />

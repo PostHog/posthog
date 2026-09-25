@@ -3,7 +3,10 @@ import type { TextCommentAnchor } from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
-import { commentAgentContext } from "@posthog/ui/features/sessions/commentAgentContext";
+import {
+  commentAgentContext,
+  withScreenshot,
+} from "@posthog/ui/features/sessions/commentAgentContext";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCreateComment } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
@@ -64,14 +67,17 @@ export function CanvasSelectionCommentAction({
       onDismiss={onDismiss}
       onSendToAgent={
         anchor && taskId
-          ? (content) =>
+          ? (content, screenshot) =>
               sendCommentToAgent({
                 taskId,
                 comment: content,
-                context: commentAgentContext(anchor, {
-                  kind: "canvas",
-                  name: canvasName,
-                }),
+                context: withScreenshot(
+                  commentAgentContext(anchor, {
+                    kind: "canvas",
+                    name: canvasName,
+                  }),
+                  screenshot,
+                ),
                 surface: "canvas",
               })
           : undefined
