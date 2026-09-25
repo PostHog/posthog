@@ -35,8 +35,13 @@ _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
 def _required_model_keys(model: type[BaseModel]) -> set[str]:
-    """Names a `model` instance cannot be built without, so the extractor can spot the answer object."""
-    return {field.alias or name for name, field in model.model_fields.items() if field.is_required()}
+    """Names a `model` instance cannot be built without, so the extractor can spot the answer object.
+
+    A model whose fields all have defaults validates any stray object as an empty answer, so its
+    declared names mark the answer instead.
+    """
+    keys = {field.alias or name: field.is_required() for name, field in model.model_fields.items()}
+    return {key for key, required in keys.items() if required} or set(keys)
 
 
 # Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.

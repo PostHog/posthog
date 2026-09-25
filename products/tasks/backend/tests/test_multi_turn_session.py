@@ -9,7 +9,7 @@ from django.db import OperationalError
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -50,6 +50,10 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 class _Resp(BaseModel):
     value: str
+
+
+class _DefaultedResp(BaseModel):
+    values: list[str] = Field(default_factory=list)
 
 
 class TestPollForTurnEmptyEndTurn:
@@ -1504,12 +1508,19 @@ class TestCreateTaskAndTriggerForwardsContext:
         ) == (model, runtime_adapter, reasoning_effort, initial_permission_mode)
 
 
-def test_parse_and_validate_reads_past_an_earlier_object():
+@parameterized.expand(
+    [
+        ("required_field", '{"value": "ok"}', _Resp, _Resp(value="ok")),
+        # Every field has a default, so the envelope would validate as an empty answer.
+        ("all_fields_defaulted", '{"values": ["ok"]}', _DefaultedResp, _DefaultedResp(values=["ok"])),
+    ]
+)
+def test_parse_and_validate_reads_past_an_earlier_object(_name, answer, model, expected):
     # A turn that ran a tool holds the tool's envelope before the answer. The first object used to
     # win, so validation failed on the envelope instead of reading the answer at the end.
-    text = '{"type": "error", "message": "query failed"}\nHere is the answer:\n{"value": "ok"}'
+    text = f'{{"type": "error", "message": "query failed"}}\nHere is the answer:\n{answer}'
 
-    assert MultiTurnSession._parse_and_validate(text, _Resp, label="initial turn") == _Resp(value="ok")
+    assert MultiTurnSession._parse_and_validate(text, model, label="initial turn") == expected
 
 
 class TestMultiTurnSessionStartFallback:
