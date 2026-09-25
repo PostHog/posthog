@@ -49,6 +49,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         email_sending_paused_reason: '',
         email_sending_paused_by: '',
         email_sending_pause_requires_support: false,
+        email_sending_resumed_at: null,
     }
 }
 
