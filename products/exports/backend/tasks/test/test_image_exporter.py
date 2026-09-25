@@ -833,7 +833,7 @@ class TestBuildCdpEndpoint(SimpleTestCase):
         expected_host: str,
         expected_token: str | None,
     ) -> None:
-        result = image_exporter._build_cdp_endpoint(cdp_url, token, session_timeout_ms)
+        result = image_exporter.build_cdp_endpoint(cdp_url, token, session_timeout_ms)
 
         parsed = urlparse(result)
         params = parse_qs(parsed.query)
@@ -848,7 +848,7 @@ class TestBuildCdpEndpoint(SimpleTestCase):
             assert params["token"] == [expected_token]
 
     def test_build_cdp_endpoint_preserves_path_and_existing_param(self) -> None:
-        result = image_exporter._build_cdp_endpoint("wss://example.org/cdp?launch=stealth", "tok", 1000)
+        result = image_exporter.build_cdp_endpoint("wss://example.org/cdp?launch=stealth", "tok", 1000)
 
         parsed = urlparse(result)
         params = parse_qs(parsed.query)

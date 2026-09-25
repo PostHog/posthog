@@ -7,6 +7,163 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapAnalysisCreateApi {
+    /** Saved heatmap to analyze. */
+    heatmap_id: string
+    /** Inclusive start of the historical range, with timezone. */
+    date_from: string
+    /** Exclusive end of the historical range, with timezone. */
+    date_to: string
+    /**
+     * Recorded viewport width in CSS pixels.
+     * @minimum 200
+     * @maximum 4000
+     */
+    viewport_width: number
+    /** Exclude the project's internal and test traffic. */
+    filter_test_accounts?: boolean
+    /** JSON array of cohort IDs, using existing heatmap cohort filter semantics. */
+    cohort_ids?: string
+    /** JSON array of heatmap event filters. */
+    events?: string
+}
+
+/**
+ * * `queued` - Queued
+ * * `processing` - Processing
+ * * `completed` - Completed
+ * * `partial` - Partial
+ * * `failed` - Failed
+ * * `unavailable` - Unavailable
+ */
+export type HeatmapAnalysisStatusEnumApi =
+    (typeof HeatmapAnalysisStatusEnumApi)[keyof typeof HeatmapAnalysisStatusEnumApi]
+
+export const HeatmapAnalysisStatusEnumApi = {
+    Queued: 'queued',
+    Processing: 'processing',
+    Completed: 'completed',
+    Partial: 'partial',
+    Failed: 'failed',
+    Unavailable: 'unavailable',
+} as const
+
+export type HeatmapAnalysisFiltersApiEventsItem = { [key: string]: unknown }
+
+export interface HeatmapAnalysisFiltersApi {
+    /** Cohorts used for this saved analysis. */
+    cohort_ids?: number[]
+    /** Event filters used for this saved analysis. */
+    events?: HeatmapAnalysisFiltersApiEventsItem[]
+    /** Whether internal and test traffic was excluded. */
+    filter_test_accounts?: boolean
+}
+
+export interface HeatmapAnalysisApi {
+    readonly id: string
+    readonly heatmap_id: string
+    /** Exact page URL analyzed. */
+    readonly url: string
+    /** Inclusive range start. */
+    readonly date_from: string
+    /** Exclusive range end. */
+    readonly date_to: string
+    /** Requested viewport width in CSS pixels. */
+    readonly viewport_width: number
+    /** Analysis processing state.
+     *
+     * * `queued` - Queued
+     * * `processing` - Processing
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed
+     * * `unavailable` - Unavailable */
+    readonly status: HeatmapAnalysisStatusEnumApi
+    /** Number of recordings selected for analysis. */
+    readonly sampled_recordings: number
+    /** Recordings that could not be analyzed. */
+    readonly excluded_recordings: number
+    /** User-facing failure reason, if any. */
+    readonly error: string
+    /** When the analysis was requested. */
+    readonly created_at: string
+    /** Filters frozen when the analysis was created. */
+    readonly filters: HeatmapAnalysisFiltersApi
+}
+
+export interface HeatmapAnalysisClickApi {
+    /** Document x coordinate in CSS pixels. */
+    x: number
+    /** Document y coordinate in CSS pixels. */
+    y: number
+    /** Number of attributable recorded clicks. */
+    count: number
+}
+
+export interface HeatmapAnalysisAlternativeApi {
+    /** Opaque representative moment identifier. */
+    id: string
+    /** Source recording ID. */
+    session_id: string
+    /** Absolute recorded timestamp in milliseconds. */
+    timestamp: number
+}
+
+export interface HeatmapAnalysisVariantApi {
+    /** Page variant identifier for this algorithm version. */
+    id: string
+    /** Recording used for the background. */
+    session_id: string
+    /** Recording window containing the background. */
+    window_id: number
+    /** Background timestamp in milliseconds since the epoch. */
+    timestamp: number
+    /** Whether an unavailable saved background was replaced with another available moment. */
+    representative_replaced: boolean
+    /** Recorded page width in CSS pixels. */
+    width: number
+    /** Reconstructed page height in CSS pixels. */
+    height: number
+    /** Distinct analyzed recordings containing this variant. */
+    recordings: number
+    /** Distinct analyzed page visits containing this variant. */
+    visits: number
+    /** Earliest analyzed occurrence in milliseconds. */
+    first_seen: number
+    /** Latest analyzed occurrence in milliseconds. */
+    last_seen: number
+    /** Clicks aligned to this background. */
+    clicks: HeatmapAnalysisClickApi[]
+    /** Alternative background moments. */
+    alternatives: HeatmapAnalysisAlternativeApi[]
+}
+
+export interface HeatmapAnalysisResultApi {
+    /** Saved historical analysis. */
+    analysis: HeatmapAnalysisApi
+    /** Variants from currently available source recordings. */
+    variants: HeatmapAnalysisVariantApi[]
+    /** Distinct successfully reconstructed visits across variants. */
+    analyzed_visits: number
+    /** Analyzed recordings no longer available to this viewer. */
+    unavailable_recordings: number
+    /** Recorded clicks that could not be aligned. */
+    excluded_clicks: number
+}
+
+export interface HeatmapAnalysisRepresentativeApi {
+    /**
+     * Variant whose background should change.
+     * @maxLength 24
+     */
+    variant_id: string
+    /**
+     * One of the variant's alternative moment IDs.
+     * @maxLength 260
+     */
+    moment_id: string
+}
+
 export interface HeatmapCapturePageApi {
     /** A page URL that currently sends heatmap data. */
     url: string

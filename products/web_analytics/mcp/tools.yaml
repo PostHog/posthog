@@ -9,6 +9,18 @@ feature: web_analytics
 url_prefix: /web
 ui_apps: {}
 tools:
+    heatmap-analyses-background-retrieve:
+        operation: heatmap_analyses_background_retrieve
+        enabled: false
+    heatmap-analyses-create:
+        operation: heatmap_analyses_create
+        enabled: false
+    heatmap-analyses-representative-create:
+        operation: heatmap_analyses_representative_create
+        enabled: false
+    heatmap-analyses-retrieve:
+        operation: heatmap_analyses_retrieve
+        enabled: false
     heatmap-capture-pages-retrieve:
         operation: heatmap_capture_pages_retrieve
         enabled: false

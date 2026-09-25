@@ -9,6 +9,51 @@
  */
 import * as zod from 'zod'
 
+export const heatmapAnalysesCreateBodyViewportWidthMin = 200
+export const heatmapAnalysesCreateBodyViewportWidthMax = 4000
+
+export const heatmapAnalysesCreateBodyFilterTestAccountsDefault = false
+export const heatmapAnalysesCreateBodyCohortIdsDefault = `[]`
+export const heatmapAnalysesCreateBodyEventsDefault = `[]`
+
+export const HeatmapAnalysesCreateBody = /* @__PURE__ */ zod.object({
+    heatmap_id: zod.uuid().describe('Saved heatmap to analyze.'),
+    date_from: zod.iso.datetime({ offset: true }).describe('Inclusive start of the historical range, with timezone.'),
+    date_to: zod.iso.datetime({ offset: true }).describe('Exclusive end of the historical range, with timezone.'),
+    viewport_width: zod
+        .number()
+        .min(heatmapAnalysesCreateBodyViewportWidthMin)
+        .max(heatmapAnalysesCreateBodyViewportWidthMax)
+        .describe('Recorded viewport width in CSS pixels.'),
+    filter_test_accounts: zod
+        .boolean()
+        .default(heatmapAnalysesCreateBodyFilterTestAccountsDefault)
+        .describe("Exclude the project's internal and test traffic."),
+    cohort_ids: zod
+        .string()
+        .default(heatmapAnalysesCreateBodyCohortIdsDefault)
+        .describe('JSON array of cohort IDs, using existing heatmap cohort filter semantics.'),
+    events: zod
+        .string()
+        .default(heatmapAnalysesCreateBodyEventsDefault)
+        .describe('JSON array of heatmap event filters.'),
+})
+
+export const heatmapAnalysesRepresentativeCreateBodyVariantIdMax = 24
+
+export const heatmapAnalysesRepresentativeCreateBodyMomentIdMax = 260
+
+export const HeatmapAnalysesRepresentativeCreateBody = /* @__PURE__ */ zod.object({
+    variant_id: zod
+        .string()
+        .max(heatmapAnalysesRepresentativeCreateBodyVariantIdMax)
+        .describe('Variant whose background should change.'),
+    moment_id: zod
+        .string()
+        .max(heatmapAnalysesRepresentativeCreateBodyMomentIdMax)
+        .describe("One of the variant's alternative moment IDs."),
+})
+
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistItemMax = 2000
 
 export const heatmapCaptureSettingsUpdateBodyUrlAllowlistMax = 100

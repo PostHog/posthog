@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 from products.web_analytics.backend.api import WebAnalyticsViewSet
 from products.web_analytics.backend.api.custom_bot_rules import CustomBotRuleViewSet
+from products.web_analytics.backend.api.heatmap_analyses import HeatmapAnalysisViewSet
 from products.web_analytics.backend.api.heatmaps_api import (
     HeatmapScreenshotViewSet,
     HeatmapViewSet,
@@ -23,6 +24,7 @@ from products.web_analytics.backend.presentation.views.screenshot_settings impor
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(r"heatmap_analyses", HeatmapAnalysisViewSet, "project_heatmap_analyses", ["team_id"])
     routers.projects.register(
         r"heatmap_screenshot", HeatmapScreenshotSettingsViewSet, "project_heatmap_screenshot_settings", ["team_id"]
     )

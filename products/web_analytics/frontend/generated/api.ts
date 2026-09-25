@@ -22,6 +22,10 @@ import type {
     ContentAutopilotSiteDiscoveryResponseApi,
     ContentAutopilotSiteProfileApi,
     GeneratePathCleaningSuggestionResponseApi,
+    HeatmapAnalysisApi,
+    HeatmapAnalysisCreateApi,
+    HeatmapAnalysisRepresentativeApi,
+    HeatmapAnalysisResultApi,
     HeatmapCapturePagesApi,
     HeatmapCaptureSettingsApi,
     HeatmapEventsResponseApi,
@@ -82,6 +86,72 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getHeatmapAnalysesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/heatmap_analyses/`
+}
+
+export const heatmapAnalysesCreate = async (
+    projectId: string,
+    heatmapAnalysisCreateApi: HeatmapAnalysisCreateApi,
+    options?: RequestInit
+): Promise<HeatmapAnalysisApi> => {
+    return apiMutator<HeatmapAnalysisApi>(getHeatmapAnalysesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapAnalysisCreateApi),
+    })
+}
+
+export const getHeatmapAnalysesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/heatmap_analyses/${id}/`
+}
+
+export const heatmapAnalysesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HeatmapAnalysisResultApi> => {
+    return apiMutator<HeatmapAnalysisResultApi>(getHeatmapAnalysesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapAnalysesBackgroundRetrieveUrl = (projectId: string, id: string, variantId: string) => {
+    return `/api/projects/${projectId}/heatmap_analyses/${id}/background/${variantId}/`
+}
+
+export const heatmapAnalysesBackgroundRetrieve = async (
+    projectId: string,
+    id: string,
+    variantId: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getHeatmapAnalysesBackgroundRetrieveUrl(projectId, id, variantId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHeatmapAnalysesRepresentativeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/heatmap_analyses/${id}/representative/`
+}
+
+export const heatmapAnalysesRepresentativeCreate = async (
+    projectId: string,
+    id: string,
+    heatmapAnalysisRepresentativeApi: HeatmapAnalysisRepresentativeApi,
+    options?: RequestInit
+): Promise<HeatmapAnalysisResultApi> => {
+    return apiMutator<HeatmapAnalysisResultApi>(getHeatmapAnalysesRepresentativeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(heatmapAnalysisRepresentativeApi),
+    })
+}
 
 export const getHeatmapCapturePagesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/heatmap_capture/pages/`
