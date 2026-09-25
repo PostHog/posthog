@@ -14,6 +14,7 @@ on:
         paths:
             - '.github/workflows/cd-sandbox-base-image.yml'
             - '.github/actions/setup-uv/**'
+            - '.github/actions/download-context-mill-skills/**'
             - 'products/tasks/backend/sandbox/images/**'
             - 'packages/agent/agent-shadow/**'
             - 'products/posthog_ai/scripts/**'
@@ -46,6 +47,7 @@ jobs:
             pull-requests: read
         outputs:
             sandbox_image: ${{ steps.filter.outputs.sandbox_image }}
+            skills_source: ${{ steps.filter.outputs.skills_source }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -69,19 +71,30 @@ jobs:
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
                         - '.github/actions/setup-uv/**'
+                        - '.github/actions/download-context-mill-skills/**'
                         - 'products/tasks/backend/sandbox/images/**'
                         - 'packages/agent/agent-shadow/**'
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/**'
                         - 'products/notebooks/backend/sandbox/kernel/**'
                         - 'products/notebooks/backend/kernel_package.py'
+                      skills_source:
+                        - '.github/workflows/cd-sandbox-base-image.yml'
+                        - '.github/actions/setup-uv/**'
+                        - '.github/actions/download-context-mill-skills/**'
+                        - 'products/*/skills/**'
+                        - 'products/*/backend/max_tools.py'
+                        - 'products/posthog_ai/**'
+                        - 'services/mcp/schema/**'
+                        - '!products/posthog_ai/frontend/**'
 
     build_skills:
         needs: changes
         name: Build agent skills from source
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || needs.changes.outputs.skills_source == 'true') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -275,26 +288,61 @@ jobs:
               run: ./bin/hogli build:skills
 
             - name: Download context-mill skills
+              uses: ./.github/actions/download-context-mill-skills
+              with:
+                  target-dir: products/posthog_ai/dist/skills
+
+            - name: Upload built skills
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: built-skills
+                  path: products/posthog_ai/dist/skills/
+                  retention-days: 1
+
+    fetch_skills:
+        needs: changes
+        name: Fetch the released agent skills
+        if: |
+            github.repository_owner == 'PostHog' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            needs.changes.outputs.skills_source != 'true' && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/download-context-mill-skills
+                  sparse-checkout-cone-mode: false
+
+            - name: Download the released PostHog skills
+              env:
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
-                  TARGET_DIR="products/posthog_ai/dist/skills"
-                  tmp_dir=$(mktemp -d)
-                  trap 'rm -rf "$tmp_dir"' EXIT
-                  echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
-                  curl -fsSL --retry 2 --retry-delay 3 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
-                  unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
-                  mkdir -p "$TARGET_DIR"
-                  count=0
-                  while read -r inner_zip; do
-                      skill_name="$(basename "$inner_zip" .zip)"
-                      skill_name="${skill_name#omnibus-}"
-                      skill_dir="$TARGET_DIR/$skill_name"
-                      mkdir -p "$skill_dir"
-                      unzip -q -o "$inner_zip" -d "$skill_dir"
-                      find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
-                      count=$((count + 1))
-                  done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
-                  echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
+                  for attempt in $(seq 1 6); do
+                    if gh release download agent-skills-latest --repo "$GITHUB_REPOSITORY" --pattern skills.zip --dir "$RUNNER_TEMP" --clobber; then
+                      break
+                    fi
+                    if [ "$attempt" = 6 ]; then
+                      echo "::error::could not download skills.zip from the agent-skills-latest release"
+                      exit 1
+                    fi
+                    echo "skills.zip is not downloadable yet (attempt $attempt)"
+                    sleep 10
+                  done
+                  mkdir -p products/posthog_ai/dist/skills
+                  unzip -q "$RUNNER_TEMP/skills.zip" -d products/posthog_ai/dist/skills
+                  echo "Installed $(find products/posthog_ai/dist/skills -mindepth 1 -maxdepth 1 -type d | wc -l) released skills"
+
+            - name: Download context-mill skills
+              uses: ./.github/actions/download-context-mill-skills
+              with:
+                  target-dir: products/posthog_ai/dist/skills
 
             - name: Upload built skills
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -304,11 +352,13 @@ jobs:
                   retention-days: 1
 
     sandbox_base_build:
-        needs: [changes, build_skills]
+        needs: [changes, build_skills, fetch_skills]
         name: Build and push Tasks Sandbox container image
         if: |
+            !cancelled() &&
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (needs.build_skills.result == 'success' || needs.fetch_skills.result == 'success') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -631,11 +681,11 @@ jobs:
                       text: "${{ steps.message.outputs.text }}"
 
     sandbox_base_smoke_check:
-        needs: [build_skills, sandbox_base_build]
+        needs: [build_skills, fetch_skills, sandbox_base_build]
         name: Sandbox Base Image Smoke
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
+        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.fetch_skills.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
         permissions: {}
         steps:
             - name: Check the base image build and agent smoke
@@ -655,7 +705,7 @@ jobs:
     # paths, and a required check that never reports blocks merging forever.
     # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
-        needs: [changes, build_skills, sandbox_base_build, sandbox_derived_build]
+        needs: [changes, build_skills, fetch_skills, sandbox_base_build, sandbox_derived_build]
         name: Sandbox Base Image Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -671,13 +721,18 @@ jobs:
                   fi
 
                   # Pass if build wasn't required (no relevant changes, no dispatch, no label)
-                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
+                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.fetch_skills.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
                     echo "Sandbox image build was skipped (no relevant changes)."
                     exit 0
                   fi
 
                   if [[ "${{ needs.build_skills.result }}" != "success" && "${{ needs.build_skills.result }}" != "skipped" ]]; then
                     echo "Agent skills build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.fetch_skills.result }}" != "success" && "${{ needs.fetch_skills.result }}" != "skipped" ]]; then
+                    echo "Released skills fetch failed."
                     exit 1
                   fi
 
