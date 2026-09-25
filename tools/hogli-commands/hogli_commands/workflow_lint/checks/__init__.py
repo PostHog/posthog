@@ -23,6 +23,7 @@ from .pr_event_fanout import PrEventFanoutCheck
 from .required_gates import RequiredGateCheck
 from .reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
+from .shell_split_action_args import ShellSplitActionArgsCheck
 
 CHECKS: list[WorkflowCheck] = [
     JobTimeoutsCheck(),
@@ -36,6 +37,7 @@ CHECKS: list[WorkflowCheck] = [
     McpFilterCoverageCheck(),
     ReusableSecretPassthroughCheck(),
     PinnedRunnerImagesCheck(),
+    ShellSplitActionArgsCheck(),
 ]
 
 

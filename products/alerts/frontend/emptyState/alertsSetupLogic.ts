@@ -18,6 +18,8 @@ import { hasEffectiveResourceAccess } from '../utils'
 export const alertsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ALERTS,
     path: ['products', 'alerts', 'frontend', 'emptyState', 'alertsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const canViewInsightAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Insight)
         const canViewLogAlerts = hasEffectiveResourceAccess(AccessControlResourceType.Logs)

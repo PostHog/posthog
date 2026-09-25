@@ -126,6 +126,7 @@ SANDBOX_BASE_IMAGE = "ghcr.io/posthog/posthog-sandbox-base"
 SANDBOX_NOTEBOOK_IMAGE = "ghcr.io/posthog/posthog-sandbox-notebook"
 SANDBOX_VM_IMAGE = "ghcr.io/posthog/posthog-sandbox-vm"
 SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
+SANDBOX_AUTORESEARCH_IMAGE = "ghcr.io/posthog/posthog-sandbox-autoresearch"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 
 # SLIM_BASE has no registry image and no CD publish pipeline — it's built inline by Modal
@@ -135,6 +136,9 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+# Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
+# use the same directory whatever HOME the sandbox process gets.
+SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
 READINESS_PROBE_INTERVAL_MS = 250
 READINESS_PROBE_TIMEOUT_SECONDS = 45
 POST_MOUNT_PROBE_TIMEOUT_SECONDS = 45
@@ -341,6 +345,7 @@ LOCAL_MODAL_DOCKERFILES = {
     SandboxTemplate.NOTEBOOK_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"),
     SandboxTemplate.VM_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm"),
     SandboxTemplate.STREAMLIT_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-streamlit"),
+    SandboxTemplate.AUTORESEARCH_BASE: Path("products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch"),
 }
 LOCAL_MODAL_INSTALL_SKILLS_SCRIPT = Path("products/tasks/backend/sandbox/images/install-skills.sh")
 LOCAL_MODAL_GIT_GUARD_SCRIPT = Path("products/tasks/backend/sandbox/images/git-guard.sh")
@@ -352,10 +357,11 @@ LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_pac
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 # The base image builds the agent-shadow observer from source in its first stage.
-LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
+LOCAL_MODAL_AGENT_SHADOW_DIR = Path("packages/agent/agent-shadow")
 
 
-_image_ref_cache: TTLCache = TTLCache(maxsize=3, ttl=300)
+# One entry per registry-backed template, so a worker serving every template evicts nothing.
+_image_ref_cache: TTLCache = TTLCache(maxsize=8, ttl=300)
 _image_ref_lock = threading.Lock()
 
 
@@ -448,7 +454,9 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
 
 # Templates whose image bundles the agent-server at /scripts and can therefore
 # take a live local dist overlay in DEBUG. Add new agent-server-bearing templates here.
-AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
+AGENT_SERVER_TEMPLATES = frozenset(
+    {SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE, SandboxTemplate.AUTORESEARCH_BASE}
+)
 
 
 @dataclass(frozen=True)
@@ -612,7 +620,39 @@ def _build_canvas_template_image() -> modal.Image:
     )
 
 
-_template_image_cache: TTLCache = TTLCache(maxsize=4, ttl=300)
+def _pep723_script_header(script: Path) -> str:
+    """The ``# /// script`` metadata block of a PEP 723 script, including its delimiters."""
+    lines = script.read_text().splitlines()
+    try:
+        start = lines.index("# /// script")
+        end = lines.index("# ///", start + 1)
+    except ValueError:
+        raise ValueError(f"{script} has no PEP 723 '# /// script' block") from None
+    return "\n".join(lines[start : end + 1]) + "\n"
+
+
+def _build_stamphog_review_template_image() -> modal.Image:
+    # Only the header is baked, not the whole engine script, so the layer rebuilds when the
+    # pins change and not on every engine edit. uv keys its package cache by requirement, so a
+    # header-only script fills the same cache entries the real engine resolves against. PyPI
+    # stays on the review egress allowlist, so a pin that drifted past this image still installs.
+    header = _pep723_script_header(Path(settings.STAMPHOG_REVIEW_ENGINE_SCRIPT))
+    # Modal turns each command into one Dockerfile RUN line, so the multi-line header travels as
+    # base64 on a single line.
+    encoded_header = base64.b64encode(header.encode()).decode()
+    warm_script = "/opt/stamphog-review-deps.py"
+    return (
+        _build_slim_template_image()
+        .env({"UV_CACHE_DIR": SANDBOX_STAMPHOG_UV_CACHE_DIR})
+        .run_commands(
+            f"echo {encoded_header} | base64 -d > {warm_script}",
+            f"uv sync --no-config --script {warm_script}",
+        )
+    )
+
+
+# One entry per template, so a worker serving every template evicts nothing.
+_template_image_cache: TTLCache = TTLCache(maxsize=8, ttl=300)
 _template_image_lock = threading.Lock()
 
 
@@ -625,12 +665,15 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
         return _build_slim_template_image()
     if template == SandboxTemplate.CANVAS_BUILD:
         return _build_canvas_template_image()
+    if template == SandboxTemplate.STAMPHOG_REVIEW:
+        return _build_stamphog_review_template_image()
 
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
         SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
         SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+        SandboxTemplate.AUTORESEARCH_BASE: SANDBOX_AUTORESEARCH_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Unknown template: {template}")
@@ -663,6 +706,7 @@ def resolve_template_base_image_reference(template: SandboxTemplate) -> str | No
         SandboxTemplate.NOTEBOOK_BASE: SANDBOX_NOTEBOOK_IMAGE,
         SandboxTemplate.VM_BASE: SANDBOX_VM_IMAGE,
         SandboxTemplate.STREAMLIT_BASE: SANDBOX_STREAMLIT_IMAGE,
+        SandboxTemplate.AUTORESEARCH_BASE: SANDBOX_AUTORESEARCH_IMAGE,
     }.get(template)
     if registry_image is None:
         raise ValueError(f"Template does not use a registry image: {template}")

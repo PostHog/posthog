@@ -185,7 +185,7 @@ def send_test_slack_message(*, team_id: int, stream_id: str, user: "User") -> st
         raise EventStreamTestMessageError("The stream's Slack workspace is no longer connected.")
 
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        SlackIntegration(integration, source="customer_analytics_event_stream").client.chat_postMessage(
             channel=stream.slack_channel_id,
             text=(
                 ":wave: This is a test message from PostHog Customer analytics — "

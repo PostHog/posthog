@@ -11,11 +11,12 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { execFileSync } = require('node:child_process')
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts } = require('./turbo-discover')
+const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets } = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOWS = ['.github/workflows/ci-backend.yml', '.depot/workflows/ci-backend.yml']
@@ -158,4 +159,23 @@ test('isolation needs both the contract-check script and narrowed contract input
     }))
 
     assert.deepEqual([...getIsolatedProducts(tasks, repoRoot)].sort(), ['declared', 'multi-word'])
+})
+
+// The events_json rows skip a listed path that a checkout lacks, and pytest passes a path
+// that collects nothing, so a typo, a moved directory, or a directory of runner modules alone
+// would drop out of the leg without failing anything. The index covers the paths that the
+// sparse checkout of this suite leaves out of the working tree.
+test('every events_json path holds a test module', () => {
+    const targets = loadJsonTargets(path.join(REPO_ROOT, '.github/new-events-schema-targets.txt'))
+    assert.ok(targets.length > 0)
+    for (const target of targets) {
+        const tracked = execFileSync('git', ['ls-files', '-z', '--', target], { cwd: REPO_ROOT })
+            .toString()
+            .split('\0')
+            .filter(Boolean)
+        assert.ok(
+            tracked.some((file) => /(^|\/)(test_[^/]*|[^/]*_test)\.py$/.test(file)),
+            `${target} is listed but holds no test module`
+        )
+    }
 })

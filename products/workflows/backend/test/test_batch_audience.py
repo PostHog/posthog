@@ -1,11 +1,16 @@
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
-from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import get_batch_audience_count, get_batch_audience_person_ids
+from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
+from products.workflows.backend.services.batch_audience import (
+    audience_page_size,
+    get_batch_audience_count,
+    get_batch_audience_person_ids,
+)
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -77,7 +82,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         collected: list[str] = []
         cursor = None
-        with patch("products.workflows.backend.services.batch_audience.PERSON_BATCH_SIZE", 2):
+        with override_settings(WORKFLOWS_PERSON_BATCH_SIZE=2):
             for _ in range(10):
                 page = get_batch_audience_person_ids(self.team, FILTERS, cursor=cursor, dedupe_key=dedupe_key)
                 collected.extend(page)
@@ -86,3 +91,10 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
+    def test_has_more_page_size_follows_the_audience_kind(self):
+        # A group audience pages through the flags-owned query with its own limit; comparing its
+        # page length against the person setting would stop after the first page.
+        assert audience_page_size(None) == 7
+        assert audience_page_size(0) == PERSON_BATCH_SIZE

@@ -6,10 +6,7 @@ from unittest import mock
 import requests
 from rest_framework.response import Response
 
-from products.managed_warehouse.backend.facade.contracts import (
-    DuckgresQueryServerConfig,
-    ManagedWarehouseTrinoConnectionUnavailable,
-)
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
 from products.managed_warehouse.backend.trino_connection import (
     connect_managed_warehouse_trino,
     resolve_managed_warehouse_trino_connection,
@@ -36,27 +33,16 @@ def _ready_response(**connection_overrides: object) -> Response:
     )
 
 
-def _root_connection(password: str = "root-secret") -> DuckgresQueryServerConfig:
-    return DuckgresQueryServerConfig(
-        host="duckgres.postwh.com",
-        port=5432,
-        flight_port=8815,
-        database="ducklake",
-        username="root",
-        password=password,
-    )
-
-
 class TestResolveManagedWarehouseTrinoConnection:
-    def test_combines_the_control_plane_target_with_the_existing_root_secret(self) -> None:
+    def test_combines_the_control_plane_target_with_the_stored_trino_secret(self) -> None:
         with (
             mock.patch(
                 "products.managed_warehouse.backend.presentation.views._request",
                 return_value=_ready_response(),
             ) as request,
             mock.patch(
-                "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
-                return_value=_root_connection(),
+                "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
+                return_value="trino-secret",
             ),
         ):
             connection = resolve_managed_warehouse_trino_connection("org-1")
@@ -65,8 +51,8 @@ class TestResolveManagedWarehouseTrinoConnection:
         assert connection.port == 8443
         assert connection.catalog == "org_catalog"
         assert connection.username == "org_database"
-        assert connection.password == "root-secret"
-        assert "root-secret" not in repr(connection)
+        assert connection.password == "trino-secret"
+        assert "trino-secret" not in repr(connection)
         request.assert_called_once_with("GET", "org-1", "/trino", require_enabled=False)
 
     @pytest.mark.parametrize(
@@ -107,15 +93,15 @@ class TestResolveManagedWarehouseTrinoConnection:
             with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="ready managed Trino connection"):
                 resolve_managed_warehouse_trino_connection("org-1")
 
-    def test_rejects_a_missing_stored_root_secret(self) -> None:
+    def test_rejects_a_missing_stored_trino_secret(self) -> None:
         with (
             mock.patch(
                 "products.managed_warehouse.backend.presentation.views._request",
                 return_value=_ready_response(),
             ),
             mock.patch(
-                "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
-                return_value=_root_connection(password=""),
+                "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
+                return_value="",
             ),
         ):
             with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="stored managed warehouse credential"):
@@ -178,8 +164,8 @@ def test_managed_trino_requests_bypass_environment_proxies_only_for_known_hosts(
             return_value=_ready_response(host=host, port=port),
         ),
         mock.patch(
-            "products.managed_warehouse.backend.trino_connection.get_duckgres_query_server_config",
-            return_value=_root_connection(),
+            "products.managed_warehouse.backend.trino_connection.get_managed_warehouse_trino_password",
+            return_value="root-secret",
         ),
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=RuntimeError("network boundary")) as send,
     ):

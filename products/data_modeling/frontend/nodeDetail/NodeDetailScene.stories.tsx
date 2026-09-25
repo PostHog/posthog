@@ -1,11 +1,12 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
-import { NodeDetailScene } from 'scenes/models/NodeDetailScene'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { NodeDetailScene } from './NodeDetailScene'
 
 const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
     const appContext = window.POSTHOG_APP_CONTEXT

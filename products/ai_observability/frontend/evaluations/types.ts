@@ -1,6 +1,7 @@
 import { AccessControlLevel, AnyPropertyFilter, UserBasicType } from '~/types'
 
 import type {
+    EvaluationApiOutputConfig,
     EvaluationReportCitationApi,
     EvaluationReportMetricsApi,
     EvaluationReportRunApi,
@@ -12,7 +13,7 @@ import { LLMProvider } from '../settings/llmProviderKeysLogic'
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationTarget = 'generation' | 'trace' | 'session'
 export type EvaluationSettleStrategy = 'fixed_window' | 'inactivity'
-export type EvaluationOutputType = 'boolean' | 'sentiment'
+export type EvaluationOutputType = 'boolean' | 'sentiment' | 'numeric'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason =
     | 'provider_key_required'
@@ -32,12 +33,7 @@ export interface ModelConfiguration {
     provider_key_name?: string | null
 }
 
-export interface EvaluationOutputConfig {
-    allows_na?: boolean
-    /** Whether a true result means the evaluation found a problem. Absent or false means a true
-     * result is a pass, which is what every evaluation stored before this field intends. */
-    true_is_failure?: boolean
-}
+export type EvaluationOutputConfig = EvaluationApiOutputConfig
 
 /** Settle config for aggregate targets (trace, session). A missing `strategy` resolves per target:
  * 'fixed_window' for a trace, because rows saved before strategies existed mean exactly that, and
@@ -94,13 +90,13 @@ export interface BaseEvaluationConfig {
 
 export interface LLMJudgeEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'llm_judge'
-    output_type: 'boolean'
+    output_type: 'boolean' | 'numeric'
     evaluation_config: LLMJudgeEvaluationConfig
 }
 
 export interface HogEvaluation extends BaseEvaluationConfig {
     evaluation_type: 'hog'
-    output_type: 'boolean'
+    output_type: 'boolean' | 'numeric'
     evaluation_config: HogEvaluationConfig
 }
 
@@ -138,6 +134,9 @@ export interface EvaluationRun {
     result: boolean | null
     sentiment_label?: string | null
     sentiment_score?: number | null
+    score?: number | null
+    score_min?: number | null
+    score_max?: number | null
     applicable?: boolean
     // A skipped run completed without grading anything. Its `result` is still false when the
     // evaluation disallows N/A, so it has to be read alongside this rather than on its own.

@@ -184,7 +184,23 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     # Where a destination points is fixed once it exists. Everything already synced sits at the
     # current server and schema, so repointing one strands that data and needs a full resync of
     # every table that syncs there. A second destination is the supported way to write elsewhere.
-    RETARGETING_FIELDS = ("database", "schema")
+    # Config fields that pin where a destination's already-synced rows live, per type. Changing
+    # one points the destination somewhere else and strands everything written so far, so they
+    # are fixed after creation. Mirrors `retargetingKeys` on each definition in
+    # products/data_warehouse/frontend/shared/destinations/.
+    #
+    # Aliases are listed alongside the name the writer prefers: S3 reads `bucket` or
+    # `bucket_name` and Azure Blob reads `container_name` or `container`, so guarding only one
+    # spelling would let the other through.
+    RETARGETING_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.POSTGRES): ("database", "schema"),
+        str(ExternalDataDestination.Type.REDSHIFT): ("database", "schema"),
+        str(ExternalDataDestination.Type.SNOWFLAKE): ("database", "schema"),
+        str(ExternalDataDestination.Type.DATABRICKS): ("catalog", "schema"),
+        str(ExternalDataDestination.Type.BIGQUERY): ("dataset", "dataset_id", "project", "project_id"),
+        str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "prefix"),
+        str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
+    }
 
     def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
         assert self.instance is not None
@@ -203,13 +219,15 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
         current = self.instance.config or {}
         incoming = attrs["config"] or {}
-        for field in self.RETARGETING_FIELDS:
+        destination_type = attrs.get("type", getattr(self.instance, "type", None))
+        for field in self.RETARGETING_FIELDS_BY_TYPE.get(str(destination_type), ()):
             if field in incoming and incoming[field] != current.get(field):
+                label = field.replace("_", " ")
                 raise ValidationError(
                     {
                         "config": (
-                            f"A destination keeps the {field} it was created with. Add a second "
-                            f"destination for the other {field}."
+                            f"A destination keeps the {label} it was created with. Add a second "
+                            f"destination for the other {label}."
                         )
                     }
                 )
@@ -221,6 +239,17 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             created_by=request.user,
             **validated_data,
         )
+
+    def update(self, instance: ExternalDataDestination, validated_data: dict[str, Any]) -> ExternalDataDestination:
+        # `config` is a single JSON blob, so a PATCH that includes it replaces the whole thing.
+        # A caller that means to change one key (say `compression`) without repeating every other
+        # key would otherwise silently drop `database`/`schema` and strand already-synced rows,
+        # the exact outcome `_reject_retargeting` exists to prevent. Merging onto the current
+        # config keeps every field `_reject_retargeting` did not see change.
+        if "config" in validated_data:
+            current = instance.config or {}
+            validated_data["config"] = {**current, **validated_data["config"]}
+        return super().update(instance, validated_data)
 
 
 class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

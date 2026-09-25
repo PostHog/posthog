@@ -27,6 +27,14 @@
 
 👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._
 
+## Release status
+
+<!-- Select exactly one. Agents must inspect the changed code for feature flag checks before choosing. -->
+
+- [ ] No feature flag controls this change <!-- release-status: no-feature-flag -->
+- [ ] This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
+- [ ] This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
+
 ## Automatic notifications
 
 - [ ] Publish to changelog?
@@ -52,6 +60,7 @@
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+     - New events schema: Backend CI reruns the paths in `.github/new-events-schema-targets.txt` against the native-JSON events table. A new directory of tests that read event properties is added to that file. Add `test-new-events-schema` when the diff should run the whole backend suite on both tables: event ingestion or cleaning, or event reads whose tests are outside the list. Apply it while draft, or push another commit after labeling, because label events do not start Backend CI. State the result under "How did you test this code?".
      - Public artifact: nothing in this PR — code, fixtures and sample data, comments, commit messages, or this description — carries material from the agent session that isn't already public. If the work drew on a customer conversation, ticket, or log, say so here and state that the committed data is invented. Renaming people, hosts, and identifiers does not clear real material; see AGENTS.md "Public open source repo guidance".
 -->
 

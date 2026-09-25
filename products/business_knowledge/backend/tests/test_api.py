@@ -89,6 +89,9 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         KnowledgeSource.objects.unscoped().create(
             team=self.team, name="Gamma report", source_type="file", status="ready"
         )
+        KnowledgeSource.objects.unscoped().create(
+            team=self.team, name="Learned policy", source_type="text", status="ready", is_generated=True
+        )
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
@@ -111,6 +114,11 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         # Search and type combine as AND.
         assert names("source_type=file&search=gamma") == ["Gamma report"]
         assert names("source_type=text&search=beta") == []
+        # added_by splits sources you created from ones learned from support tickets.
+        assert names("added_by=human") == ["Alpha docs", "Beta guide", "Gamma report"]
+        assert names("added_by=learned") == ["Learned policy"]
+        assert names("added_by=learned&source_type=text&search=policy") == ["Learned policy"]
+        assert names("added_by=human&search=policy") == []
 
     def test_list_pages_do_not_skip_or_repeat_sources_with_equal_timestamps(self, _ff) -> None:
         created_ids = sorted(
@@ -139,6 +147,8 @@ class TestKnowledgeSourceAPI(APIBaseTest):
 
     def test_list_rejects_unknown_source_type(self, _ff) -> None:
         response = self.client.get(f"{self.url}?source_type=bogus")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        response = self.client.get(f"{self.url}?added_by=robot")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_cannot_read_other_team_source_via_id(self, _ff) -> None:
@@ -348,6 +358,76 @@ class TestKnowledgeSourceAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_lists_live_indexed_urls(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        source = KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Docs",
+            source_type="url",
+            status="ready",
+            source_url="https://docs.example.com",
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/b",
+            title="Beta",
+            content="secret page body",
+            url="https://docs.example.com/b",
+            safety_verdict=SafetyVerdict.SAFE,
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/a",
+            title="Alpha",
+            content="another secret body",
+            url="https://docs.example.com/a",
+            safety_verdict=SafetyVerdict.UNKNOWN,
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/gone",
+            title="Gone",
+            content="removed page",
+            url="https://docs.example.com/gone",
+            safety_verdict=SafetyVerdict.SAFE,
+            tombstoned_at=timezone.now(),
+        )
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        other_source = KnowledgeSource.objects.unscoped().create(
+            team=other_team,
+            name="Theirs",
+            source_type="url",
+            status="ready",
+            source_url="https://other.example.com",
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=other_team,
+            source=other_source,
+            stable_id="https://other.example.com/secret",
+            title="Secret",
+            content="other team",
+            url="https://other.example.com/secret",
+        )
+
+        response = self.client.get(f"{self.url}{source.id}/documents/?limit=500")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()["results"]
+        assert [row["url"] for row in rows] == [
+            "https://docs.example.com/a",
+            "https://docs.example.com/b",
+        ]
+        assert rows[0]["title"] == "Alpha"
+        assert rows[0]["safety_verdict"] == "unknown"
+        assert "content" not in rows[0]
+        assert self.client.get(f"{self.url}{other_source.id}/documents/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}not-a-uuid/documents/").status_code == status.HTTP_404_NOT_FOUND
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)

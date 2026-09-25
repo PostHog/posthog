@@ -30,6 +30,7 @@ from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.permissions import get_authenticator_scopes
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import (
@@ -46,6 +47,10 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_skill_names,
+    canonical_structured_output_schema_for,
+)
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
@@ -2730,7 +2735,7 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         deduped: list[str] = []
         seen_ids: set[str] = set()
         for target in value:
-            member_id = target.split("|", 1)[0].strip()
+            member_id = channel_id_from_target(target)
             if not re.fullmatch(r"[UW][A-Z0-9]{4,}", member_id):
                 raise serializers.ValidationError(
                     f"{target!r} is not a Slack member target. Expected a member ID starting with U or W, "
@@ -2934,6 +2939,18 @@ _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs "
     "only the config write. Records validate against the schema in force when the run was dispatched."
 )
+
+
+def _refuse_clearing_shipped_schema(skill_name: str) -> None:
+    """A null schema is what the canonical reconcile reads as "never seeded", so a clear on a
+    canonical scout that ships one would be undone on the next coordinator tick and the channel
+    would come back on. Send people to the two switches that stick instead."""
+    if skill_name in canonical_skill_names() and canonical_structured_output_schema_for(skill_name):
+        raise serializers.ValidationError(
+            "This scout ships its structured output schema, so clearing it does not stick. To stop it "
+            "recording, turn on the dry-run setting or disable the scout. To change what it records, "
+            "set a schema of your own instead."
+        )
 
 
 def _validate_structured_output_schema(value: dict | None) -> dict | None:
@@ -3141,6 +3158,34 @@ class ScoutRole(models.TextChoices):
     OPERATIONAL = "operational", "operational"
 
 
+class ScoutDeprecationPhase(models.TextChoices):
+    ANNOUNCED = "announced", "announced"
+    RETIRED = "retired", "retired"
+
+
+class ScoutDeprecationSerializer(serializers.Serializer):
+    """What PostHog has said about retiring this scout, for the chip and the banner to render."""
+
+    phase = serializers.ChoiceField(
+        choices=ScoutDeprecationPhase.choices,
+        help_text=(
+            "How far the retirement has got: `announced` while the scout still runs, `retired` "
+            "once its sunset has passed. A retired scout is paused and does not run again."
+        ),
+    )
+    reason = serializers.CharField(
+        help_text="Why PostHog is retiring the scout, written to be shown to a person as-is."
+    )
+    superseded_by = serializers.CharField(
+        allow_blank=True,
+        help_text="Skill name of the scout that takes over, or blank when nothing replaces it.",
+    )
+    sunset_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the scout stops running. Null means the next fleet reconcile retires it.",
+    )
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -3175,6 +3220,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "itself. An operational scout is exempt from the inactivity sweep and from the "
             "enabled-scout cap, and is not a scout a project should delete. Always `specialist` "
             "for a custom scout."
+        ),
+    )
+    deprecation = serializers.SerializerMethodField(
+        help_text=(
+            "Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the "
+            "reason to show, what replaces the scout, and when it stops running. Only a canonical "
+            "scout the project has not edited is ever marked: a project's own copy keeps running "
+            "and reads as null."
         ),
     )
     owners = serializers.SerializerMethodField(
@@ -3357,6 +3410,14 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.role if info else "specialist"
 
+    @extend_schema_field(ScoutDeprecationSerializer(allow_null=True))
+    def get_deprecation(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
+        # Same single-query `skill_info` map as `get_description`. The marker is read off the
+        # project's own skill row rather than from disk, so a scout the project forked — whose row
+        # the sync stops writing — never reads as retiring.
+        info = (self.context.get("skill_info") or {}).get(obj.skill_name)
+        return info.deprecation if info else None
+
     @extend_schema_field(UserBasicSerializer(allow_null=True))
     def get_status_changed_by(self, obj: SignalScoutConfig) -> dict[str, Any] | None:
         # Member PII, so it rides the same gate `owners` does: a scout sandbox token reads the
@@ -3384,6 +3445,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "display_name",
             "scout_origin",
             "scout_role",
+            "deprecation",
             "owners",
             "enabled",
             "status",
@@ -3491,6 +3553,12 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        if (
+            value is None
+            and isinstance(self.instance, SignalScoutConfig)
+            and self.instance.structured_output_schema is not None
+        ):
+            _refuse_clearing_shipped_schema(self.instance.skill_name)
         return _validate_structured_output_schema(value)
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
@@ -3910,7 +3978,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
 
 class ScoutLimitsSerializer(serializers.Serializer):
-    """A team's enforced scout run caps and current usage.
+    """A team's enforced scout caps and current usage.
 
     These are the values the coordinator actually applies at dispatch (resolved per-team override →
     fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -3930,6 +3998,9 @@ class ScoutLimitsSerializer(serializers.Serializer):
     runs_remaining_today = serializers.IntegerField(
         allow_null=True,
         help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+    )
+    max_enabled_scouts = serializers.IntegerField(
+        help_text="Most scouts the project can have switched on at once. Enabling another past this is rejected.",
     )
 
 
@@ -3965,6 +4036,31 @@ class ScoutMembersQuerySerializer(serializers.Serializer):
             "large project's roster to the owner you're trying to match instead of pulling every member."
         ),
     )
+    team = serializers.CharField(
+        required=False,
+        help_text=(
+            "Team slug (case-insensitive, no `@org/` prefix), for example `team-desktop`. Narrows the roster "
+            "to the members on that team, maintainers first, so a slug from a scout note, CODEOWNERS, or an "
+            "owners file resolves to people you can route to. Returns an error, not an empty list, when "
+            "the project has no synced team roster or the roster holds no rows for the slug."
+        ),
+    )
+
+
+class ScoutMemberTeamSerializer(serializers.Serializer):
+    """One team a member belongs to, from the project's synced team roster."""
+
+    provider = serializers.CharField(
+        help_text="Where the team is defined, for example `github`. Today every team comes from GitHub."
+    )
+    slug = serializers.CharField(help_text="The team's slug, lowercased. For example `team-desktop`.")
+    name = serializers.CharField(help_text="The team's display name. For example `Team Desktop`.")
+    is_maintainer = serializers.BooleanField(
+        help_text=(
+            "True when this member maintains the team. Prefer maintainers when you pick reviewers for a "
+            "team, and treat false as 'not known to maintain it': some rosters sync without roles."
+        )
+    )
 
 
 class ScoutMemberSerializer(serializers.Serializer):
@@ -3986,5 +4082,13 @@ class ScoutMemberSerializer(serializers.Serializer):
             "the member has no linked GitHub account, which does not stop you routing to them: pass "
             "their `user_uuid` in `suggested_reviewers` and the report reaches them. A null login only "
             "means no draft PR can be opened as that person."
+        ),
+    )
+    teams = ScoutMemberTeamSerializer(
+        many=True,
+        help_text=(
+            "The teams this member is on, from the project's synced team roster. Empty when no roster is "
+            "synced, or when the member has no linked GitHub account, since the roster is keyed on that "
+            "login. The roster is a periodic snapshot, so it can lag the live team."
         ),
     )

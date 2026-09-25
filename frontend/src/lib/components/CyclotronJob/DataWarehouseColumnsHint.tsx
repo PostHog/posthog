@@ -15,8 +15,10 @@ export type DataWarehouseColumnsHintProps = {
 
 /**
  * Shows the columns of the selected warehouse table and how to reference them in templates.
- * Warehouse rows are delivered under `event.properties`, but `{record.<column>}` is the friendlier
- * alias users write (rewritten on save) — so we surface that form with click-to-copy.
+ * Warehouse rows are delivered under `event.properties`, but `record` is the friendlier alias users
+ * write, so we surface that form with click-to-copy. A hog field has the alias rewritten on save; a
+ * liquid field resolves it at render. The engine is chosen per field on each downstream step, which
+ * this panel cannot see, so the text names both forms rather than guessing one.
  */
 export function DataWarehouseColumnsHint({
     schemaColumns,
@@ -37,14 +39,15 @@ export function DataWarehouseColumnsHint({
                     content: (
                         <div className="flex flex-col gap-2">
                             <p className="mb-0 text-xs text-secondary">
-                                Use <code>{'{record.<column>}'}</code> in your templates to insert a value from the
+                                Use <code>{'{record.<column>}'}</code> in Hog fields or{' '}
+                                <code>{'{{ record.<column> }}'}</code> in Liquid fields to insert a value from the
                                 synced row.{' '}
                                 {personAvailable ? (
                                     <>
-                                        <code>{'{person}'}</code> and <code>{'{event}'}</code> are also available.{' '}
+                                        <code>person</code> and <code>event</code> work the same way.{' '}
                                     </>
                                 ) : null}
-                                Click a column to copy its reference.
+                                Click a column to copy the Hog form.
                             </p>
                             <div className="flex flex-wrap gap-1">
                                 {schemaColumns.map((column) => (

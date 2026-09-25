@@ -56,23 +56,39 @@ export function isWellFormedRow(row: unknown): row is MlBlockMetadataRow {
         return false
     }
     for (const col of COLUMNS) {
-        if (col.optional) {
+        const value = r[col.row]
+        if (col.optional && (value === null || value === undefined)) {
             continue
         }
-        const value = r[col.row]
-        if (col.repeated) {
-            if (!Array.isArray(value)) {
-                return false
-            }
-        } else if (col.type === 'UTF8') {
-            if (typeof value !== 'string') {
-                return false
-            }
-        } else if (typeof value !== 'number' || !Number.isFinite(value)) {
+        const encodable = col.repeated
+            ? Array.isArray(value) && value.every((item) => isEncodableValue(col.type, item))
+            : isEncodableValue(col.type, value)
+        if (!encodable) {
             return false
         }
     }
     return true
+}
+
+const INT32_MIN = -(2 ** 31)
+const INT32_MAX = 2 ** 31 - 1
+// ECMAScript time values stop at 8.64e15 ms either side of the epoch, so a larger timestamp becomes an Invalid Date.
+const MAX_TIME_VALUE_MS = 8.64e15
+
+function isEncodableValue(type: ParquetType, value: unknown): boolean {
+    if (type === 'UTF8') {
+        return typeof value === 'string'
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return false
+    }
+    if (type === 'INT32') {
+        return Number.isInteger(value) && value >= INT32_MIN && value <= INT32_MAX
+    }
+    if (type === 'INT64') {
+        return Number.isSafeInteger(value)
+    }
+    return Math.abs(value) <= MAX_TIME_VALUE_MS
 }
 
 export function selectBlockMetadataFields(row: MlBlockMetadataRow): MlBlockMetadataRow {

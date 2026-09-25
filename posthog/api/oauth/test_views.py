@@ -282,6 +282,13 @@ class TestOAuthAPI(APIBaseTest):
             ("truncated", TRUNCATED_SCOPE_REQUEST, ["canvas:read", "insight:read", "notebook:read"], True),
             ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
             ("short_request_with_a_fragment_tail", "insight:read can", ["insight:read"], False),
+            (
+                "every_resource_token_unknown",
+                "...(full scope list)...",
+                ["canvas:read", "insight:read", "notebook:read"],
+                True,
+            ),
+            ("identity_scope_only", "openid", ["openid"], False),
         ]
     )
     @patch("posthog.api.oauth.views.render_template")
@@ -532,6 +539,58 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_without_a_selection", OAuthApplicationAccessLevel.ORGANIZATION.value),
+            ("team_without_a_selection", OAuthApplicationAccessLevel.TEAM.value),
+        ]
+    )
+    def test_authorize_post_denial_ignores_the_scoping_controls(self, _name, access_level):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "allow": False,
+                "access_level": access_level,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_denial_accepts_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "allow": False, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_grant_still_rejects_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scope", response.json())
+
+    def test_authorize_post_grant_still_requires_a_scoped_organization(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+                "scoped_organizations": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scoped_organizations", response.json())
 
     def test_authorize_post_denied_authorization(self):
         response = self.client.post(
@@ -4503,6 +4562,8 @@ class TestOAuthAPI(APIBaseTest):
         # Verify the refresh token was never revoked
         db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNone(db_refresh_token.revoked)
+        assert db_refresh_token.access_token is not None
+        self.assertEqual(db_refresh_token.access_token.token, original_access_token)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_does_not_invalidate_previously_issued_access_tokens(self):
@@ -4671,11 +4732,9 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
+    @parameterized.expand([("refresh_token",), ("access_token",)])
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
-    def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
-        # RFC 7009 §2.1: the server verifies the token was issued to the requesting
-        # client. A different dynamic client presenting app A's refresh token must not
-        # trigger the (user, application) session sweep for app A.
+    def test_dcr_token_revoke_from_other_client_leaves_session_untouched(self, presented_token_type):
         self.public_application.is_dcr_client = True
         self.public_application.save()
 
@@ -4719,6 +4778,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
         refresh_token = token_response.json()["refresh_token"]
+        unlinked_access_token = token_response.json()["access_token"]
 
         refresh_response = self.post(
             "/oauth/token/",
@@ -4728,22 +4788,23 @@ class TestOAuthAPI(APIBaseTest):
                 "client_id": self.public_application.client_id,
             },
         )
-        refresh_issued_access_token = refresh_response.json()["access_token"]
-        self.assertTrue(OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists())
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        linked_access_token = refresh_response.json()["access_token"]
+        presented_token = refresh_token if presented_token_type == "refresh_token" else linked_access_token
 
         revoke_response = self.post(
             "/oauth/revoke/",
             {
-                "token": refresh_token,
+                "token": presented_token,
                 "client_id": other_dynamic_application.client_id,
             },
         )
         self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
-        self.assertTrue(
-            OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists(),
-            "a dynamic client presenting another app's refresh token must not sweep "
-            "that app's (user, application) access-token family",
+        self.assertIsNone(OAuthRefreshToken.objects.get(token=refresh_token).revoked)
+        self.assertEqual(
+            set(OAuthAccessToken.objects.filter(application=self.public_application).values_list("token", flat=True)),
+            {unlinked_access_token, linked_access_token},
         )
 
     @time_machine.travel("2026-01-01 00:00:00", tick=False)

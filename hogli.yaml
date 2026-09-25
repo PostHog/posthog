@@ -1221,7 +1221,7 @@ environment:
         hidden: true
     flags:jumphost:
         bin_script: rust-jumphost
-        description: 'Shell into the flags-cache-jumphost pod (namespace follows the environment: flags-cache-jumphost on dev, posthog elsewhere; $KUBE_NAMESPACE overrides)'
+        description: 'Shell into the flags-cache-jumphost pod (namespace flags-cache-jumphost in every environment; $KUBE_NAMESPACE overrides)'
         hidden: true
     wait:for:postgres:tables:
         bin_script: wait-for-postgres-tables
