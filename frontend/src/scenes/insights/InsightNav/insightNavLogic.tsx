@@ -284,6 +284,17 @@ const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
             breakdown_normalize_url: first.normalize_url,
         }
     }
+    if (bf.breakdown_type === 'element') {
+        return {
+            ...bf,
+            breakdown: undefined,
+            breakdown_type: undefined,
+            breakdown_group_type_index: undefined,
+            breakdown_histogram_bin_count: undefined,
+            breakdown_normalize_url: undefined,
+            breakdown_path_cleaning: undefined,
+        }
+    }
     return { ...bf, breakdowns: undefined }
 }
 
