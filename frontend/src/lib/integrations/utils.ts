@@ -17,6 +17,7 @@ import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
+import IconGoogleAdSense from 'public/services/google_adsense.png'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconGoogleCalendar from 'public/services/google_calendar.png'
 import IconHelpScout from 'public/services/helpscout.png'
@@ -93,6 +94,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-cloud-service-account': IconGoogleCloud,
     'google-ads': IconGoogleAds,
+    'google-adsense': IconGoogleAdSense,
     'google-analytics': IconGoogleAnalytics,
     'google-calendar': IconGoogleCalendar,
     'google-search-console': IconGoogleSearchConsole,
