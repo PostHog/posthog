@@ -229,18 +229,30 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline.refresh_from_db()
         assert pipeline.status == start
 
-    @parameterized.expand([("pause",), ("resume",), ("archive",), ("delete",)])
-    def test_sandbox_origin_cannot_change_a_pipeline(self, verb: str):
+    @parameterized.expand(
+        [
+            ("pause", "post", "pause/"),
+            ("resume", "post", "resume/"),
+            ("archive", "post", "archive/"),
+            ("score", "post", "score/"),
+            ("validate_online", "post", "validate_online/"),
+            ("patch", "patch", ""),
+            ("delete", "delete", ""),
+        ]
+    )
+    def test_sandbox_origin_cannot_change_a_pipeline(self, verb: str, method: str, suffix: str):
         start = AutoresearchPipeline.Status.PAUSED if verb == "resume" else AutoresearchPipeline.Status.RUNNING
         pipeline = self._make_pipeline(status=start)
         with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
-            if verb == "delete":
-                resp = self.client.delete(f"{self.base_url}/{pipeline.id}/")
-            else:
-                resp = self.client.post(f"{self.base_url}/{pipeline.id}/{verb}/")
+            resp = getattr(self.client, method)(f"{self.base_url}/{pipeline.id}/{suffix}", {"name": "x"}, format="json")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
         pipeline.refresh_from_db()
-        assert pipeline.status == start
+        assert (pipeline.status, pipeline.name) == (start, "Test Pipeline")
+
+    def test_sandbox_origin_can_still_read_pipelines(self):
+        pipeline = self._make_pipeline()
+        with patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True):
+            assert self.client.get(f"{self.base_url}/{pipeline.id}/").status_code == status.HTTP_200_OK
 
     @parameterized.expand([("idle", None, 204), ("training", "running", 400), ("pending", "pending", 400)])
     def test_delete_pipeline_is_refused_while_training(self, _name: str, run_status: str | None, expected: int):
@@ -530,8 +542,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
 
-    def test_patch_does_not_write_the_status(self):
-        pipeline = self._make_pipeline(status=AutoresearchPipeline.Status.RUNNING)
+    def test_patch_writes_only_the_fields_it_carries(self):
+        pipeline = self._make_pipeline(
+            status=AutoresearchPipeline.Status.RUNNING, target_event="uploaded_file", horizon_days=30
+        )
         with CaptureQueriesContext(connection) as queries:
             resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"name": "Renamed"}, format="json")
         assert resp.status_code == status.HTTP_200_OK
@@ -542,6 +556,8 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         ]
         assert len(updates) == 1
         assert '"status"' not in updates[0].split(" WHERE ")[0]
+        pipeline.refresh_from_db()
+        assert (pipeline.name, pipeline.target_event, pipeline.horizon_days) == ("Renamed", "uploaded_file", 30)
 
     @parameterized.expand(
         [
@@ -606,26 +622,31 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", {"target_event": "$pageview"}, format="json")
         assert resp.status_code == status.HTTP_200_OK, resp.json()
 
-    @parameterized.expand([("archived",), ("unknown",), ("deleted_mid_update",)])
+    @parameterized.expand([("archived",), ("unknown",)])
     def test_update_of_missing_pipeline_returns_404(self, case: str):
         if case == "archived":
             pipeline_id = self._make_pipeline(status=AutoresearchPipeline.Status.ARCHIVED).id
-        elif case == "deleted_mid_update":
-            pipeline_id = self._make_pipeline().id
         else:
             pipeline_id = uuid.uuid4()
-        real_pipeline_row = api._pipeline_row
-
-        # A delete that commits after the update read the row, before it writes.
-        def _read_then_delete(*args: Any, **kwargs: Any) -> AutoresearchPipeline:
-            row = real_pipeline_row(*args, **kwargs)
-            if case == "deleted_mid_update":
-                AutoresearchPipeline.objects.for_team(self.team.pk).filter(pk=row.pk).delete()
-            return row
-
-        with patch("products.autoresearch.backend.facade.api._pipeline_row", side_effect=_read_then_delete):
-            resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
+        resp = self.client.patch(f"{self.base_url}/{pipeline_id}/", {"name": "Renamed"}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("target_changed", {"horizon_days": 30}, status.HTTP_400_BAD_REQUEST),
+            ("target_resubmitted", {"target_event": "$pageview"}, status.HTTP_200_OK),
+            ("metadata", {"name": "Renamed"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_model_defining_fields_frozen_while_the_first_run_is_live(self, _name: str, payload: dict, expected: int):
+        pipeline = self._make_pipeline()
+        AutoresearchTrainingRun.objects.create(
+            pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=50
+        )
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", payload, format="json")
+        assert resp.status_code == expected
+        pipeline.refresh_from_db()
+        assert pipeline.horizon_days == 7
 
     def test_target_editable_before_any_model_is_trained(self):
         pipeline = self._make_pipeline()

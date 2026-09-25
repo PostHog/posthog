@@ -654,14 +654,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
     # loading the trained artifact, so changing them would silently answer a different question.
-    MODEL_DEFINING_FIELDS = (
-        "target_event",
-        "target_definition",
-        "horizon_days",
-        "training_lookback_days",
-        "training_population",
-        "inference_population",
-    )
+    MODEL_DEFINING_FIELDS = api.MODEL_DEFINING_FIELDS
 
     @property
     def _pipeline_id(self) -> Any:

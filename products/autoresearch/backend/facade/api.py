@@ -342,14 +342,59 @@ def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) ->
     return _pipeline_with_champion(row)
 
 
+# Fields a trained model was fit against. The serializer freezes them once a model exists, and
+# `update_pipeline` freezes them while a run is live, before the first model exists.
+MODEL_DEFINING_FIELDS = (
+    "target_event",
+    "target_definition",
+    "horizon_days",
+    "training_lookback_days",
+    "training_population",
+    "inference_population",
+)
+
+
+def _changes_model_definition(row: AutoresearchPipeline, fields: dict[str, Any]) -> bool:
+    for name in MODEL_DEFINING_FIELDS:
+        if name not in fields:
+            continue
+        current, new = getattr(row, name), fields[name]
+        if name == "target_definition":
+            # An empty stored definition and the normalized {"type": "event"} mean the same thing.
+            current, new = current or {"type": "event"}, new or {"type": "event"}
+        if current != new:
+            return True
+    return False
+
+
 def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
-    row = _pipeline_row(team_id, pipeline_id, live_only=True)
-    # Only the request's fields, so a stale read cannot write back a status a lifecycle action changed.
-    # A conditional update: after a concurrent delete or archive it matches no row, and the reload 404s.
-    AutoresearchPipeline.objects.for_team(team_id).filter(pk=row.pk).exclude(
-        status=AutoresearchPipeline.Status.ARCHIVED
-    ).update(**fields, updated_at=django_timezone.now())
-    return get_pipeline(team_id, row.pk)
+    """Update a pipeline. Refuses a change to what it predicts while a training run is live.
+
+    The row lock serializes this with ``start_training``, so a run cannot start between the
+    live-run check and the write, and a concurrent delete waits instead of racing the save.
+    """
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        raise PipelineNotFound("Pipeline not found.")
+    with transaction.atomic():
+        try:
+            row = (
+                AutoresearchPipeline.objects.for_team(team_id)
+                .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+                .select_for_update()
+                .get(pk=pipeline_uuid)
+            )
+        except AutoresearchPipeline.DoesNotExist:
+            raise PipelineNotFound("Pipeline not found.")
+        if _changes_model_definition(row, fields) and _has_live_training_run(team_id, row):
+            raise AutoresearchConflict(
+                "A training run is in progress. Wait for it to finish before changing what the pipeline predicts."
+            )
+        for key, value in fields.items():
+            setattr(row, key, value)
+        # Only the request's fields, so the write never touches a column the request did not set.
+        row.save(update_fields=[*fields, "updated_at"])
+    return _pipeline_with_champion(row)
 
 
 def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:

@@ -14,7 +14,10 @@ from typing import Any, cast
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import viewsets
+from rest_framework import (
+    serializers as drf_serializers,
+    viewsets,
+)
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.fields import empty
@@ -163,13 +166,6 @@ def _require_parent_pipeline_id(view: Any) -> str:
     return pipeline_id
 
 
-def _refuse_sandbox_origin(request: Request, message: str) -> None:
-    # A sandbox token carries team-wide autoresearch:write, so a confused or injected agent must not
-    # reach pipeline-level actions. Tasks applies the same rule to its own launches.
-    if is_sandbox_origin_request(request):
-        raise PermissionDenied(message)
-
-
 def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     """The fields to persist.
 
@@ -180,6 +176,12 @@ def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     return {
         f.name: getattr(validated, f.name) for f in fields(validated) if getattr(validated, f.name, empty) is not empty
     }
+
+
+def _validated_with_sentinels(serializer: drf_serializers.BaseSerializer) -> Any:
+    # On a partial update `DataclassSerializer.validated_data` swaps each `empty` sentinel for the
+    # dataclass default, so reading it would write defaults over every field the PATCH left out.
+    return drf_serializers.BaseSerializer.validated_data.fget(serializer)  # type: ignore[attr-defined]
 
 
 @extend_schema(tags=["autoresearch"])
@@ -212,6 +214,14 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        # A sandbox token carries team-wide autoresearch:write, and the training agent writes only
+        # through its run, so a confused or injected agent must not reach pipeline writes. Tasks
+        # applies the same rule to its own launches.
+        if self.action in self.scope_object_write_actions and is_sandbox_origin_request(request):
+            raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Several unsampled ClickHouse scans per call, so a personal API key gets the ClickHouse budget.
@@ -268,10 +278,12 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
             pipeline = api.update_pipeline(
                 self.team_id,
                 self.kwargs["pk"],
-                fields=_pipeline_write_fields(serializer.validated_data),
+                fields=_pipeline_write_fields(_validated_with_sentinels(serializer)),
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
         return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -286,7 +298,6 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         }
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        _refuse_sandbox_origin(request, "Pipelines cannot be deleted from inside a sandbox.")
         try:
             api.delete_pipeline(self.team_id, self.kwargs["pk"])
         except PipelineNotFound:
@@ -436,7 +447,6 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         required_scopes=["autoresearch:write", "query:read", "insight:read"],
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        _refuse_sandbox_origin(request, "Training runs cannot be started from inside a sandbox.")
         # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
         if access_response := code_access_required_response(request, self.organization):
             return access_response
@@ -611,7 +621,6 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         return self._set_status("running")
 
     def _set_status(self, status: str) -> Response:
-        _refuse_sandbox_origin(self.request, "Pipeline status cannot be changed from inside a sandbox.")
         try:
             pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
         except PipelineNotFound:
