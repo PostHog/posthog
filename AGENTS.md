@@ -255,6 +255,14 @@ For any text a person reads (UI labels, tooltips, empty/error states, notificati
 - Be direct and friendly: short sentences, consistent tone across surfaces.
 - Errors and empty states guide, don't dead-end: say what happened and the next action.
 
+## Feature usage tracking
+
+- **Every feature is tracked end to end.** A user's path through a feature, from entry to outcome, emits events that show whether people start it, finish it, and where they drop off.
+- **Features adjacent to your work get tracking too.** When a feature you touch or sit next to has no tracking, add it in the same change.
+- **Check usage of tracked adjacent features.** Run a subagent that queries each tracked adjacent feature's usage over the last 6 months.
+  - No usage in 6 months: remove the feature.
+  - Very little usage: post the feature and its usage numbers in the platform UX Slack channel (Channel ID: `C08499A7REU`). The decision on the feature is made there.
+
 ## Agent automation
 
 When automating a convention, try these in order — only fall back to the next if the previous isn't suitable:
