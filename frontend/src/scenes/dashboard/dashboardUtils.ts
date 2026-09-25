@@ -189,6 +189,14 @@ export function isRefreshRejectionStub(insight: InsightModel): boolean {
     return !!insight.query_status?.error && insight.result == null
 }
 
+// A concurrency rejection already shows a toast, and its message is an internal code, so keep the generic state.
+export function getRefreshRejectionError(insight: InsightModel | null): ApiError | undefined {
+    if (!insight || insight.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+        return undefined
+    }
+    return getInsightQueryError(insight) ?? undefined
+}
+
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
         return null
