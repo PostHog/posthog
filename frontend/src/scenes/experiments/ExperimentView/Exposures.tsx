@@ -137,8 +137,10 @@ export function Exposures(): JSX.Element {
     const { refreshExperimentResults } = useActions(experimentLogic)
 
     const [isCollapsed, setIsCollapsed] = useState(true)
-    const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
-    const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
+    // A draft runs no exposures query, so any loading state on it is an alarm about nothing.
+    const showExposuresLoading = exposuresLoading && !isExperimentDraft
+    const exposuresElapsedSeconds = useElapsedSeconds(showExposuresLoading)
+    const exposuresLoadingSlowly = showExposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
 
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
@@ -197,7 +199,7 @@ export function Exposures(): JSX.Element {
                                 : 'invisible opacity-0 pointer-events-none duration-150'
                         }`}
                     >
-                        {exposuresLoading ? (
+                        {showExposuresLoading ? (
                             <div className="flex items-center gap-2">
                                 <Spinner className="text-lg" />
                                 {exposuresLoadingSlowly && (
@@ -269,7 +271,7 @@ export function Exposures(): JSX.Element {
                     content: (
                         <div className="space-y-4 bg-bg-light -m-4 p-4">
                             {/* Chart Section */}
-                            {exposuresLoading ? (
+                            {showExposuresLoading ? (
                                 <div className="relative border rounded h-[200px] flex flex-col gap-3 justify-center items-center">
                                     <Spinner className="text-5xl" />
                                     {exposuresLoadingSlowly && (
