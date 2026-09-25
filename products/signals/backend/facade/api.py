@@ -1171,17 +1171,3 @@ def repair_report_actionability_cache(
     artefact write, so this only repairs rows that drifted.
     """
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
-
-
-def import_signal_product_domains(*, team_id: int, repo_root: str, definitions_json: str, apply: bool) -> list[dict]:
-    """Validate a repository domain definition and preview or apply its ownership mappings."""
-    from pathlib import Path
-
-    from products.signals.backend.ownership_import import OwnershipImport, import_product_domains
-
-    return import_product_domains(
-        team_id=team_id,
-        repo_root=Path(repo_root),
-        definition=OwnershipImport.model_validate_json(definitions_json),
-        apply=apply,
-    )

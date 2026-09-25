@@ -154,7 +154,7 @@ export interface reportListLogicValues {
     countLoading: boolean
     hasMore: boolean
     isLoaded: boolean
-    listApiParams: Record<string, string | undefined>
+    listApiParams: any
     livePrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
@@ -315,8 +315,9 @@ export interface reportListLogicMeta {
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scope: InboxScope,
+            user: UserType | null,
             arg: any
-        ) => Record<string, string | undefined>
+        ) => any
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         staleMetricReportIds: (reports: SignalReport[]) => string[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
@@ -526,6 +527,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.scoutFilter,
                 s.priorityFilter,
                 s.scope,
+                s.user,
                 (_, p) => p.listParams,
             ],
             (
@@ -536,20 +538,11 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 scope: InboxScope,
-                listParams: ReportListParams
-            ): Record<string, string | undefined> => {
-                const apiScope =
-                    scope === INBOX_SCOPE_FOR_YOU
-                        ? 'for_me'
-                        : scope === 'unclassified'
-                          ? 'unclassified'
-                          : scope.startsWith('team:')
-                            ? 'team'
-                            : scope.startsWith('domain:')
-                              ? 'domain'
-                              : scope.startsWith('teammate:')
-                                ? 'teammate'
-                                : 'entire_project'
+                user: null | import('~/types').UserType,
+                listParams
+            ) => {
+                const suggestedReviewer =
+                    scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope)
                 return {
                     ...listParams,
                     search: searchQuery.trim() || undefined,
@@ -557,10 +550,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
-                    scope: apiScope,
-                    teammate_uuid: teammateUuidFromScope(scope),
-                    owning_role_id: scope.startsWith('team:') ? scope.slice('team:'.length) : undefined,
-                    domain_id: scope.startsWith('domain:') ? scope.slice('domain:'.length) : undefined,
+                    suggested_reviewers: suggestedReviewer,
                 }
             },
         ],

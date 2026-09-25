@@ -54,7 +54,6 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
-import { ReportRoutingSection } from './ReportRoutingSection'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -323,7 +322,6 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
-    const ownershipEnabled = useFeatureFlag('INBOX_CURRENT_OWNERSHIP')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
@@ -455,7 +453,6 @@ export function InboxDetailFrame({
                         {/* Pull request checks (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
-                        {ownershipEnabled && <ReportRoutingSection reportId={report.id} />}
                         <ReportTasksSection report={report} />
                         <ReportChecksSection report={report} />
                         <ReportActivitySection report={report} />

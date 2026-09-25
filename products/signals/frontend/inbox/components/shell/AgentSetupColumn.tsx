@@ -4,11 +4,9 @@ import { combineUrl, router } from 'kea-router'
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { IconSlack } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
@@ -22,7 +20,6 @@ import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
-import { RoutingPreferences } from '../routing/RoutingPreferences'
 import { AgentSetupModalKey, agentSetupModalLogic } from './agentSetupModalLogic'
 import { InboxUsageWidget } from './InboxUsageWidget'
 import { InstallationSetupSection } from './InstallationSetupSection'
@@ -317,7 +314,6 @@ function SetupModal(): JSX.Element {
  * `stacked` (the Configuration tab body on narrow viewports).
  */
 export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
     // The usage widget renders nothing without the billing product, so the section title
@@ -344,11 +340,6 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             {(inboxUsageProduct != null || inboxUsageLoading) && (
                 <SetupSection title="Usage">
                     <InboxUsageWidget />
-                </SetupSection>
-            )}
-            {featureFlags[FEATURE_FLAGS.INBOX_CURRENT_OWNERSHIP] && (
-                <SetupSection title="Your routing">
-                    <RoutingPreferences />
                 </SetupSection>
             )}
             <SetupModal />

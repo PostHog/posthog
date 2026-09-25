@@ -36,7 +36,7 @@ from posthog.models.github_integration_base import PullRequestRef
 from posthog.models.integration import GitHubIntegration
 from posthog.ph_client import feature_enabled_or_false
 
-from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TaskRunArtefact
 from products.signals.backend.models import (
     SignalActorKind,
     SignalReport,
@@ -44,7 +44,6 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.ownership import ReviewerRoutingPolicy
 from products.signals.backend.pr_owning_team import OwningTeam, OwningTeamResolver
 from products.signals.backend.report_claims import get_active_claim, responsible_user
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -290,15 +289,6 @@ def _assignable_pull_request(
     return pr
 
 
-def eligible_assignee_logins(*, team_id: int, report_id: str, logins: list[str]) -> list[str]:
-    claimant = human_claimant_login(team_id=team_id, report_id=report_id)
-    eligible = ReviewerRoutingPolicy(team_id=team_id, report_id=report_id).filter(
-        SuggestedReviewers.model_validate([{"github_login": login} for login in logins])
-    )
-    allowed = {entry.github_login for entry in eligible.root}
-    return [login for login in logins if login in allowed or login == claimant]
-
-
 def _add_assignees(
     github: GitHubIntegration, *, team_id: int, report_id: str, parsed: PullRequestRef, logins: list[str]
 ) -> list[str] | None:
@@ -309,9 +299,6 @@ def _add_assignees(
     may still have reached GitHub, so the caller must not assign anybody else on top of it.
     """
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
-    logins = eligible_assignee_logins(team_id=team_id, report_id=report_id, logins=logins)
-    if not logins:
-        return []
     try:
         result = github.add_pull_request_assignees(parsed.repository, parsed.number, logins)
     except Exception:
@@ -339,7 +326,6 @@ def _first_assignable_login(
     error says nothing about whether the next candidate is a better owner.
     """
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
-    candidates = eligible_assignee_logins(team_id=team_id, report_id=report_id, logins=candidates)
     for login in candidates[:MAX_DRI_CHECKS]:
         try:
             result = github.is_assignable(parsed.repository, login)

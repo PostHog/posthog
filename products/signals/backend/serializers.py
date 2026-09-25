@@ -67,7 +67,6 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from .ownership_serializers import SignalReportRoutingSerializer
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
@@ -1087,11 +1086,6 @@ class ReportMetricListSerializer(ReportMetricSerializer):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
-    routing = SignalReportRoutingSerializer(
-        read_only=True,
-        allow_null=True,
-        help_text="Product domain, responsible team, and the evidence used for routing.",
-    )
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
         many=True,
@@ -1221,7 +1215,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "summary",
-            "routing",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count

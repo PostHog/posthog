@@ -10,6 +10,7 @@ import { InboxTabKey, SignalRun } from '../../types'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ScoutsRosterLegacy } from '../config/scouts/ScoutsRosterLegacy'
 import { InboxWelcome } from '../onboarding/InboxWelcome'
+import { RelevancePilot } from '../relevance/RelevancePilot'
 import { ArchivedTab } from '../tabs/ArchivedTab'
 import { NotActionableTab } from '../tabs/NotActionableTab'
 import { PullRequestsTab } from '../tabs/PullRequestsTab'
@@ -38,9 +39,17 @@ function ActiveTabBody({
 }): JSX.Element | null {
     switch (tab) {
         case 'pulls':
-            return <PullRequestsTab />
+            return (
+                <RelevancePilot>
+                    <PullRequestsTab />
+                </RelevancePilot>
+            )
         case 'reports':
-            return <ReportsTabLegacy />
+            return (
+                <RelevancePilot>
+                    <ReportsTabLegacy />
+                </RelevancePilot>
+            )
         case 'not-actionable':
             return <NotActionableTab />
         case 'archived':

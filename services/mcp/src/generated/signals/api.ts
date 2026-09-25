@@ -45,7 +45,6 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.'
         ),
-    domain_id: zod.string().optional().describe('Accepted product domain ID used when scope=domain.'),
     has_implementation_pr: zod
         .boolean()
         .optional()
@@ -66,7 +65,6 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
         ),
-    owning_role_id: zod.string().optional().describe('Responsible team ID used when scope=team.'),
     priority: zod
         .string()
         .optional()
@@ -76,9 +74,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
     scope: zod
         .string()
         .optional()
-        .describe(
-            'Inbox scope: for_me, entire_project, teammate, team, domain, or unclassified. Use teammate_uuid, owning_role_id, or domain_id for the corresponding scope.'
-        ),
+        .describe('Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.'),
     scout: zod
         .string()
         .optional()
@@ -141,7 +137,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.'
+            'Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, all, or for_you. The flag-gated for_you shortlist selects the caller’s P0–P2 reports needing attention, up to five per page, highest priority then newest first. It omits personally snoozed reports for seven days. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.'
         ),
 })
 

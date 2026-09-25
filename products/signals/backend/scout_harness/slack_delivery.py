@@ -722,16 +722,6 @@ def post_scout_report_to_slack(
     ]
     try:
         _ensure_dm_recipient_eligible(slack, channel_id)
-        if channel_id.startswith(("U", "W")):
-            from products.signals.backend.ownership import ReviewerRoutingPolicy
-
-            policy = ReviewerRoutingPolicy(team_id=report.team_id, report_id=report.id)
-            if policy.applies_to_report():
-                member = slack.get_user_by_id(channel_id)
-                email = (member.get("profile") or {}).get("email") if member else None
-                if not policy.allows_delivery_to_email(email):
-                    logger.info("signals_scout.slack_delivery_skipped_by_routing", report_id=str(report.id))
-                    return
         response = _post_scout_report_lead_message(
             client,
             channel_id=channel_id,

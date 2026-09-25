@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { MemberSelect, type MemberSelectProps } from 'lib/components/MemberSelect'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -44,10 +43,7 @@ function getReviewerOptions(
  * the two-segment `InboxScopeSelect` until the redesign flag replaces it. Scope is persisted via
  * `inboxFiltersLogic`; teammates come from its shared `availableReviewers` loader.
  */
-import { OwnershipScopeFilter } from '../routing/OwnershipScopeFilter'
-
 export function InboxScopeFilter(): JSX.Element {
-    const ownershipEnabled = useFeatureFlag('INBOX_CURRENT_OWNERSHIP')
     const {
         scope,
         availableReviewers: reviewers,
@@ -83,9 +79,6 @@ export function InboxScopeFilter(): JSX.Element {
         searchAvailableReviewers('')
     }
 
-    if (ownershipEnabled) {
-        return <OwnershipScopeFilter />
-    }
     return (
         <MemberSelect
             value={selectedTeammateUuid}

@@ -407,11 +407,12 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
         ).values_list("id", flat=True)
     }
     # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by
-    # construction, and every action type counts — reading is how digest-style reports are
+    # construction. Snoozes also accept API credentials and are excluded. Reading is how digest-style reports are
     # consumed, so a recent open is as much a rescue as a note.
     engaged |= {
         str(report_id)
         for report_id in SignalReportAction.objects.for_team(team_id)
+        .exclude(type=SignalReportAction.ActionType.SNOOZE)
         .filter(
             report_id__in=report_ids,
             last_at__gte=window_start,

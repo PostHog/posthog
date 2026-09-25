@@ -380,13 +380,7 @@ export const INBOX_SECTION_LEGACY_TAB: Record<InboxReportSectionKey, InboxFlatLi
 export const INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'monitoring'
 
 /** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
-export type InboxScope =
-    | 'for-you'
-    | 'entire-project'
-    | 'unclassified'
-    | `teammate:${string}`
-    | `team:${string}`
-    | `domain:${string}`
+export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'

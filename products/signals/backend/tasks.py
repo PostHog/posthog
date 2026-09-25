@@ -36,13 +36,10 @@ from products.signals.backend.models import (
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
-    SignalRoutingBatch,
     SignalScoutEmission,
     SignalScoutRun,
     SignalScratchpad,
 )
-from products.signals.backend.ownership_preferences import RoutingBatchProcessor
-from products.signals.backend.ownership_telemetry import capture_routing_change
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
@@ -75,26 +72,6 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
-
-
-@shared_task(ignore_result=True, acks_late=True, reject_on_worker_lost=True)
-def apply_signal_routing_batch(*, team_id: int, batch_id: str) -> None:
-    try:
-        more = RoutingBatchProcessor(team_id=team_id, batch_id=batch_id).run()
-        if more:
-            apply_signal_routing_batch.delay(team_id=team_id, batch_id=batch_id)
-    except Exception as exc:
-        SignalRoutingBatch.objects.for_team(team_id).filter(
-            id=batch_id,
-            status__in=[
-                SignalRoutingBatch.Status.PENDING,
-                SignalRoutingBatch.Status.RUNNING,
-                SignalRoutingBatch.Status.UNDOING,
-            ],
-        ).update(status=SignalRoutingBatch.Status.FAILED, error="cleanup_failed")
-        capture_routing_change(team_id=team_id, action="cleanup", outcome="failed")
-        capture_exception(exc)
-        raise
 
 
 @shared_task(

@@ -94,110 +94,6 @@ export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsDomainsCreateBodyNameMax = 100
-
-export const signalsDomainsCreateBodyDescriptionMax = 4000
-
-export const signalsDomainsCreateBodyRepositoryMax = 200
-
-export const signalsDomainsCreateBodyCodePathsItemMax = 500
-
-export const signalsDomainsCreateBodyCodePathsMax = 100
-
-export const SignalsDomainsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(signalsDomainsCreateBodyNameMax).describe('Name of the capability that needs attention.'),
-    description: zod
-        .string()
-        .max(signalsDomainsCreateBodyDescriptionMax)
-        .describe('Responsibility boundaries, including examples and exclusions.'),
-    owning_role_id: zod
-        .uuid()
-        .nullish()
-        .describe("Role representing the current responsible team, in this project's organization."),
-    repository: zod
-        .string()
-        .max(signalsDomainsCreateBodyRepositoryMax)
-        .optional()
-        .describe("Optional owner\/repository used to ground this domain's code locations."),
-    code_paths: zod
-        .array(zod.string().max(signalsDomainsCreateBodyCodePathsItemMax))
-        .max(signalsDomainsCreateBodyCodePathsMax)
-        .optional()
-        .describe('Optional repository paths or patterns supporting domain classification.'),
-    archived: zod.boolean().optional().describe('Archived domains retain routing history and preferences.'),
-})
-
-export const signalsDomainsUpdateBodyNameMax = 100
-
-export const signalsDomainsUpdateBodyDescriptionMax = 4000
-
-export const signalsDomainsUpdateBodyRepositoryMax = 200
-
-export const signalsDomainsUpdateBodyCodePathsItemMax = 500
-
-export const signalsDomainsUpdateBodyCodePathsMax = 100
-
-export const SignalsDomainsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(signalsDomainsUpdateBodyNameMax).describe('Name of the capability that needs attention.'),
-    description: zod
-        .string()
-        .max(signalsDomainsUpdateBodyDescriptionMax)
-        .describe('Responsibility boundaries, including examples and exclusions.'),
-    owning_role_id: zod
-        .uuid()
-        .nullish()
-        .describe("Role representing the current responsible team, in this project's organization."),
-    repository: zod
-        .string()
-        .max(signalsDomainsUpdateBodyRepositoryMax)
-        .optional()
-        .describe("Optional owner\/repository used to ground this domain's code locations."),
-    code_paths: zod
-        .array(zod.string().max(signalsDomainsUpdateBodyCodePathsItemMax))
-        .max(signalsDomainsUpdateBodyCodePathsMax)
-        .optional()
-        .describe('Optional repository paths or patterns supporting domain classification.'),
-    archived: zod.boolean().optional().describe('Archived domains retain routing history and preferences.'),
-})
-
-export const signalsDomainsPartialUpdateBodyNameMax = 100
-
-export const signalsDomainsPartialUpdateBodyDescriptionMax = 4000
-
-export const signalsDomainsPartialUpdateBodyRepositoryMax = 200
-
-export const signalsDomainsPartialUpdateBodyCodePathsItemMax = 500
-
-export const signalsDomainsPartialUpdateBodyCodePathsMax = 100
-
-export const SignalsDomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(signalsDomainsPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Name of the capability that needs attention.'),
-    description: zod
-        .string()
-        .max(signalsDomainsPartialUpdateBodyDescriptionMax)
-        .optional()
-        .describe('Responsibility boundaries, including examples and exclusions.'),
-    owning_role_id: zod
-        .uuid()
-        .nullish()
-        .describe("Role representing the current responsible team, in this project's organization."),
-    repository: zod
-        .string()
-        .max(signalsDomainsPartialUpdateBodyRepositoryMax)
-        .optional()
-        .describe("Optional owner\/repository used to ground this domain's code locations."),
-    code_paths: zod
-        .array(zod.string().max(signalsDomainsPartialUpdateBodyCodePathsItemMax))
-        .max(signalsDomainsPartialUpdateBodyCodePathsMax)
-        .optional()
-        .describe('Optional repository paths or patterns supporting domain classification.'),
-    archived: zod.boolean().optional().describe('Archived domains retain routing history and preferences.'),
-})
-
 /**
  * View and control signal processing pipeline state for a team.
  */
@@ -470,6 +366,10 @@ export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
         "PUT body for replacing a `suggested_reviewers` artefact's content.\n\nOnly `suggested_reviewers` artefacts may be modified via this endpoint;\nthe viewset enforces the type check before validation runs."
     )
 
+export const SignalsReportsSnoozeCreateBody = /* @__PURE__ */ zod.object({
+    snoozed: zod.boolean().describe('Hide from your For you shortlist for seven days. False undoes this.'),
+})
+
 /**
  * Transition a report to a new state. The model validates allowed transitions, except that a
  * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
@@ -587,73 +487,6 @@ export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
         "Body for replacing the content of an existing artefact (addressed by id).\n\nPer-type schema validation happens in the view, which knows the artefact's type."
     )
 
-export const signalsReportsRoutingCreateBodyExplanationDefault = ``
-export const signalsReportsRoutingCreateBodyExplanationMax = 500
-
-export const SignalsReportsRoutingCreateBody = /* @__PURE__ */ zod.object({
-    domain_id: zod
-        .uuid()
-        .nullable()
-        .describe('Primary product domain in this project, or null to leave it unclassified.'),
-    owning_role_id: zod
-        .uuid()
-        .nullish()
-        .describe("Responsible team override. When omitted, use the domain's current team."),
-    explanation: zod
-        .string()
-        .max(signalsReportsRoutingCreateBodyExplanationMax)
-        .default(signalsReportsRoutingCreateBodyExplanationDefault)
-        .describe('Why this domain or team owns the work.'),
-})
-
-export const signalsReportsRoutingProposeCreateBodyVersionMax = 100
-
-export const signalsReportsRoutingProposeCreateBodyConfidenceMin = 0
-export const signalsReportsRoutingProposeCreateBodyConfidenceMax = 1
-
-export const signalsReportsRoutingProposeCreateBodyExplanationMax = 500
-
-export const signalsReportsRoutingProposeCreateBodyEvidenceItemMax = 500
-
-export const signalsReportsRoutingProposeCreateBodyEvidenceMax = 10
-
-export const SignalsReportsRoutingProposeCreateBody = /* @__PURE__ */ zod.object({
-    domain_id: zod.uuid().nullable().describe('Proposed primary domain, or null to abstain.'),
-    domain_revision: zod
-        .number()
-        .min(1)
-        .nullish()
-        .describe('Revision of the domain definition used by this classifier.'),
-    report_revision: zod.iso
-        .datetime({ offset: true })
-        .describe('Report updated_at value on which this proposal is based.'),
-    method: zod
-        .enum(['agent', 'code', 'jev'])
-        .describe('\* `agent` - Research agent\n\* `code` - Code paths\n\* `jev` - Jev')
-        .describe(
-            'Classifier under evaluation.\n\n\* `agent` - Research agent\n\* `code` - Code paths\n\* `jev` - Jev'
-        ),
-    version: zod
-        .string()
-        .max(signalsReportsRoutingProposeCreateBodyVersionMax)
-        .describe('Model\/prompt version identifying this comparison.'),
-    confidence: zod
-        .number()
-        .min(signalsReportsRoutingProposeCreateBodyConfidenceMin)
-        .max(signalsReportsRoutingProposeCreateBodyConfidenceMax)
-        .nullish()
-        .describe('Score for evaluation, never a routing authorization.'),
-    explanation: zod
-        .string()
-        .max(signalsReportsRoutingProposeCreateBodyExplanationMax)
-        .describe('Why this capability needs fixing, or why classification abstained.'),
-    evidence: zod
-        .array(zod.string().max(signalsReportsRoutingProposeCreateBodyEvidenceItemMax))
-        .max(signalsReportsRoutingProposeCreateBodyEvidenceMax)
-        .optional()
-        .describe('Bounded evidence references, not raw customer content.'),
-})
-
 /**
  * Transition many reports to a new state in one call.
  *
@@ -739,19 +572,6 @@ export const SignalsReportsRefreshMetricsCreateBody = /* @__PURE__ */ zod.object
         .max(signalsReportsRefreshMetricsCreateBodyReportIdsMax)
         .describe(
             "Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call."
-        ),
-})
-
-export const SignalsRoutingPreferencesPreviewCreateBody = /* @__PURE__ */ zod.object({
-    domain_id: zod.uuid().describe('Domain whose existing suggestions should be previewed for removal.'),
-})
-
-export const SignalsRoutingPreferencesSetCreateBody = /* @__PURE__ */ zod.object({
-    domain_id: zod.uuid().describe('Product domain in this project.'),
-    excluded: zod
-        .boolean()
-        .describe(
-            'Enable or disable this personal rule. Enabling here affects future routing without a backlog operation.'
         ),
 })
 

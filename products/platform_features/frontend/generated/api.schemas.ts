@@ -1384,8 +1384,6 @@ export type ActivityLogListParams = {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `SignalTeamConfig` - SignalTeamConfig
-     * * `SignalProductDomain` - SignalProductDomain
-     * * `SignalReportRouting` - SignalReportRouting
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -1488,8 +1486,6 @@ export const ActivityLogListScope = {
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
     SignalTeamConfig: 'SignalTeamConfig',
-    SignalProductDomain: 'SignalProductDomain',
-    SignalReportRouting: 'SignalReportRouting',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
@@ -1579,8 +1575,6 @@ export const ActivityLogListScope = {
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
  * * `SignalTeamConfig` - SignalTeamConfig
- * * `SignalProductDomain` - SignalProductDomain
- * * `SignalReportRouting` - SignalReportRouting
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
@@ -1671,8 +1665,6 @@ export const ActivityLogListScopesItem = {
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
     SignalTeamConfig: 'SignalTeamConfig',
-    SignalProductDomain: 'SignalProductDomain',
-    SignalReportRouting: 'SignalReportRouting',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',

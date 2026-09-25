@@ -39,7 +39,6 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.ownership import ReviewerRoutingPolicy
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.report_assignments import release_claim
@@ -567,10 +566,6 @@ def _create_implementation_task_if_absent(
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
         if report is None:
-            return False
-        policy = ReviewerRoutingPolicy(team_id=team_id, report_id=report_id)
-        policy.lock_domain()
-        if not policy.allows_user(user_id):
             return False
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")

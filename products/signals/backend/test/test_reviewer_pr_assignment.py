@@ -14,7 +14,6 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportAssignment,
-    SignalReviewerExclusion,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_assignments import (
@@ -453,21 +452,6 @@ class TestDirectlyResponsibleIndividual:
 
     def _team_x(self, github: MagicMock) -> None:
         github.list_team_members.return_value = {"success": True, "logins": ["Bob", "dave", "stranger"]}
-
-    @pytest.mark.django_db
-    def test_a_correction_during_assignability_check_prevents_assignment(self, org_and_team):
-        org, team = org_and_team
-        report, users = self._setup(org, team, ["alice"])
-        github = self._github(existing_assignees=[], assignable={"alice"})
-
-        def correct_before_assignment(_repository, login):
-            SignalReviewerExclusion.objects.for_team(team.id).get_or_create(
-                team=team, report=report, user=users["alice"], defaults={"github_login": "alice"}
-            )
-            return {"success": True, "assignable": True}
-
-        github.is_assignable.side_effect = correct_before_assignment
-        assert self._assign(team, report, github) == []
 
     def _claim(
         self, team, report, users: dict, *, kind: str, login: str, automation_branch: str | None = "auto"

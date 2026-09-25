@@ -24,40 +24,9 @@ from posthog.models.activity_logging.model_activity import get_current_trigger
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from .models import SignalProductDomain, SignalReportRouting, SignalScoutConfig, SignalTeamConfig
+from .models import SignalScoutConfig, SignalTeamConfig
 
 logger = structlog.get_logger(__name__)
-
-
-@mutable_receiver(model_activity_signal, sender=SignalProductDomain)
-@mutable_receiver(model_activity_signal, sender=SignalReportRouting)
-def handle_signal_routing_change(
-    sender: type[SignalProductDomain] | type[SignalReportRouting],
-    scope: ActivityScope,
-    before_update: SignalProductDomain | SignalReportRouting | None,
-    after_update: SignalProductDomain | SignalReportRouting | None,
-    activity: str,
-    user: User | None,
-    was_impersonated: bool = False,
-    **kwargs: Any,
-) -> None:
-    instance = after_update or before_update
-    if instance is None:
-        return
-    log_activity(
-        organization_id=None,
-        team_id=instance.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=instance.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            name=instance.name if isinstance(instance, SignalProductDomain) else "Report routing",
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            trigger=get_current_trigger(),
-        ),
-    )
 
 
 @dataclasses.dataclass(frozen=True)

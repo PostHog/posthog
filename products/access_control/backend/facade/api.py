@@ -31,7 +31,7 @@ from posthog.models import Organization, OrganizationMembership, PropertyDefinit
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.models.role import Role
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
@@ -69,22 +69,6 @@ class PropertyAccessControlRuleNotFoundError(Exception):
 class InvalidPropertyAccessControlTargetError(Exception):
     """Raised when the rule target (role or organization member) does not
     belong to the same organization as the team."""
-
-
-def get_routing_roles(*, team_id: int) -> list[contracts.RoutingRole]:
-    team = Team.objects.get(id=team_id)
-    allowed_users = set(team.all_users_with_access().values_list("id", flat=True))
-    memberships: dict[UUID, set[int]] = {}
-    for role_id, user_id in (
-        RoleMembership.objects.valid_for_authorization()
-        .filter(role__organization_id=team.organization_id, user_id__in=allowed_users)
-        .values_list("role_id", "user_id")
-    ):
-        memberships.setdefault(role_id, set()).add(user_id)
-    return [
-        contracts.RoutingRole(id=role.id, name=role.name, member_user_ids=frozenset(memberships.get(role.id, set())))
-        for role in Role.objects.filter(organization_id=team.organization_id).order_by("name", "id")
-    ]
 
 
 # --- Mappers (model -> DTO) ---

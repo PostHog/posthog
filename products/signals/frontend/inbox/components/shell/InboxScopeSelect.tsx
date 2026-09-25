@@ -4,16 +4,12 @@ import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
 
-import { OwnershipScopeFilter } from '../routing/OwnershipScopeFilter'
-
 export function InboxScopeSelect(): JSX.Element {
-    const ownershipEnabled = useFeatureFlag('INBOX_CURRENT_OWNERSHIP')
     const {
         scope,
         availableReviewers: reviewers,
@@ -39,9 +35,6 @@ export function InboxScopeSelect(): JSX.Element {
         searchAvailableReviewers('')
     }
 
-    if (ownershipEnabled) {
-        return <OwnershipScopeFilter />
-    }
     return (
         <div className="inline-flex">
             <LemonButton

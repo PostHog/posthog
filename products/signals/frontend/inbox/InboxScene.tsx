@@ -21,6 +21,7 @@ import { ReportDetailLegacy, ReportDetailSkeletonLegacy } from './components/det
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxWelcome } from './components/onboarding/InboxWelcome'
+import { RelevancePilot } from './components/relevance/RelevancePilot'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { InboxListViewLegacy } from './components/shell/InboxListViewLegacy'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -70,7 +71,11 @@ function ScoutTemplateDraftModal(): JSX.Element | null {
 function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
     switch (tab) {
         case 'reports':
-            return <ReportsTab />
+            return (
+                <RelevancePilot>
+                    <ReportsTab />
+                </RelevancePilot>
+            )
         case 'scouts':
             return <ScoutsRoster />
         case 'settings':

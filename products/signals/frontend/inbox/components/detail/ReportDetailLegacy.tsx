@@ -6,7 +6,6 @@ import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullReques
 import { LemonButton, LemonTabs, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { ScoutLink } from 'lib/signals/ScoutLink'
@@ -56,7 +55,6 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
-import { ReportRoutingSection } from './ReportRoutingSection'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 import { TrackerIssueNote } from './TrackerIssueNote'
@@ -274,7 +272,6 @@ function InboxDetailFrameLegacy({
     diffStat,
     children,
 }: InboxDetailFrameProps): JSX.Element {
-    const ownershipEnabled = useFeatureFlag('INBOX_CURRENT_OWNERSHIP')
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
     // feed) redirects the back button there instead of the inbox list tab.
@@ -382,7 +379,6 @@ function InboxDetailFrameLegacy({
                     {/* Pull request (when present) first, then reviewers, evidence, runs, and activity. */}
                     {children}
                     <SuggestedReviewersSection report={report} />
-                    {ownershipEnabled && <ReportRoutingSection reportId={report.id} />}
                     {hasEvidence && (
                         <DetailSection
                             icon={<IconSearch />}

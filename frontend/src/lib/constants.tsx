@@ -236,6 +236,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
+    SIGNALS_RELEVANCE_PILOT: 'signals-relevance-pilot', // owner: #team-self-driving, gates the personal inbox shortlist (also checked server-side)
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
@@ -345,7 +346,6 @@ export const FEATURE_FLAGS = {
     HIDE_EVENTS_IN_QUERY_BUILDERS: 'hide-events-in-query-builders', // owner: #team-feature-flags, kill switch for hiding events marked hidden_in_query_builders from insight/cohort/destination pickers
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
-    INBOX_CURRENT_OWNERSHIP: 'signals-current-ownership', // owner: #team-self-driving
     INBOX_REDESIGN: 'inbox-redesign', // owner: #team-self-driving, gates the inbox redesign: report sections, triage mode, the Settings tab, and scout cards
     INBOX_SELF_DRIVING_EMPTY_STATE: 'inbox-self-driving-empty-state',
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox

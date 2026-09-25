@@ -9440,14 +9440,6 @@ snapshots:
         hash: v1.k794b7964.4a72fd69c80a076b8f6040c0473d1a42aa0e574e51cd9ac16c16ce74f5434d4b.UJFgWCDdVPiMssuUXnf6Px4wj9tZljS4fKvI_6WmIqI
     scenes-app-inbox-report-metrics--wide--light:
         hash: v1.k794b7964.3465b8cd1a9bf286b7ae698d78dba847138201548b8a3c56978fae74b431da53.2bz4A6FW49b2OIDhumSwnnmW8eVEaLSHMmBLZx_eFOg
-    scenes-app-inbox-routingpreferences--excluded-domain--dark:
-        hash: v1.k794b7964.14d53c2a64fab114f7fe3fa879f5159a39295649ea903618e65efd8603624458.qWDn-6QMYC2j9o1xsIilkgyK-SdeHN8qhuwFUgJlowM
-    scenes-app-inbox-routingpreferences--excluded-domain--light:
-        hash: v1.k794b7964.6ee5b6c2355842e94551ace490ba728e8728a8bafd335171e5abcfbda6586029.6YDwy9Gjtb_yoB-BNu6KNsmyIUT0lfwRNlRS0Oc7cDk
-    scenes-app-inbox-routingpreferences--narrow--dark:
-        hash: v1.k794b7964.87d8907958406ae878517f54e560035b949c44e1ed25ea9b31bb48abbfb7b0b7.EQV6_5u2d6lvH5xkHIjjV3JTSHawFG6PJJW_IHo4lQM
-    scenes-app-inbox-routingpreferences--narrow--light:
-        hash: v1.k794b7964.b0889390a76ffccc4be4f647dc315c0fef255d613a70164036ca55754461492f.NGInaJu1kO2_e1L_UsQ9QBVA5q4nqWE1R9pVTHZI1fE
     scenes-app-inbox-scene--empty--dark:
         hash: v1.k794b7964.d1f94cecb2a36f2308212dc28ef1e83d8153b45578c4f390c4596dc308d5eb93.Cxai09kW1P5oCqveaca9r04fxOsysv7d9ggUQDV7hB4
     scenes-app-inbox-scene--empty--light:

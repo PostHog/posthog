@@ -6229,8 +6229,6 @@ export enum ActivityScope {
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
     SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
-    SIGNAL_PRODUCT_DOMAIN = 'SignalProductDomain',
-    SIGNAL_REPORT_ROUTING = 'SignalReportRouting',
     STAMPHOG_REPO_CONFIG = 'StamphogRepoConfig',
 }
 

@@ -1,6 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
@@ -11,7 +10,6 @@ import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
-import { RoutingPreferences } from '../routing/RoutingPreferences'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
 import { InstallationSetupSection } from '../shell/InstallationSetupSection'
 import { SettingsSection } from './SettingsSection'
@@ -22,7 +20,6 @@ import { SettingsSection } from './SettingsSection'
  * meter follow.
  */
 export function SettingsTab(): JSX.Element {
-    const ownershipEnabled = useFeatureFlag('INBOX_CURRENT_OWNERSHIP')
     useMountedLogic(integrationsLogic)
     useMountedLogic(signalSourcesLogic)
     // The usage widget renders nothing without the billing product, so the section title
@@ -32,11 +29,6 @@ export function SettingsTab(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
             <InstallationSetupSection />
-            {ownershipEnabled && (
-                <SettingsSection title="Your routing" description="Choose which product domains should reach For you.">
-                    <RoutingPreferences />
-                </SettingsSection>
-            )}
             <SettingsSection
                 title="Signal sources"
                 description="Each source watches for signals, and spins up an agent to look into them."
