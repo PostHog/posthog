@@ -401,13 +401,53 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.loadAvailableCategories()
                 logic.actions.loadAvailableCategories()
-            }).toDispatchActions(['loadAvailableCategoriesSuccess'])
+            }).toDispatchActions([
+                // Both loads are named so the success is matched after them, not against one the
+                // mount already recorded.
+                'loadAvailableCategories',
+                'loadAvailableCategories',
+                'loadAvailableCategoriesSuccess',
+            ])
 
             expect(logic.values.availableCategories).toEqual(['fresh'])
 
             resolveSlow({ results: [{ category: 'stale' }] })
             await new Promise((resolve) => setTimeout(resolve, 0))
             expect(logic.values.availableCategories).toEqual(['fresh'])
+        })
+    })
+
+    describe('access denied', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+        })
+
+        it('marks the tab access-denied on a 403 instead of failing every loader', async () => {
+            jest.spyOn(mockApi, 'query').mockRejectedValue({ status: 403 })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'loadAvailableCategoriesFailure',
+                    'loadCategoryCountsFailure',
+                    'loadToolRowsPageFailure',
+                    'loadDailyStatsFailure',
+                ])
+
+            expect(logic.values.accessDenied).toBe(true)
+        })
+
+        it('still fails the loader on an error that is not a 403', async () => {
+            jest.spyOn(mockApi, 'query').mockRejectedValue({ status: 500 })
+            const logic = mcpAnalyticsToolQualityLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadAvailableCategoriesFailure'])
+
+            expect(logic.values.accessDenied).toBe(false)
         })
     })
 })

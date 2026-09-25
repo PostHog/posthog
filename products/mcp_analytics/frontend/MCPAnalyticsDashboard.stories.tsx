@@ -882,6 +882,21 @@ export const ToolQuality: Story = {
     },
 }
 
+// A reader the `mcp_analytics` gate refuses gets every Tool quality query back as a 403. The tab
+// must say so, rather than paint four blank widgets.
+export const ToolQualityAccessDenied: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsToolQuality(),
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [403, ''],
+            },
+        }),
+    ],
+}
+
 export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
