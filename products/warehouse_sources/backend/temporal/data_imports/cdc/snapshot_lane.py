@@ -13,7 +13,8 @@ imports, so the schema API can call it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
@@ -139,15 +140,25 @@ def cancel_sync_that_could_hand_over(schema: ExternalDataSchema) -> bool:
     return cancel_running_sync(schema) is not None or has_queued_batches(schema)
 
 
-def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> bool:
+def hand_reset_to_capture_if_sync_running(
+    schema: ExternalDataSchema, logger: FilteringBoundLogger, *, awaiting_slot: bool = False
+) -> bool:
     """Leave a CDC table's reset to capture while a sync of it could still hand over. Returns whether it did.
 
     When no sync can, returns False, and the caller resets the table now. Otherwise the schedule is
     paused and the reset marked pending, and capture finishes it once the sync stops. A failed check
     hands the reset over too, because capture retries it.
+
+    `awaiting_slot` holds the staged reset back until a capture run has read the slot. Repair CDC
+    hands its resets over before it recreates the slot, and a capture run that fires in between
+    would otherwise start the snapshot against the dead one.
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
-    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+    from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+        pause_external_data_schedule,
+        sync_cdc_extraction_schedule,
+        trigger_cdc_extraction_schedule,
+    )
 
     try:
         if not cancel_sync_that_could_hand_over(schema):
@@ -159,9 +170,50 @@ def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: Fi
     except Exception:
         # Capture pauses the schedule again before it resets the table.
         logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
-    pending = {"clear_deferred_runs": True, "trigger": True}
-    update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_RESET_PENDING_KEY: pending})
+
+    persisted = update_sync_type_config_keys(
+        schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
+    )
     # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
-    schema.sync_type_config = {**(schema.sync_type_config or {}), CDC_RESET_PENDING_KEY: pending}
+    schema.sync_type_config = {
+        **(schema.sync_type_config or {}),
+        CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
+    }
+    # Capture finishes the reset, so start a run now instead of waiting for its schedule: the last
+    # run may have looked for resets just before this write, and the schedule may be gone. A halted
+    # source is left alone, because Repair CDC or a resumed capture restarts capture itself.
+    if not schema.cdc_halted:
+        try:
+            if not trigger_cdc_extraction_schedule(str(schema.source_id)):
+                # The schedule is gone, and creating it fires its first run.
+                sync_cdc_extraction_schedule(schema.source, create=True)
+        except Exception:
+            # The capture schedule's next tick still finishes the reset.
+            logger.warning("cdc_reset_capture_trigger_failed", schema_id=str(schema.id), exc_info=True)
     logger.info("cdc_reset_handed_to_capture", schema_id=str(schema.id))
     return True
+
+
+def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = False) -> None:
+    """Stage a request's reset for capture. Read under the row lock.
+
+    Merged, not replaced: a reset already waiting on a slot must keep waiting, or the snapshot this
+    hands over would start before capture has a point to resume from.
+    """
+    current = config.get(CDC_RESET_PENDING_KEY)
+    fields = dict(current) if isinstance(current, dict) else {}
+    fields["clear_deferred_runs"] = True
+    fields["trigger"] = True
+    if awaiting_slot:
+        fields["awaiting_slot"] = True
+    fields["generation"] = next_reset_generation(fields)
+    config[CDC_RESET_PENDING_KEY] = fields
+
+
+def next_reset_generation(fields: dict[str, Any]) -> int:
+    """The generation for a reset staged over `fields`.
+
+    Every write that stages a reset takes a new one, so capture drops only the reset it finished,
+    even when a request stages an identical reset while that one's snapshot starts.
+    """
+    return int(fields.get("generation") or 0) + 1
