@@ -3040,6 +3040,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_unrecoverable_redis_errors_ask_the_client_to_heal() {
+        // (case, mock, expected heals). The tick below issues one write and one read.
+        let cases = [
+            (
+                "write on a client with no connection",
+                MockRedisClient::new()
+                    .batch_incr_by_expire_at_ret(Err(CustomRedisError::not_connected())),
+                1,
+            ),
+            (
+                "read on a client with no connection",
+                MockRedisClient::new().mget_error(CustomRedisError::not_connected()),
+                1,
+            ),
+            (
+                "client response timeouts",
+                MockRedisClient::new()
+                    .mget_error(CustomRedisError::Timeout)
+                    .batch_incr_by_expire_at_ret(Err(CustomRedisError::Timeout)),
+                0,
+            ),
+        ];
+        for (case, mock, expected_heals) in cases {
+            let client: Arc<dyn Client + Send + Sync> = Arc::new(mock.clone());
+            let config = config_with_floor(0);
+            let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+            let pending: Arc<DashSet<String>> =
+                Arc::new(DashSet::from_iter(["read_key".to_string()]));
+            let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+            let mut writes = HashMap::from([(("write_key".to_string(), epoch), 1)]);
+
+            GlobalRateLimiterImpl::tick(
+                &config,
+                std::slice::from_ref(&client),
+                &cache,
+                &pending,
+                &mut writes,
+                &ReadHealth::new(1),
+                "test",
+                1,
+            )
+            .await;
+
+            assert_eq!(
+                mock.heal_count(),
+                expected_heals,
+                "{case}: a client that never connected, or lost its connection, only \
+                 reconnects when the limiter heals it, and a timeout must not rebuild it"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn test_tick_bounds_drain_and_chunks_reads() {
         let mock = Arc::new(MockRedisClient::new());
         let client: Arc<dyn Client + Send + Sync> = mock.clone();

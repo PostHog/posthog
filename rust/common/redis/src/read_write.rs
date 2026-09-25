@@ -75,6 +75,12 @@ impl ReadWriteClientConfig {
     pub async fn build(self) -> Result<ReadWriteClient, CustomRedisError> {
         ReadWriteClient::with_config(self).await
     }
+
+    /// Like `build`, but an unreachable primary or replica does not fail it;
+    /// see `RedisClient::with_config_or_defer`.
+    pub async fn build_or_defer(self) -> Result<ReadWriteClient, CustomRedisError> {
+        ReadWriteClient::with_config_or_defer(self).await
+    }
 }
 
 /// A Redis client that automatically routes read and write operations to separate connections.
@@ -226,26 +232,46 @@ impl ReadWriteClient {
     /// # }
     /// ```
     pub async fn with_config(config: ReadWriteClientConfig) -> Result<Self, CustomRedisError> {
-        let reader = Arc::new(
-            RedisClient::with_config(
-                config.replica_url,
-                config.compression.clone(),
-                config.format,
-                config.response_timeout,
-                config.connection_timeout,
-            )
-            .await?,
-        );
-        let writer = Arc::new(
-            RedisClient::with_config(
-                config.primary_url,
-                config.compression,
-                config.format,
-                config.response_timeout,
-                config.connection_timeout,
-            )
-            .await?,
-        );
+        Self::connect(config, false).await
+    }
+
+    /// Like `with_config`, but builds both connections with
+    /// `RedisClient::with_config_or_defer`.
+    pub async fn with_config_or_defer(
+        config: ReadWriteClientConfig,
+    ) -> Result<Self, CustomRedisError> {
+        Self::connect(config, true).await
+    }
+
+    async fn connect(config: ReadWriteClientConfig, defer: bool) -> Result<Self, CustomRedisError> {
+        let build = |url: String| {
+            let (compression, format) = (config.compression.clone(), config.format);
+            let (response_timeout, connection_timeout) =
+                (config.response_timeout, config.connection_timeout);
+            async move {
+                if defer {
+                    RedisClient::with_config_or_defer(
+                        url,
+                        compression,
+                        format,
+                        response_timeout,
+                        connection_timeout,
+                    )
+                    .await
+                } else {
+                    RedisClient::with_config(
+                        url,
+                        compression,
+                        format,
+                        response_timeout,
+                        connection_timeout,
+                    )
+                    .await
+                }
+            }
+        };
+        let reader = Arc::new(build(config.replica_url.clone()).await?);
+        let writer = Arc::new(build(config.primary_url.clone()).await?);
 
         Ok(Self::new(reader, writer))
     }
@@ -696,6 +722,38 @@ mod tests {
 
         let result = client.get("test_key".to_string()).await;
         assert!(matches!(result, Err(CustomRedisError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn test_build_or_defer_survives_unreachable_redis() {
+        // Nothing listens on port 1, so both connections are refused at once.
+        let config = || {
+            ReadWriteClientConfig::new(
+                "redis://127.0.0.1:1".to_string(),
+                "redis://127.0.0.1:1".to_string(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Utf8,
+                Some(Duration::from_secs(2)),
+                Some(Duration::from_secs(2)),
+            )
+        };
+        assert!(
+            config().build().await.is_err(),
+            "build must keep failing when Redis is unreachable"
+        );
+
+        let client = config()
+            .build_or_defer()
+            .await
+            .expect("an unreachable Redis must not fail build_or_defer");
+        let err = client
+            .mget(vec!["k".to_string()])
+            .await
+            .expect_err("a client with no connections cannot read");
+        assert!(
+            err.is_unrecoverable_error(),
+            "the read must fail as unrecoverable, so the caller heals both connections"
+        );
     }
 
     #[tokio::test]

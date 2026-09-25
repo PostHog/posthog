@@ -33,6 +33,8 @@ pub struct MockRedisClient {
     mget_errors_by_call: HashMap<usize, CustomRedisError>,
     /// Shared via `Arc` so clones of the mock agree on call sequencing.
     mget_call_counter: Arc<AtomicUsize>,
+    /// Shared via `Arc` so clones of the mock agree on the count.
+    heal_calls: Arc<AtomicUsize>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -61,6 +63,7 @@ impl Default for MockRedisClient {
             pipeline_call_counter: Arc::new(AtomicUsize::new(0)),
             mget_errors_by_call: HashMap::new(),
             mget_call_counter: Arc::new(AtomicUsize::new(0)),
+            heal_calls: Arc::new(AtomicUsize::new(0)),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -161,6 +164,10 @@ impl MockRedisClient {
         self.lock_calls().clone()
     }
 
+    pub fn heal_count(&self) -> usize {
+        self.heal_calls.load(Ordering::SeqCst)
+    }
+
     pub fn set_nx_ex_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
         self.set_nx_ex_ret.insert(key.to_owned(), ret);
         self.clone()
@@ -247,6 +254,10 @@ pub struct MockRedisCall {
 
 #[async_trait]
 impl Client for MockRedisClient {
+    async fn heal(&self) {
+        self.heal_calls.fetch_add(1, Ordering::SeqCst);
+    }
+
     async fn zrangebyscore(
         &self,
         key: String,

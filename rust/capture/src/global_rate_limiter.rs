@@ -420,6 +420,8 @@ impl GlobalRateLimiter {
         self.limiter.is_custom_key(key)
     }
 
+    /// An unreachable dedicated Redis does not stop capture from starting: the
+    /// client starts disconnected and the limiter's heal connects it later.
     pub async fn build_redis_client(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
@@ -455,10 +457,10 @@ impl GlobalRateLimiter {
                 response_timeout,
                 connection_timeout,
             );
-            Ok(Arc::new(rw_config.build().await?))
+            Ok(Arc::new(rw_config.build_or_defer().await?))
         } else {
             Ok(Arc::new(
-                common_redis::RedisClient::with_config(
+                common_redis::RedisClient::with_config_or_defer(
                     writer_url.clone(),
                     common_redis::CompressionConfig::disabled(),
                     common_redis::RedisValueFormat::default(),
@@ -1057,6 +1059,70 @@ mod tests {
         let resolver = GlobalRateLimiter::hierarchical_resolver();
         let map = resolver_map(pairs);
         assert_eq!(resolver(key, &map), expected, "key={key}");
+    }
+
+    fn dedicated_redis_config(writer_url: &str, reader_url: Option<&str>) -> Config {
+        let mut env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("GLOBAL_RATE_LIMIT_REDIS_URL", writer_url),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        if let Some(reader_url) = reader_url {
+            env.insert(
+                "GLOBAL_RATE_LIMIT_REDIS_READER_URL".to_string(),
+                reader_url.to_string(),
+            );
+        }
+        envconfig::Envconfig::init_from_hashmap(&env).expect("test config")
+    }
+
+    #[tokio::test]
+    async fn test_build_redis_client_starts_when_redis_is_unreachable() {
+        // Nothing listens on port 1, so every connection is refused at once.
+        let unreachable = "redis://127.0.0.1:1";
+        for reader_url in [None, Some(unreachable)] {
+            let config = dedicated_redis_config(unreachable, reader_url);
+            let shared: Arc<dyn Client + Send + Sync> =
+                Arc::new(common_redis::MockRedisClient::new());
+
+            let client = GlobalRateLimiter::build_redis_client(&config, shared)
+                .await
+                .expect("an unreachable rate limiter Redis must not stop capture from starting");
+            let err = client
+                .mget(vec!["k".to_string()])
+                .await
+                .expect_err("a client with no connection cannot read");
+            assert!(
+                err.is_unrecoverable_error(),
+                "reader {reader_url:?}: the read must fail as unrecoverable, so the \
+                 limiter heals the client and connects it once Redis answers"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_build_redis_client_rejects_a_malformed_url() {
+        // (writer, reader)
+        let cases = [
+            ("not a redis url", None),
+            ("redis://127.0.0.1:1", Some("not a redis url")),
+        ];
+        for (writer_url, reader_url) in cases {
+            let config = dedicated_redis_config(writer_url, reader_url);
+            let shared: Arc<dyn Client + Send + Sync> =
+                Arc::new(common_redis::MockRedisClient::new());
+            assert!(
+                GlobalRateLimiter::build_redis_client(&config, shared)
+                    .await
+                    .is_err(),
+                "writer {writer_url:?}, reader {reader_url:?}: a bad URL must still stop \
+                 capture from starting"
+            );
+        }
     }
 
     #[tokio::test]

@@ -355,6 +355,10 @@ Where the two read different env vars, both are listed.
 
 Capture connects each limiter to `GLOBAL_RATE_LIMIT_REDIS_URL`, with reads going to `GLOBAL_RATE_LIMIT_REDIS_READER_URL` when that is set.
 Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis client, and the `GLOBAL_RATE_LIMIT_REDIS_*_TIMEOUT_MS` settings do nothing.
+If the dedicated Redis is unreachable at startup, capture still starts.
+Its client starts with no connection, and every command fails as unrecoverable, so the limiter's first failing tick heals it and connects it once Redis answers.
+Until then the limiter behaves as in any Redis outage.
+A malformed URL still stops capture from starting.
 
 #### Clamps and tuning
 

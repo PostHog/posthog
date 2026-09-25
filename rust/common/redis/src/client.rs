@@ -2,7 +2,7 @@ use std::io::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use arc_swap::ArcSwap;
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, RedisError};
@@ -20,8 +20,9 @@ const ERR_RAWBYTES_SET: &str =
 pub struct RedisClient {
     /// Shared across clones so a `heal()` on any handle repairs all of them.
     /// `MultiplexedConnection` does not reconnect after its TCP connection
-    /// dies; `heal()` swaps in a rebuilt one.
-    connection: Arc<ArcSwap<MultiplexedConnection>>,
+    /// dies; `heal()` swaps in a rebuilt one. `None` only for a client built by
+    /// `with_config_or_defer` whose first connection failed.
+    connection: Arc<ArcSwapOption<MultiplexedConnection>>,
     /// Connection info retained so `heal()` can rebuild.
     client: redis::Client,
     response_timeout: Option<Duration>,
@@ -39,8 +40,27 @@ const HEAL_COOLDOWN: Duration = Duration::from_secs(5);
 impl RedisClient {
     /// Current connection handle. Cheap: one atomic load plus a
     /// `MultiplexedConnection` clone (an mpsc sender clone).
-    fn conn(&self) -> MultiplexedConnection {
-        self.connection.load().as_ref().clone()
+    fn conn(&self) -> Result<MultiplexedConnection, CustomRedisError> {
+        self.connection
+            .load()
+            .as_deref()
+            .cloned()
+            .ok_or_else(CustomRedisError::not_connected)
+    }
+
+    async fn connect(&self) -> Result<MultiplexedConnection, RedisError> {
+        // Use Redis native timeout configuration
+        // None means no timeout (blocks indefinitely)
+        let mut config = redis::AsyncConnectionConfig::new();
+        if let Some(timeout) = self.response_timeout {
+            config = config.set_response_timeout(timeout);
+        }
+        if let Some(timeout) = self.connection_timeout {
+            config = config.set_connection_timeout(timeout);
+        }
+        self.client
+            .get_multiplexed_async_connection_with_config(&config)
+            .await
     }
 
     /// Rebuild the underlying connection after it has died.
@@ -60,21 +80,9 @@ impl RedisClient {
         }
         *last_attempt = Instant::now();
 
-        let mut config = redis::AsyncConnectionConfig::new();
-        if let Some(timeout) = self.response_timeout {
-            config = config.set_response_timeout(timeout);
-        }
-        if let Some(timeout) = self.connection_timeout {
-            config = config.set_connection_timeout(timeout);
-        }
-
-        match self
-            .client
-            .get_multiplexed_async_connection_with_config(&config)
-            .await
-        {
+        match self.connect().await {
             Ok(connection) => {
-                self.connection.store(Arc::new(connection));
+                self.connection.store(Some(Arc::new(connection)));
                 info!("Redis connection healed after unrecoverable error");
             }
             Err(e) => {
@@ -175,6 +183,55 @@ impl RedisClient {
         response_timeout: Option<Duration>,
         connection_timeout: Option<Duration>,
     ) -> Result<RedisClient, CustomRedisError> {
+        let client = Self::unconnected(
+            addr,
+            compression,
+            format,
+            response_timeout,
+            connection_timeout,
+        )?;
+        let connection = client.connect().await?;
+        client.connection.store(Some(Arc::new(connection)));
+        Ok(client)
+    }
+
+    /// Like `with_config`, but a first connection that fails does not fail
+    /// construction. The client starts without a connection, and every command
+    /// returns an unrecoverable error until `heal()` connects it.
+    ///
+    /// For a caller that can run without this Redis and already heals on
+    /// unrecoverable errors. Invalid configuration still returns an error.
+    pub async fn with_config_or_defer(
+        addr: String,
+        compression: CompressionConfig,
+        format: RedisValueFormat,
+        response_timeout: Option<Duration>,
+        connection_timeout: Option<Duration>,
+    ) -> Result<RedisClient, CustomRedisError> {
+        let client = Self::unconnected(
+            addr,
+            compression,
+            format,
+            response_timeout,
+            connection_timeout,
+        )?;
+        match client.connect().await {
+            Ok(connection) => client.connection.store(Some(Arc::new(connection))),
+            Err(e) => warn!(
+                error = %e,
+                "Redis unreachable at startup; the client connects on its first heal"
+            ),
+        }
+        Ok(client)
+    }
+
+    fn unconnected(
+        addr: String,
+        compression: CompressionConfig,
+        format: RedisValueFormat,
+        response_timeout: Option<Duration>,
+        connection_timeout: Option<Duration>,
+    ) -> Result<RedisClient, CustomRedisError> {
         let client = redis::Client::open(addr)?;
 
         // Validate that Duration::ZERO is not passed - use None instead
@@ -195,24 +252,8 @@ impl RedisClient {
             }
         }
 
-        // Use Redis native timeout configuration
-        // None means no timeout (blocks indefinitely)
-        let mut config = redis::AsyncConnectionConfig::new();
-
-        if let Some(timeout) = response_timeout {
-            config = config.set_response_timeout(timeout);
-        }
-
-        if let Some(timeout) = connection_timeout {
-            config = config.set_connection_timeout(timeout);
-        }
-
-        let connection = client
-            .get_multiplexed_async_connection_with_config(&config)
-            .await?;
-
         Ok(RedisClient {
-            connection: Arc::new(ArcSwap::from_pointee(connection)),
+            connection: Arc::new(ArcSwapOption::empty()),
             client,
             response_timeout,
             connection_timeout,
@@ -315,7 +356,7 @@ impl RedisClient {
         for arg in args {
             invocation.arg(arg);
         }
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let result: Vec<i64> = invocation.invoke_async(&mut conn).await?;
         Ok(result)
     }
@@ -366,7 +407,7 @@ impl Client for RedisClient {
         min: String,
         max: String,
     ) -> Result<Vec<String>, CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let results = conn.zrangebyscore(k, min, max).await?;
         Ok(results)
     }
@@ -379,19 +420,19 @@ impl Client for RedisClient {
         offset: isize,
         count: isize,
     ) -> Result<Vec<String>, CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let results = conn.zrangebyscore_limit(k, min, max, offset, count).await?;
         Ok(results)
     }
 
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         conn.zadd::<_, _, _, ()>(k, member, score).await?;
         Ok(())
     }
 
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         conn.hincr::<_, _, _, ()>(k, v, count).await?;
         Ok(())
     }
@@ -405,7 +446,7 @@ impl Client for RedisClient {
         k: String,
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let raw_bytes: Vec<u8> = conn.get(k).await?;
 
         // return NotFound error when empty
@@ -434,7 +475,7 @@ impl Client for RedisClient {
     }
 
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let raw_bytes: Vec<u8> = conn.get(k).await?;
 
         // return NotFound error when empty
@@ -453,7 +494,7 @@ impl Client for RedisClient {
         v: Vec<u8>,
         ttl_seconds: Option<u64>,
     ) -> Result<(), CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         match ttl_seconds {
             Some(ttl) => conn.set_ex::<_, _, ()>(k, v, ttl).await?,
             None => conn.set::<_, _, ()>(k, v).await?,
@@ -473,7 +514,7 @@ impl Client for RedisClient {
     ) -> Result<(), CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         conn.set::<_, _, ()>(k, final_bytes).await?;
         Ok(())
     }
@@ -491,7 +532,7 @@ impl Client for RedisClient {
     ) -> Result<(), CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         conn.set_ex::<_, _, ()>(k, final_bytes, seconds).await?;
         Ok(())
     }
@@ -514,7 +555,7 @@ impl Client for RedisClient {
     ) -> Result<bool, CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let seconds_usize = seconds as usize;
 
         // Use SET with both NX and EX options
@@ -549,7 +590,7 @@ impl Client for RedisClient {
                 .ignore();
         }
 
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
@@ -565,7 +606,7 @@ impl Client for RedisClient {
             pipe.cmd("EXPIRE").arg(&k).arg(ttl_seconds).ignore();
         }
 
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
@@ -580,19 +621,19 @@ impl Client for RedisClient {
             pipe.cmd("EXPIREAT").arg(&k).arg(expire_at).ignore();
         }
 
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         conn.del::<_, ()>(k).await?;
         Ok(())
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let result: Option<String> = conn.hget(k, field).await?;
 
         match result {
@@ -602,7 +643,7 @@ impl Client for RedisClient {
     }
 
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError> {
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let result = conn.scard(k).await?;
         Ok(result)
     }
@@ -611,7 +652,7 @@ impl Client for RedisClient {
         if keys.is_empty() {
             return Ok(vec![]);
         }
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
         Ok(results)
     }
@@ -624,7 +665,7 @@ impl Client for RedisClient {
         for k in &keys {
             pipe.scard(k);
         }
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let results: Vec<u64> = pipe.query_async(&mut conn).await?;
         Ok(results)
     }
@@ -646,7 +687,7 @@ impl Client for RedisClient {
                 .arg("NX")
                 .ignore();
         }
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
@@ -662,7 +703,7 @@ impl Client for RedisClient {
         for (k, v, ttl) in &items {
             pipe.cmd("SET").arg(k).arg(v).arg("NX").arg("EX").arg(ttl);
         }
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
         Ok(results.into_iter().map(|r| r.is_some()).collect())
     }
@@ -671,7 +712,7 @@ impl Client for RedisClient {
         if keys.is_empty() {
             return Ok(());
         }
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         redis::cmd("DEL")
             .arg(&keys)
             .query_async::<()>(&mut conn)
@@ -760,7 +801,7 @@ impl Client for RedisClient {
         }
 
         // Execute the pipeline
-        let mut conn = self.conn();
+        let mut conn = self.conn()?;
         let raw_results: Vec<redis::Value> = pipe.query_async(&mut conn).await?;
 
         // Process results
@@ -924,43 +965,105 @@ mod tests {
             assert_eq!(config.level, 0);
         }
 
-        #[tokio::test]
-        async fn test_zero_response_timeout_returns_error() {
-            let result = RedisClient::with_config(
-                "redis://localhost:6379".to_string(),
+        async fn build(
+            defer: bool,
+            url: &str,
+            response_timeout: Option<Duration>,
+            connection_timeout: Option<Duration>,
+        ) -> Result<RedisClient, CustomRedisError> {
+            let (url, compression, format) = (
+                url.to_string(),
                 CompressionConfig::disabled(),
                 RedisValueFormat::Pickle,
-                Some(Duration::ZERO),
-                None,
-            )
-            .await;
+            );
+            if defer {
+                RedisClient::with_config_or_defer(
+                    url,
+                    compression,
+                    format,
+                    response_timeout,
+                    connection_timeout,
+                )
+                .await
+            } else {
+                RedisClient::with_config(
+                    url,
+                    compression,
+                    format,
+                    response_timeout,
+                    connection_timeout,
+                )
+                .await
+            }
+        }
 
-            assert!(matches!(
-                result,
-                Err(CustomRedisError::InvalidConfiguration(_))
-            ));
-            if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
-                assert!(msg.contains("response timeout"));
+        #[tokio::test]
+        async fn test_zero_response_timeout_returns_error() {
+            for defer in [false, true] {
+                let result =
+                    build(defer, "redis://localhost:6379", Some(Duration::ZERO), None).await;
+
+                assert!(
+                    matches!(result, Err(CustomRedisError::InvalidConfiguration(_))),
+                    "defer={defer}"
+                );
+                if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
+                    assert!(msg.contains("response timeout"));
+                }
             }
         }
 
         #[tokio::test]
         async fn test_zero_connection_timeout_returns_error() {
-            let result = RedisClient::with_config(
-                "redis://localhost:6379".to_string(),
-                CompressionConfig::disabled(),
-                RedisValueFormat::Pickle,
-                None,
-                Some(Duration::ZERO),
-            )
-            .await;
+            for defer in [false, true] {
+                let result =
+                    build(defer, "redis://localhost:6379", None, Some(Duration::ZERO)).await;
 
-            assert!(matches!(
-                result,
-                Err(CustomRedisError::InvalidConfiguration(_))
-            ));
-            if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
-                assert!(msg.contains("connection timeout"));
+                assert!(
+                    matches!(result, Err(CustomRedisError::InvalidConfiguration(_))),
+                    "defer={defer}"
+                );
+                if let Err(CustomRedisError::InvalidConfiguration(msg)) = result {
+                    assert!(msg.contains("connection timeout"));
+                }
+            }
+        }
+
+        #[tokio::test]
+        async fn test_malformed_url_returns_error() {
+            for defer in [false, true] {
+                assert!(
+                    build(defer, "not a redis url", None, None).await.is_err(),
+                    "defer={defer}: a bad URL is a configuration error and must fail \
+                     construction, or a typo silently disables the caller"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn test_or_defer_starts_disconnected_when_redis_is_unreachable() {
+            // Nothing listens on port 1, so the connection is refused at once.
+            let url = "redis://127.0.0.1:1";
+            let timeout = Some(Duration::from_secs(2));
+            assert!(
+                build(false, url, timeout, timeout).await.is_err(),
+                "with_config must keep failing when Redis is unreachable"
+            );
+
+            let client = build(true, url, timeout, timeout)
+                .await
+                .expect("an unreachable Redis must not fail construction");
+            let read = client.mget(vec!["k".to_string()]).await.map(|_| ());
+            let write = client
+                .batch_incr_by_expire_at(vec![("k".to_string(), 1, 0)])
+                .await;
+            for (op, result) in [("mget", read), ("batch_incr_by_expire_at", write)] {
+                let err = result.expect_err("a client with no connection cannot run commands");
+                assert!(
+                    err.is_unrecoverable_error(),
+                    "{op}: the error must be unrecoverable, because callers only heal, \
+                     and so connect, on unrecoverable errors"
+                );
             }
         }
     }
@@ -1403,6 +1506,77 @@ mod integration_tests {
             .set("k".to_string(), "v".to_string())
             .await
             .is_err());
+    }
+
+    // The path a service takes when it boots during a Redis outage.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_client_built_while_redis_is_down_connects_on_heal() {
+        // A fixed host port so the restarted container keeps the address the
+        // client dials. Offset from the heal test above so the two can run together.
+        let host_port = 30000 + ((std::process::id() + 5000) % 10000) as u16;
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .with_mapped_port(host_port, 6379.tcp())
+            .start()
+            .await
+            .unwrap();
+        let host = container.get_host().await.unwrap();
+        let url = format!("redis://{host}:{host_port}");
+        let timeouts = (
+            Some(Duration::from_millis(1000)),
+            Some(Duration::from_millis(2000)),
+        );
+        let answers = || async {
+            match RedisClient::with_config(
+                url.clone(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Utf8,
+                timeouts.0,
+                timeouts.1,
+            )
+            .await
+            {
+                Ok(c) => c.set("probe".to_string(), "1".to_string()).await.is_ok(),
+                Err(_) => false,
+            }
+        };
+        let docker = |args: &[&str]| {
+            let status = std::process::Command::new("docker")
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "docker {args:?} failed");
+        };
+
+        docker(&["stop", container.id()]);
+        let client = RedisClient::with_config_or_defer(
+            url.clone(),
+            CompressionConfig::disabled(),
+            RedisValueFormat::Utf8,
+            timeouts.0,
+            timeouts.1,
+        )
+        .await
+        .expect("a client must build while Redis is down");
+        assert!(client.set("k".to_string(), "v".to_string()).await.is_err());
+
+        docker(&["start", container.id()]);
+        let mut ready = false;
+        for _ in 0..50 {
+            if answers().await {
+                ready = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(ready, "redis container never came back");
+
+        Client::heal(&client).await;
+        assert!(
+            client.set("k".to_string(), "v".to_string()).await.is_ok(),
+            "the first heal after Redis returns must connect the client"
+        );
     }
 
     #[tokio::test]
