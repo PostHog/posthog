@@ -53,6 +53,27 @@ describe('navFilesTabLogic', () => {
         expect(files.values.folders[folder.path]).toEqual([note])
     })
 
+    it('preserves folder pagination when reopening a nested folder', async () => {
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
+        const folder = { id: 'reports', path: 'Research/Reports', type: 'folder', ref: 'Research/Reports' }
+        const note = { id: 'note', path: 'Research/Reports/Notes', type: 'notebook', ref: 'note' }
+        files.actions.setExpandedFolders(['project://', 'project://Research', 'project://Research/Reports'])
+        projectTreeDataLogic.actions.loadFolderSuccess('Research', [folder], true, 100)
+        projectTreeDataLogic.actions.loadFolderSuccess(folder.path, [note], true, 100)
+        const list = jest.spyOn(api.fileSystem, 'list').mockResolvedValue({ count: 0, results: [], users: [] })
+
+        await expectLogic(files, () => navFilesTabLogic.actions.openFolder(folder.path)).toFinishAllListeners()
+
+        expect(list).not.toHaveBeenCalled()
+        expect(files.values.folderStates.Research).toBe('has-more')
+        expect(files.values.folderStates[folder.path]).toBe('has-more')
+        expect(files.values.folders[folder.path]).toEqual([note])
+
+        await expectLogic(projectTreeDataLogic, () => files.actions.loadFolder(folder.path)).toFinishAllListeners()
+        expect(list).toHaveBeenCalledWith(expect.objectContaining({ parent: folder.path, offset: 100 }))
+    })
+
     it('filters starred files with the file search and restores them when cleared', () => {
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'overview', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },

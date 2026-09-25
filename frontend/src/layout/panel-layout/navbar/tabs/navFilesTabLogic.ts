@@ -56,14 +56,18 @@ export const navFilesTabLogic = kea<navFilesTabLogicType>([
                 panelLayoutLogic.actions.setNavOverlayOpen(true)
             }
             const tree = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
-            tree.actions.clearSearch()
+            if (tree.values.searchTerm) {
+                tree.actions.clearSearch()
+            }
             tree.actions.setSortMethod('folder')
             tree.actions.setOnlyFolders(false)
             tree.actions.assureVisibility({ type: 'folder', ref: folder })
             if (!tree.values.expandedFolders.includes(`project://${folder}`)) {
-                tree.actions.toggleFolderOpen(`project://${folder}`, true)
+                tree.actions.setExpandedFolders([...tree.values.expandedFolders, `project://${folder}`])
             }
-            tree.actions.loadFolder(folder)
+            if (!tree.values.folderStates[folder] || tree.values.folderStates[folder] === 'error') {
+                tree.actions.loadFolder(folder)
+            }
         },
         [projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).actionTypes.setSearchTerm]: ({
             searchTerm,

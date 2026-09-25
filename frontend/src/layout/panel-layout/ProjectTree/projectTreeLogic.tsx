@@ -1371,7 +1371,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
             const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project://' + f))
             for (const folder of allFullFolders) {
-                if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
+                if (!values.folderStates[folder] || values.folderStates[folder] === 'error') {
                     actions.loadFolder(folder)
                 }
             }
