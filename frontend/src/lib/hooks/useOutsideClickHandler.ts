@@ -3,7 +3,28 @@ import { useEffect, useRef } from 'react'
 
 export const CLICK_OUTSIDE_BLOCK_CLASS = 'click-outside-block'
 
-const exceptions = [`.${CLICK_OUTSIDE_BLOCK_CLASS}`, `.${CLICK_OUTSIDE_BLOCK_CLASS} *`]
+// posthog-js renders surveys and product tours into shadow hosts appended to <body>, on top of the
+// app. Without an exemption a press on one counts as an outside press, so answering a survey closes
+// whatever the person had open and discards what they typed into it.
+const OUTSIDE_DISMISS_EXEMPT_SELECTOR = `.${CLICK_OUTSIDE_BLOCK_CLASS}, [class*="PostHogSurvey-"], [class*="ph-product-tour-container-"]`
+
+/**
+ * Whether a press target opted out of outside-dismiss, or belongs to an overlay posthog-js renders.
+ * The walk crosses shadow boundaries because `closest` stops at each one, and floating-ui resolves
+ * the press target to `composedPath()[0]`, which is an element inside the overlay's shadow tree
+ * rather than its host.
+ */
+export const isExemptFromOutsideDismiss = (target: EventTarget | Node | null): boolean => {
+    let node = target instanceof Node ? target : null
+    while (node) {
+        if (node instanceof Element && node.closest(OUTSIDE_DISMISS_EXEMPT_SELECTOR)) {
+            return true
+        }
+        const root = node.getRootNode()
+        node = root instanceof ShadowRoot ? root.host : null
+    }
+    return false
+}
 
 export function useOutsideClickHandler(
     refs: React.MutableRefObject<HTMLElement | ReferenceType | null>[],
@@ -32,7 +53,7 @@ export function useOutsideClickHandler(
             if (event instanceof MouseEvent && event.button !== 0) {
                 return
             }
-            if (exceptions.some((exception) => (event.target as Element)?.matches?.(exception))) {
+            if (isExemptFromOutsideDismiss(event.target)) {
                 return
             }
             if (
