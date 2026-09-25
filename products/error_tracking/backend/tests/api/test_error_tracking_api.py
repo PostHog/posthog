@@ -220,8 +220,31 @@ class TestErrorTracking(APIBaseTest):
             if issue_table in query["sql"] and "LIMIT 1" in query["sql"].upper()
         )
         assert fingerprint_table not in count_query
+        # A per-row first_seen subquery would put the fingerprint table back on the page read, so
+        # its cost would follow the team's issue table instead of the page.
+        assert fingerprint_table not in page_query
         assert "GROUP BY" not in page_query.upper()
         assert f'ORDER BY "{issue_table}"."id" DESC' in page_query
+
+    def test_issue_list_skips_the_count_when_the_page_is_the_last_one(self) -> None:
+        issues = [ErrorTrackingIssue.objects.create(team=self.team) for _ in range(2)]
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/issues", data={"limit": 10, "offset": 0}
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == len(issues)
+
+        issue_table = ErrorTrackingIssue._meta.db_table
+        count_queries = [
+            query["sql"]
+            for query in queries.captured_queries
+            if issue_table in query["sql"] and "COUNT(" in query["sql"].upper()
+        ]
+        assert count_queries == []
 
     @parameterized.expand(["user", "role"])
     def test_issue_fetch_assignee_id_preserves_type(self, assignee_type):

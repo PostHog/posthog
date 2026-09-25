@@ -86,7 +86,10 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            # The issue list pages newest-first on the time-ordered UUID primary key. Without this
+            # the read scans every issue row the team has.
+            models.Index(fields=["team", "-id"], name="et_issue_team_id_desc_idx"),
         ]
 
     def merge(

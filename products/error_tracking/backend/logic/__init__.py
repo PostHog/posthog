@@ -3,7 +3,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Min, Q, QuerySet
 
 from posthog.models.utils import UUIDT
 
@@ -51,35 +51,78 @@ class ErrorTrackingIssueNotFoundError(Exception):
     pass
 
 
-# The issue list carries a per-row first_seen subquery, so an unbounded read scales with the
-# team's whole issue table. Cap it, and let callers that need more page with a narrower filter.
+# An unbounded read scales with the team's whole issue table. Cap it, and let callers that need
+# more page with a narrower filter.
 MAX_LISTED_ISSUES = 1000
 
 
 def get_issue_list_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
-    return ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team_id=team_id)
+    return ErrorTrackingIssue.objects.select_related("assignment").filter(team_id=team_id)
 
 
-def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
+def _with_issue_detail_relations(queryset: QuerySet[ErrorTrackingIssue], team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return (
-        ErrorTrackingIssue.objects.with_first_seen()
-        .select_related("assignment")
+        queryset.select_related("assignment")
         .prefetch_related("external_issues__integration")
         .prefetch_related("cohorts__cohort")
         .filter(team_id=team_id)
     )
 
 
+def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
+    return _with_issue_detail_relations(ErrorTrackingIssue.objects.all(), team_id)
+
+
+def attach_first_seen(team_id: int, issues: list[ErrorTrackingIssue]) -> list[ErrorTrackingIssue]:
+    """Set ``first_seen`` on a page of issues with one grouped fingerprint read.
+
+    The annotated alternative runs a correlated subquery for every row the read touches, so its
+    cost follows the team's issue table instead of the page.
+    """
+    if not issues:
+        return issues
+
+    first_seen_by_issue: dict[UUID, datetime | None] = dict(
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id__in=[issue.id for issue in issues])
+        .values_list("issue_id")
+        .annotate(earliest_first_seen=Min("first_seen"))
+    )
+    for issue in issues:
+        issue.first_seen = first_seen_by_issue.get(issue.id)  # type: ignore[attr-defined]
+    return issues
+
+
+def count_issues(team_id: int) -> int:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id).count()
+
+
 def list_issues(team_id: int, limit: int = MAX_LISTED_ISSUES) -> list[ErrorTrackingIssue]:
-    return list(get_issue_list_queryset(team_id).order_by("-created_at")[:limit])
+    return attach_first_seen(team_id, list(get_issue_list_queryset(team_id).order_by("-created_at")[:limit]))
 
 
 def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[ErrorTrackingIssue]:
-    return list(get_issue_list_queryset(team_id).filter(created_at__gte=since).order_by("-created_at")[:limit])
+    return attach_first_seen(
+        team_id,
+        list(get_issue_list_queryset(team_id).filter(created_at__gte=since).order_by("-created_at")[:limit]),
+    )
+
+
+def list_issues_detailed(team_id: int, *, limit: int | None, offset: int) -> tuple[list[ErrorTrackingIssue], int]:
+    """A page of issues and the total for the pagination envelope.
+
+    A page shorter than the requested limit is the last one, so its own length gives the total.
+    That spares the common single-page read a count over the whole issue table.
+    """
+    queryset = get_issue_detail_queryset(team_id).order_by("-id")
+    rows = list(queryset if limit is None else queryset[offset : offset + limit])
+    total = offset + len(rows) if limit is None or len(rows) < limit else count_issues(team_id)
+    return attach_first_seen(team_id, rows), total
 
 
 def get_issue(issue_id: UUID, team_id: int) -> ErrorTrackingIssue:
-    issue = get_issue_detail_queryset(team_id).filter(id=issue_id).first()
+    # One row makes the correlated subquery a single lookup, cheaper than a second round trip.
+    queryset = _with_issue_detail_relations(ErrorTrackingIssue.objects.with_first_seen(), team_id)
+    issue = queryset.filter(id=issue_id).first()
     if issue is None:
         raise ErrorTrackingIssueNotFoundError
     return issue
