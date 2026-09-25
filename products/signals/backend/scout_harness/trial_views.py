@@ -23,6 +23,12 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_spend_gates
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.trial_evaluation_serializers import (
+    ScoutTrialEvaluationQuerySerializer,
+    ScoutTrialEvaluationRequestSerializer,
+    ScoutTrialEvaluationSerializer,
+)
+from products.signals.backend.scout_harness.trial_evaluation_types import TrialEvaluationRequest
 from products.signals.backend.scout_harness.trial_inspection import ScoutTrialInspection
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
@@ -260,6 +266,121 @@ class ScoutTrialConfigMixin:
                     "cost_usd": None,
                     "input_tokens": usage.get("input_tokens"),
                     "output_tokens": usage.get("output_tokens"),
+                }
+            ).data
+        )
+
+    @private_capture_context()
+    @validated_request(
+        request_serializer=ScoutTrialEvaluationRequestSerializer,
+        responses={202: OpenApiResponse(response=ScoutTrialEvaluationSerializer)},
+        operation_id="signals_scout_config_trial_evaluation_create",
+        summary="Score a private scout comparison",
+        description="Freeze rubric and evidence, then judge explicit variant groups without changing production scouts.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="trial_evaluation",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+    )
+    def trial_evaluation_create(self, request: ValidatedRequest, **kwargs: str) -> Response:
+        # Scoring imports the worker and model-client graph, which route discovery does not need.
+        from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415
+            prepare_trial_evaluation,
+            read_trial_evaluation_report,
+        )
+        from products.signals.backend.temporal.agentic.scout_trial_evaluation import (  # noqa: PLC0415
+            start_trial_evaluation,
+        )
+
+        config = self._internal_trial_config(request, kwargs.get("id", ""))
+        for rejection in (check_fleet_gates(config.team_id), check_spend_gates(config.team, capture_analytics=False)):
+            if rejection is not None:
+                if rejection.kind.value == "throttled":
+                    raise exceptions.Throttled(detail=rejection.detail)
+                raise exceptions.PermissionDenied(rejection.detail)
+        try:
+            snapshot = prepare_trial_evaluation(
+                config=config,
+                user=cast(User, request.user),
+                request=TrialEvaluationRequest.model_validate(request.validated_data),
+            )
+        except ScoutTrialLaunchError as error:
+            raise exceptions.ValidationError({"detail": str(error)}) from error
+        report = read_trial_evaluation_report(snapshot)
+        if report is None:
+            start_trial_evaluation(team_id=config.team_id, evaluation_id=snapshot.evaluation_id)
+        return Response(
+            ScoutTrialEvaluationSerializer(
+                {
+                    "request": snapshot.request.model_dump(mode="json"),
+                    "evaluation_id": snapshot.evaluation_id,
+                    "context_id": snapshot.context_id,
+                    "status": "completed" if report else "pending",
+                    "error": None,
+                    "report": report.model_dump(mode="json") if report else None,
+                }
+            ).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @private_capture_context()
+    @validated_request(
+        query_serializer=ScoutTrialEvaluationQuerySerializer,
+        responses={200: OpenApiResponse(response=ScoutTrialEvaluationSerializer)},
+        operation_id="signals_scout_config_trial_evaluation_retrieve",
+        summary="Read a private scout comparison evaluation",
+        description="Read saved scores, criterion evidence and baseline differences without starting model calls.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="trial_evaluation_result",
+        required_scopes=["signal_scout:write", "llm_skill:write"],
+    )
+    def trial_evaluation_retrieve(self, request: ValidatedRequest, **kwargs: str) -> Response:
+        # Scoring imports the worker and model-client graph, which route discovery does not need.
+        from products.signals.backend.scout_harness.trial_evaluation import (  # noqa: PLC0415
+            assert_evaluation_access,
+            read_trial_evaluation,
+            read_trial_evaluation_report,
+        )
+        from products.signals.backend.temporal.agentic.scout_trial_evaluation import (  # noqa: PLC0415
+            get_trial_evaluation_status,
+        )
+
+        config = self._internal_trial_config(request, kwargs.get("id", ""))
+        try:
+            snapshot = read_trial_evaluation(config.team_id, request.validated_query_data["evaluation_id"])
+            if snapshot is None:
+                raise exceptions.NotFound()
+            assert_evaluation_access(snapshot, config=config, user=cast(User, request.user))
+        except ScoutTrialLaunchError as error:
+            raise exceptions.NotFound() from error
+        report = read_trial_evaluation_report(snapshot)
+        workflow = (
+            get_trial_evaluation_status(team_id=config.team_id, evaluation_id=snapshot.evaluation_id)
+            if report is None
+            else None
+        )
+        if workflow and workflow.status == "completed":
+            # The workflow can finish between the first report read and the status lookup.
+            report = read_trial_evaluation_report(snapshot)
+        status = "completed" if report else workflow.status if workflow else "unknown"
+        evaluation_error = workflow.error if workflow and not report else None
+        if status == "completed" and report is None:
+            status = "unknown"
+            evaluation_error = "The saved report is unavailable. Refresh to try again."
+        return Response(
+            ScoutTrialEvaluationSerializer(
+                {
+                    "request": snapshot.request.model_dump(mode="json"),
+                    "evaluation_id": snapshot.evaluation_id,
+                    "context_id": snapshot.context_id,
+                    "status": status,
+                    "error": evaluation_error,
+                    "report": report.model_dump(mode="json") if report else None,
                 }
             ).data
         )

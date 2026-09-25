@@ -15,6 +15,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { scoutTrialsLogicActions, scoutTrialsLogicValues } from '../../../../logics/scoutTrialsLogic'
 import { scoutDisplayName } from '../../../../utils/scoutRunsWindow'
+import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
 import { ScoutTrialResultModal } from './ScoutTrialResultModal'
 import { MAX_TRIAL_RUNS, ScoutTrialRow, trialIsActive } from './scoutTrialUtils'
 import { ScoutTrialVariantEditor } from './ScoutTrialVariantEditor'
@@ -35,6 +36,11 @@ type ViewAction =
     | 'selectResult'
     | 'downloadResults'
     | 'cancelRun'
+    | 'selectComparison'
+    | 'loadEvaluation'
+    | 'scoreComparison'
+    | 'newScoringAttempt'
+    | 'downloadEvaluation'
 
 export type ScoutTrialsViewProps = scoutTrialsLogicValues & {
     [Action in ViewAction]: (...args: Parameters<scoutTrialsLogicActions[Action]>) => void
@@ -227,6 +233,119 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
 
                 {selectedConfigId && (
                     <div className="flex flex-col gap-3 border-t pt-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="m-0 text-base">Score a comparison</h3>
+                            <LemonTag type="warning">Mock rubric</LemonTag>
+                        </div>
+                        <p className="m-0 text-sm text-muted">
+                            A model judges the selected comparison against a fixed mock rubric. This is an early
+                            evaluation signal, not a production quality gate. Scoring incurs additional model charges.
+                        </p>
+                        {props.selectedComparison ? (
+                            <>
+                                <LemonField.Pure label="Comparison">
+                                    <LemonSelect
+                                        value={props.selectedComparison.id}
+                                        options={props.comparisonsForConfig.map((comparison) => ({
+                                            value: comparison.id,
+                                            label: `${comparison.id.slice(0, 8)} · ${comparison.groups.length} variants · ${comparison.groups.reduce((count, group) => count + group.launchIds.length, 0)} runs`,
+                                        }))}
+                                        onChange={(id) => props.selectComparison(selectedConfigId, id!)}
+                                        fullWidth
+                                        menu={{ className: 'ph-no-capture ph-replay-block' }}
+                                    />
+                                </LemonField.Pure>
+                                <div className="flex flex-wrap gap-2">
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={props.scoreComparison}
+                                        loading={props.evaluationState.scoring}
+                                        disabledReason={props.scoreDisabledReason}
+                                    >
+                                        {props.evaluationState.value?.status === 'failed'
+                                            ? 'Retry scoring'
+                                            : 'Score comparison'}
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconRefresh />}
+                                        loading={props.evaluationState.loading}
+                                        disabledReason={
+                                            props.evaluationState.scoring
+                                                ? 'Wait for scoring to be submitted.'
+                                                : undefined
+                                        }
+                                        onClick={() => props.loadEvaluation(props.selectedComparison!.id)}
+                                    >
+                                        Refresh scoring
+                                    </LemonButton>
+                                    {props.evaluationState.value?.report && (
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconDownload />}
+                                            onClick={props.downloadEvaluation}
+                                        >
+                                            Download report
+                                        </LemonButton>
+                                    )}
+                                    {props.evaluationState.value?.report?.variants.some(
+                                        (variant) => variant.judge_errors > 0
+                                    ) && (
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={props.newScoringAttempt}
+                                            disabledReason={
+                                                props.evaluationState.loading || props.evaluationState.scoring
+                                                    ? 'Wait for scoring status to load.'
+                                                    : undefined
+                                            }
+                                        >
+                                            New scoring attempt
+                                        </LemonButton>
+                                    )}
+                                </div>
+                                {props.evaluationState.value?.report?.variants.some(
+                                    (variant) => variant.judge_errors > 0
+                                ) && (
+                                    <p className="m-0 text-xs text-muted">
+                                        Prepare another evaluation of these same runs to retry judge errors. The
+                                        previous report stays available. You choose when to score; a new attempt may
+                                        charge for all runs again.
+                                    </p>
+                                )}
+                                {props.evaluationState.error && (
+                                    <LemonBanner type="error">{props.evaluationState.error}</LemonBanner>
+                                )}
+                                {props.evaluationState.value?.error && (
+                                    <LemonBanner type="error">{props.evaluationState.value.error}</LemonBanner>
+                                )}
+                                {(props.evaluationState.value?.status === 'pending' ||
+                                    props.evaluationState.value?.status === 'running') && (
+                                    <LemonBanner type="info">
+                                        Scoring is in progress. The saved report will appear here when it is ready.
+                                    </LemonBanner>
+                                )}
+                                {props.evaluationState.value?.status === 'unknown' && (
+                                    <LemonBanner type="warning">
+                                        Scoring status is unavailable. Refresh before retrying to avoid starting a
+                                        duplicate evaluation.
+                                    </LemonBanner>
+                                )}
+                                {props.evaluationState.value?.report && (
+                                    <ScoutTrialComparisonReport report={props.evaluationState.value.report} />
+                                )}
+                            </>
+                        ) : (
+                            <LemonBanner type="info">
+                                Start a comparison above to keep its variant groups together for scoring. Older
+                                ungrouped runs remain available below.
+                            </LemonBanner>
+                        )}
+                    </div>
+                )}
+
+                {selectedConfigId && (
+                    <div className="flex flex-col gap-3 border-t pt-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                             <h3 className="m-0 text-base">Your recent runs</h3>
                             <div className="flex flex-wrap gap-2">
@@ -361,7 +480,11 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                         </p>
                     </div>
                 )}
-                <ScoutTrialResultModal result={props.selectedResult} onClose={() => props.selectResult(null)} />
+                <ScoutTrialResultModal
+                    result={props.selectedResult}
+                    report={props.evaluationState.value?.report}
+                    onClose={() => props.selectResult(null)}
+                />
             </div>
         </div>
     )

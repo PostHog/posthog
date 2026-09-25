@@ -14,16 +14,21 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api'
 import { downloadFile, uuid } from 'lib/utils/dom'
 
 import {
     signalsScoutConfigList,
     signalsScoutConfigTrial,
+    signalsScoutConfigTrialEvaluationCreate,
+    signalsScoutConfigTrialEvaluationRetrieve,
     signalsScoutConfigTrialHistory,
     signalsScoutConfigTrialResult,
     signalsScoutConfigTrialSetup,
 } from 'products/signals/frontend/generated/api'
 import type {
+    ScoutTrialEvaluationApi,
+    ScoutTrialEvaluationRequestApi,
     ScoutTrialHistoryApi,
     ScoutTrialResultApi,
     ScoutTrialSetupApi,
@@ -33,16 +38,35 @@ import { tasksRunsCancelCreate } from 'products/tasks/frontend/generated/api'
 
 import {
     ScoutTrialBatch,
+    ScoutTrialComparison,
     ScoutTrialRow,
     ScoutTrialVariant,
     TrackedScoutTrial,
     createTrialBatch,
+    comparisonScoreDisabledReason,
     initialTrialVariants,
     trialFormError,
     trialIsActive,
 } from '../components/config/scouts/trials/scoutTrialUtils'
 
 const TRIAL_POLL_INTERVAL_MS = 10_000
+
+export interface ScoutTrialEvaluationState {
+    value: ScoutTrialEvaluationApi | null
+    loading: boolean
+    scoring: boolean
+    error: string | null
+    notStarted: boolean
+    preparedRequest?: ScoutTrialEvaluationRequestApi
+}
+
+const EMPTY_EVALUATION: ScoutTrialEvaluationState = {
+    value: null,
+    loading: false,
+    scoring: false,
+    error: null,
+    notStarted: false,
+}
 
 export interface ScoutTrialsLogicProps {
     teamId: number
@@ -53,8 +77,12 @@ export interface ScoutTrialsLogicProps {
 export interface scoutTrialsLogicValues {
     batch: ScoutTrialBatch | null
     canceling: string[]
+    comparisons: ScoutTrialComparison[]
+    comparisonsForConfig: ScoutTrialComparison[]
     configs: SignalScoutConfigApi[] | null
     configsLoading: boolean
+    evaluationState: ScoutTrialEvaluationState
+    evaluations: Record<string, ScoutTrialEvaluationState>
     formError: string | null
     hasUnaccepted: boolean
     history: ScoutTrialHistoryApi | null
@@ -67,6 +95,9 @@ export interface scoutTrialsLogicValues {
     resultErrors: Record<string, string>
     results: Record<string, ScoutTrialResultApi>
     rows: ScoutTrialRow[]
+    scoreDisabledReason: string | null
+    selectedComparison: ScoutTrialComparison | null
+    selectedComparisonIds: Record<string, string>
     selectedConfigId: string | null
     selectedLaunchId: string | null
     selectedResult: ScoutTrialResultApi | null
@@ -86,6 +117,9 @@ export interface scoutTrialsLogicActions {
     cancelRun: (launchId: string) => {
         launchId: string
     }
+    downloadEvaluation: () => {
+        value: true
+    }
     downloadResults: () => {
         value: true
     }
@@ -103,6 +137,9 @@ export interface scoutTrialsLogicActions {
     ) => {
         configs: SignalScoutConfigApi[]
         payload?: any
+    }
+    loadEvaluation: (comparisonId: string) => {
+        comparisonId: string
     }
     loadHistory: (configId: string) => string
     loadHistoryFailure: (
@@ -137,11 +174,27 @@ export interface scoutTrialsLogicActions {
     newComparison: () => {
         value: true
     }
+    newScoringAttempt: () => {
+        value: true
+    }
     refreshResults: (force?: boolean) => {
         force: boolean
     }
+    registerComparison: (comparison: ScoutTrialComparison) => {
+        comparison: ScoutTrialComparison
+    }
     removeVariant: (id: string) => {
         id: string
+    }
+    scoreComparison: () => {
+        value: true
+    }
+    selectComparison: (
+        configId: string,
+        comparisonId: string
+    ) => {
+        comparisonId: string
+        configId: string
     }
     selectConfig: (configId: string) => {
         configId: string
@@ -193,6 +246,13 @@ export interface scoutTrialsLogicActions {
     trackLaunches: (tracked: TrackedScoutTrial[]) => {
         tracked: TrackedScoutTrial[]
     }
+    updateEvaluation: (
+        evaluationId: string,
+        update: Partial<ScoutTrialEvaluationState>
+    ) => {
+        evaluationId: string
+        update: Partial<ScoutTrialEvaluationState>
+    }
     updateVariant: (
         id: string,
         update: Partial<ScoutTrialVariant>
@@ -206,6 +266,24 @@ export interface scoutTrialsLogicActions {
 export interface scoutTrialsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        comparisonsForConfig: (
+            comparisons: ScoutTrialComparison[],
+            selectedConfigId: string | null
+        ) => ScoutTrialComparison[]
+        selectedComparison: (
+            comparisonsForConfig: ScoutTrialComparison[],
+            selectedComparisonIds: Record<string, string>,
+            selectedConfigId: string | null
+        ) => ScoutTrialComparison | null
+        evaluationState: (
+            selectedComparison: ScoutTrialComparison | null,
+            evaluations: Record<string, ScoutTrialEvaluationState>
+        ) => ScoutTrialEvaluationState
+        scoreDisabledReason: (
+            selectedComparison: ScoutTrialComparison | null,
+            results: Record<string, ScoutTrialResultApi>,
+            evaluationState: ScoutTrialEvaluationState
+        ) => string | null
         totalRuns: (variants: ScoutTrialVariant[], repeats: number) => number
         formError: (setup: ScoutTrialSetupApi | null, variants: ScoutTrialVariant[], repeats: number) => string | null
         hasUnaccepted: (batch: ScoutTrialBatch | null) => boolean
@@ -236,6 +314,16 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
     key(({ teamId, userId }) => `${teamId}:${userId}`),
     path((key) => ['products', 'signals', 'scoutTrialsLogic', key]),
     actions({
+        registerComparison: (comparison: ScoutTrialComparison) => ({ comparison }),
+        selectComparison: (configId: string, comparisonId: string) => ({ configId, comparisonId }),
+        updateEvaluation: (evaluationId: string, update: Partial<ScoutTrialEvaluationState>) => ({
+            evaluationId,
+            update,
+        }),
+        loadEvaluation: (comparisonId: string) => ({ comparisonId }),
+        scoreComparison: true,
+        newScoringAttempt: true,
+        downloadEvaluation: true,
         selectConfig: (configId: string) => ({ configId }),
         setVariants: (variants: ScoutTrialVariant[]) => ({ variants }),
         updateVariant: (id: string, update: Partial<ScoutTrialVariant>) => ({ id, update }),
@@ -290,6 +378,28 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         ],
     })),
     reducers({
+        comparisons: [
+            [] as ScoutTrialComparison[],
+            { persist: true },
+            {
+                registerComparison: (state, { comparison }) =>
+                    [...state.filter((item) => item.id !== comparison.id), comparison].slice(-100),
+            },
+        ],
+        selectedComparisonIds: [
+            {} as Record<string, string>,
+            { persist: true },
+            { selectComparison: (state, { configId, comparisonId }) => ({ ...state, [configId]: comparisonId }) },
+        ],
+        evaluations: [
+            {} as Record<string, ScoutTrialEvaluationState>,
+            {
+                updateEvaluation: (state, { evaluationId, update }) => ({
+                    ...state,
+                    [evaluationId]: { ...(state[evaluationId] ?? EMPTY_EVALUATION), ...update },
+                }),
+            },
+        ],
         setup: [null as ScoutTrialSetupApi | null, { selectConfig: () => null }],
         history: [null as ScoutTrialHistoryApi | null, { selectConfig: () => null }],
         selectedConfigId: [null as string | null, { persist: true }, { selectConfig: (_, { configId }) => configId }],
@@ -359,6 +469,54 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         ],
     }),
     selectors({
+        comparisonsForConfig: [
+            (s) => [s.comparisons, s.selectedConfigId],
+            (comparisons: ScoutTrialComparison[], configId: string | null): ScoutTrialComparison[] =>
+                comparisons.filter((comparison) => comparison.configId === configId).reverse(),
+        ],
+        selectedComparison: [
+            (s) => [s.comparisonsForConfig, s.selectedComparisonIds, s.selectedConfigId],
+            (
+                comparisons: ScoutTrialComparison[],
+                selectedIds: Record<string, string>,
+                configId: string | null
+            ): ScoutTrialComparison | null =>
+                comparisons.find((comparison) => comparison.id === selectedIds[configId ?? '']) ??
+                comparisons[0] ??
+                null,
+        ],
+        evaluationState: [
+            (s) => [s.selectedComparison, s.evaluations],
+            (
+                comparison: ScoutTrialComparison | null,
+                evaluations: Record<string, ScoutTrialEvaluationState>
+            ): ScoutTrialEvaluationState => (comparison ? evaluations[comparison.id] : null) ?? EMPTY_EVALUATION,
+        ],
+        scoreDisabledReason: [
+            (s) => [s.selectedComparison, s.results, s.evaluationState],
+            (
+                comparison: ScoutTrialComparison | null,
+                results: Record<string, ScoutTrialResultApi>,
+                evaluation: ScoutTrialEvaluationState
+            ): string | null => {
+                if (evaluation.loading || evaluation.scoring) {
+                    return 'Wait for scoring status to load.'
+                }
+                if (evaluation.error) {
+                    return 'Refresh scoring status before retrying.'
+                }
+                if ((!evaluation.value && !evaluation.notStarted) || evaluation.value?.status === 'unknown') {
+                    return 'Refresh scoring status before starting an evaluation.'
+                }
+                if (evaluation.value?.status === 'pending' || evaluation.value?.status === 'running') {
+                    return 'This comparison is being scored.'
+                }
+                if (evaluation.value?.status === 'completed') {
+                    return 'This comparison has already been scored.'
+                }
+                return comparisonScoreDisabledReason(comparison, results)
+            },
+        ],
         totalRuns: [
             (s) => [s.variants, s.repeats],
             (variants: ScoutTrialVariant[], repeats: number): number => variants.length * repeats,
@@ -437,7 +595,130 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         selectConfig: ({ configId }) => {
             actions.loadSetup(configId)
             actions.loadHistory(configId)
-            actions.refreshResults()
+            if (values.selectedComparison) {
+                actions.selectComparison(configId, values.selectedComparison.id)
+            } else {
+                actions.refreshResults()
+            }
+        },
+        selectComparison: ({ comparisonId }) => {
+            const comparison = values.comparisons.find((item) => item.id === comparisonId)
+            if (comparison) {
+                actions.trackLaunches(
+                    comparison.groups.flatMap((group) =>
+                        group.launchIds.map((launchId) => ({ configId: comparison.configId, launchId }))
+                    )
+                )
+                actions.refreshResults()
+                actions.loadEvaluation(comparisonId)
+            }
+        },
+        loadEvaluation: async ({ comparisonId }) => {
+            const comparison = values.comparisons.find((item) => item.id === comparisonId)
+            if (!comparison || values.evaluations[comparisonId]?.loading || values.evaluations[comparisonId]?.scoring) {
+                return
+            }
+            actions.updateEvaluation(comparisonId, { loading: true, error: null })
+            const manager = cache.disposables
+            const context = getContext()
+            try {
+                const evaluation = await signalsScoutConfigTrialEvaluationRetrieve(
+                    String(props.teamId),
+                    comparison.configId,
+                    { evaluation_id: comparisonId }
+                )
+                if (!manager.isDisposed && getContext() === context) {
+                    actions.updateEvaluation(comparisonId, { value: evaluation, notStarted: false })
+                }
+            } catch (error) {
+                if (!manager.isDisposed && getContext() === context) {
+                    actions.updateEvaluation(
+                        comparisonId,
+                        error instanceof ApiError && error.status === 404
+                            ? { value: null, notStarted: true }
+                            : { error: 'Scoring status could not be loaded. Refresh to try again.', notStarted: false }
+                    )
+                }
+            } finally {
+                if (!manager.isDisposed && getContext() === context) {
+                    actions.updateEvaluation(comparisonId, { loading: false })
+                }
+            }
+        },
+        scoreComparison: async () => {
+            const comparison = values.selectedComparison
+            if (!comparison || values.scoreDisabledReason) {
+                return
+            }
+            actions.updateEvaluation(comparison.id, { scoring: true, error: null, notStarted: false })
+            const request: ScoutTrialEvaluationRequestApi = values.evaluationState.value?.request ??
+                values.evaluationState.preparedRequest ?? {
+                    evaluation_id: comparison.id,
+                    baseline_variant_id: comparison.baselineVariantId,
+                    rubric_source: 'mock',
+                    variants: comparison.groups.map((group, index) => ({
+                        id: group.variantId,
+                        label:
+                            values.batch?.labels[group.variantId] ??
+                            values.history?.results.find((run) => group.launchIds.includes(run.launch_id))?.variant ??
+                            `Variant ${index + 1}`,
+                        launch_ids: group.launchIds,
+                    })),
+                }
+            const manager = cache.disposables
+            const context = getContext()
+            try {
+                const evaluation = await signalsScoutConfigTrialEvaluationCreate(
+                    String(props.teamId),
+                    comparison.configId,
+                    request
+                )
+                if (!manager.isDisposed && getContext() === context) {
+                    actions.updateEvaluation(comparison.id, { value: evaluation })
+                }
+            } catch {
+                if (!manager.isDisposed && getContext() === context) {
+                    actions.updateEvaluation(comparison.id, {
+                        value: null,
+                        error: 'Scoring was not confirmed. Refresh its status before retrying; the evaluation ID stays the same.',
+                    })
+                }
+            } finally {
+                if (!manager.isDisposed && getContext() === context) {
+                    actions.updateEvaluation(comparison.id, { scoring: false })
+                }
+            }
+        },
+        newScoringAttempt: () => {
+            const previous = values.selectedComparison
+            const state = values.evaluationState
+            const evaluation = state.value
+            if (
+                !previous ||
+                state.loading ||
+                state.scoring ||
+                evaluation?.status !== 'completed' ||
+                !evaluation.report?.variants.some((variant) => variant.judge_errors > 0)
+            ) {
+                return
+            }
+            const comparison: ScoutTrialComparison = { ...previous, id: uuid() }
+            actions.registerComparison(previous)
+            actions.registerComparison(comparison)
+            actions.updateEvaluation(comparison.id, {
+                preparedRequest: { ...evaluation.request, evaluation_id: comparison.id },
+            })
+            actions.selectComparison(comparison.configId, comparison.id)
+        },
+        downloadEvaluation: () => {
+            const report = values.evaluationState.value?.report
+            if (report) {
+                downloadFile(
+                    new File([JSON.stringify(report, null, 2)], 'scout-comparison-report.json', {
+                        type: 'application/json',
+                    })
+                )
+            }
         },
         loadSetupSuccess: ({ setup }) => {
             if (setup) {
@@ -491,6 +772,10 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                 }
             }
             saveBatch()
+            if (!values.comparisons.some((comparison) => comparison.id === batch.comparison.id)) {
+                actions.registerComparison(batch.comparison)
+                actions.selectComparison(batch.configId, batch.comparison.id)
+            }
             actions.trackLaunches(
                 batch.submissions.map((entry) => ({ configId: batch.configId, launchId: entry.request.launch_id }))
             )
@@ -633,6 +918,13 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         actions.loadConfigs()
         cache.disposables.add(() => {
             const poll = window.setInterval(() => {
+                const evaluation = values.evaluationState.value
+                if (
+                    values.selectedComparison &&
+                    (evaluation?.status === 'pending' || evaluation?.status === 'running')
+                ) {
+                    actions.loadEvaluation(values.selectedComparison.id)
+                }
                 if (
                     values.rows.some(
                         (row) =>

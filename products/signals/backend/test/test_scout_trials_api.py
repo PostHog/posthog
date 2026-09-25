@@ -424,3 +424,106 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert second.status_code == 200, second.data
         assert second.json() == result
         assert self.documents[result["result_key"]] == saved_content
+
+    def test_evaluation_endpoints_save_exact_request_and_reject_another_operator(self) -> None:
+        base = self._internal_scout_base()
+        launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), variant="Baseline")
+        marker = {"version": 1, "launch_id": str(launch.id), "context_id": str(launch.context_id)}
+        run = _make_run(
+            self.team,
+            scout_config=self.config,
+            skill_name=self.skill.name,
+            task_run_status="completed",
+            metadata={"scout_trial": marker},
+            summary="The synthetic checkout error has a clear reproduction.",
+        )
+        run.task_run.task.created_by = self.user
+        run.task_run.task.origin_product = "signals_scout"
+        run.task_run.task.origin_key = f"scout-trial:{launch.id}"
+        run.task_run.task.save(update_fields=["created_by", "origin_product", "origin_key"])
+        run.task_run.state = {
+            "scout_trial": marker,
+            "runtime_adapter": launch.runtime_adapter,
+            "model": launch.model,
+            "reasoning_effort": launch.reasoning_effort,
+            "service_tier": launch.service_tier,
+        }
+        run.task_run.save(update_fields=["state"])
+        variant_id = str(uuid4())
+        variant = {"id": variant_id, "label": "Baseline", "launch_ids": [str(launch.id)]}
+        evaluation_id = str(uuid4())
+        payload = {
+            "evaluation_id": evaluation_id,
+            "baseline_variant_id": variant_id,
+            "variants": [variant],
+            "rubric_source": "mock",
+        }
+        with (
+            patch("products.signals.backend.scout_harness.trial_views.check_fleet_gates", return_value=None),
+            patch("products.signals.backend.scout_harness.trial_views.check_spend_gates", return_value=None),
+            patch("posthog.storage.object_storage.head_object", return_value=None),
+            patch(
+                "products.signals.backend.temporal.agentic.scout_trial_evaluation.start_trial_evaluation",
+                return_value="synthetic-workflow",
+            ),
+            patch(
+                "products.signals.backend.temporal.agentic.scout_trial_evaluation.get_trial_evaluation_status",
+                return_value=TrialWorkflowStatus(status="pending"),
+            ),
+        ):
+            response = self.client.post(f"{base}trial_evaluation/", payload, format="json")
+            assert response.status_code == 202, response.data
+            assert response.json()["request"] == payload
+            snapshot_key = next(
+                key for key in self.documents if "/evaluations/" in key and key.endswith("/snapshot.json")
+            )
+            frozen = self.documents[snapshot_key]
+            retry = self.client.post(f"{base}trial_evaluation/", payload, format="json")
+            assert retry.status_code == 202, retry.data
+            assert self.documents[snapshot_key] == frozen
+            query = {"evaluation_id": evaluation_id}
+            with override_settings(SCOUT_LIVE_TRIALS_ENABLED=False, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
+                saved = self.client.get(f"{base}trial_evaluation_result/", query)
+            assert saved.status_code == 200, saved.data
+            assert saved.json()["request"] == payload
+            assert saved.json()["report"] is None
+            with patch(
+                "products.signals.backend.temporal.agentic.scout_trial_evaluation.get_trial_evaluation_status",
+                return_value=TrialWorkflowStatus(status="completed"),
+            ):
+                missing_report = self.client.get(f"{base}trial_evaluation_result/", query)
+            assert missing_report.status_code == 200
+            assert missing_report.json()["status"] == "unknown"
+            assert missing_report.json()["report"] is None
+            assert "report is unavailable" in missing_report.json()["error"]
+            changed = {**payload, "variants": [{**variant, "label": "Changed label"}]}
+            assert self.client.post(f"{base}trial_evaluation/", changed, format="json").status_code == 400
+            other_user = self._create_user("other-evaluator@example.com")
+            other_user.is_staff = True
+            other_user.save(update_fields=["is_staff"])
+            self.client.force_login(other_user)
+            assert self.client.get(f"{base}trial_evaluation_result/", query).status_code == 404
+
+    def test_evaluation_rejects_nonstaff_and_invalid_input_before_dispatch(self) -> None:
+        base = self._internal_scout_base()
+        evaluation_id = str(uuid4())
+        payload = {
+            "evaluation_id": evaluation_id,
+            "baseline_variant_id": str(uuid4()),
+            "variants": [{"id": str(uuid4()), "label": "Baseline", "launch_ids": [str(uuid4())]}],
+            "rubric_source": "mock",
+        }
+        with patch(
+            "products.signals.backend.temporal.agentic.scout_trial_evaluation.start_trial_evaluation"
+        ) as dispatch:
+            self.user.is_staff = False
+            self.user.save(update_fields=["is_staff"])
+            assert self.client.post(f"{base}trial_evaluation/", payload, format="json").status_code == 404
+            assert (
+                self.client.get(f"{base}trial_evaluation_result/", {"evaluation_id": evaluation_id}).status_code == 404
+            )
+            self.user.is_staff = True
+            self.user.save(update_fields=["is_staff"])
+            invalid = {**payload, "evaluation_id": "not-a-uuid"}
+            assert self.client.post(f"{base}trial_evaluation/", invalid, format="json").status_code == 400
+            dispatch.assert_not_called()

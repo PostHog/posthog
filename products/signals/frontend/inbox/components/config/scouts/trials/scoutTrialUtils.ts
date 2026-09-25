@@ -29,7 +29,17 @@ export interface ScoutTrialSubmission {
 export interface ScoutTrialBatch {
     configId: string
     contextId: string | null
+    comparison: ScoutTrialComparison
+    labels: Record<string, string>
     submissions: ScoutTrialSubmission[]
+}
+
+// Only these identifiers are persisted. Run content stays on the server.
+export interface ScoutTrialComparison {
+    id: string
+    configId: string
+    baselineVariantId: string
+    groups: { variantId: string; launchIds: string[] }[]
 }
 
 export interface ScoutTrialRow {
@@ -100,13 +110,19 @@ export function createTrialBatch(
     note: string,
     newId: () => string
 ): ScoutTrialBatch {
+    const groups = variants.map(() => ({
+        variantId: newId(),
+        launchIds: Array.from({ length: repeats }, () => newId()),
+    }))
     return {
         configId,
         contextId: null,
-        submissions: variants.flatMap((variant) =>
+        comparison: { id: newId(), configId, baselineVariantId: groups[0].variantId, groups },
+        labels: Object.fromEntries(groups.map((group, index) => [group.variantId, variants[index].label.trim()])),
+        submissions: variants.flatMap((variant, variantIndex) =>
             Array.from({ length: repeats }, (_, index) => ({
                 request: {
-                    launch_id: newId(),
+                    launch_id: groups[variantIndex].launchIds[index],
                     variant: repeats > 1 ? `${variant.label.trim()} (${index + 1})` : variant.label.trim(),
                     model: variant.model,
                     reasoning_effort: variant.effort,
@@ -118,6 +134,40 @@ export function createTrialBatch(
             }))
         ),
     }
+}
+
+export function comparisonScoreDisabledReason(
+    comparison: ScoutTrialComparison | null,
+    results: Record<string, ScoutTrialResultApi>
+): string | null {
+    if (!comparison) {
+        return 'Start or select a comparison first.'
+    }
+    const launches = comparison.groups.flatMap((group) => group.launchIds)
+    if (launches.some((id) => !results[id] || results[id].status === 'unknown')) {
+        return 'Every run in this comparison must have a confirmed result.'
+    }
+    if (launches.some((id) => results[id].status === 'not_started')) {
+        return 'Some runs were not started. Retry their submissions or start a new comparison.'
+    }
+    if (
+        launches.some(
+            (id) =>
+                !['completed', 'failed', 'cancelled', 'skipped'].includes(results[id].status) ||
+                trialIsActive(results[id].task_status ?? '')
+        )
+    ) {
+        return 'Wait for every run in this comparison to finish.'
+    }
+    return null
+}
+
+export function trialPercentage(value: number | null): string {
+    return value === null ? 'Unavailable' : `${Math.round(value * 100)}%`
+}
+
+export function trialDelta(value: number | null): string {
+    return value === null ? 'Not comparable' : `${value > 0 ? '+' : ''}${Math.round(value * 100)} pp`
 }
 
 export function trialReportText(document: Record<string, unknown>): string {

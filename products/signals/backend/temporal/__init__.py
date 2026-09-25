@@ -17,6 +17,12 @@ from products.signals.backend.temporal.agentic.scout_suggestions import (
     run_scout_suggestions_activity,
     stamp_requested_scout_suggestions_activity,
 )
+from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
+    RunScoutTrialEvaluationWorkflow,
+    finish_scout_trial_evaluation_activity,
+    judge_scout_trial_run_activity,
+    load_scout_trial_evaluation_activity,
+)
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
@@ -101,6 +107,7 @@ WORKFLOWS = [
     EmitEvalSignalWorkflow,
     CustomSignalAgentWorkflow,
     RunSignalsScoutWorkflow,
+    RunScoutTrialEvaluationWorkflow,
     SignalsScoutCoordinatorWorkflow,
     RunScoutSuggestionsWorkflow,
     ScoutSuggestionsCoordinatorWorkflow,
@@ -108,6 +115,9 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    load_scout_trial_evaluation_activity,
+    judge_scout_trial_run_activity,
+    finish_scout_trial_evaluation_activity,
     dispatch_inbox_slack_notifications_activity,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,

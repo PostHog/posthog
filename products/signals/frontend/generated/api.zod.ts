@@ -1296,6 +1296,39 @@ export const SignalsScoutConfigTrialBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Freeze rubric and evidence, then judge explicit variant groups without changing production scouts.
+ * @summary Score a private scout comparison
+ */
+export const signalsScoutConfigTrialEvaluationCreateBodyVariantsItemLabelMax = 100
+
+export const signalsScoutConfigTrialEvaluationCreateBodyVariantsItemLaunchIdsMax = 20
+
+export const SignalsScoutConfigTrialEvaluationCreateBody = /* @__PURE__ */ zod.object({
+    evaluation_id: zod.uuid().describe('Stable evaluation identity. Reuse for retries of this exact request.'),
+    baseline_variant_id: zod.uuid().describe('Variant to use as the baseline for descriptive differences.'),
+    variants: zod
+        .array(
+            zod.object({
+                id: zod.uuid().describe('Stable identity for this variant, independent of its display label.'),
+                label: zod
+                    .string()
+                    .max(signalsScoutConfigTrialEvaluationCreateBodyVariantsItemLabelMax)
+                    .describe('Name shown in the comparison report.'),
+                launch_ids: zod
+                    .array(zod.uuid())
+                    .min(1)
+                    .max(signalsScoutConfigTrialEvaluationCreateBodyVariantsItemLaunchIdsMax)
+                    .describe("Trial launches forming this variant's repeats."),
+            })
+        )
+        .describe('Explicit variant groups containing at most 20 total trial runs.'),
+    rubric_source: zod
+        .enum(['mock'])
+        .describe('\* `mock` - Mock')
+        .describe('Explicit rubric input source.\n\n\* `mock` - Mock'),
+})
+
+/**
  * Leave a steering note the scout fleet reads on its next runs. Address it to one scout via `skill_name` (a configured scout), to one stage of the report pipeline via a reserved audience (`pipeline:report-research`), or omit it for a general note every scout sees. Each call creates a new note (no upsert); delete retires one. Attributed to the authenticated user.
  * @summary Leave a note for the scouts
  */

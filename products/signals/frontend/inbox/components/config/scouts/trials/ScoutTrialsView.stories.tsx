@@ -1,12 +1,31 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { trialFixtureConfig, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
+import {
+    trialFixtureComparison,
+    trialFixtureConfig,
+    trialFixtureEvaluation,
+    trialFixtureEvaluationWithJudgeError,
+    trialFixtureResult,
+    trialFixtureSetup,
+} from './scoutTrialsFixtures'
 import { ScoutTrialsView, ScoutTrialsViewProps } from './ScoutTrialsView'
 import { createTrialBatch, initialTrialVariants } from './scoutTrialUtils'
 
 const noop = (): void => {}
 const variants = initialTrialVariants(trialFixtureSetup)
 const defaults: ScoutTrialsViewProps = {
+    comparisons: [],
+    comparisonsForConfig: [],
+    selectedComparisonIds: {},
+    selectedComparison: null,
+    evaluations: {},
+    evaluationState: { value: null, loading: false, scoring: false, error: null, notStarted: false },
+    scoreDisabledReason: 'Start or select a comparison first.',
+    selectComparison: noop,
+    loadEvaluation: noop,
+    scoreComparison: noop,
+    newScoringAttempt: noop,
+    downloadEvaluation: noop,
     configs: [trialFixtureConfig],
     configsLoading: false,
     setup: trialFixtureSetup,
@@ -91,7 +110,14 @@ export const Error: Story = {
     args: { setup: null, pageError: "Couldn't load this scout's comparison settings. Try again." },
 }
 
-const completedBatch = createTrialBatch(trialFixtureConfig.id, variants, 1, '', () => trialFixtureResult.launch_id)
+let fixtureId = 100
+const completedBatch = createTrialBatch(
+    trialFixtureConfig.id,
+    variants,
+    1,
+    '',
+    () => `00000000-0000-4000-8000-${String(fixtureId++).padStart(12, '0')}`
+)
 completedBatch.submissions = completedBatch.submissions.map((entry) => ({ ...entry, accepted: true }))
 
 export const Running: Story = {
@@ -137,3 +163,59 @@ export const Results: Story = {
 }
 export const ResultDetails: Story = { args: { ...Results.args, selectedResult: trialFixtureResult } }
 export const ResultsNarrow: Story = { ...Results, decorators: Narrow.decorators }
+
+export const Scored: Story = {
+    args: {
+        ...Results.args,
+        comparisons: [trialFixtureComparison],
+        comparisonsForConfig: [trialFixtureComparison],
+        selectedComparison: trialFixtureComparison,
+        evaluationState: {
+            value: trialFixtureEvaluation,
+            loading: false,
+            scoring: false,
+            error: null,
+            notStarted: false,
+        },
+        scoreDisabledReason: 'This comparison has already been scored.',
+    },
+}
+export const ScoredNarrow: Story = { ...Scored, decorators: Narrow.decorators }
+export const ScoredWithJudgeError: Story = {
+    args: {
+        ...Scored.args,
+        evaluationState: {
+            value: trialFixtureEvaluationWithJudgeError,
+            loading: false,
+            scoring: false,
+            error: null,
+            notStarted: false,
+        },
+    },
+}
+export const Scoring: Story = {
+    args: {
+        ...Scored.args,
+        evaluationState: {
+            value: { ...trialFixtureEvaluation, status: 'running', report: null },
+            loading: false,
+            scoring: false,
+            error: null,
+            notStarted: false,
+        },
+        scoreDisabledReason: 'This comparison is being scored.',
+    },
+}
+export const ScoringUnavailable: Story = {
+    args: {
+        ...Scored.args,
+        evaluationState: {
+            value: { ...trialFixtureEvaluation, status: 'unknown', report: null },
+            loading: false,
+            scoring: false,
+            error: null,
+            notStarted: false,
+        },
+        scoreDisabledReason: 'Refresh scoring status before starting an evaluation.',
+    },
+}

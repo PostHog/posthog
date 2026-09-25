@@ -64,6 +64,8 @@ import type {
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
     ScoutToolCatalogueApi,
+    ScoutTrialEvaluationApi,
+    ScoutTrialEvaluationRequestApi,
     ScoutTrialHistoryApi,
     ScoutTrialLaunchApi,
     ScoutTrialResultApi,
@@ -121,6 +123,7 @@ import type {
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
+    SignalsScoutConfigTrialEvaluationRetrieveParams,
     SignalsScoutConfigTrialHistoryParams,
     SignalsScoutConfigTrialResultParams,
     SignalsScoutConfigTrialSetupParams,
@@ -1368,6 +1371,64 @@ export const signalsScoutConfigTrial = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutTrialLaunchApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialEvaluationCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/trial_evaluation/`
+}
+
+/**
+ * Freeze rubric and evidence, then judge explicit variant groups without changing production scouts.
+ * @summary Score a private scout comparison
+ */
+export const signalsScoutConfigTrialEvaluationCreate = async (
+    projectId: string,
+    id: string,
+    scoutTrialEvaluationRequestApi: ScoutTrialEvaluationRequestApi,
+    options?: RequestInit
+): Promise<ScoutTrialEvaluationApi> => {
+    return apiMutator<ScoutTrialEvaluationApi>(getSignalsScoutConfigTrialEvaluationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutTrialEvaluationRequestApi),
+    })
+}
+
+export const getSignalsScoutConfigTrialEvaluationRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: SignalsScoutConfigTrialEvaluationRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/configs/${id}/trial_evaluation_result/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/configs/${id}/trial_evaluation_result/`
+}
+
+/**
+ * Read saved scores, criterion evidence and baseline differences without starting model calls.
+ * @summary Read a private scout comparison evaluation
+ */
+export const signalsScoutConfigTrialEvaluationRetrieve = async (
+    projectId: string,
+    id: string,
+    params: SignalsScoutConfigTrialEvaluationRetrieveParams,
+    options?: RequestInit
+): Promise<ScoutTrialEvaluationApi> => {
+    return apiMutator<ScoutTrialEvaluationApi>(getSignalsScoutConfigTrialEvaluationRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

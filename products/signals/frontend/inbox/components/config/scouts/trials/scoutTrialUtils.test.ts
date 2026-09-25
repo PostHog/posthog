@@ -1,5 +1,5 @@
-import { trialFixtureSetup } from './scoutTrialsFixtures'
-import { initialTrialVariants, trialFormError } from './scoutTrialUtils'
+import { trialFixtureComparison, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
+import { comparisonScoreDisabledReason, initialTrialVariants, trialFormError } from './scoutTrialUtils'
 
 describe('scout comparison validation', () => {
     test.each([0, 1.5, 11, 100])('rejects %s repeats when the comparison has two variants', (repeats) => {
@@ -22,5 +22,24 @@ describe('scout comparison validation', () => {
             )
         ).toBe('Gateway capture is disabled.')
         expect(trialFormError(trialFixtureSetup, variants, 10)).toBeNull()
+    })
+
+    test.each([
+        ['unknown', null, 'confirmed result'],
+        ['not_started', null, 'not started'],
+        ['unexpected_status', null, 'finish'],
+        ['failed', 'running', 'finish'],
+        ['running', 'running', 'finish'],
+    ])('does not score a comparison while a run has status=%s and task status=%s', (status, taskStatus, reason) => {
+        const results = Object.fromEntries(
+            trialFixtureComparison.groups.flatMap((group) =>
+                group.launchIds.map((launchId) => [
+                    launchId,
+                    { ...trialFixtureResult, launch_id: launchId, status, task_status: taskStatus },
+                ])
+            )
+        )
+        expect(comparisonScoreDisabledReason(trialFixtureComparison, results)).toContain(reason)
+        expect(comparisonScoreDisabledReason(trialFixtureComparison, {})).toContain('confirmed result')
     })
 })

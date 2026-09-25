@@ -29,7 +29,7 @@ Launches are disabled unless `SCOUT_LIVE_TRIALS_ENABLED` and `SCOUT_LIVE_TRIALS_
 Trials use the existing Python model gateway through the normal `LLM_GATEWAY_URL` and `SANDBOX_LLM_GATEWAY_URL` settings.
 No additional gateway service or capture destination is required.
 The gateway identifies trial requests from server-minted, task-bound Signals OAuth credentials and suppresses their generation, exception, and rate-limit denial events.
-Backend report validation uses a short-lived credential with only gateway access and the experiment identity; it is revoked after the operation.
+Backend report validation and comparison judging use short-lived credentials with only gateway access and the experiment identity; each credential is revoked after the operation.
 Ordinary gateway requests keep their capture behavior, and trial requests retain cost and rate-limit checks.
 
 Deploy the gateway change before enabling trials on the backend and workers.
@@ -56,19 +56,19 @@ Keep downloaded prompts, memory, reports, and transcripts outside version contro
 
 ### Rubric mock for comparison development
 
-The [mock rubric fixture](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/fixtures/mock-scout-rubric.json) matches the read response in [the scout rubric editor PR](https://github.com/PostHog/posthog/pull/106580), checked at `d7c6c3742ba`.
+The [mock rubric fixture](../../products/signals/backend/scout_harness/mock_scout_rubric.json) matches the read response in [the scout rubric editor PR](https://github.com/PostHog/posthog/pull/106580), checked at `d7c6c3742ba`.
 It contains the six default criteria, `revision: 0` (unsaved defaults), and `generation: null`.
 These are mock inputs for developing scoring and reports, not a saved or reviewed rubric for the selected scout.
 
 Print a mock response for a scout:
 
 ```sh
-python products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/scout_rubric_reader.py \
+python products/signals/backend/scout_harness/trial_rubrics.py \
   --config-id 00000000-0000-4000-8000-000000000001 \
   --skill-name signals-scout-example
 ```
 
-Comparison code can accept `ScoutRubricReader` and explicitly use `MockScoutRubricReader` from that script.
+The [rubric reader](../../products/signals/backend/scout_harness/trial_rubrics.py) defines `ScoutRubricReader` and `MockScoutRubricReader` for comparison code.
 `read(config_id=..., skill_name=...)` returns a fresh document with the supplied scout identity and the API's unchanged field names.
 The reader does not write scout configuration, generate criteria, or score runs.
 
@@ -76,9 +76,41 @@ When the real rubric API is available, replace the mock reader with a reader for
 Keep the editor, storage, and generation in the rubric feature; do not add a second implementation to comparisons.
 The real reader must propagate missing-rubric and access errors rather than falling back to mock criteria.
 
-Persist the returned criteria and revision with the comparison before judging, so every variant uses the same rubric.
-Record `source: mock` separately from the API document, and never label mock results as a reviewed scout evaluation.
-Judge only enabled saved/default `criteria`; `generation.suggestions` are drafts, and missing evidence is not a passing score.
+Scoring saves the returned rubric document, enabled criteria and revision with the comparison before judging, so every variant uses the same rubric.
+The evaluation records `rubric_source: mock` separately from the API document and labels its report as a mock rubric evaluation.
+Only enabled `criteria` are judged; `generation.suggestions` remain drafts.
+
+### Saved scoring and reports
+
+Scoring is an explicit action after all selected runs reach a known terminal state and incurs additional model charges.
+The request names a baseline and variant groups, with at most 20 distinct launches from the same scout, operator and saved starting context.
+Runs within a variant must use the same instructions, note, model, runtime, reasoning effort and service tier.
+The server freezes the rubric, bounded evidence, judge model and prompt version before dispatching the judge.
+Evidence includes instructions, starting history, captured reports, memory changes, summaries and available tool calls and results.
+Missing or truncated evidence is recorded as a limitation; private thoughts and reasoning are excluded from the extracted trace.
+
+The judge receives criteria and evidence without variant labels or scout model settings.
+It returns one verdict per criterion: pass, fail, unknown or not applicable.
+Pass, fail and not applicable require source references and exact quotations from the saved evidence.
+Unverifiable citations become unknown, and quoting an instruction alone cannot prove it was followed.
+Missing evidence is unknown; not applicable means the criterion does not apply to that run.
+The judge assesses the saved text and does not independently verify external sources or measure recall.
+
+A run's score is `pass / (pass + fail)`, or null when it has no decisive verdicts.
+A variant's score is the equal mean of its non-null run scores.
+Coverage is `(pass + fail) / (pass + fail + unknown)`; not applicable is excluded from both score and coverage denominators.
+Execution exclusions and judge errors have no quality score and are counted separately.
+Reports retain each run's verdicts, reasons, quotations and evidence limitations alongside aggregate counts.
+Baseline differences are withheld unless all selected runs were judged with complete, comparable verdicts.
+The differences describe these runs; they do not establish statistical significance or a reliable winner.
+Shared starting history does not freeze the live project data read during each run.
+
+Scoring uses `POST /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation/`.
+Read the saved outcome with `GET /api/projects/{team_id}/signals/scout/configs/{config_id}/trial_evaluation_result/?evaluation_id=...`.
+Reuse an evaluation ID only for the same request; a different request with that ID is rejected.
+Retries reuse saved work and do not repeat an attempted judge call automatically.
+Polling reads the saved status or report without starting model calls.
+Every read remains restricted to the operator's current project and skill access.
 
 ### Internal comparison UI
 
@@ -88,9 +120,14 @@ The first accepted launch saves the shared starting history; remaining launches 
 Keep the page open until all submissions are confirmed. Accepted runs continue on the server after the page closes.
 
 The page shows the operator's recent private runs, supports stopping active runs, and exports their captured reports, memory changes, and available usage as JSON.
-Browser storage keeps only scout and launch IDs, scoped to the project and operator.
+Once its runs finish, select a comparison and choose **Score comparison** to use the mock rubric.
+The report shows variant and run scores, coverage, criterion verdicts, supporting quotations and separate execution or judging errors, with a JSON export.
+Reloading the page restores saved scoring status without starting another evaluation.
+If a report contains judge errors, **New scoring attempt** prepares a new evaluation of the same scout runs and keeps the old report available.
+Choose **Score comparison** to start that attempt; it may charge for all runs again.
+Browser storage keeps only scout, comparison, variant, baseline and launch IDs, scoped to the project and operator; prompts, labels, evidence and reports stay out of browser storage.
 Unsubmitted prompt edits are lost on reload; start a new comparison instead of reconstructing an uncertain request.
-The setup and history endpoints enforce the staff/project restriction on the server, in addition to existing scout permissions.
+The setup, history and scoring endpoints enforce the staff/project restriction on the server, in addition to existing scout permissions.
 Shared instructions guide investigations but do not enforce date or file access limits.
 
 ## Postgres experiment ingestion

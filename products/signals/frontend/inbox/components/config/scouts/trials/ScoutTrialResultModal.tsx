@@ -2,21 +2,25 @@ import { LemonBanner, LemonCollapse, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import type { ScoutTrialResultApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ScoutTrialResultApi, TrialComparisonReportApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { ScoutTrialJudgment } from './ScoutTrialJudgment'
 import { trialReportText } from './scoutTrialUtils'
 
 export function ScoutTrialResultModal({
     result,
+    report,
     onClose,
 }: {
     result: ScoutTrialResultApi | null
+    report?: TrialComparisonReportApi | null
     onClose: () => void
 }): JSX.Element | null {
     if (!result) {
         return null
     }
     const memory = Object.entries(result.memory)
+    const judgment = report?.runs.find((run) => run.launch_id === result.launch_id)
 
     return (
         <LemonModal isOpen onClose={onClose} title="Run results" width={760} className="ph-no-capture ph-replay-block">
@@ -31,6 +35,16 @@ export function ScoutTrialResultModal({
                     <LemonBanner type="warning">
                         The saved export needs a retry. These inline results are still available to download.
                     </LemonBanner>
+                )}
+                {judgment && report && (
+                    <div className="flex flex-col gap-3">
+                        <h4 className="m-0">Mock rubric evaluation</h4>
+                        <ScoutTrialJudgment
+                            judgment={judgment}
+                            evidence={report.evidence.find((run) => run.launch_id === result.launch_id)}
+                            criteria={report.criteria}
+                        />
+                    </div>
                 )}
                 <LemonCollapse
                     defaultActiveKeys={['summary', 'reports']}
