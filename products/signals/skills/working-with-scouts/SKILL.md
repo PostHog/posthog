@@ -149,7 +149,7 @@ Four caveats change what the answer means:
 - **The advanced log is gated twice.** `advanced-activity-logs-list` and `advanced-activity-logs-filters` need `activity_log:read` on the credential, and on PostHog Cloud they also need the organization's audit-logs entitlement. Self-hosted is never gated on it.
   Without the entitlement the MCP server drops both tools from the toolset rather than failing them, so they read as tools that do not exist; a call that still reaches the backend gets a 402 asking for a paid plan. Neither outcome means you built the filter wrong.
   With the entitlement, results are trimmed to the plan's lookback, so an older run can fall outside the window.
-  The plain side-panel feed is gated on neither, but it is a weak substitute: it filters only by user, scope, and item, so it cannot isolate MCP writes. It still shows the "via MCP" tag, so on a short run window you can read an object's own feed and narrow by eye.
+  The plain activity-log endpoint and `system.activity_logs` enforce the same entitlement. If schema discovery exposes the SQL table, it supports bounded history queries; otherwise record that history is unavailable. Do not use another audit endpoint to bypass an access restriction.
 - **A dry run drops the grant, not the floor.** A scout on `emit: false` never holds the granted scopes, so it writes no rows under the scopes in the table above.
   It keeps `notebook:write`, the floor write every scout holds, so a dry run can still create, edit, or delete a notebook.
   Keep `Notebook` in the filter for a dry-run window.

@@ -32,6 +32,14 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 
 When in doubt, write a memory entry instead of filing a report. Surveys are personal data; the panic radius for a wrong "users hate feature X" report is high.
 
+## Activity-history availability
+
+Before the first activity-history check below or in bundled references, discover `advanced-activity-logs-list` once per run. It needs `activity_log:read` and, on Cloud, the Audit Logs entitlement. When available, pass `start_date`, `end_date`, the relevant `scopes`/`item_ids`, `page_size: 10`, and only the `fields` needed; request `detail.changes` only for a specific candidate.
+
+If the tool is absent, the supported alternative is `execute-sql` over `system.activity_logs`, **only if schema discovery exposes that table**. Use the same scope, item, and `created_at` bounds, select only needed columns, and cap results with `LIMIT 10`. SQL enforces the same entitlement and access controls; skip this probe if access is already known to be unavailable. Treat a full page as partial history; narrow or paginate before ruling out an edit.
+
+If neither reader is available, or access is denied, skip history checks for the rest of this run. Do not retry discovery, try other audit endpoints, or file a missing-tool report for a confirmed access restriction. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Quick close-out: are surveys even active?
 
 If `surveys-get-all` (with `archived: false`) returns an empty list **and** `surveys-global-stats` shows zero events in the last 30 days, surveys aren't active on this project. Write one scratchpad entry:
