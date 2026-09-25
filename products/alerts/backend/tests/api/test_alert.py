@@ -27,6 +27,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
+from products.alerts.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -1309,7 +1310,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == "09:35"
         assert datetime.fromisoformat(
             response.json()["next_check_at"].replace("Z", "+00:00")
-        ) == datetime.fromisoformat(expected_next_check_at)
+        ) == datetime.fromisoformat(expected_next_check_at) + alert_check_offset(
+            CalendarInterval(calculation_interval), response.json()["id"]
+        )
 
     @parameterized.expand(
         [
@@ -1353,7 +1356,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == "08:35"
         assert datetime.fromisoformat(
             response.json()["next_check_at"].replace("Z", "+00:00")
-        ) == datetime.fromisoformat(expected_next_check_at)
+        ) == datetime.fromisoformat(expected_next_check_at) + alert_check_offset(
+            CalendarInterval(calculation_interval), alert["id"]
+        )
 
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
     def test_patch_schedule_start_time_with_schedule_restriction_recalculates_the_next_check(self) -> None:
@@ -1386,7 +1391,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == datetime(
             2026, 3, 18, 9, 35, tzinfo=UTC
-        )
+        ) + alert_check_offset(CalendarInterval.HOURLY, alert["id"])
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {
@@ -1445,7 +1450,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_200_OK, response.content
             nxt = response.json()["next_check_at"]
-            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(
+                2026, 4, 6, 16, 0, 0, tzinfo=UTC
+            ) + alert_check_offset(CalendarInterval.HOURLY, alert["id"])
 
     def test_patch_schedule_restriction_empty_normalizes_to_null(self) -> None:
         creation_request = {

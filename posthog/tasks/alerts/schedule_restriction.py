@@ -16,12 +16,14 @@ from products.alerts.backend.facade.scheduling import (
     MAX_UNBLOCK_STEPS,
     MIN_BLOCKED_WINDOW_MINUTES,
     MINUTES_PER_DAY,
+    alert_check_offset,
     is_local_minute_blocked,
     is_utc_datetime_blocked as _is_utc_datetime_blocked_pure,
     merged_intervals_cover_full_day,
     normalize_schedule_restriction_value,
     parse_blocked_windows_tuples,
     scan_next_unblocked_utc,
+    to_calendar_interval,
     validate_and_normalize_schedule_restriction,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -87,4 +89,10 @@ def snap_candidate_utc_to_schedule_restriction(alert: AlertConfiguration, candid
     if not alert.schedule_restriction:
         return candidate_utc
     normalized = candidate_utc.astimezone(UTC).replace(second=0, microsecond=0)
-    return next_unblocked_utc(alert, normalized)
+    snapped = next_unblocked_utc(alert, normalized)
+    if snapped == normalized:
+        return snapped
+    # A snap lands on the end of a quiet window, which is usually on the hour, so every alert
+    # behind the same window would check at once. The alert's offset spreads them again.
+    offset_snap = snapped + alert_check_offset(to_calendar_interval(alert.calculation_interval), alert.id)
+    return snapped if is_utc_datetime_blocked(alert, offset_snap) else offset_snap
