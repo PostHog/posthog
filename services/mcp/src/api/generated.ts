@@ -95737,6 +95737,61 @@ export namespace Schemas {
       not_found_cohort_ids: number[];
     }
 
+    export interface StaffFlagEvaluationsModeMutation {
+      /** Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /**
+         * Teams to move (max 50). Other teams of their organizations keep their mode unless whole_organizations is set.
+         * @minItems 1
+         * @maxItems 50
+         */
+      team_ids: number[];
+      /** Also move every other team of each organization that owns one of the teams. */
+      whole_organizations?: boolean;
+      /** Also lower teams that are above the target mode. Once ingestion acts on mode 2, lowering a team from 2 leaves a gap in the events table for the time the team spent on 2. */
+      allow_downgrade?: boolean;
+      /** Report what the write would change, and write nothing. */
+      dry_run?: boolean;
+    }
+
+    export interface StaffOrganizationModeChange {
+      /** Organization id. */
+      organization_id: string;
+      /** Organization name. */
+      organization_name: string;
+      /** Every team of the organization, including teams the request does not cover. */
+      organization_team_count: number;
+      /** Teams of this organization that the request covers. The counts below are over these teams. */
+      team_count: number;
+      /** Covered teams below the target mode. */
+      teams_below_mode: number;
+      /** Covered teams already on the target mode. */
+      teams_at_mode: number;
+      /** Covered teams above the target mode. They move only when allow_downgrade is set. */
+      teams_above_mode: number;
+      /** Teams the write moved to the target mode, or would move on a dry run. */
+      teams_changed: number;
+      /** Covered teams above the target mode that the write leaves there, because allow_downgrade is not set. */
+      teams_left_above_mode: number;
+    }
+
+    export interface StaffFlagEvaluationsModeResponse {
+      /** The target mode of the request.
+       *
+       * * `0` - Events
+       * * `1` - Read flag evaluations
+       * * `2` - Flag evaluations only */
+      flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** True when the request wrote nothing. */
+      dry_run: boolean;
+      /** One entry per organization the request covers, oldest organization first. */
+      organizations: StaffOrganizationModeChange[];
+    }
+
     export interface StaffStuckCohortsResponse {
       /** Stuck cohorts, oldest last_calculation first (max 100). */
       results: StaffCohort[];
@@ -95793,12 +95848,6 @@ export namespace Schemas {
          * @nullable
          */
       max_feature_flags_override?: number | null;
-      /** New flag_evaluations mode for this team. Omit to leave it unchanged. Environments of one project and projects of one organization are expected to share a mode, so prefer the set_flag_evaluations_mode management command for more than one team. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then, and a team already on 2 stops writing $feature_flag_called to events when that support deploys. After that, lowering the mode from 2 leaves a gap in the events table for the time the team spent on mode 2.
-       *
-       * * `0` - Events
-       * * `1` - Read flag evaluations
-       * * `2` - Flag evaluations only */
-      flag_evaluations_mode?: FlagEvaluationsModeEnum;
     }
 
     export interface StaffTeamResult {
@@ -105417,7 +105466,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * Search string matched against team id (exact), api_token (exact), team name (partial), organization name (partial), or organization id (exact). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
      * @minLength 1
      */
     search: string;

@@ -6,7 +6,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { StaffTeamConfigMutationApi } from '../generated/api.schemas'
+import type {
+    StaffFlagEvaluationsModeMutationApi,
+    StaffOrganizationModeChangeApi,
+    StaffTeamConfigMutationApi,
+} from '../generated/api.schemas'
 import { featureFlagsStaffToolsLogic, parseFlagLimit, StaffTeamResult } from './featureFlagsStaffToolsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -469,6 +473,93 @@ describe('featureFlagsStaffToolsLogic', () => {
 
             expect(handleSet).toHaveBeenCalledTimes(1)
         })
+    })
+
+    describe('flag evaluations mode', () => {
+        const MODE_URL = '/api/feature_flags_staff_team_config/set_flag_evaluations_mode'
+
+        it.each([
+            { scope: 'teams' as const, wholeOrganizations: false },
+            { scope: 'organizations' as const, wholeOrganizations: true },
+        ])(
+            'previews the $scope scope as a dry run, then applies the same request',
+            async ({ scope, wholeOrganizations }) => {
+                const bodies: StaffFlagEvaluationsModeMutationApi[] = []
+                // Every count differs, so a summary that reads the wrong field or subtracts the wrong way fails.
+                const organizationChange: StaffOrganizationModeChangeApi = {
+                    organization_id: 'org-uuid',
+                    organization_name: 'Acme Org',
+                    organization_team_count: 16,
+                    team_count: 6,
+                    teams_below_mode: 1,
+                    teams_at_mode: 2,
+                    teams_above_mode: 3,
+                    teams_changed: 4,
+                    teams_left_above_mode: 5,
+                }
+                useMocks({
+                    post: {
+                        [MODE_URL]: async ({ request }: { request: Request }) => {
+                            const body: StaffFlagEvaluationsModeMutationApi = await request.json()
+                            bodies.push(body)
+                            return [
+                                200,
+                                {
+                                    flag_evaluations_mode: 1,
+                                    dry_run: body.dry_run,
+                                    organizations: [organizationChange],
+                                },
+                            ]
+                        },
+                    },
+                })
+                logic.actions.searchTeams({ query: 'Acme' })
+                await expectLogic(logic).toDispatchActions(['searchTeamsSuccess'])
+                // Team 99 stands in for a deep-linked team whose search result never arrived. Both scopes
+                // must still send it, so an organization-wide write covers its organization.
+                logic.actions.setSelectedTeamIds([5, 99])
+
+                logic.actions.openFlagEvaluationsModeModal()
+                await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
+                logic.actions.setFlagEvaluationsModeRequest({ scope, mode: 2 })
+                // A preview of the previous request must not stay on screen next to an Apply button
+                // that sends the new one.
+                expect(logic.values.flagEvaluationsModePreview).toBeNull()
+                await expectLogic(logic).toDispatchActions(['loadFlagEvaluationsModePreviewSuccess'])
+                expect(logic.values.flagEvaluationsModePreviewSummary).toMatchObject({
+                    teamsChanged: 4,
+                    teamsLeftAboveMode: 5,
+                    teamsOutsideRequest: 10,
+                })
+
+                // A selection change after the preview must not widen the write past what the preview showed.
+                logic.actions.setSelectedTeamIds([5, 99, 6])
+                logic.actions.applyFlagEvaluationsMode()
+                await expectLogic(logic).toDispatchActions(['applyFlagEvaluationsModeSuccess', 'loadTeamConfig'])
+
+                // The preview fires on every form change, so a preview without dry_run would write the
+                // mode while staff are still choosing it.
+                const request = {
+                    flag_evaluations_mode: 2,
+                    allow_downgrade: false,
+                    team_ids: [5, 99],
+                    whole_organizations: wholeOrganizations,
+                }
+                expect(bodies).toEqual([
+                    {
+                        flag_evaluations_mode: 1,
+                        allow_downgrade: false,
+                        team_ids: [5, 99],
+                        whole_organizations: false,
+                        dry_run: true,
+                    },
+                    { ...request, dry_run: true },
+                    { ...request, dry_run: false },
+                ])
+                expect(logic.values.isFlagEvaluationsModeModalOpen).toBe(false)
+                expect(lemonToast.success).toHaveBeenCalled()
+            }
+        )
     })
 
     describe('parseFlagLimit', () => {

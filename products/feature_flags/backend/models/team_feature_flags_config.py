@@ -68,7 +68,8 @@ class TeamFeatureFlagsConfig(models.Model):
     The staff-only feature-flags-staff API
     (products/feature_flags/backend/api/staff_team_config.py, gated by IsStaffUser) is the only
     interactive write surface: it changes SDK-facing behavior one team at a time after staff
-    verify compatible SDK versions, and it grants per-team flag-count overrides.
+    verify compatible SDK versions, it grants per-team flag-count overrides, and it sets
+    flag_evaluations_mode on many teams or whole organizations at once.
     Sanctioned writers: the team-creation signal below, get_or_create_team_extension, the
     staff-only feature-flags-staff API (gated by IsStaffUser), and management commands.
     """
