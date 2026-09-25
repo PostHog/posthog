@@ -53151,6 +53151,12 @@ export namespace Schemas {
       p99_duration_ms: number;
       /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
       previous_calls: number;
+      /** Errored calls in the previous period. */
+      previous_errors: number;
+      /** p95 duration in the previous period, or null when no previous call carried a duration. */
+      previous_p95_duration_ms: number | null;
+      /** Distinct sessions that called the tool in the previous period. */
+      previous_sessions: number;
       sessions: number;
       tool: string;
       total_calls: number;
@@ -53166,6 +53172,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** The same total for the previous period, the denominator for each row's previous session share. */
+      previousTotalSessions: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -85101,6 +85109,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** The same total for the previous period, the denominator for each row's previous session share. */
+      previousTotalSessions: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */

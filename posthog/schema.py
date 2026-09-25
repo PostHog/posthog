@@ -6097,6 +6097,15 @@ class MCPToolQualityRowItem(BaseModel):
             " previous unit."
         ),
     )
+    previous_errors: int = Field(..., description="Errored calls in the previous period.")
+    previous_p95_duration_ms: float | None = Field(
+        ...,
+        description=("p95 duration in the previous period, or null when no previous call carried a duration."),
+    )
+    previous_sessions: int = Field(
+        ...,
+        description="Distinct sessions that called the tool in the previous period.",
+    )
     sessions: int
     tool: str
     total_calls: int
@@ -13183,6 +13192,10 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -19117,6 +19130,10 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -24262,6 +24279,10 @@ class QueryResponseAlternative104(BaseModel):
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    previousTotalSessions: int = Field(
+        ...,
+        description=("The same total for the previous period, the denominator for each row's previous session share."),
+    )
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),

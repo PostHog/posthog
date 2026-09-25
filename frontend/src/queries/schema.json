@@ -11559,6 +11559,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -11629,6 +11633,7 @@
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
+                "previousTotalSessions",
                 "results",
                 "timezone",
                 "totalCount",
@@ -33609,6 +33614,18 @@
                     "$ref": "#/definitions/integer",
                     "description": "Calls in the previous period: the same length of time right before the window, or for a to-date range (\"This month\") the same part of the previous unit."
                 },
+                "previous_errors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Errored calls in the previous period."
+                },
+                "previous_p95_duration_ms": {
+                    "description": "p95 duration in the previous period, or null when no previous call carried a duration.",
+                    "type": ["number", "null"]
+                },
+                "previous_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions that called the tool in the previous period."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33639,7 +33656,10 @@
                 "sessions",
                 "first_seen",
                 "last_seen",
-                "trend_score"
+                "trend_score",
+                "previous_errors",
+                "previous_p95_duration_ms",
+                "previous_sessions"
             ],
             "type": "object"
         },
@@ -33723,6 +33743,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -33778,7 +33802,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "totalCount", "totalSessions"],
+            "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
             "type": "object"
         },
         "MCPToolQualitySortColumn": {
@@ -48351,6 +48375,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "previousTotalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "The same total for the previous period, the denominator for each row's previous session share."
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48406,7 +48434,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results", "totalCount", "totalSessions"],
+                    "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
                     "type": "object"
                 },
                 {

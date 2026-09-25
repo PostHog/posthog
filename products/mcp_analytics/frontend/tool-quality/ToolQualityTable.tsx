@@ -46,6 +46,9 @@ import {
     mcpAnalyticsToolQualityLogic,
     mcpToolReportUrl,
 } from '../mcpAnalyticsToolQualityLogic'
+import { errorRateChange, p95Change } from './qualityChange'
+import { QualityChangeMarker } from './QualityChangeMarker'
+import { SessionsCell } from './SessionsCell'
 import { TrendCell } from './TrendCell'
 
 const DESTRUCTIVE_ERROR_PCT = 5
@@ -70,9 +73,16 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         key: 'error_rate_pct',
         label: 'Error rate',
         align: 'right',
-        tooltip: 'Percentage of calls that returned $mcp_is_error = true',
+        tooltip:
+            'Percentage of calls that returned $mcp_is_error = true. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
-    { key: 'p95_duration_ms', label: 'p95', align: 'right', tooltip: '95th-percentile $mcp_duration_ms' },
+    {
+        key: 'p95_duration_ms',
+        label: 'p95',
+        align: 'right',
+        tooltip:
+            '95th-percentile $mcp_duration_ms. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+    },
     { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
     {
         key: 'sessions',
@@ -131,8 +141,15 @@ function SortableHead({
 }
 
 function ToolRows(): JSX.Element {
-    const { toolRows, toolRowsTotalSessions, toolRowsPageLoading, selectedTool, dateFilter, pinnedInterval } =
-        useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        toolRows,
+        toolRowsTotalSessions,
+        toolRowsPreviousTotalSessions,
+        toolRowsPageLoading,
+        selectedTool,
+        dateFilter,
+        pinnedInterval,
+    } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (toolRowsPageLoading && toolRows.length === 0) {
@@ -171,17 +188,25 @@ function ToolRows(): JSX.Element {
                         <TrendCell totalCalls={row.total_calls} previousCalls={row.previous_calls} />
                     </TableCell>
                     <TableCell align="right">
-                        <ErrorRateBadge pct={row.error_rate_pct} />
+                        <span className="inline-flex items-center whitespace-nowrap">
+                            <ErrorRateBadge pct={row.error_rate_pct} />
+                            <QualityChangeMarker change={errorRateChange(row)} />
+                        </span>
                     </TableCell>
-                    <TableCell align="right">{formatMs(row.p95_duration_ms)}</TableCell>
+                    <TableCell align="right">
+                        <span className="inline-flex items-center whitespace-nowrap">
+                            <span className="tabular-nums">{formatMs(row.p95_duration_ms)}</span>
+                            <QualityChangeMarker change={p95Change(row)} />
+                        </span>
+                    </TableCell>
                     <TableCell align="right">{formatNumber(row.users)}</TableCell>
                     <TableCell align="right">
-                        <span className="tabular-nums">{formatNumber(row.sessions)}</span>
-                        {toolRowsTotalSessions > 0 ? (
-                            <span className="text-secondary tabular-nums">
-                                {` · ${formatPercentage((row.sessions / toolRowsTotalSessions) * 100, { compact: true })}`}
-                            </span>
-                        ) : null}
+                        <SessionsCell
+                            sessions={row.sessions}
+                            totalSessions={toolRowsTotalSessions}
+                            previousSessions={row.previous_sessions}
+                            previousTotalSessions={toolRowsPreviousTotalSessions}
+                        />
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                         <TZLabel time={row.last_seen} />

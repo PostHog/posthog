@@ -174,6 +174,7 @@ export interface mcpAnalyticsToolQualityLogicValues {
     toolRows: MCPToolQualityRowItem[]
     toolRowsPage: ToolRowsPage | null
     toolRowsPageLoading: boolean
+    toolRowsPreviousTotalSessions: number
     toolRowsTotalCount: number
     toolRowsTotalSessions: number
 }
@@ -298,6 +299,7 @@ export interface mcpAnalyticsToolQualityLogicMeta {
         toolRows: (toolRowsPage: ToolRowsPage | null) => MCPToolQualityRowItem[]
         toolRowsTotalCount: (toolRowsPage: ToolRowsPage | null) => number
         toolRowsTotalSessions: (toolRowsPage: ToolRowsPage | null) => number
+        toolRowsPreviousTotalSessions: (toolRowsPage: ToolRowsPage | null) => number
         dailyChartData: (
             dailyStats: DailyToolStat[],
             dateFilter: DateFilter,
@@ -509,6 +511,10 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
         toolRowsTotalSessions: [
             (s) => [s.toolRowsPage],
             (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.totalSessions ?? 0,
+        ],
+        toolRowsPreviousTotalSessions: [
+            (s) => [s.toolRowsPage],
+            (toolRowsPage: ToolRowsPage | null): number => toolRowsPage?.previousTotalSessions ?? 0,
         ],
         dailyChartData: [
             (s) => [s.dailyStats, s.dateFilter, s.interval, teamLogic.selectors.timezone],
