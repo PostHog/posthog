@@ -1,7 +1,6 @@
 import os
 import time
 import uuid
-from collections.abc import Iterable
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -42,6 +41,7 @@ from posthog.scopes import (
     MCP_BUILT_IN_AGENT_SCOPE,
     APIScopeObject,
     APIScopeObjectOrNotSupported,
+    scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
@@ -728,19 +728,6 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
-
-
-def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
-    """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
-    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
-    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
-    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
-    held = set(held_scopes)
-    return [
-        scope
-        for scope in required_scopes
-        if scope not in held and not (scope.endswith(":read") and scope.replace(":read", ":write") in held)
-    ]
 
 
 CLIENT_ID_POSTHOG = "posthog"

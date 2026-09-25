@@ -22,13 +22,13 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
     get_authenticator_scopes,
-    scopes_not_covered,
 )
 from posthog.scopes import (
     API_SCOPE_ACTIONS,
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+    scopes_not_covered,
 )
 from posthog.tasks.email import send_project_secret_api_key_exposed
 
