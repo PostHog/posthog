@@ -83,6 +83,8 @@ else:
 # These actions sit on the core project viewset, so the product has to be named for the
 # generated types and MCP tools to land in access_control rather than core
 _SCHEMA_EXTENSIONS = {"x-product": "access_control"}
+# The rule writes are for MCP tools and the frontend, not a public REST contract
+_INTERNAL_SCHEMA_EXTENSIONS = {**_SCHEMA_EXTENSIONS, "x-internal": True}
 
 _MEMBER_ID_PARAM = OpenApiParameter(
     name="member_id",
@@ -941,7 +943,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         "Returns the stored rule, or 204 with no body when the rule is cleared.",
         request=AccessControlRuleRequestSerializer,
         responses={200: AccessControlStoredRuleSerializer, 204: None},
-        extensions=_SCHEMA_EXTENSIONS,
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_default_rules")
     def access_control_default_rules(self, request: Request, *args, **kwargs) -> Response:
@@ -955,7 +957,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         "Returns the stored rule, or 204 with no body when the rule is cleared.",
         request=AccessControlMemberRuleRequestSerializer,
         responses={200: AccessControlStoredRuleSerializer, 204: None},
-        extensions=_SCHEMA_EXTENSIONS,
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_member_rules")
     def access_control_member_rules(self, request: Request, *args, **kwargs) -> Response:
@@ -969,7 +971,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         "Returns the stored rule, or 204 with no body when the rule is cleared.",
         request=AccessControlRoleRuleRequestSerializer,
         responses={200: AccessControlStoredRuleSerializer, 204: None},
-        extensions=_SCHEMA_EXTENSIONS,
+        extensions=_INTERNAL_SCHEMA_EXTENSIONS,
     )
     @action(methods=["PUT"], detail=True, url_path="access_control_role_rules")
     def access_control_role_rules(self, request: Request, *args, **kwargs) -> Response:
