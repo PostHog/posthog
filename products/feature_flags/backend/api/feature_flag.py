@@ -533,6 +533,11 @@ FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
 # them - the setting is bookkeeping, not an access boundary.
 TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS = frozenset(FEATURE_FLAG_CREATION_CONTEXT_CHOICES) - {"feature_flags"}
 
+# Serializer context key for a write to a flag that the owning product generates and manages on the
+# user's behalf, such as a survey's internal targeting flag. The approval gate trusts this key, so
+# only server code may set it, and only for a flag no API field lets a user point the product at.
+INTERNAL_FLAG_WRITE_CONTEXT_KEY = "internal_flag_write"
+
 REQUIRE_TAGS_ON_CREATE_ERROR = "Add at least one tag. This project requires new feature flags to be tagged."
 REQUIRE_TAGS_ON_UPDATE_ERROR = "Keep at least one tag. This project requires feature flags to stay tagged."
 

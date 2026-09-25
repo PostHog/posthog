@@ -7583,8 +7583,7 @@ class TestSurveyApprovalGate(APIBaseTest):
 
         survey = self._create_survey()
 
-        # An approved change request would create the flag row but never point the survey at
-        # it, so a gated create leaves a survey that can never target anyone.
+        # An approved change request creates the flag row but never points the survey at it.
         assert survey.internal_targeting_flag is not None
         assert ChangeRequest.objects.count() == 0
 
