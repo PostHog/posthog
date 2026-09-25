@@ -462,8 +462,7 @@ export const productRedirects: Record<
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     '/mcp-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
-    '/ml-inference/decisions': (_params, searchParams, hashParams) =>
-        combineUrl(urls.decisionPlayground(), searchParams, hashParams).url,
+    '/ml-inference/decisions': '/ml-inference/playground',
     '/replay-vision/templates': '/replay-vision/new/template',
     '/replay/vision': '/replay-vision',
     '/community-skills': (_params, searchParams, hashParams) =>

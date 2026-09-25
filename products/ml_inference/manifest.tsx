@@ -1,7 +1,3 @@
-import { combineUrl } from 'kea-router'
-
-import { urls } from 'scenes/urls'
-
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -19,8 +15,7 @@ export const manifest: ProductManifest = {
         '/ml-inference/playground': ['DecisionPlayground', 'decisionPlayground'],
     },
     redirects: {
-        '/ml-inference/decisions': (_params, searchParams, hashParams) =>
-            combineUrl(urls.decisionPlayground(), searchParams, hashParams).url,
+        '/ml-inference/decisions': '/ml-inference/playground',
     },
     urls: {
         decisionPlayground: (): string => '/ml-inference/playground',
