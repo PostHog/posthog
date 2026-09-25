@@ -45,16 +45,17 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     })
 
     it.each([
-        ['a scheduled broadcast', 'broadcasts', 'active', undefined, undefined, true],
-        ['a broadcast whose last run finished', 'broadcasts', 'active', 'completed', undefined, true],
-        ['a broadcast mid-send', 'broadcasts', 'active', 'active', undefined, false],
-        ['a broadcast whose run is queued', 'broadcasts', 'active', 'queued', undefined, false],
-        ['a draft', 'broadcasts', 'draft', undefined, undefined, false],
-        ['an editable workflow', null, 'active', undefined, undefined, true],
-        ['a workflow the wizard cannot edit', null, 'active', undefined, '{{ inputs.owner }}', false],
-    ])('lets %s move to draft: %s', (_, origin, status, jobStatus, recipient, expected) => {
-        const broadcast = { status, origin_product: origin, actions: [trigger(), email(recipient), exit], edges }
-        expect(canMoveToDraft(broadcast as any, jobStatus ? ({ status: jobStatus } as any) : undefined)).toBe(expected)
+        ['a scheduled broadcast', 'active', [], undefined, true],
+        ['a broadcast whose last run finished', 'active', ['completed'], undefined, true],
+        ['a broadcast mid-send', 'active', ['active'], undefined, false],
+        ['a broadcast with an older run still queued', 'active', ['completed', 'queued'], undefined, false],
+        ['a broadcast whose runs have not loaded', 'active', null, undefined, false],
+        ['a draft', 'draft', [], undefined, false],
+        ['a workflow the wizard cannot edit', 'active', [], '{{ inputs.owner }}', false],
+    ])('lets %s move to draft: %s', (_, status, jobStatuses, recipient, expected) => {
+        const broadcast = { status, actions: [trigger(), email(recipient), exit], edges }
+        const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
+        expect(canMoveToDraft(broadcast as any, jobs as any)).toBe(expected)
     })
 
     it('saves the audience and email into the existing steps without replacing them', () => {

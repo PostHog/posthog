@@ -121,6 +121,7 @@ export interface broadcastWizardLogicValues {
     firstInvalidStep: BroadcastWizardStep | null
     goalEnabled: boolean
     hasHydrated: boolean
+    hasLoadedBatchJobs: boolean
     isReadOnly: boolean
     launching: boolean
     movingToDraft: boolean
@@ -271,7 +272,11 @@ export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
-        canMoveToDraft: (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[]) => boolean
+        canMoveToDraft: (
+            broadcast: HogFlowApi | null,
+            batchJobs: HogFlowBatchJobApi[],
+            hasLoadedBatchJobs: boolean
+        ) => boolean
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
         stepValidationErrors: (
@@ -533,6 +538,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 launchBroadcastFinished: () => false,
             },
         ],
+        hasLoadedBatchJobs: [
+            false,
+            {
+                loadBatchJobs: () => false,
+                loadBatchJobsSuccess: () => true,
+            },
+        ],
         movingToDraft: [
             false,
             {
@@ -556,9 +568,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (broadcast: HogFlowApi | null, id: string): string | null => broadcast?.id ?? (id !== 'new' ? id : null),
         ],
         canMoveToDraft: [
-            (s) => [s.broadcast, s.batchJobs],
-            (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[]): boolean =>
-                canMoveToDraft(broadcast, batchJobs[0]),
+            (s) => [s.broadcast, s.batchJobs, s.hasLoadedBatchJobs],
+            (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[], hasLoadedBatchJobs: boolean): boolean =>
+                canMoveToDraft(broadcast, hasLoadedBatchJobs ? batchJobs : null),
         ],
         isReadOnly: [
             (s) => [s.broadcast],
@@ -815,14 +827,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     return
                 }
 
-                // An old schedule would fire alongside the new one, and a paused one can't be resumed.
-                for (const existing of values.broadcast?.schedules ?? []) {
-                    await hogFlowsSchedulesDestroy(projectId, broadcastId, existing.id)
-                }
-
-                activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
-
+                // An old schedule would fire alongside the new one, and a paused one can't be resumed, so
+                // launch replaces them. The flow stays a draft until the swap is done, and the scheduler
+                // skips drafts, so a failure part way never leaves two live schedules or none.
+                const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
                 if (values.scheduleMode === 'now') {
+                    for (const id of oldScheduleIds) {
+                        await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+                    }
+                    activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
                     await hogFlowsBatchJobsCreate(projectId, broadcastId, {
                         hog_flow: broadcastId,
                         variables: {},
@@ -839,6 +852,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         timezone: values.effectiveTimezone,
                     }
                     await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    for (const id of oldScheduleIds) {
+                        await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+                    }
+                    activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
                     lemonToast.success('Broadcast scheduled')
                 }
                 // Resuming a draft launches from the broadcast's own URL, so the router push below is a
