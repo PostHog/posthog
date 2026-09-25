@@ -1,7 +1,14 @@
 """Azure Blob Storage integration."""
 
+import urllib.parse as urlparse
+
 from posthog.models.user import User
-from posthog.security.url_validation import _dev_bypass_enabled, _test_bypass_enabled, is_url_allowed
+from posthog.security.url_validation import (
+    HOST_RESOLUTION_FAILED_REASON,
+    _dev_bypass_enabled,
+    _test_bypass_enabled,
+    is_url_allowed,
+)
 
 from . import model
 
@@ -89,6 +96,20 @@ class EndpointNotAllowedError(ValueError):
     """Distinct error raised when an endpoint is not allowed."""
 
 
+class EndpointResolutionError(ValueError):
+    """Raised when an endpoint host has no DNS answer.
+
+    Kept apart from `EndpointNotAllowedError` because a worker DNS failure can succeed on a
+    retry, while a policy block never does. A host that is simply wrong also lands here, and
+    retries until the run gives up with this message.
+    """
+
+
+def _endpoint_host(endpoint: str) -> str:
+    """Host only, so no credential or token in the endpoint reaches a message."""
+    return urlparse.urlparse(endpoint).hostname or "unknown"
+
+
 def validate_azure_blob_connection_string(connection_string: str) -> None:
     """Validate an Azure Blob connection string.
 
@@ -149,7 +170,14 @@ def validate_azure_blob_connection_string(connection_string: str) -> None:
         if validation_applies:
             allowed, error = is_url_allowed(endpoint)
             if not allowed:
-                raise EndpointNotAllowedError("Invalid endpoint found in connection string")
+                host = _endpoint_host(endpoint)
+                if error == HOST_RESOLUTION_FAILED_REASON:
+                    raise EndpointResolutionError(
+                        f"Could not resolve the endpoint host '{host}' in the connection string"
+                    )
+                raise EndpointNotAllowedError(
+                    f"The endpoint host '{host}' in the connection string is not allowed: {error}"
+                )
 
 
 def strip_leading_whitespace(conn_str: str) -> str:

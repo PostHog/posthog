@@ -1,6 +1,11 @@
 import pytest
 
+from posthog.models.integration.azure_blob import EndpointNotAllowedError, EndpointResolutionError
+
+from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import NON_RETRYABLE_ERROR_TYPES
 from products.batch_exports.backend.temporal.destinations.utils import get_key_prefix, get_manifest_key, get_object_key
+from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -79,3 +84,24 @@ def test_get_manifest_key_generates_correct_path():
         batch_export_model=None,
     )
     assert key == "exports/2024-01-01T00:00:00-2024-01-01T01:00:00_manifest.json"
+
+
+async def test_blocked_endpoint_returns_a_failed_run_instead_of_crashing():
+    @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+    async def activity() -> BatchExportResult:
+        raise EndpointNotAllowedError("The endpoint host 'name.blob.example.com' is not allowed: a reason")
+
+    result = await activity()
+
+    assert result.error is not None
+    assert result.error.type == "EndpointNotAllowedError"
+    assert "name.blob.example.com" in result.error.message
+
+
+async def test_unresolvable_endpoint_still_retries():
+    @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
+    async def activity() -> BatchExportResult:
+        raise EndpointResolutionError("Could not resolve the endpoint host 'name.blob.example.com'")
+
+    with pytest.raises(EndpointResolutionError):
+        await activity()

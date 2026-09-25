@@ -47,7 +47,11 @@ import pyarrow as pa
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 
-from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
+from posthog.models.integration.azure_blob import (
+    EndpointNotAllowedError,
+    EndpointResolutionError,
+    validate_azure_blob_connection_string,
+)
 
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     MalformedConnectionStringError,
@@ -221,7 +225,7 @@ class AzureBlobDestinationWriter:
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
                 permit_redirects=False,
             )
-        except EndpointNotAllowedError:
+        except (EndpointNotAllowedError, EndpointResolutionError):
             raise
         except ValueError:
             raise MalformedConnectionStringError()
