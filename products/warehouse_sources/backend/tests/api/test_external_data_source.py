@@ -14206,15 +14206,21 @@ class TestGithubMultiRepoPatch(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={
-                "job_inputs": {
-                    "auth_method": {"selection": "pat"},
-                    "repositories": ["org/repo", "new/repo"],
-                }
-            },
-        )
+        # Retiring a repo's rows pauses their schedule and writes them off after the commit, so the
+        # test has to run the on-commit callbacks to see the row turn off.
+        with (
+            patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "auth_method": {"selection": "pat"},
+                        "repositories": ["org/repo", "new/repo"],
+                    }
+                },
+            )
         assert response.status_code == 200, response.json()
 
         # New repo's hooks are pinned to the source's existing secret; removed repo's hook deleted.
