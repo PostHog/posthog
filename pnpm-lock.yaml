@@ -25,8 +25,8 @@ catalogs:
       specifier: ^0.38.0
       version: 0.38.0
     '@posthog/react':
-      specifier: ^1.11.1
-      version: 1.11.1
+      specifier: ^1.11.2
+      version: 1.11.2
     '@storybook/react':
       specifier: ^10.4.3
       version: 10.4.6
@@ -877,7 +877,7 @@ importers:
         version: link:../packages/quill/packages/components
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@posthog/replay-shared':
         specifier: workspace:*
         version: link:../common/replay-shared
@@ -2801,7 +2801,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@testing-library/jest-dom':
         specifier: '*'
         version: 5.17.0
@@ -3639,7 +3639,7 @@ importers:
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -4223,6 +4223,9 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      storybook:
+        specifier: 'catalog:'
+        version: 10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/notifications:
     dependencies:
@@ -4282,7 +4285,7 @@ importers:
         version: link:../../packages/quill/packages/primitives
       '@posthog/react':
         specifier: 'catalog:'
-        version: 1.11.1(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -10854,8 +10857,8 @@ packages:
       '@modelcontextprotocol/server':
         optional: true
 
-  '@posthog/react@1.11.1':
-    resolution: {integrity: sha512-mHpef0Vp7e0103ePGOWbFDC7v/E0jpMI8OeTCkTCsL2DSV4PP2oIcBSiuxELQPo5MV6yBpGx/hwkWNcbDp65Aw==}
+  '@posthog/react@1.11.2':
+    resolution: {integrity: sha512-6iO+dbmm9x31lhnmxBWKJlI5iWaCRx9fsUfVyrYz2zRhG9QcUmQr22jj2DKK2zaWNTp1gO1GCE7VxiqBqYwTxA==}
     peerDependencies:
       '@types/react': 18.3.27
       posthog-js: '>=1.257.2'
@@ -30527,7 +30530,7 @@ snapshots:
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
-  '@posthog/react@1.11.1(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
+  '@posthog/react@1.11.2(@types/react@18.3.27)(posthog-js@1.434.14(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
     dependencies:
       posthog-js: 1.434.14(@types/react@18.3.27)(react@18.3.1)
       react: 18.3.1

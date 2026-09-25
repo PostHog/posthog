@@ -233,6 +233,7 @@ the row lists both.
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
+| depot                            | HTTP (Connect RPC)          | requests                                                        | ✅                          |
 | descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | devin_ai                         | HTTP                        | requests                                                        | ✅                          |
 | ding_connect                     | HTTP                        | requests                                                        | ✅                          |
@@ -254,7 +255,7 @@ the row lists both.
 | dynamics_365_business_central    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynamodb                         | HTTP                        | requests                                                        | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
-| e2b                              | HTTP                        | requests                                                        | ✅                          |
+| e2b                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
 | easybill                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | easypost                         | HTTP                        | requests                                                        | ✅                          |
@@ -985,7 +986,6 @@ doesn't conflict with concurrent PRs.
 - deelflows
 - demodesk
 - deno_deploy
-- depot
 - deputy
 - develocity
 - dialpad

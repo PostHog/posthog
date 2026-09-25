@@ -40,6 +40,7 @@ from products.signals.backend.ranking.features import (
     feature_set_by_name,
     feature_vector,
 )
+from products.signals.backend.ranking.model_contract import model_mismatch, readable_head_names, trained_head_files
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
@@ -132,13 +133,10 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     graded_rows,
     head_grades,
     leaked_report_ids,
-    model_mismatch,
-    readable_head_names,
     report_grade_rows,
     score_event_rows,
     score_pool,
     scored_pool,
-    trained_head_files,
     unseen_pool,
     with_model_names,
 )
@@ -1528,7 +1526,7 @@ def test_an_unreadable_trained_head_is_still_scored_and_graded():
             {"head": "thumbs_up", "file": "thumbs_up.ubj", "readable": False},
         ]
     }
-    assert trained_head_files(metadata) == {"open": "open.ubj", "thumbs_up": "thumbs_up.ubj"}
+    assert trained_head_files(metadata, HEADS_BY_NAME) == {"open": "open.ubj", "thumbs_up": "thumbs_up.ubj"}
     assert readable_head_names(metadata) == frozenset({"open"})
 
     booster = _booster_ubj(tuple(TABULAR_FEATURE_SET.feature_names))
