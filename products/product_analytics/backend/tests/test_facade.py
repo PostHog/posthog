@@ -5,8 +5,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.apps import apps
-from django.db import IntegrityError, transaction
+from django.db import connection, transaction
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -47,87 +46,10 @@ class TestInsightVariableReads(BaseTest):
         assert insight_variables_for_team(other_team.pk) == []
 
 
-class TestInsightViewedContextSchema(BaseTest):
-    @parameterized.expand([("anonymous", False), ("identified", True)])
-    def test_contexts_are_unique_and_deleted_with_the_insight(self, _name: str, identified: bool) -> None:
-        demand = apps.get_model("product_analytics", "InsightViewedContext")
-        insight = Insight.objects.create(team=self.team)
-        viewer = {"user_id": self.user.pk if identified else None, "source": "web"}
-        demand.objects.create(team=self.team, insight=insight, last_viewed_at=now(), **viewer)
-        with transaction.atomic(), self.assertRaises(IntegrityError):
-            demand.objects.create(team=self.team, insight=insight, last_viewed_at=now(), **viewer)
-        dashboard_model = apps.get_model("dashboards", "Dashboard")
-        dashboard = dashboard_model.objects.create(team=self.team, name="Overview")
-        other_dashboard = dashboard_model.objects.create(team=self.team, name="Other")
-        demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_viewed_at=now(), **viewer)
-        demand.objects.create(
-            team=self.team, insight=insight, dashboard=other_dashboard, last_viewed_at=now(), **viewer
-        )
-        with transaction.atomic(), self.assertRaises(IntegrityError):
-            demand.objects.create(team=self.team, insight=insight, dashboard=dashboard, last_viewed_at=now(), **viewer)
-        # A different source or viewer must not overwrite this viewer's access.
-        demand.objects.create(
-            team=self.team, insight=insight, user_id=viewer["user_id"], source="mcp", last_viewed_at=now()
-        )
-        demand.objects.create(
-            team=self.team,
-            insight=insight,
-            user_id=None if identified else self.user.pk,
-            source="web",
-            last_viewed_at=now(),
-        )
-        dashboard.delete()
-        assert demand.objects.filter(insight=insight).count() == 4
-        insight_id = insight.pk
-        insight.delete()
-        assert not demand.objects.filter(insight_id=insight_id).exists()
-
-    def test_context_rows_do_not_change_legacy_history_or_upserts(self) -> None:
-        from products.product_analytics.backend.facade.api import (
-            recent_viewers_by_insight,
-            recently_viewed_insights,
-            record_insight_views,
-            with_last_viewed_at,
-        )
-
-        insight = Insight.objects.create(team=self.team)
-        contexts = apps.get_model("product_analytics", "InsightViewedContext")
-        for source in ["web", "mcp"]:
-            contexts.objects.create(
-                team=self.team, user=self.user, insight=insight, source=source, last_viewed_at=now()
-            )
-        first = now() - timedelta(hours=1)
-        record_insight_views(
-            team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: first}
-        )
-        latest = now()
-        record_insight_views(
-            team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: latest}
-        )
-        assert InsightViewed.objects.get(team=self.team, user=self.user, insight=insight).last_viewed_at == latest
-        recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=10)
-        assert [item.pk for item in recent] == [insight.pk]
-        assert recent[0].last_viewed_at == latest
-        assert with_last_viewed_at(Insight.objects.filter(pk=insight.pk)).get().last_viewed_at == latest
-        assert recent_viewers_by_insight(
-            team_id=self.team.pk, insight_ids=[insight.pk], since=first, max_per_insight=10
-        ) == {insight.pk: [self.user]}
-        self.user.delete()
-        assert not contexts.objects.filter(insight=insight).exists()
-
-
 class TestRecordInsightView(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.insight = Insight.objects.create(team=self.team, name="Signups")
-
-    def test_unattributed_view_does_not_imply_standalone_demand(self) -> None:
-        view = InsightViewed.objects.create(team=self.team, user=self.user, insight=self.insight, last_viewed_at=now())
-        assert (
-            not apps.get_model("product_analytics", "InsightViewedContext")
-            .objects.filter(insight=view.insight)
-            .exists()
-        )
 
     @parameterized.expand([("anonymous", False), ("identified", True)])
     def test_viewing_twice_moves_the_timestamp_instead_of_adding_a_row(self, _name: str, identified: bool) -> None:
@@ -146,6 +68,59 @@ class TestRecordInsightView(BaseTest):
         record_insight_view(insight_id=self.insight.pk)
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 2
+
+
+class TestInsightViewedCompatibility(BaseTest):
+    def test_context_fields_default_to_unattributed_and_history_writes_are_monotonic(self) -> None:
+        from products.product_analytics.backend.facade.api import record_insight_views
+
+        insight = Insight.objects.create(team=self.team)
+        latest = now()
+        for at in [latest, latest - timedelta(days=1)]:
+            record_insight_views(
+                team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: at}
+            )
+        row = InsightViewed.objects.get(insight=insight)
+        assert row.source == "" and row.dashboard_id is None
+        assert row.last_viewed_at == latest
+
+    def test_readers_deduplicate_future_contexts_and_legacy_writes_do_not_renew_them(self) -> None:
+        from products.product_analytics.backend.facade.api import (
+            recent_viewers_by_insight,
+            recently_viewed_insights,
+            record_insight_views,
+        )
+
+        insight = Insight.objects.create(team=self.team)
+        earlier = now() - timedelta(days=1)
+        record_insight_views(
+            team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: earlier}
+        )
+        # Emulate the later constraint migration inside a rollback-only test transaction.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                cursor.execute("ALTER TABLE posthog_insightviewed DROP CONSTRAINT posthog_unique_insightviewed")
+                cursor.execute(
+                    "CREATE UNIQUE INDEX test_insightviewed_context_unique ON posthog_insightviewed (COALESCE(team_id, 0), COALESCE(user_id, 0), insight_id, source, COALESCE(dashboard_id, 0))"
+                )
+            context = InsightViewed.objects.create(
+                team=self.team, user=self.user, insight=insight, source="mcp", last_viewed_at=earlier
+            )
+            latest = now()
+            record_insight_views(
+                team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: latest}
+            )
+            assert InsightViewed.objects.filter(insight=insight, source="").count() == 1
+            context.refresh_from_db()
+            assert context.last_viewed_at == earlier
+            recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=1)
+            assert [item.pk for item in recent] == [insight.pk]
+            assert recent[0].last_viewed_at == latest
+            assert recent_viewers_by_insight(
+                team_id=self.team.pk, insight_ids=[insight.pk], since=earlier, max_per_insight=5
+            ) == {insight.pk: [self.user]}
+            transaction.set_rollback(True)
 
 
 class TestInsightReads(BaseTest):
