@@ -13,7 +13,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
-from posthog.cloud_utils import get_api_host, is_cloud
+from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
@@ -103,6 +103,10 @@ def other_signed_out_pages_csp_enforcement_enabled() -> bool:
 
 
 def csp_enforcement_enabled(request: HttpRequest) -> bool:
+    if is_hobby():
+        # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
+        # ours, so an enforced policy there would break pages with no signal.
+        return False
     user = getattr(request, "user", None)
     if user is not None and user.is_authenticated:
         return True

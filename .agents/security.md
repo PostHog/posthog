@@ -167,7 +167,7 @@ A refused resource produces no user-visible error, so the feature simply does no
 
 Three policies exist, and a change lands in whichever one covers the page:
 
-- **The app policy** governs every SPA page. It is enforced for every signed-in user, and for every visitor on login, signup, password reset and email verification. Other signed-out pages follow the `csp-enforce-other-signed-out-pages` flag, drawn per page load because a signed-out visitor has no user to bucket. They stay report-only while the flag is off. Embeddable documents, such as shared dashboards, always stay report-only.
+- **The app policy** governs every SPA page. On PostHog Cloud and in local development, it is enforced for every signed-in user, and for every visitor on login, signup, password reset and email verification. A self-hosted install only reports it, because its violations reach nobody. Other signed-out pages follow the `csp-enforce-other-signed-out-pages` flag, drawn per page load because a signed-out visitor has no user to bucket. They stay report-only while the flag is off. Embeddable documents, such as shared dashboards, always stay report-only.
 - **The admin policy** governs `/admin/`. It is enforced for every staff member, with no flag, so a mistake here breaks admin immediately.
 - **A view may set its own policy.** The canvas artifact and the workflow asset endpoint do this to sandbox untrusted HTML. `CSPMiddleware` returns a response that already carries the header unchanged, so do not expect the app policy on those documents.
 

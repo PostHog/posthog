@@ -16,6 +16,8 @@ from posthog.csp_middleware import (
 )
 
 
+# Tests run as a self-hosted install, which never enforces. LOCAL enforces without turning on DEBUG.
+@override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestCSPMiddleware(APIBaseTest):
     def test_replay_player_frame_carries_its_own_policy_and_reports_nothing(self):
         # The frame exists so a recorded page stops being judged against the app policy. If the
@@ -144,20 +146,30 @@ class TestCSPMiddleware(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("self_hosted_by_default", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}),
+            # Nobody sees a self-hosted install's violations, so enforcing there would break pages silently.
+            (
+                "self_hosted_by_default",
+                {"CLOUD_DEPLOYMENT": None, "DEBUG": False},
+                "Content-Security-Policy-Report-Only",
+            ),
             # DEBUG puts an install in the local run mode rather than the hobby one, and nothing
-            # stops a self-hoster deploying that way, so it must report nowhere as well.
-            ("self_hosted_with_debug", {"CLOUD_DEPLOYMENT": None, "DEBUG": True}),
+            # stops a self-hoster deploying that way, so it must report nowhere as well. Local
+            # development enforces, so a change that breaks the policy shows up there first.
+            ("self_hosted_with_debug", {"CLOUD_DEPLOYMENT": None, "DEBUG": True}, "Content-Security-Policy"),
             # Cloud would otherwise report, so this case proves the empty value turns it off.
-            ("explicitly_disabled", {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""}),
+            (
+                "explicitly_disabled",
+                {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""},
+                "Content-Security-Policy",
+            ),
         ]
     )
-    def test_no_endpoint_still_sends_the_policy_but_asks_for_no_reports(self, _name, overrides):
+    def test_no_endpoint_still_sends_the_policy_but_asks_for_no_reports(self, _name, overrides, header):
         # A self-hosted install must not report to PostHog, and the policy itself must survive, so
         # dropping it here would silently remove a security control.
         with override_settings(**{"CSP_REPORT_ENDPOINT": None, **overrides}):
             response = self.client.get("/")
-        policy = response["Content-Security-Policy"]
+        policy = response[header]
         assert "default-src 'self'" in policy
         assert "report-uri" not in policy
         assert "report-to" not in policy
@@ -256,7 +268,8 @@ class TestCSPMiddleware(APIBaseTest):
         with override_settings(TEST=False, DEBUG=False, **overrides):
             response = self.client.get("/")
 
-        policy = response["Content-Security-Policy"]
+        # A self-hosted install only reports the policy.
+        policy = response["Content-Security-Policy" if regions else "Content-Security-Policy-Report-Only"]
         directives = {name: sources for name, *sources in (part.split() for part in policy.split("; "))}
         script_src, connect_src = directives["script-src"], directives["connect-src"]
         (report_uri,) = directives["report-uri"]
@@ -283,6 +296,7 @@ class TestCSPMiddleware(APIBaseTest):
         assert not any(other_region in (urlsplit(source).hostname or "").split(".") for source in connect_src)
 
 
+@override_settings(CLOUD_DEPLOYMENT="LOCAL")
 class TestAppCspHeaderName(SimpleTestCase):
     def _request(
         self, path: str, *, distinct_id: str | None = "abc", email: str = "someone@posthog.com"
