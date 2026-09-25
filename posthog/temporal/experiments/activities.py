@@ -7,8 +7,16 @@ from django.db.models import Q
 
 import structlog
 import temporalio.activity
+from pydantic import ValidationError as PydanticValidationError
+from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ExperimentQuery
+from posthog.schema import (
+    ExperimentFunnelMetric,
+    ExperimentMeanMetric,
+    ExperimentQuery,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+)
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -47,6 +55,17 @@ from products.experiments.stats.shared.statistics import StatisticError
 logger = structlog.get_logger(__name__)
 
 EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
+
+
+def _build_metric_validated(
+    metric_dict: dict[str, Any],
+) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
+    """A malformed stored metric dict is a config error, not a transient failure: convert the
+    pydantic construction error to the DRF type classify_experiment_query_error marks permanent."""
+    try:
+        return build_metric(metric_dict)
+    except PydanticValidationError as e:
+        raise ValidationError(str(e)) from e
 
 
 @database_sync_to_async
@@ -190,7 +209,7 @@ def _calculate_experiment_regular_metric_sync(
     try:
         # Inside the try so a malformed stored metric dict follows the same
         # failure path as a query error instead of escaping the activity.
-        metric_obj = build_metric(metric_dict)
+        metric_obj = _build_metric_validated(metric_dict)
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
@@ -514,7 +533,7 @@ def _calculate_experiment_saved_metric_sync(
     try:
         # Inside the try so a malformed stored metric dict follows the same
         # failure path as a query error instead of escaping the activity.
-        metric_obj = build_metric(query)
+        metric_obj = _build_metric_validated(query)
         experiment_query = ExperimentQuery(
             experiment_id=experiment_id,
             metric=metric_obj,
