@@ -20,7 +20,6 @@ export function PaginationControl<T>({
     pageCount,
     dataSourcePage,
     entryCount,
-    entryCountIsLowerBound,
     currentStartIndex,
     currentEndIndex,
     nouns = ['entry', 'entries'],
@@ -46,8 +45,8 @@ export function PaginationControl<T>({
                     : entryCount === null
                       ? `${currentPageSize} ${currentPageSize === 1 ? nouns[0] : nouns[1]} on this page`
                       : currentPageSize === 1
-                        ? `${currentEndIndex} of ${entryCount}${entryCountIsLowerBound ? '+' : ''} ${entryCount === 1 ? nouns[0] : nouns[1]}`
-                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount}${entryCountIsLowerBound ? '+' : ''} ${nouns[1]}`}
+                        ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
+                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}

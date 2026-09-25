@@ -29,7 +29,6 @@ export function usePagination<T>(
     )
 
     const entryCount: number | null = pagination?.controlled ? pagination.entryCount || null : dataSource.length
-    const entryCountIsLowerBound = !!(pagination?.controlled && pagination.entryCountIsLowerBound)
     const pageCount: number | null =
         entryCount && (pagination ? (pagination.pageSize ? Math.ceil(entryCount / pagination.pageSize) : 1) : null)
     const currentPage: number | null = pagination?.controlled
@@ -62,7 +61,6 @@ export function usePagination<T>(
         currentStartIndex,
         currentEndIndex,
         entryCount,
-        entryCountIsLowerBound,
         setCurrentPage,
     }
 }

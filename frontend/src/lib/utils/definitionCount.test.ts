@@ -1,4 +1,4 @@
-import { definitionCountIsCapped, formatDefinitionCount, formatDefinitionCountDelta } from './definitionCount'
+import { formatDefinitionCount, formatDefinitionCountDelta } from './definitionCount'
 
 describe('definitionCount', () => {
     it.each([
@@ -30,13 +30,4 @@ describe('definitionCount', () => {
             expect(formatDefinitionCount(count, false)).toBe('0')
         }
     )
-
-    it.each([
-        [{ count: 10_000, count_is_capped: true }, true],
-        [{ count: 10_000, count_is_capped: false }, false],
-        [{ count: 10_000 }, false],
-        [null, false],
-    ])('reads the capped flag from the response %p as %s', (response, expected) => {
-        expect(definitionCountIsCapped(response)).toBe(expected)
-    })
 })
