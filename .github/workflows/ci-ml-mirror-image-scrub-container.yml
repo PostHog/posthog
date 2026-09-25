@@ -39,12 +39,15 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  # The image and the unit tests both build the replay-anonymizer addon from these crates.
+                  # The image and the unit tests both build the replay-anonymizer addon from these crates and the workspace files cargo reads.
                   filters: |
                       scrub_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**'
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'rust/.cargo/config.toml'
                         - 'Dockerfile.ml-mirror-image-scrub'
                         - '.github/workflows/ci-ml-mirror-image-scrub-container.yml'
 
