@@ -27,7 +27,7 @@ use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
-use crate::sinks::registry::TopicTable;
+use crate::sinks::registry::OutputTable;
 use crate::sinks::s3::S3Sink;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
@@ -314,13 +314,13 @@ pub async fn build_components(
     };
 
     assert!(
-        !config.kafka_topics.ai_events.is_empty(),
-        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_TOPIC must not be empty",
+        !config.outputs.ai_main_topic.is_empty(),
+        "invalid configuration: CAPTURE_OUTPUT_AI_MAIN_TOPIC must not be empty",
     );
     let ai_events_overflow_enabled = ai_events_overflow_valve(&config);
     info!(
-        capture_analytics_ai_events_topic = %config.kafka_topics.ai_events,
-        capture_analytics_ai_events_overflow_topic = ?config.kafka_topics.ai_events_overflow,
+        ai_main_topic = %config.outputs.ai_main_topic,
+        ai_overflow_topic = ?config.outputs.ai_overflow_topic,
         ai_events_overflow_enabled,
         "AI events topic routing"
     );
@@ -441,7 +441,7 @@ pub async fn build_components(
 }
 
 /// The AI overflow valve: an unset or empty
-/// `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` means AI events never
+/// `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` means AI events never
 /// overflow. Import mode refuses an armed valve at boot: non-AI import events
 /// can't overflow because historical rerouting takes precedence no matter how
 /// the deployment is configured, but nothing structural protects AI
@@ -449,13 +449,13 @@ pub async fn build_components(
 /// guarantee.
 fn ai_events_overflow_valve(config: &Config) -> bool {
     let armed = config
-        .kafka_topics
-        .ai_events_overflow
+        .outputs
+        .ai_overflow_topic
         .as_deref()
         .is_some_and(|topic| !topic.is_empty());
     assert!(
         !(armed && matches!(config.capture_mode, CaptureMode::Import)),
-        "invalid configuration: CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC must be unset in import mode; imports must never overflow"
+        "invalid configuration: CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC must be unset in import mode; imports must never overflow"
     );
     armed
 }
@@ -560,7 +560,7 @@ fn warn_if_ai_byte_budget_below_max_event(config: &Config) {
 }
 
 /// Builds the v1 sink router. The dedicated AI topics are
-/// deployment-level config (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC` and `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`),
+/// deployment-level config (`CAPTURE_OUTPUT_AI_MAIN_TOPIC` and `CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC`),
 /// so they are injected into every sink config here; the overwrite is
 /// unconditional so a stray per-sink `TOPIC_AI`/`TOPIC_AI_OVERFLOW` env var
 /// cannot diverge from the shared policy.
@@ -576,8 +576,8 @@ fn create_v1_sink_router(
         .context("v1 sink config validation failed")?;
 
     for cfg in sinks_cfg.configs.values_mut() {
-        cfg.kafka.topic_ai = config.kafka_topics.ai_events.clone();
-        cfg.kafka.topic_ai_overflow = config.kafka_topics.ai_events_overflow.clone();
+        cfg.kafka.topic_ai = config.outputs.ai_main_topic.clone();
+        cfg.kafka.topic_ai_overflow = config.outputs.ai_overflow_topic.clone();
     }
 
     warn_if_ai_ceiling_exceeds_v1_sink_caps(config, &sinks_cfg);
@@ -643,9 +643,9 @@ async fn create_output(
 
     // Runs before any producer connects, so a blank topic refuses boot
     // immediately instead of after a broker connect attempt.
-    let topics = TopicTable::from(&config.kafka_topics);
+    let outputs = OutputTable::from(&config.outputs);
     if config.outputs_completeness_check_enabled {
-        topics.check_complete()?;
+        outputs.check_complete()?;
     } else {
         info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
     }
@@ -666,11 +666,7 @@ async fn create_output(
             .collect(),
     )
     .context("failed to start Kafka producers")?;
-    let kafka_sink = KafkaSink::new(
-        producers.get(ProducerName::Ingestion),
-        topics,
-        config.replay_envelope_compression,
-    );
+    let kafka_sink = KafkaSink::new(&producers, outputs, config.replay_envelope_compression);
 
     if !config.s3_fallback_enabled {
         return Ok(Output::single(kafka_sink));
@@ -938,7 +934,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
             (
                 "CAPTURE_INGESTION_WARNINGS_ENABLED",
                 if enabled { "true" } else { "false" },
@@ -998,14 +997,17 @@ mod tests {
         let mut cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", input.capture_mode),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
         if let Some(topic) = input.overflow_topic {
             cfg_env.insert(
-                "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC".to_string(),
+                "CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC".to_string(),
                 topic.to_string(),
             );
         }
@@ -1067,7 +1069,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
             ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
         ]
         .into_iter()
@@ -1096,7 +1101,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
             ("GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS", "180"),
             ("AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS", "0"),
         ]
@@ -1138,7 +1146,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
             ("CAPTURE_V1_SINKS", "msk"),
         ]
         .into_iter()
@@ -1220,13 +1231,16 @@ mod tests {
     async fn ingestion_warnings_emitter_does_not_consult_v0_kafka_block() {
         // Regression guard for the v0 fallback removal: with warnings enabled but
         // no dedicated hosts, the emitter must stay disabled rather than reuse the
-        // v0 KAFKA_HOSTS / KAFKA_CLIENT_INGESTION_WARNING_TOPIC block. If the
+        // v0 KAFKA_HOSTS / CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC block. If the
         // fallback were still live, it would build a producer against v0-broker.
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
-            ("KAFKA_CLIENT_INGESTION_WARNING_TOPIC", "v0-warnings-topic"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
+            ("CAPTURE_OUTPUT_CLIENT_WARNINGS_TOPIC", "v0-warnings-topic"),
             ("CAPTURE_INGESTION_WARNINGS_ENABLED", "true"),
             // CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS deliberately left unset.
         ]
@@ -1256,7 +1270,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
             ("CAPTURE_INGESTION_WARNINGS_ENABLED", "true"),
         ]
         .into_iter()
@@ -1294,8 +1311,8 @@ mod tests {
     }
 
     /// A blank output topic makes `create_sink` refuse to boot in every capture
-    /// mode — the misconfig fails fast at startup (via the `TopicTable`
-    /// completeness check inside `KafkaSink::new`) rather than at first produce.
+    /// mode — the misconfig fails fast at startup (via the `OutputTable`
+    /// completeness check in `create_output`) rather than at first produce.
     #[rstest::rstest]
     #[case(CaptureMode::Events)]
     #[case(CaptureMode::Recordings)]
@@ -1313,7 +1330,7 @@ mod tests {
         let mut config: Config =
             envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
         config.outputs_completeness_check_enabled = true;
-        config.kafka_topics.dlq = String::new();
+        config.outputs.dlq_topic = String::new();
         let default_producers = producers::load_all(&HashMap::new()).expect("default producers");
 
         let err = create_output_registry(&config, &default_producers, None, None)
@@ -1350,7 +1367,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "ai"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion_ai"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion_ai",
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -1383,7 +1403,10 @@ mod tests {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "ai"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion_ai"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion_ai",
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
