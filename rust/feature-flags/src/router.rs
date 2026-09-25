@@ -94,6 +94,9 @@ pub struct State {
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    /// Per-team limiter for flag definitions requests that send If-None-Match.
+    /// Separate budget so ETag revalidation polls don't consume the full-response budget.
+    pub(crate) flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
     /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
     pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
@@ -284,7 +287,22 @@ where
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
-    .expect("Failed to initialize flag definitions rate limiter");
+    .expect("Failed to initialize flag definitions rate limiter")
+    .with_labels(&[("budget", "full")]);
+
+    // Conditional requests (those that send If-None-Match) get their own per-team budget.
+    // Per-team overrides (LOCAL_EVAL_RATE_LIMITS) apply only to full responses. Both limiters
+    // share metric names, so dashboards that sum the counters still see every request.
+    let flag_definitions_conditional_limiter = FlagDefinitionsRateLimiter::new(
+        config.flag_definitions_conditional_rate_per_minute,
+        std::collections::HashMap::new(),
+        config.rate_limiting_allow_list_teams.0.clone(),
+        FLAG_DEFINITIONS_REQUESTS_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+    )
+    .expect("Failed to initialize flag definitions conditional rate limiter")
+    .with_labels(&[("budget", "conditional")]);
 
     // Per-credential limiter for the remote_config endpoint (mirrors Django's
     // RemoteConfigThrottle, which buckets per hashed bearer token). The team allowlist is
@@ -349,6 +367,7 @@ where
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
         flag_definitions_limiter.clone(),
+        flag_definitions_conditional_limiter.clone(),
         remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
@@ -401,6 +420,7 @@ where
         session_replay_billing_limiter,
         cookieless_manager,
         flag_definitions_limiter,
+        flag_definitions_conditional_limiter,
         remote_config_limiter,
         config: config.clone(),
         flags_hypercache_reader,
@@ -628,6 +648,7 @@ fn spawn_rate_limiter_cleanup_task<C>(
     flags_rate_limiter: FlagsRateLimiter<C>,
     ip_rate_limiter: IpRateLimiter<C>,
     flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
 ) where
@@ -643,13 +664,16 @@ fn spawn_rate_limiter_cleanup_task<C>(
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
                 flag_definitions_limiter.cleanup();
+                flag_definitions_conditional_limiter.cleanup();
                 remote_config_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
-                gauge!("flags_rate_limiter_definitions_entries")
+                gauge!("flags_rate_limiter_definitions_entries", "budget" => "full")
                     .set(flag_definitions_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries", "budget" => "conditional")
+                    .set(flag_definitions_conditional_limiter.len() as f64);
                 gauge!("flags_rate_limiter_remote_config_entries")
                     .set(remote_config_limiter.len() as f64);
 
@@ -657,6 +681,7 @@ fn spawn_rate_limiter_cleanup_task<C>(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
                     definitions_entries = flag_definitions_limiter.len(),
+                    definitions_conditional_entries = flag_definitions_conditional_limiter.len(),
                     remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
                 );
