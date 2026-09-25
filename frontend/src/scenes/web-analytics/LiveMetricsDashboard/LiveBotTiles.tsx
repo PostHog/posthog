@@ -17,7 +17,7 @@ export const LiveBotTiles = (): JSX.Element => {
         totalBotEligibleEvents,
         hasBotQueryError,
         isBotLoading,
-        isLoading,
+        loadingQueries,
     } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
 
@@ -32,7 +32,8 @@ export const LiveBotTiles = (): JSX.Element => {
 
     const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
     const botShare = totalBotEligibleEvents > 0 ? Math.round((totalBotEvents / totalBotEligibleEvents) * 100) : null
-    const botDataLoading = isLoading || isBotLoading
+    const isEventTotalsLoading = loadingQueries.has('usersPageviews')
+    const botDataLoading = isEventTotalsLoading || isBotLoading
     const botErrorMessage = hasBotQueryError ? "Couldn't load bot traffic. Refresh the page to try again." : undefined
 
     return (
@@ -44,7 +45,7 @@ export const LiveBotTiles = (): JSX.Element => {
                     isLoading={botDataLoading}
                 />
                 <LiveStatDivider />
-                <LiveStatCard label="Total events" value={totalBotEligibleEvents} isLoading={isLoading} />
+                <LiveStatCard label="Total events" value={totalBotEligibleEvents} isLoading={isEventTotalsLoading} />
                 <LiveStatDivider />
                 <LiveStatCard
                     label="Bot share %"
