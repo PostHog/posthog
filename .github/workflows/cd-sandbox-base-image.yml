@@ -88,6 +88,44 @@ jobs:
                         - 'services/mcp/schema/**'
                         - '!products/posthog_ai/frontend/**'
 
+    wait_for_agent:
+        needs: changes
+        name: Wait for npm to serve the pinned agent
+        if: |
+            github.repository_owner == 'PostHog' &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+                  sparse-checkout-cone-mode: false
+
+            - name: Poll npm for the pinned version
+              run: |
+                  pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' products/tasks/backend/sandbox/images/Dockerfile.sandbox-base)
+                  if [ -z "$pinned" ]; then
+                    echo "::error::no ARG AGENT_VERSION line in Dockerfile.sandbox-base"
+                    exit 1
+                  fi
+                  for attempt in $(seq 1 120); do
+                    if [ "$(npm view "@posthog/agent@${pinned}" version 2>/dev/null)" = "$pinned" ]; then
+                      echo "npm serves @posthog/agent@${pinned} (attempt $attempt)"
+                      exit 0
+                    fi
+                    echo "npm does not serve @posthog/agent@${pinned} yet (attempt $attempt)"
+                    sleep 10
+                  done
+                  echo "::error::npm did not serve @posthog/agent@${pinned} within 20 minutes"
+                  exit 1
+
     build_skills:
         needs: changes
         name: Build agent skills from source
@@ -352,13 +390,14 @@ jobs:
                   retention-days: 1
 
     sandbox_base_build:
-        needs: [changes, build_skills, fetch_skills]
+        needs: [changes, build_skills, fetch_skills, wait_for_agent]
         name: Build and push Tasks Sandbox container image
         if: |
             !cancelled() &&
             github.repository_owner == 'PostHog' &&
             (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
-            (needs.build_skills.result == 'success' || needs.fetch_skills.result == 'success') && (
+            (needs.build_skills.result == 'success' || needs.fetch_skills.result == 'success') &&
+            needs.wait_for_agent.result == 'success' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -681,11 +720,11 @@ jobs:
                       text: "${{ steps.message.outputs.text }}"
 
     sandbox_base_smoke_check:
-        needs: [build_skills, fetch_skills, sandbox_base_build]
+        needs: [build_skills, fetch_skills, wait_for_agent, sandbox_base_build]
         name: Sandbox Base Image Smoke
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.fetch_skills.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
+        if: ${{ !cancelled() && (needs.build_skills.result != 'skipped' || needs.fetch_skills.result != 'skipped' || needs.wait_for_agent.result != 'skipped' || needs.sandbox_base_build.result != 'skipped') && (github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true') }}
         permissions: {}
         steps:
             - name: Check the base image build and agent smoke
@@ -705,7 +744,7 @@ jobs:
     # paths, and a required check that never reports blocks merging forever.
     # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
-        needs: [changes, build_skills, fetch_skills, sandbox_base_build, sandbox_derived_build]
+        needs: [changes, build_skills, fetch_skills, wait_for_agent, sandbox_base_build, sandbox_derived_build]
         name: Sandbox Base Image Pass
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -720,8 +759,13 @@ jobs:
                     exit 1
                   fi
 
+                  if [[ "${{ needs.wait_for_agent.result }}" != "success" && "${{ needs.wait_for_agent.result }}" != "skipped" ]]; then
+                    echo "Agent version wait failed."
+                    exit 1
+                  fi
+
                   # Pass if build wasn't required (no relevant changes, no dispatch, no label)
-                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.fetch_skills.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
+                  if [[ "${{ needs.build_skills.result }}" == "skipped" && "${{ needs.fetch_skills.result }}" == "skipped" && "${{ needs.wait_for_agent.result }}" == "skipped" && "${{ needs.sandbox_base_build.result }}" == "skipped" ]]; then
                     echo "Sandbox image build was skipped (no relevant changes)."
                     exit 0
                   fi
