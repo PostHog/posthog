@@ -7,6 +7,9 @@ import { initKeaTests } from '~/test/init'
 import { RecordingEventType } from '~/types'
 
 import { sessionEventsDataLogic } from './sessionEventsDataLogic'
+import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
+
+const EARLIEST = '2024-01-09T00:00:00Z'
 
 describe('sessionEventsDataLogic', () => {
     let logic: ReturnType<typeof sessionEventsDataLogic.build>
@@ -61,5 +64,43 @@ describe('sessionEventsDataLogic', () => {
         expect(posthog.captureException).not.toHaveBeenCalled()
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(false)
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-2')?.fullyLoaded).toBe(true)
+    })
+
+    // The session query only covers the recording +- 24 hours, so a device with a wrong clock
+    // leaves the inspector empty. The probe is what turns that silence into an explanation, and it
+    // must stay off the path where the recording has events, because it scans a much wider range.
+    it.each([
+        ['no events in the recording window', [] as any[], { count: 3, earliest: EARLIEST }],
+        ['events in the recording window', [['uuid', '$pageview', '2024-01-01T00:00:00Z']], null],
+    ])('probes for events outside the recording window when there are %s', async (_, sessionRows, expected) => {
+        const metaLogic = sessionRecordingMetaLogic({ sessionRecordingId: 'test-session' })
+        metaLogic.mount()
+
+        jest.spyOn(api, 'queryHogQL')
+            .mockResolvedValueOnce({ results: sessionRows } as any)
+            .mockResolvedValueOnce({ results: [] } as any)
+            .mockResolvedValueOnce({ results: [[3, EARLIEST]] } as any)
+
+        metaLogic.actions.loadRecordingMetaSuccess({
+            id: 'test-session',
+            start_time: '2024-01-01T00:00:00Z',
+            end_time: '2024-01-01T00:10:00Z',
+            person: { uuid: 'person-uuid' },
+        } as any)
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.eventsMissingFromWindow).toEqual(expected)
+
+        metaLogic.unmount()
+    })
+
+    // The probe result outlived the empty list it explained, so a reload that did find events left
+    // the inspector claiming they were all dated outside the recording.
+    it('retires the outside-window count once a load finds events', async () => {
+        logic.actions.probeForEventsOutsideWindowSuccess({ count: 3, earliest: EARLIEST })
+        expect(logic.values.eventsMissingFromWindow).toEqual({ count: 3, earliest: EARLIEST })
+
+        logic.actions.loadEventsSuccess([makeEvent('event-1')])
+        expect(logic.values.eventsMissingFromWindow).toBeNull()
     })
 })

@@ -133,7 +133,8 @@ export function InsightEmptyState({
         >
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-tertiary">{detail}</p>
+            {/* A div, not a p: callers pass detail nodes that contain buttons and other block content. */}
+            <div className="text-sm text-tertiary">{detail}</div>
         </div>
     )
 }
