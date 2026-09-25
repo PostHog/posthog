@@ -1331,6 +1331,12 @@ tools:
     signals-scout-config-tool-catalogue:
         operation: signals_scout_config_tool_catalogue
         enabled: false
+    signals-scout-config-trial-evaluation-create:
+        operation: signals_scout_config_trial_evaluation_create
+        enabled: false
+    signals-scout-config-trial-evaluation-retrieve:
+        operation: signals_scout_config_trial_evaluation_retrieve
+        enabled: false
     signals-scout-config-trial-history:
         operation: signals_scout_config_trial_history
         enabled: false
