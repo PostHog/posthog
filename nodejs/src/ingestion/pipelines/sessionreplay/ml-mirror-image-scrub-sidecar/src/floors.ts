@@ -59,18 +59,20 @@ export const FACE_FLOOR: Floor = {
 }
 
 /**
- * Codes are the loosest by a wide margin, and the only subject whose two numbers are both source px:
- * zxing runs on the frame directly, so there is no separate input scale to convert through.
+ * Codes, in multiples of a code's size in the stored image, which is the unit `dev/code-bench.ts`
+ * sweeps zxing's input in. The formats need different pixel sizes, both to be found and to be read,
+ * so no single pair of pixel sizes holds for all of them.
  *
- * Detected from 96 source px; not decodable out of the artifact until 280. Requiring detection to be
- * 96/280 as large as readability is no constraint at all, since that is below 1: a code degraded past
- * decoding carries nothing, which makes this subject self-limiting.
+ * A code counts as readable when zxing decodes it from the stored image at 1x, 2x or 3x, since an
+ * attacker can upscale. zxing finds every such code once it reads the frame at 3 times the stored
+ * scale. At 2 times it misses two, both Aztec.
  */
 export const CODE_FLOOR: Floor = {
-    detectedAt: 96,
-    readableAt: 280,
-    unit: 'code px in the SOURCE, both columns, since zxing works on the frame directly',
-    measuredBy: 'dev/floors.ts: a QR placed at 48-280px in a 1920x1080 source',
+    detectedAt: 3,
+    readableAt: 1,
+    unit: "multiples of a code's size in the stored image",
+    measuredBy:
+        'dev/code-bench.ts: six codes in five formats, six frame shapes, seven sizes, with blur, rotation and JPEG',
 }
 
 export const FLOORS = { text: TEXT_FLOOR, face: FACE_FLOOR, code: CODE_FLOOR } as const
@@ -84,7 +86,7 @@ export function requiredRatio(floor: Floor): number {
 
 /**
  * The ratio the whole pipeline has to satisfy: the tightest subject, since the guarantee is only as
- * good as the detector with the least room. Text is currently the binding one at 2.33.
+ * good as the detector with the least room.
  */
 export function bindingRatio(): number {
     return Math.max(...Object.values(FLOORS).map(requiredRatio))

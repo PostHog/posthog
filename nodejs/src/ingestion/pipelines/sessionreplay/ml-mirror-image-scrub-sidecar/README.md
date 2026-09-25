@@ -103,7 +103,8 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
-6. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+6. **Code redaction**: every QR/barcode that zxing decodes gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+   zxing reads the frame at the plan's code scale, which finds every code still decodable from the stored image.
 
 The goal is to protect data labellers and reduce PII exposure.
 It does not need to be perfect; the self-verifying test (below) keeps it honest.
@@ -221,7 +222,8 @@ One rule sets every size: **each detector must see a subject at least `ratio` ti
 Anything still readable in the artifact was therefore large enough to have been found and filled.
 
 `ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
-Faces bind at 64/21 ≈ 3.05; text is 7/3 ≈ 2.33; codes constrain nothing, since a code degraded past decoding carries nothing.
+Faces bind at 64/21 ≈ 3.05; codes need 3, and text 7/3 ≈ 2.33.
+zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
 **`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
@@ -231,7 +233,7 @@ Setting the frame budget independently is what let two individually-reasonable s
 Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
 At the defaults a 1080p capture is stored at about 161x90.
 
-Re-derive the floors with `tsx dev/glyph-floor.ts` (text) and `tsx dev/floors.ts` (faces and codes); both read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
+Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
 ## Models are baked into the image
 

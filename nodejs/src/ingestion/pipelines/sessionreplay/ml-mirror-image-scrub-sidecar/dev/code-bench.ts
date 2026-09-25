@@ -15,9 +15,9 @@
  * could leak, and zxing on the frame at each scale decides whether the scrub would have covered it.
  *
  * Scales are either a fraction of the frame (fN), a multiple of the stored image's scale (sN), or
- * "plan": the multiple the scale plan already requires of every detector (binding ratio times the
- * safety factor). None is ever above the frame. The sN points answer the ratio question directly: the smallest multiple at
- * which every leakable code is still covered is the ratio codes need.
+ * "plan": the scale src/scale-plan.ts gives zxing in production. None is ever above the frame. The sN
+ * points answer the ratio question directly: the smallest multiple at which every leakable code is
+ * still covered is the ratio codes need, which src/floors.ts records as CODE_FLOOR.
  */
 import { readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -26,7 +26,6 @@ import { join } from 'node:path'
 import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
-import { bindingRatio } from '../src/floors.ts'
 import { detectCodes } from '../src/qr.ts'
 import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc } from '../src/src-image.ts'
@@ -239,7 +238,7 @@ async function main(): Promise<void> {
         const points: [string, number][] = [
             ...FRAME_SCALES.map((f): [string, number] => [`f${f}`, f]),
             ...STORED_MULTIPLES.map((m): [string, number] => [`s${m}`, Math.min(1, m * storedScale)]),
-            ['plan', Math.min(1, bindingRatio() * limits.safetyFactor * storedScale)],
+            ['plan', plan.code.scale],
         ]
         for (const [point, scale] of points) {
             const w = Math.max(1, Math.round(src.W * scale))
