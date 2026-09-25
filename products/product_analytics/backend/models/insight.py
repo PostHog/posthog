@@ -455,6 +455,12 @@ class InsightViewed(models.Model):
     insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
     last_viewed_at: models.DateTimeField = models.DateTimeField()
 
+    # Empty source identifies legacy/unattributed history, not a standalone view.
+    source = models.CharField(max_length=64, default="", db_default="", blank=True)
+    dashboard = models.ForeignKey(
+        "dashboards.Dashboard", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False, db_index=False
+    )
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "user", "insight"], name="posthog_unique_insightviewed")]
         indexes = [

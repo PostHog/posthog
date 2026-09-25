@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, QuerySet
+from django.db.models import Count, Exists, F, Func, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -1985,7 +1985,8 @@ class InsightViewSet(
             .select_related("created_by", "last_modified_by", "team")
             .annotate(
                 view_count=Count(
-                    "insightviewed",
+                    Func(F("insightviewed__team_id"), F("insightviewed__user_id"), function="ROW"),
+                    distinct=True,
                     filter=Q(insightviewed__last_viewed_at__gte=cutoff_date),
                 )
             )
