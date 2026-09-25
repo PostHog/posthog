@@ -124,3 +124,36 @@ async def test_publish_does_not_wait_in_the_metric_semaphore_queue():
     result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
 
     assert result == {"hour": 2, "total": 15, "succeeded": 15, "failed": 0, "recalculations_synced": 2}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_publish_skips_only_its_own_experiment():
+    """One experiment's publish failing after its retries must not fail the workflow or block the other
+    experiments' publishes, or a single bad row would lose the whole hour's freshness."""
+
+    @activity.defn(name="get_experiment_saved_metrics_for_hour")
+    async def mock_discover(hour: int) -> list[ExperimentSavedMetricInput]:
+        return [
+            ExperimentSavedMetricInput(
+                experiment_id=FAST_EXPERIMENT, metric_uuid="m-fast", fingerprint="f1", team_id=1
+            ),
+            ExperimentSavedMetricInput(
+                experiment_id=SLOW_EXPERIMENT, metric_uuid="m-slow", fingerprint="f2", team_id=1
+            ),
+        ]
+
+    @activity.defn(name="calculate_experiment_saved_metric")
+    async def mock_calculate(experiment_id: int, metric_uuid: str, fingerprint: str) -> ExperimentSavedMetricResult:
+        return ExperimentSavedMetricResult(
+            experiment_id=experiment_id, metric_uuid=metric_uuid, fingerprint=fingerprint, success=True
+        )
+
+    @activity.defn(name="create_recalculation_from_timeseries")
+    async def mock_publish(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
+        if experiment_id == FAST_EXPERIMENT:
+            raise ApplicationError("publish rejected", non_retryable=True)
+        return f"recalc-{experiment_id}"
+
+    result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
+
+    assert result == {"hour": 2, "total": 2, "succeeded": 2, "failed": 0, "recalculations_synced": 1}
