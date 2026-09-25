@@ -220,7 +220,9 @@ class PipelineV3(Generic[ResumableData]):
         # from becoming the queue's batch granularity, but it delays when a yielded table is
         # persisted, so it must stay off for sources that treat yield as durable: the webhook path
         # deletes its staged S3 files right after yielding, and the resume cursor commit after a
-        # write assumes that write drained every table yielded so far.
+        # write assumes that write drained every table yielded so far. The resolved manager is what
+        # decides that, not the raw one — a resumable source class whose current run can't resume
+        # commits no cursor, so it can still coalesce.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -228,7 +230,7 @@ class PipelineV3(Generic[ResumableData]):
             source_type=self._source.source_type if self._source else None,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
-            coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
+            coalesce_tables=self._resumable_source_manager is None and not self._schema.is_webhook,
             primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()

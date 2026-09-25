@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from datetime import UTC, date, datetime
+from decimal import Decimal
+
 import pytest
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
     BacktickIdentifierQuoter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
     KeysetNullKeyError,
+    KeysetResumeState,
     is_orderable_keyset_type,
     iter_keyset_pages,
     resolve_keyset_eligibility,
@@ -32,13 +38,13 @@ _SCHEMA = pa.schema(_FIELDS)
         (pa.int8(), True),
         (pa.int64(), True),
         (pa.uint32(), True),
-        (pa.decimal128(18, 2), True),
         (pa.date32(), True),
         (pa.timestamp("us"), True),
         (pa.string(), False),  # collation-dependent order
         (pa.large_binary(), False),
         (pa.bool_(), False),
         (pa.float64(), False),  # NaN ordering / precision
+        (pa.decimal128(18, 2), False),  # no JSON encoding, so the checkpoint can't round-trip
     ],
 )
 def test_is_orderable_keyset_type(arrow_type, expected):
@@ -46,11 +52,46 @@ def test_is_orderable_keyset_type(arrow_type, expected):
 
 
 @pytest.mark.parametrize(
+    "arrow_type,last_key",
+    [
+        (pa.int64(), 2**63 - 1),
+        (pa.int32(), -1),
+        (pa.date32(), date(2026, 1, 2)),
+        (pa.timestamp("us"), datetime(2026, 1, 2, 3, 4, 5)),
+        (pa.timestamp("us", tz="UTC"), datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)),
+        (pa.decimal128(18, 2), Decimal("1.5")),
+        (pa.string(), "abc"),
+    ],
+)
+def test_an_eligible_key_type_can_always_be_checkpointed(arrow_type, last_key):
+    # Eligibility and encodability have to stay the same set. A type that `is_orderable_keyset_type`
+    # admits but the manager cannot encode leaves a Python repr in Redis that `_load_json` refuses to
+    # parse, so every resume raises until the key expires instead of restarting cleanly — which is
+    # what a decimal key did. Asserting the implication rather than a fixed list means admitting any
+    # such type in future fails here rather than in production.
+    if not is_orderable_keyset_type(arrow_type):
+        pytest.skip(f"{arrow_type} is not an eligible keyset type, so it is never checkpointed")
+
+    manager = ResumableSourceManager[KeysetResumeState](MagicMock(team_id=1, job_id="job-1"), KeysetResumeState)
+    redis = MagicMock()
+
+    with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+        get_redis.return_value.__enter__.return_value = redis
+        manager.save_state(KeysetResumeState(last_key=last_key))
+        manager.commit()
+        redis.get.return_value = redis.set.call_args.args[1]
+        restored = manager.load_state()
+
+    assert restored is not None
+    assert restored.last_key is not None
+
+
+@pytest.mark.parametrize(
     "primary_keys,incremental,declared,expected_column,expected_reason",
     [
         (["id"], False, True, "id", None),
         (["created_at"], False, True, "created_at", None),
-        (["amount"], False, True, "amount", None),
+        (["day"], False, True, "day", None),
         # Incremental syncs already resume from their persisted watermark; keyset would double up.
         (["id"], True, True, None, "incremental_sync"),
         (None, False, True, None, "no_primary_key"),
@@ -61,6 +102,9 @@ def test_is_orderable_keyset_type(arrow_type, expected):
         # A string/uuid PK sorts by collation, which can skip or duplicate rows across keyset pages.
         (["uuid"], False, True, None, "non_orderable_type:string"),
         (["active"], False, True, None, "non_orderable_type:bool"),
+        # A decimal PK orders fine but cannot be encoded into the checkpoint, so it would poison the
+        # resume rather than restart it. See `is_orderable_keyset_type`.
+        (["amount"], False, True, None, "non_orderable_type:decimal128(18, 2)"),
         # An inferred key (the keyless-table `id` fallback) has no NOT NULL guarantee, so a page
         # could end on a NULL and leave the seek with nothing to compare against.
         (["id"], False, False, None, "undeclared_primary_key"),

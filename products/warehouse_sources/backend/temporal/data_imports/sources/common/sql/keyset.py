@@ -49,17 +49,17 @@ class KeysetResumeState:
 def is_orderable_keyset_type(arrow_type: pa.DataType) -> bool:
     """Whether a column type gives a stable, unambiguous total order for keyset pagination.
 
-    Restricted to numeric and temporal types. Strings/binary are excluded on purpose: their order
+    Restricted to integer and temporal types. Strings/binary are excluded on purpose: their order
     depends on the database's collation, which can differ from the byte order the delta merge assumes
     and can even change mid-table, so ``WHERE k > :last`` could silently skip or duplicate rows across
     batches. Booleans and floats-with-NaN are too coarse/ill-ordered to seek on safely.
+
+    Decimal is excluded for a different reason: the checkpoint cannot survive one. Neither encoder in
+    `ResumableSourceManager._dump_json` handles `Decimal`, so it falls through to `str(data_dict)` and
+    writes a Python repr into Redis that `_load_json` then refuses to parse, raising on every resume
+    until the key expires. A decimal key keeps the streaming path: a slower load, never a wrong one.
     """
-    return (
-        pa.types.is_integer(arrow_type)
-        or pa.types.is_decimal(arrow_type)
-        or pa.types.is_date(arrow_type)
-        or pa.types.is_timestamp(arrow_type)
-    )
+    return pa.types.is_integer(arrow_type) or pa.types.is_date(arrow_type) or pa.types.is_timestamp(arrow_type)
 
 
 class KeysetNullKeyError(ValueError):

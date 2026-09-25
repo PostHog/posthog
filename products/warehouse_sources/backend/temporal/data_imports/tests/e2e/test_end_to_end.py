@@ -4746,8 +4746,10 @@ async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mys
         inputs = _keyset_source_inputs(team_id=team.pk, schema_name="keyset_resume", job_id=str(uuid.uuid4()))
         manager = source.get_resumable_source_manager(inputs)
 
-        # Simulate the checkpoint a previous pod committed just before it drained.
+        # Simulate the checkpoint a previous pod committed just before it drained. The commit is what
+        # puts it in Redis — `save_state` only stages — and `can_resume()` reads Redis.
         await sync_to_async(manager.save_state)(KeysetResumeState(last_key=3))
+        await sync_to_async(manager.commit)()
 
         # A small chunk keeps resumption paging rather than one-shotting the tail.
         with mock.patch.object(MySQLImplementation, "get_chunk_size", return_value=2):
