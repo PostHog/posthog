@@ -554,7 +554,7 @@ export function SceneName({
                             variant="default"
                             name="name"
                             value={name || ''}
-                            readOnly={isGeneratingMetadata}
+                            readOnly={isGeneratingMetadata || isSuggestingName}
                             onChange={(e) => {
                                 latestNameRef.current = e.target.value
                                 setName(e.target.value)
@@ -572,7 +572,7 @@ export function SceneName({
                                     autoHeight: true,
                                 }),
                                 '[&_.LemonIcon]:size-4 input-like',
-                                isGeneratingMetadata && 'cursor-not-allowed opacity-80'
+                                (isGeneratingMetadata || isSuggestingName) && 'cursor-not-allowed opacity-80'
                             )}
                             wrapperClassName="flex-1 min-w-0"
                             placeholder="Enter name"

@@ -155,7 +155,7 @@ class MetadataSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._check_access()
         context = self._context(request.validated_data)
         available = list(
-            Tag.objects.filter(team=self.team)
+            Tag.objects.filter(team__project_id=self.team.project_id)
             .values("name")
             .annotate(uses=Count("tagged_items"))
             .order_by("-uses", "name")

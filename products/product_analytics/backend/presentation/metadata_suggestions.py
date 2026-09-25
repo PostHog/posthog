@@ -431,6 +431,9 @@ def _dedupe(candidates: Iterable[str | None], limit: int = MAX_TEXT_CANDIDATES) 
     seen: dict[str, None] = {}
     for candidate in candidates:
         cleaned = " ".join((candidate or "").split())
+        # Truncate to 400 chars to match Insight.name field limit
+        if len(cleaned) > 400:
+            cleaned = cleaned[:397] + "..."
         if cleaned and cleaned.lower() not in {key.lower() for key in seen}:
             seen[cleaned] = None
         if len(seen) >= limit:
@@ -582,7 +585,7 @@ _OPERATOR_WORDS: dict[str, str] = {
 
 # Filter values on these keys identify a person, so they are named but never quoted.
 _PERSONAL_KEYS = re.compile(
-    r"(^|[_$])(email|e-mail|name|first_name|last_name|phone|distinct_id|user_id|ip|address|ssn|dob)$", re.IGNORECASE
+    r"(email|e-mail|name|first_name|last_name|phone|distinct_id|user_id|ip|address|ssn|dob)$", re.IGNORECASE
 )
 _LOOKS_PERSONAL = re.compile(r"@|^[A-Za-z0-9+/=_-]{24,}$|^\+?\d[\d\s().-]{7,}$")
 _MAX_FILTER_VALUE_CHARS = 60
@@ -687,9 +690,9 @@ def _query_summary(query: MetadataQuery, group_names: GroupNames) -> list[str]:
         if types:
             lines.append(f"Path steps: {join_words([str(t).split('.')[-1].lower() for t in types])}")
         if getattr(paths_filter, "startPoint", None):
-            lines.append(f"Paths start at: {paths_filter.startPoint}")
+            lines.append("Paths limited to a start point")
         if getattr(paths_filter, "endPoint", None):
-            lines.append(f"Paths end at: {paths_filter.endPoint}")
+            lines.append("Paths limited to an end point")
     breakdown = _breakdown_label(source)
     if breakdown:
         lines.append(f"Broken down by: {breakdown}")
