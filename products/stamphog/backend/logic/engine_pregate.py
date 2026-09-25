@@ -142,14 +142,19 @@ def fetch_folder_policy_files(
         exists = fetcher.files_exist(repo, head_sha, candidates, deadline)
         found: dict[str, str] = {}
         for path in sorted(path for path, present in exists.items() if present):
-            entry = client.get_file_at_ref(repo, path, head_sha)
-            if entry is None:
-                continue
-            kind, text = entry
-            if kind != "file":
-                logger.info("stamphog_folder_policy_not_a_file", repo=repo, kind=kind)
+            remaining = int(deadline - time.monotonic())
+            if remaining <= 0:
+                logger.info("stamphog_folder_policy_budget_exhausted", repo=repo)
                 return None
-            found[path] = text
+            entry = client.get_file_at_ref(repo, path, head_sha, timeout=remaining)
+            # The probe just saw this path, so a miss here is a disagreement, not an absence.
+            if entry is None:
+                logger.info("stamphog_folder_policy_vanished", repo=repo)
+                return None
+            if entry.kind != "file":
+                logger.info("stamphog_folder_policy_not_a_file", repo=repo, kind=entry.kind)
+                return None
+            found[path] = entry.text
         return found
     except Exception:
         logger.warning("stamphog_folder_policy_fetch_failed", repo=repo, exc_info=True)

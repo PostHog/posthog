@@ -23,6 +23,7 @@ import jwt
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -367,6 +368,16 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
         if len(repositories) < _PER_PAGE:
             break
     return sorted(set(full_names))
+
+
+@frozen
+class RepoPathEntry:
+    """One path at a ref, as the contents API reports it."""
+
+    # The contents API's own type: "file", "symlink", "dir" or "submodule".
+    kind: str
+    # The file's text. Empty for anything but a file.
+    text: str
 
 
 class StamphogGitHubClient:
@@ -1165,18 +1176,20 @@ class StamphogGitHubClient:
                 break
         return sorted(set(full_names))
 
-    def get_file_at_ref(self, repo: str, path: str, ref: str) -> tuple[str, str] | None:
-        """``(type, text)`` of ``path`` at ``ref`` from the contents API, or ``None`` if it doesn't exist.
+    def get_file_at_ref(self, repo: str, path: str, ref: str, *, timeout: int = 15) -> RepoPathEntry | None:
+        """``path`` at ``ref`` from the contents API, or ``None`` if it doesn't exist.
 
-        ``type`` is the contents API's own: ``file`` for a regular file, and also for a symlink whose
-        target is a regular file in the repository, in which case the text is the target's, the same
-        text a checkout that follows the link reads. Any other type comes back with empty text.
+        The kind is ``file`` for a regular file, and also for a symlink whose target is a regular file
+        in the repository, in which case the text is the target's, the same text a checkout that
+        follows the link reads. Any other kind comes back with empty text.
         """
+        # The path comes from the PR, so `?` or `#` in it must not end the URL path.
         response = self._request(
             "GET",
-            f"/repos/{repo}/contents/{path}",
+            f"/repos/{repo}/contents/{quote(path, safe='/')}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": ref},
+            timeout=timeout,
         )
         if response.status_code == 404:
             return None
@@ -1186,12 +1199,12 @@ class StamphogGitHubClient:
             )
         data = self._json(response, f"/repos/{repo}/contents/{path}")
         if not isinstance(data, dict):
-            return "dir", ""
-        kind = str(data.get("type") or "")
+            return RepoPathEntry(kind="dir", text="")
+        kind = str(data.get("type") or "unknown")
         if kind != "file" or data.get("encoding") != "base64" or not isinstance(data.get("content"), str):
-            return kind or "unknown", ""
+            return RepoPathEntry(kind=kind, text="")
         try:
-            return kind, base64.b64decode(data["content"]).decode("utf-8")
+            return RepoPathEntry(kind=kind, text=base64.b64decode(data["content"]).decode("utf-8"))
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
