@@ -7,7 +7,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 
-const { pruneDeadDurations, getSegmentDuration, calculateShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
+const { pruneDeadDurations, getSegmentDuration, calculateShards, buildDjangoShards, narrowedJsonTargetsShards, resolveProductSizing, buildMatrix, productSplitShards, PRODUCT_JOB_OVERHEAD_SECONDS, TARGET_WALL_SECONDS } = require('./turbo-discover.js')
 
 // A path that exists in every checkout, so the existence check is deterministic.
 const LIVE_FILE = '.github/scripts/turbo-discover.js'
@@ -47,6 +47,16 @@ test('getSegmentDuration still applies the segment exclude rules under an allowl
 
     // posthog/temporal/ is excluded from Core even though JUnit recorded it.
     assert.equal(getSegmentDuration('Core', union, ran), 100)
+})
+
+test('the events_json leg sizes only its listed paths, at native-JSON speed', () => {
+    // 1000 recorded seconds fit 3 shards of the 425 s budget, but run as 1500 s on the
+    // native-JSON table, which needs 4. The unlisted file must not count at all.
+    const durations = { 'posthog/hogql/test/test_a.py::test_a': 1000, 'posthog/api/test/test_b.py::test_b': 5000 }
+    const targets = ['posthog/hogql']
+
+    assert.equal(buildDjangoShards(durations, {}, targets).JsonTargets.shards, 4)
+    assert.equal(narrowedJsonTargetsShards(targets, durations), 4)
 })
 
 // Sizing to the shared flat wall target: every shard carries

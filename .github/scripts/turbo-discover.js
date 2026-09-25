@@ -1075,8 +1075,14 @@ function isUnderPath(file, target) {
     return file === target || file.startsWith(`${target}/`)
 }
 
-// Recorded seconds of every node id under the given files and directories.
-function pathsDuration(paths, durations) {
+// .test_durations records legacy-table runs only, and the listed tests run slower against
+// the native-JSON table: 72.0 min against 47.9 min recorded over the 418 files of merge
+// queue run 36140689804. The factor is uniform, so it changes the shard count but not how
+// pytest-split divides the files between shards.
+const JSON_TARGETS_SLOWDOWN = 1.5
+
+// Estimated events_json seconds of every node id under the given files and directories.
+function jsonTargetsDuration(paths, durations) {
     if (!durations) {return 0}
     let total = 0
     for (const [test, dur] of Object.entries(durations)) {
@@ -1085,7 +1091,7 @@ function pathsDuration(paths, durations) {
             total += dur
         }
     }
-    return total
+    return total * JSON_TARGETS_SLOWDOWN
 }
 
 // Fallback shard counts used when .test_durations is missing.
@@ -1337,7 +1343,7 @@ function narrowedJsonTargetsShards(paths, durations) {
     if (paths.length === 0) {
         return 0
     }
-    return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
+    return calculateShards(jsonTargetsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
 }
 
 // The run identity the selection telemetry event carries, from the runner's own env.
@@ -1375,7 +1381,7 @@ function buildDjangoShards(durations, ranNodeIds = {}, jsonTargets = []) {
         result[segment] = sizeDjangoSegment(segment, duration, durations, ran ? 'auto, junit-scoped' : 'auto, union')
     }
     // No per-segment file records what the events_json leg ran, so it sizes from the union.
-    result.JsonTargets = sizeDjangoSegment('JsonTargets', pathsDuration(jsonTargets, durations), durations, 'auto, union')
+    result.JsonTargets = sizeDjangoSegment('JsonTargets', jsonTargetsDuration(jsonTargets, durations), durations, 'auto, union')
     return result
 }
 
@@ -1483,6 +1489,8 @@ module.exports = {
     loadJsonTargets,
     selectedShards,
     calculateShards,
+    buildDjangoShards,
+    narrowedJsonTargetsShards,
     pruneDeadDurations,
     getSegmentDuration,
     getProductDuration,
