@@ -3293,6 +3293,8 @@ CREATE TABLE posthog.trace_spans (
   INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
   PROJECTION projection_index_span_id (SELECT _part_offset
 ORDER BY span_id),
+  PROJECTION projection_index_team_trace_id (SELECT _part_offset
+ORDER BY team_id, trace_id) WITH SETTINGS (index_granularity = 512),
   PROJECTION projection_aggregate_counts (SELECT
   team_id,
   time_bucket,

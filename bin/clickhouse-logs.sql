@@ -174,6 +174,12 @@ CREATE OR REPLACE TABLE trace_spans
         ORDER BY span_id
     ),
 
+    PROJECTION projection_index_team_trace_id
+    (
+        SELECT _part_offset
+        ORDER BY team_id, trace_id
+    ) WITH SETTINGS (index_granularity = 512),
+
     INDEX idx_trace_id trace_id TYPE tokenbf_v1(10000, 5, 0) GRANULARITY 1,
     INDEX idx_span_id span_id TYPE tokenbf_v1(5000, 5, 0) GRANULARITY 1,
     INDEX idx_name name TYPE ngrambf_v1(4, 5000, 2, 0) GRANULARITY 1,

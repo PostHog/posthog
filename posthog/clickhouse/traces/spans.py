@@ -105,7 +105,13 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     (
         SELECT _part_offset
         ORDER BY trace_id
-    )
+    ),
+
+    PROJECTION projection_index_team_trace_id
+    (
+        SELECT _part_offset
+        ORDER BY team_id, trace_id
+    ) WITH SETTINGS (index_granularity = 512)
 )
 ENGINE = {MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(original_expiry_timestamp)
