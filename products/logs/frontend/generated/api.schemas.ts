@@ -1268,7 +1268,7 @@ export interface LogsAnomalyScanIssueApi {
 export interface LogsAnomalyScanResponseApi {
     /** Service that was scanned. */
     service_name: string
-    /** Actual start of the evaluated window after any clipping. */
+    /** Start of the evaluated window, snapped to the 5 minute grid. */
     eval_start: string
     /** Actual end of the evaluated window, clamped to the newest bucket the volume rollup has finished counting. */
     eval_end: string
