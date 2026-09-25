@@ -1702,7 +1702,7 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     assert_eq!(
         team_count("flags_flag_definitions_requests_total", "conditional"),
         Some(2.0),
-        "Requests that send If-None-Match should count under the conditional budget. Metrics: {metrics_text}"
+        "Requests with an ETag in If-None-Match should count under the conditional budget. Metrics: {metrics_text}"
     );
     assert_eq!(
         team_count("flags_flag_definitions_rate_limited_total", "full"),

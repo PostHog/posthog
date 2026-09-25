@@ -94,7 +94,7 @@ pub struct State {
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
     pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
-    /// Per-team limiter for flag definitions requests that send If-None-Match.
+    /// Per-team limiter for flag definitions requests with an ETag in If-None-Match.
     /// Separate budget so ETag revalidation polls don't consume the full-response budget.
     pub(crate) flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
@@ -290,7 +290,7 @@ where
     .expect("Failed to initialize flag definitions rate limiter")
     .with_labels(&[("budget", "full")]);
 
-    // Conditional requests (those that send If-None-Match) get their own per-team budget.
+    // Conditional requests (those with an ETag in If-None-Match) get their own per-team budget.
     // Per-team overrides (LOCAL_EVAL_RATE_LIMITS) apply only to full responses. Both limiters
     // share metric names, so dashboards that sum the counters still see every request.
     let flag_definitions_conditional_limiter = FlagDefinitionsRateLimiter::new(

@@ -186,7 +186,7 @@ pub async fn flags_definitions(
 
     // This check runs before the ETag read so that a request it refuses costs no Redis
     // call. The handler cannot tell a 304 from a full response until Redis answers.
-    // If-None-Match therefore picks the budget.
+    // Whether If-None-Match carries an ETag therefore picks the budget.
     let client_etag = extract_etag_from_header(headers.get("if-none-match"));
     if client_etag.is_some() {
         state

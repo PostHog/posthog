@@ -692,7 +692,7 @@ pub struct Config {
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
-    // Per-team rate limit for flag definitions requests that send If-None-Match
+    // Per-team rate limit for flag definitions requests with an ETag in If-None-Match
     // (requests per minute). Most of these get a 304, which skips the payload read. They
     // therefore get their own higher budget. A request whose ETag does not match also
     // spends the budget for full responses.
