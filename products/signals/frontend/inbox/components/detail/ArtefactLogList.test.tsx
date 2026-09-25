@@ -139,6 +139,8 @@ describe('ArtefactLogList', () => {
                         url,
                         state: 'unknown',
                         merged: false,
+                        review_decision: null,
+                        merged_at: null,
                         claim_id: null,
                         attached_at: null,
                         attached_by: { kind: 'task', user: null, agent: null, task_id: 'task-3' },

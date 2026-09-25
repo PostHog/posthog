@@ -105,6 +105,7 @@ def _is_authorization_failure_response_error(err: HttpResponseError) -> bool:
 
 @dataclasses.dataclass(frozen=False, kw_only=True)
 class AzureBlobInsertInputs(BatchExportInsertInputs):
+    data_interval_end: str
     container_name: str
     integration_id: int
     prefix: str = ""

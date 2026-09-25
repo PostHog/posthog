@@ -154,8 +154,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     }
 
                     const queryString = new URLSearchParams(params).toString()
-                    const url = `api/environments/${values.currentTeamIdStrict}/health_issues/?${queryString}`
+                    const url = `api/projects/${values.currentTeamIdStrict}/health_issues/?${queryString}`
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     return await api.get(url)
                 },
             },
@@ -217,8 +218,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
     }),
     listeners(({ actions, values }) => ({
         refreshHealthData: async ({ isManual }, breakpoint) => {
-            const url = `api/environments/${values.currentTeamIdStrict}/health_issues/refresh/`
+            const url = `api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const response = await api.create<{
                     scheduled_kinds: string[]
                     kinds_failed: string[]
@@ -285,7 +287,8 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         snoozeIssue: async ({ id, duration }) => {
             try {
-                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, {
                     snoozed_until: duration,
                 })
                 actions.loadHealthIssues()
@@ -296,7 +299,8 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         dismissIssue: async ({ id }) => {
             try {
-                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, {
                     dismissed: true,
                 })
                 actions.loadHealthIssues()
@@ -307,7 +311,8 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         undismissIssue: async ({ id }) => {
             try {
-                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                await api.update(`api/projects/${values.currentTeamIdStrict}/health_issues/${id}/`, {
                     dismissed: false,
                 })
                 actions.loadHealthIssues()

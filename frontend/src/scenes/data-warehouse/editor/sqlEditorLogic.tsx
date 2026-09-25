@@ -6,6 +6,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -43,6 +44,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
+import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -73,6 +75,7 @@ import {
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
+    PredicateQuickfix,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -98,6 +101,7 @@ import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
@@ -374,6 +378,28 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
+    return {
+        kind: NodeKind.DataVisualizationNode,
+        source: {
+            ...source,
+            kind: NodeKind.HogQLQuery,
+            query: typeof source.query === 'string' ? source.query : '',
+        },
+        display: ChartDisplayType.Auto,
+    }
+}
+
+function metricEditorSourceQuery(definition: Record<string, unknown> | null | undefined): DataVisualizationNode | null {
+    if (!definition) {
+        return hogQLEditorSourceQuery()
+    }
+    if (definition.kind !== NodeKind.HogQLQuery) {
+        return null
+    }
+    return hogQLEditorSourceQuery(definition as Partial<HogQLQuery>)
+}
+
 function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
     const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
 
@@ -583,6 +609,7 @@ export interface sqlEditorLogicValues {
     hoveredNode: string | null
     inProgressDraftEdits: Record<string, string>
     inProgressViewEdits: Record<string, string>
+    indexReportStale: boolean
     insightLoading: boolean
     isDraft: boolean
     isEditingMaterializedView: boolean
@@ -783,6 +810,9 @@ export interface sqlEditorLogicActions {
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
+    applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
+        quickfix: PredicateQuickfix
+    }
     closeAccessControlModal: () => {
         value: true
     }
@@ -834,6 +864,9 @@ export interface sqlEditorLogicActions {
     enforceConnectionRawQueryMode: () => {
         value: true
     }
+    fixIndexUsageWithAI: (prompt: string) => {
+        prompt: string
+    }
     initialize: () => {
         value: true
     }
@@ -880,6 +913,13 @@ export interface sqlEditorLogicActions {
     }
     openMaterializationModal: (view?: DataWarehouseSavedQuery) => {
         view: DataWarehouseSavedQuery | undefined
+    }
+    openMetricFromUrl: (
+        metricName: string,
+        biEditorState: BIEditorState | null
+    ) => {
+        biEditorState: BIEditorState | null
+        metricName: string
     }
     reportAIQueryAccepted: () => {
         value: true
@@ -1152,6 +1192,13 @@ export interface sqlEditorLogicMeta {
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         filtersPlaceholderBindings: (queryInput: string | null) => string[] | null
         hasQueryInput: (queryInput: string | null) => boolean
+        indexReportStale: (
+            metadata: HogQLMetadataResponse | null,
+            activeQueryText: string | null,
+            queryInput: string | null,
+            suggestedQueryInput: string,
+            metadataLoading: boolean
+        ) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
@@ -1316,6 +1363,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
+        openMetricFromUrl: (metricName: string, biEditorState: BIEditorState | null) => ({ metricName, biEditorState }),
         updateEditingMetric: true,
         setMetricUpdating: (updating: boolean) => ({ updating }),
         updateInsight: true,
@@ -1401,6 +1449,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         }),
         syncUrlWithQuery: true,
         insertTextAtCursor: (text: string) => ({ text }),
+        applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
+        fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
@@ -1770,6 +1820,66 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             reportAIQueryPromptOpen: () => {
                 posthog.capture('ai_query_prompt_open')
+            },
+            applyIndexQuickfix: ({ quickfix }) => {
+                const editor = props.editor
+                const model = editor?.getModel()
+                if (!editor || !model) {
+                    return
+                }
+                // The offsets describe the SQL the server analyzed. Once the text has moved on they
+                // would land the edit somewhere else, so wait for the next report instead of guessing.
+                if (values.indexReportStale) {
+                    return
+                }
+                // The offsets count characters; Monaco counts UTF-16 units. Convert against the
+                // analyzed statement before adding its offset, which the editor already measures
+                // in Monaco's units.
+                const analyzed = values.activeQueryText ?? (values.suggestedQueryInput || values.queryInput) ?? ''
+                // The model is the authority on what is being edited, and it is not always the text
+                // the report describes: with a suggestion open, `props.editor` is the diff's modified
+                // editor holding the suggested query while the offsets index the text behind it.
+                // Splicing there would corrupt the suggestion, so confirm the analyzed text is still
+                // sitting where the offsets say before writing anything.
+                if (
+                    model.getValue().slice(values.activeQueryOffset, values.activeQueryOffset + analyzed.length) !==
+                    analyzed
+                ) {
+                    lemonToast.info('Still checking the latest version of this query. Try again in a moment.')
+                    return
+                }
+                const start = model.getPositionAt(
+                    characterOffsetToUtf16(analyzed, quickfix.start) + values.activeQueryOffset
+                )
+                const end = model.getPositionAt(
+                    characterOffsetToUtf16(analyzed, quickfix.end) + values.activeQueryOffset
+                )
+                editor.executeEdits('index-quickfix', [
+                    {
+                        range: {
+                            startLineNumber: start.lineNumber,
+                            startColumn: start.column,
+                            endLineNumber: end.lineNumber,
+                            endColumn: end.column,
+                        },
+                        text: quickfix.text,
+                    },
+                ])
+                posthog.capture('sql-editor-index-quickfix-applied')
+            },
+            fixIndexUsageWithAI: ({ prompt }) => {
+                // The prompt names a filter the server found in the text it analyzed. Sending it with
+                // newer text asks for a rewrite of a filter that may no longer be there. The editor
+                // lightbulb can still offer the action in that window, so the guard lives here rather
+                // than only on the table button, and it says why instead of doing nothing.
+                if (values.indexReportStale) {
+                    lemonToast.info('Still checking the latest version of this query. Try again in a moment.')
+                    return
+                }
+                // The error fixer takes free text as its "error", so an index instruction rides the
+                // same suggestion flow and lands as a reviewable diff rather than a silent rewrite.
+                actions.fixErrors(values.queryInput ?? '', prompt, values.selectedConnectionId)
+                posthog.capture('sql-editor-index-fix-with-ai')
             },
             insertTextAtCursor: ({ text }) => {
                 const editor = props.editor
@@ -2703,11 +2813,49 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }) as unknown as Record<string, unknown>,
                     })
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    metricsLogic.findMounted()?.actions.loadMetrics()
                     actions.setMetricPrefill(null)
                     lemonToast.success('Metric created')
                     router.actions.push(urls.dataCatalogMetric(metric.name))
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to create metric')
+                }
+            },
+            openMetricFromUrl: async ({ metricName, biEditorState }, breakpoint) => {
+                const openMetricTab = (sourceQuery: DataVisualizationNode, boundMetricName?: string): void => {
+                    actions.createTab(
+                        sourceQuery.source.query,
+                        undefined,
+                        undefined,
+                        undefined,
+                        boundMetricName,
+                        biEditorState ?? undefined
+                    )
+                    actions.setQueryInput(sourceQuery.source.query)
+                    actions.setSourceQuery(sourceQuery)
+                }
+                try {
+                    // Validate before it reaches the request path: the value is interpolated
+                    // into the URL unencoded, so a name containing "../" could otherwise
+                    // traverse to a metric in another project. The name regex forbids slashes.
+                    if (validateMetricName(metricName)) {
+                        throw new Error('Invalid metric name')
+                    }
+                    const metric = await dataCatalogMetricsRetrieve(String(ApiConfig.getCurrentTeamId()), metricName)
+                    breakpoint()
+                    const metricSourceQuery = metricEditorSourceQuery(metric.definition)
+                    if (!metricSourceQuery) {
+                        throw new Error('Metric is not defined in SQL')
+                    }
+                    openMetricTab(metricSourceQuery, metric.name)
+                } catch (error) {
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    breakpoint()
+                    // Invalid name, metric not found, or no access — open an unbound empty tab
+                    // rather than binding an update target we couldn't verify.
+                    openMetricTab(hogQLEditorSourceQuery())
                 }
             },
             updateEditingMetric: async () => {
@@ -2728,6 +2876,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     )
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
+                    metricsLogic.findMounted()?.actions.loadMetrics()
                     lemonToast.success('Metric updated')
                     router.actions.push(urls.dataCatalogMetric(values.editingMetricName))
                 } catch (error: any) {
@@ -3281,6 +3430,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput: string | null) => !!queryInput],
+        // A quickfix carries character offsets into the SQL the server analyzed, so it can only be
+        // applied while the editor still holds that exact text. The comparison mirrors the fallback
+        // in `codeEditorLogic`, which analyzes the whole editor text whenever there is no active
+        // statement; comparing against the active statement alone reads as stale forever there.
+        indexReportStale: [
+            (s) => [s.metadata, s.activeQueryText, s.queryInput, s.suggestedQueryInput, s.metadataLoading],
+            (
+                metadata: HogQLMetadataResponse | null,
+                activeQueryText: string | null,
+                queryInput: string | null,
+                suggestedQueryInput: string,
+                metadataLoading: boolean
+            ) => metadataLoading || metadata?.query !== (activeQueryText ?? (suggestedQueryInput || queryInput) ?? ''),
+        ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
@@ -3380,6 +3543,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
+                !searchParams.edit_metric &&
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.c &&
@@ -3609,39 +3773,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // a teammate's metric with arbitrary HogQL. Load the metric server-side and open
                     // its stored query, so the update target and its definition come from the same
                     // authenticated response.
-                    try {
-                        // Validate before it reaches the request path: the value is interpolated
-                        // into the URL unencoded, so a name containing "../" could otherwise
-                        // traverse to a metric in another project. The name regex forbids slashes.
-                        if (validateMetricName(searchParams.edit_metric)) {
-                            throw new Error('Invalid metric name')
-                        }
-                        const metric = await dataCatalogMetricsRetrieve(
-                            String(ApiConfig.getCurrentTeamId()),
-                            searchParams.edit_metric
-                        )
-                        const definition = metric.definition as Record<string, unknown> | null | undefined
-                        const metricQuery = typeof definition?.query === 'string' ? definition.query : ''
-                        actions.createTab(
-                            metricQuery,
-                            undefined,
-                            undefined,
-                            undefined,
-                            metric.name,
-                            biEditorStateFromUrl ?? undefined
-                        )
-                    } catch {
-                        // Invalid name, metric not found, or no access — open an unbound empty tab
-                        // rather than binding an update target we couldn't verify.
-                        actions.createTab(
-                            '',
-                            undefined,
-                            undefined,
-                            undefined,
-                            undefined,
-                            biEditorStateFromUrl ?? undefined
-                        )
-                    }
+                    actions.openMetricFromUrl(searchParams.edit_metric, biEditorStateFromUrl)
                     tabAdded = true
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries

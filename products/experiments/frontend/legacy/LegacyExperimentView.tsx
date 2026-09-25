@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
@@ -157,6 +158,7 @@ export function LegacyExperimentView(): JSX.Element {
     const { experimentLoading, experiment } = useValues(experimentLogic)
     const { activeTabKey } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
+    const showDeprecationNotice = useFeatureFlag('EXPERIMENTS_LEGACY_DEPRECATION_NOTICE')
 
     // Props for legacy logic - uses experiment data from parent experimentLogic
     const legacyLogicProps = {
@@ -197,6 +199,14 @@ export function LegacyExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <ExperimentWarningBanner />
+
+                        {showDeprecationNotice && (
+                            <LemonBanner type="error" className="mb-4">
+                                Legacy experiments will be deprecated on October 15, 2026. Take a screenshot of these
+                                results if you need them after that date. Legacy experiments can be migrated to the new
+                                engine, and PostHog AI can do this for you. Contact support if you have questions.
+                            </LemonBanner>
+                        )}
 
                         {/* Warning banner indicating this is a legacy experiment */}
                         <LemonBanner type="warning" className="mb-4">

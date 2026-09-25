@@ -108,7 +108,8 @@ export const insightUsageLogic = kea<insightUsageLogicType>([
             // Report the insight being viewed to our '/viewed' endpoint.
             // Used for "recently viewed insights", and in insights dashboard.
             if (values.insight.id && !isSharedView()) {
-                void api.create(`api/environments/${values.currentProjectId}/insights/viewed`, {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                void api.create(`api/projects/${values.currentProjectId}/insights/viewed`, {
                     insight_ids: [values.insight.id],
                 })
             }

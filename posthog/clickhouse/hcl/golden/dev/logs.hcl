@@ -2140,6 +2140,14 @@ SQL
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
+    column "timestamp_min" {
+      type  = "DateTime64(6)"
+      alias = "arrayMin(timestamp_arr)"
+    }
+    column "timestamp_max" {
+      type  = "DateTime64(6)"
+      alias = "arrayMax(timestamp_arr)"
+    }
     index "idx_metric_type_set" {
       expr        = "metric_type"
       type        = "set(10)"
@@ -2153,6 +2161,16 @@ SQL
     index "idx_trace_id_bf" {
       expr        = "trace_id_arr"
       type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_timestamp_min_minmax" {
+      expr        = "timestamp_min"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_max_minmax" {
+      expr        = "timestamp_max"
+      type        = "minmax"
       granularity = 1
     }
     engine "replicated_aggregating_merge_tree" {
@@ -3070,10 +3088,34 @@ SQL
       type        = "bloom_filter(0.00001)"
       granularity = 99999
     }
+    index "idx_trace_bloom_part_v2" {
+      expr        = "trace_id"
+      type        = "bloom_filter(0.05)"
+      granularity = 99999
+    }
+    index "idx_span_id_bloom_part_v2" {
+      expr        = "span_id"
+      type        = "bloom_filter(0.05)"
+      granularity = 99999
+    }
     projection "projection_index_span_id" {
       query = <<SQL
 SELECT _part_offset
 ORDER BY span_id
+SQL
+
+    }
+    projection "projection_index_team_span_id" {
+      query = <<SQL
+SELECT team_id, _part_offset
+ORDER BY span_id
+SQL
+
+    }
+    projection "projection_index_team_trace_id" {
+      query = <<SQL
+SELECT team_id, _part_offset
+ORDER BY trace_id
 SQL
 
     }

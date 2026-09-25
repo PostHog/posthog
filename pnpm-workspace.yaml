@@ -103,6 +103,8 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    # Browser process shims must not select v86's Node-only scheduler.
+    v86@0.5.458: patches/v86@0.5.458.patch
     jest-junit@16.0.0: patches/jest-junit@16.0.0.patch
     '@connectrpc/connect-node@2.1.1': patches/@connectrpc__connect-node@2.1.1.patch
     heatmap.js@2.0.5: patches/heatmap.js@2.0.5.patch
@@ -148,9 +150,9 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.11.0
-    '@posthog/react': ^1.11.1
-    posthog-js: ^1.434.4
+    '@posthog/brand': 0.12.3
+    '@posthog/react': ^1.11.2
+    posthog-js: ^1.434.13
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4

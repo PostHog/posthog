@@ -412,7 +412,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(api.update).toHaveBeenCalledTimes(1)
-                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
                     layout_compaction: DashboardGridCompaction.Vertical,
                     grid_spacing: 'relaxed',
                 })
@@ -462,7 +462,7 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(api.update).toHaveBeenCalledTimes(1)
-                expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
                     layout_compaction: DashboardGridCompaction.Horizontal,
                     grid_spacing: 'standard',
                 })
@@ -495,7 +495,7 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(api.update).toHaveBeenLastCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+                expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
                     layout_compaction: DashboardGridCompaction.Stable,
                     grid_spacing: 'standard',
                 })
@@ -548,7 +548,7 @@ describe('dashboardLogic', () => {
 
             expect(api.update).toHaveBeenCalledTimes(1)
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     tiles: expect.any(Array),
                 })
@@ -615,7 +615,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledTimes(1)
-            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
                 filters: expect.objectContaining({ date_from: '-7d' }),
                 variables: {},
             })
@@ -1177,7 +1177,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenLastCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.not.objectContaining({ filters: expect.anything() })
             )
             expect(logic.values.dashboard?.persisted_filters).toEqual(expect.objectContaining({ date_from: '-7d' }))
@@ -1216,7 +1216,7 @@ describe('dashboardLogic', () => {
 
             expect(api.update).toHaveBeenCalledTimes(1)
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     breakdown_colors: expect.arrayContaining([
                         expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
@@ -1281,7 +1281,7 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     breakdown_colors: expect.arrayContaining([
                         expect.objectContaining({ breakdownValue: 'x', colorToken: 'preset-1' }),
@@ -1401,7 +1401,7 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     // only the pin — no auto entry materialized from the partially loaded tiles
                     breakdown_colors: [expect.objectContaining({ breakdownValue: 'pinned', colorToken: 'preset-5' })],
@@ -1468,7 +1468,7 @@ describe('dashboardLogic', () => {
 
             // the entry survives the save instead of being pruned from the partial tile set
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     breakdown_colors: [
                         expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
@@ -1492,7 +1492,7 @@ describe('dashboardLogic', () => {
 
             expect(api.update).toHaveBeenCalledTimes(1)
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/5`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     data_color_theme_id: 123,
                 })
@@ -2213,7 +2213,7 @@ describe('dashboardLogic', () => {
             await expectLogic(dashboardEightlogic).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(
-                `api/environments/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
+                `api/projects/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
                 expect.objectContaining({ tile: sourceTile, to_dashboard: 8 })
             )
         })
@@ -2642,6 +2642,7 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.blockRefresh).toBe(false)
             })
 
             it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
@@ -2671,6 +2672,32 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
+            it('allows another manual dashboard refresh after five minutes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                for (const tile of logic.values.dashboard!.tiles) {
+                    const insight = tile.insight
+                    if (!insight) {
+                        continue
+                    }
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            { ...insight, last_refresh: now().toISOString(), query: insight.query ?? null },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+
+                const recentRefresh = now().subtract(4, 'minutes')
+                logic.actions.updateDashboardLastRefresh(recentRefresh)
+                expect(logic.values.blockRefresh).toBe(true)
+
+                const lastRefresh = now().subtract(6, 'minutes')
+                logic.actions.updateDashboardLastRefresh(lastRefresh)
+                expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
+                expect(logic.values.blockRefresh).toBe(false)
+            })
+
             it('manual refresh reloads all insights', async () => {
                 const dashboard = dashboards[5]
                 const insight1 = dashboard.tiles[0].insight!
@@ -3057,11 +3084,11 @@ describe('dashboardLogic', () => {
         describe('page visibility', () => {
             it('pauses auto-refresh when page is hidden and resumes when visible', async () => {
                 await expectLogic(logic, () => {
-                    logic.actions.setAutoRefresh(true, 1800)
+                    logic.actions.setAutoRefresh(true, 900)
                 })
                     .toDispatchActions(['setAutoRefresh', 'resetInterval'])
                     .toMatchValues({
-                        autoRefresh: { enabled: true, interval: 1800 },
+                        autoRefresh: { enabled: true, interval: 900 },
                     })
 
                 await expectLogic(logic, () => {
@@ -3427,29 +3454,40 @@ describe('dashboardLogic', () => {
             autoPreviewLimit.restore()
         })
 
-        it('uses visible SQL variable values when refreshing one tile before Preview', async () => {
-            const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
-            await mountDashboardWithVariable({})
-            const getInsightWithRetrySpy = jest
-                .spyOn(dashboardUtils, 'getInsightWithRetry')
-                .mockImplementation(async (_teamId, insight) => insight)
+        it.each(['manual', 'saved insight'])(
+            'uses dashboard context for a %s tile refresh before Preview',
+            async (trigger) => {
+                const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
+                await mountDashboardWithVariable({})
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockImplementation(async (_teamId, insight) => insight)
 
-            try {
-                await expectLogic(logic, () => {
-                    logic.actions.overrideVariableValue(variableId, 'draft value', false)
-                }).toFinishAllListeners()
+                try {
+                    await expectLogic(logic, () => {
+                        logic.actions.overrideVariableValue(variableId, 'draft value', false)
+                    }).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        if (trigger === 'saved insight') {
+                            insightsModel.actions.insightSaved(logic.values.insightTiles[0].insight!.short_id)
+                        } else {
+                            logic.actions.refreshDashboardItem({ tile: logic.values.insightTiles[0] })
+                        }
+                    }).toFinishAllListeners()
 
-                expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
-                expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
-            } finally {
-                getInsightWithRetrySpy.mockRestore()
-                autoPreviewLimit.restore()
+                    expect(getInsightWithRetrySpy).toHaveBeenCalledTimes(1)
+                    expect(getInsightWithRetrySpy.mock.calls[0][6]).toEqual(logic.values.effectiveRefreshFilters)
+                    expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({})
+                    expect(getInsightWithRetrySpy.mock.calls[0][8]).toEqual(
+                        logic.values.insightTiles[0].filters_overrides
+                    )
+                } finally {
+                    getInsightWithRetrySpy.mockRestore()
+                    autoPreviewLimit.restore()
+                }
             }
-        })
+        )
 
         it('makes Preview available when a SQL variable changes during an older preview', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
@@ -4305,7 +4343,7 @@ describe('dashboardLogic', () => {
                 logic.actions.copyToDashboard(WIDGET_TILE, 5, 8, 'Target dashboard')
             }).toFinishAllListeners()
 
-            expect(api.create).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/8/copy_tile`, {
+            expect(api.create).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/8/copy_tile`, {
                 fromDashboardId: 5,
                 tileId: WIDGET_TILE.id,
             })

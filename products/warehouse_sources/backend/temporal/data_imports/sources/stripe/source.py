@@ -249,7 +249,7 @@ Once created, copy the **Signing secret** from the webhook details page and add 
 If automatic creation failed with a permissions error, the fix depends on how you connected:
 
 - **Restricted API key**: give the key **Write** access on **Webhook endpoints** in your [Stripe API keys settings](https://dashboard.stripe.com/apikeys), then reconnect the source.
-- **OAuth**: disconnect and reconnect your Stripe account, then accept the permissions PostHog asks for. If the error stays, use the manual steps above.""",
+- **OAuth**: Stripe doesn't let apps create webhooks, so reconnecting won't fix this. Use the manual steps above.""",
             webhookFields=cast(
                 list[FieldType],
                 [

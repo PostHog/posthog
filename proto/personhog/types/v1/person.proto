@@ -232,6 +232,47 @@ message DeletePersonsResponse {
   repeated TombstonedPerson tombstones = 3;
 }
 
+message GetPersonTombstonesRequest {
+  int64 team_id = 1;
+  repeated string person_uuids = 2;
+}
+
+message GetPersonTombstonesResponse {
+  repeated TombstonedPerson tombstones = 1;
+}
+
+message AckedPersonTombstone {
+  string person_uuid = 1;
+  int64 version = 2;
+}
+
+message AckPersonTombstonesRequest {
+  int64 team_id = 1;
+  repeated AckedPersonTombstone tombstones = 2;
+}
+
+message AckPersonTombstonesResponse {
+  int64 cleared_count = 1;
+}
+
+message ListPersonTombstoneQueueRequest {
+  int64 after_team_id = 1;
+  string after_person_uuid = 2;
+  int64 limit = 3;
+  optional int64 team_id = 4;
+}
+
+message PersonTombstoneQueueEntry {
+  int64 team_id = 1;
+  string person_uuid = 2;
+  int64 person_version = 3;
+  int64 tombstoned_at = 4;
+}
+
+message ListPersonTombstoneQueueResponse {
+  repeated PersonTombstoneQueueEntry entries = 1;
+}
+
 // DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
 // Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
 // posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.

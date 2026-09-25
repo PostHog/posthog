@@ -1488,7 +1488,7 @@ export interface ExperimentApiMetricApi {
     series?: ExperimentApiEventSourceApi[] | null
     /** For mean metrics: event source. */
     source?: ExperimentApiEventSourceApi | null
-    /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; start_handling and conversion window are ignored then. */
+    /** For retention metrics: start event. Pass {"kind": "ExperimentExposureNode"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure. */
     start_event?: ExperimentApiRetentionStartApi | null
     start_handling?: StartHandlingApi | null
     /** For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
@@ -3217,8 +3217,10 @@ export interface ExperimentSetupTargetSurfaceApi {
     unique_persons: number
     /** unique_persons divided by window_days. Pass it as exposure_rate_per_day to experiment-calculate-running-time, scaled by the share of traffic the experiment will include. */
     exposures_per_day_estimate: number
-    /** Up to 5 SDKs by persons reached. */
+    /** Up to 5 SDKs, most persons reached first. */
     libs: ExperimentSetupLibReachApi[]
+    /** True when more SDKs sent target events than libs lists. */
+    libs_truncated: boolean
     /**
      * Among all distinct ids that report whether they are identified, whichever SDK they came from, the share that was anonymous. Null when no target event reported it.
      * @nullable

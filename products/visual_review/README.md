@@ -32,9 +32,11 @@ No sync problems, no "baseline service went down", no mystery diffs from someone
 Two daily Celery tasks delete data that can no longer be used: `sweep visual review runs`, and an hour later `sweep visual review artifacts`.
 The windows and the reasons behind them are constants in `backend/logic/retention.py`.
 
-- Superseded runs on PR branches go after 30 days, on the default branch after 180 days.
+- Superseded runs on PR branches go after 3 days, on the default branch after 180 days.
   A run without a PR number counts as default-branch history, because we do not record a repo's real default branch.
-- A PR branch with no run in 90 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
+- A PR branch with no run in 30 days loses its latest runs too, except the repo's newest completed full run per run type, which is the last row naming the committed baseline hashes.
+  Merge-queue branches (`trunk-merge/`) hold one batch run each and go after 7 days.
+- A run that an active quarantine names as its source stays, so the quarantine can still show where it came from.
 - Artifacts go by reference, never by age: content addressing means one upload backs every later run with the same pixels.
   An artifact goes when no snapshot of the repo points at it or names its hash, no artifact uses it as a thumbnail, and it is over 7 days old.
 - Rows go before objects, and run registration and the delete share a per-repo lock, so a run is never told an artifact exists that the sweep then removes.

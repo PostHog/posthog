@@ -6,6 +6,7 @@ from typing import Optional, TypedDict, Union
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AppleSearchAdsDefaultSources,
     BingAdsDefaultSources,
     DefaultChannelTypes,
     GoogleAdsDefaultSources,
@@ -24,6 +25,7 @@ from posthog.schema import (
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
@@ -508,6 +510,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig6,
     MarketingIntegrationConfig7,
     MarketingIntegrationConfig8,
+    MarketingIntegrationConfig9,
 ]
 
 
@@ -537,6 +540,7 @@ def _get_enum_values(enum_class) -> list[str]:
 
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,
     NativeMarketingSource.LINKEDIN_ADS: LinkedinAdsDefaultSources,
     NativeMarketingSource.META_ADS: MetaAdsDefaultSources,

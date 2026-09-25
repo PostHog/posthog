@@ -171,7 +171,7 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
  * The minimum interval between manual dashboard refreshes.
  * This is used to block the dashboard refresh button.
  */
-export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 15
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -206,6 +206,15 @@ function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
 export function shouldSharedDashboardAutoForceForStaleTime(effectiveLastRefresh: Dayjs | null): boolean {
     const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
     return ageMinutes !== null && ageMinutes >= SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES
+}
+
+/**
+ * `Dashboard.last_refresh` is shared by all viewers, so one person's refresh can start a block
+ * window for everybody while the tiles keep showing old data. In that state the block must give way.
+ */
+export function isEffectiveRefreshStale(effectiveLastRefresh: Dayjs | null): boolean {
+    const ageMinutes = staleAgeMinutes(effectiveLastRefresh)
+    return ageMinutes !== null && ageMinutes >= DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES
 }
 
 // Helper function for exponential backoff
@@ -298,7 +307,7 @@ export async function getInsightWithRetry(
 
     while (attempt < maxAttempts) {
         try {
-            const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+            const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                 refresh,
                 from_dashboard: dashboardId, // needed to load insight in correct context
                 client_query_id: queryId,
@@ -307,6 +316,7 @@ export async function getInsightWithRetry(
                 ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                 ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
             })}`
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             const insightResponse: Response = await api.getResponse(apiUrl, methodOptions)
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
@@ -317,7 +327,7 @@ export async function getInsightWithRetry(
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
                     try {
-                        const asyncApiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                        const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: 'force_async',
                             from_dashboard: dashboardId,
                             client_query_id: queryId,
@@ -327,12 +337,13 @@ export async function getInsightWithRetry(
                             ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                         })}`
                         // The async call returns an insight with a query_status object
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const insightResponse = await api.get(asyncApiUrl, methodOptions)
 
                         if (insightResponse?.query_status?.id) {
                             const finalStatus = await pollForResults(insightResponse.query_status.id, methodOptions)
                             if (finalStatus.complete && !finalStatus.error) {
-                                const cacheUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+                                const cacheUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                                     refresh: 'force_cache',
                                     from_dashboard: dashboardId,
                                     client_query_id: queryId,
@@ -341,6 +352,7 @@ export async function getInsightWithRetry(
                                     ...(variablesOverride ? { variables_override: variablesOverride } : {}),
                                     ...(tileFiltersOverride ? { tile_filters_override: tileFiltersOverride } : {}),
                                 })}`
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                 const refreshedInsightResponse: Response = await api.getResponse(
                                     cacheUrl,
                                     methodOptions

@@ -10,13 +10,15 @@ use axum::Json;
 use bytes::Bytes;
 use capture_logs::authorizer::Signal;
 use capture_logs::endpoints::prometheus::{
-    decode_write_request, estimate_expanded_bytes, write_request_to_kafka_rows, RemoteWriteEncoding,
+    decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows,
+    RemoteWriteEncoding,
 };
 use metrics::counter;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, instrument};
 
+use crate::histogram_assembly::fold_classic_histograms;
 use crate::service::MetricsService;
 
 /// How much larger than the (already decompression-capped) request body the
@@ -142,7 +144,9 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
-    let (mut rows, timestamps_overridden) = write_request_to_kafka_rows(write_request);
+    let (rows, timestamps_overridden) =
+        write_timeseries_to_kafka_rows(write_request.timeseries, &write_request.metadata);
+    let mut rows = fold_classic_histograms(rows, &write_request.metadata);
     service.series_label_gate.apply(&token, &mut rows);
     let row_count = rows.len();
 

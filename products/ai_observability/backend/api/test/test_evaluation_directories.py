@@ -73,6 +73,28 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
         evaluation.refresh_from_db()
         self.assertIsNone(evaluation.directory_id)
 
+    def test_list_counts_only_the_teams_non_deleted_evaluations_and_keeps_empty_directories(self) -> None:
+        empty_directory = self._create_directory("Empty")
+        deleted_only_directory = self._create_directory("Deleted only")
+        directory = self._create_directory("Mixed")
+        active_evaluation = self._create_evaluation("Active")
+        deleted_evaluation = self._create_evaluation("Deleted")
+        only_deleted_evaluation = self._create_evaluation("Only deleted")
+        other_team_evaluation = self._create_evaluation("Other team")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        Evaluation.objects.filter(id=active_evaluation.id).update(directory=directory)
+        Evaluation.objects.filter(id=deleted_evaluation.id).update(directory=directory, deleted=True)
+        Evaluation.objects.filter(id=only_deleted_evaluation.id).update(directory=deleted_only_directory, deleted=True)
+        Evaluation.objects.filter(id=other_team_evaluation.id).update(directory=directory, team=other_team)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluation_directories/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {result["id"]: result["evaluation_count"] for result in response.json()},
+            {str(empty_directory.id): 0, str(deleted_only_directory.id): 0, str(directory.id): 1},
+        )
+
     def test_deleting_a_directory_moves_its_evaluations_to_the_top_level(self) -> None:
         directory = self._create_directory()
         active_evaluation = self._create_evaluation("Active")

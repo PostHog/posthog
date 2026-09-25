@@ -3,7 +3,8 @@
  * Detection floors for faces and codes, against the floor at which each still carries information in
  * the stored artifact. The text version of this lives in glyph-floor.ts; the same question has to be
  * asked separately for each detector, because their inputs are sized on different rules: DBNet scales
- * with the frame, YuNet letterboxes into a fixed 640 square, and zxing works on the frame directly.
+ * with the frame, YuNet letterboxes into a fixed 640 square, and zxing reads the frame at the plan's
+ * code scale.
  *
  * For each subject size it reports two things:
  *   detected   – the production detector finds it at the detection resolution
@@ -28,6 +29,10 @@ import { detectCodes } from '../src/qr.ts'
 import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src } from '../src/src-image.ts'
 import { detectFacesYunet, loadYunet } from '../src/yunet.ts'
+
+// yunet.ts loads image-input.ts, which blocks every loader except PNG, JPEG, GIF and WebP for the whole process.
+// zxing writes the QR fixture as SVG, so this script unblocks the SVG loader again.
+sharp.unblock({ operation: ['VipsForeignLoadSvg'] })
 
 const wasmFile = createRequire(`${process.cwd()}/`).resolve('zxing-wasm/writer/zxing_writer.wasm')
 const wasmBytes = readFileSync(wasmFile)
@@ -117,7 +122,7 @@ async function codeFloors(): Promise<void> {
         const frame = await place(code, sidePx)
         const det = await atScale(frame, DETECT_PX)
         const art = await atScale(frame, STORE_PX)
-        const detected = (await detectCodes(det)).length > 0
+        const detected = (await detectCodes(det, PLAN.code.scale)).length > 0
         const decodable = (await detectCodes(art)).length > 0
         const inArtifact = sidePx * Math.sqrt(STORE_PX / (FRAME_W * FRAME_H))
         console.log(

@@ -274,7 +274,8 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         return null
                     }
 
-                    const response = await api.get(`/api/environments/${teamId}/default_evaluation_contexts/`)
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDefaultEvaluationContextsRetrieve() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    const response = await api.get(`/api/projects/${teamId}/default_evaluation_contexts/`)
                     return response as DefaultEvaluationContextsResponse
                 },
 
@@ -285,7 +286,8 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        const response = await api.create(`/api/environments/${teamId}/default_evaluation_contexts/`, {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDefaultEvaluationContextsCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                        const response = await api.create(`/api/projects/${teamId}/default_evaluation_contexts/`, {
                             context_name: contextName,
                         })
 
@@ -325,8 +327,9 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDefaultEvaluationContextsDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.delete(
-                            `/api/environments/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
+                            `/api/projects/${teamId}/default_evaluation_contexts/?context_name=${encodeURIComponent(contextName)}`
                         )
 
                         const currentData = values.defaultEvaluationContexts
@@ -353,7 +356,8 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
-                        await api.create(`/api/environments/${teamId}/evaluation_context_suggestions/`, {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsEvaluationContextSuggestionsCreate() from 'products/feature_flags/frontend/generated/api' instead.
+                        await api.create(`/api/projects/${teamId}/evaluation_context_suggestions/`, {
                             context_name: contextName,
                         })
 
@@ -380,8 +384,9 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsEvaluationContextSuggestionsDestroy() from 'products/feature_flags/frontend/generated/api' instead.
                         await api.delete(
-                            `/api/environments/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
+                            `/api/projects/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
                         )
 
                         const currentData = values.defaultEvaluationContexts

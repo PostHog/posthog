@@ -28,16 +28,19 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
+from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     TrunkQuarantineSource,
+    resolve_depot_job_attempts_tables,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
     resolve_trunk_quarantined_tests_source,
 )
 from products.engineering_analytics.backend.logic.views import (
     deployments,
+    depot_ci,
     issue_events,
     job_costs,
     pull_requests,
@@ -152,15 +155,23 @@ class CuratedGitHubSource:
     """
 
     def __init__(
-        self, *, team: Team, tables: GitHubTables, user_access_control: "UserAccessControl | None" = None
+        self,
+        *,
+        team: Team,
+        tables: GitHubTables,
+        user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> None:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._queries_remaining = query_limit
         self._trunk_table: str | None = None
         self._trunk_table_resolved = False
         self._trunk_quarantine_source: TrunkQuarantineSource | None = None
         self._trunk_quarantine_resolved = False
+        self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
+        self._depot_job_attempts_resolved = False
 
     @property
     def team(self) -> Team:
@@ -172,6 +183,15 @@ class CuratedGitHubSource:
         """The selected source's ``owner/name`` identity for reads outside the warehouse."""
         return self._tables.repository
 
+    @property
+    def source_id(self) -> str:
+        """The selected source, which the resolver already filtered by the caller's access.
+
+        A read outside the warehouse that needs a GitHub credential takes it from this source, so
+        it never reads with a credential of a source the caller is not allowed to use.
+        """
+        return self._tables.source_id
+
     @classmethod
     def for_team(
         cls,
@@ -180,6 +200,7 @@ class CuratedGitHubSource:
         source_id: str | None = None,
         repo: str | None = None,
         user_access_control: "UserAccessControl | None" = None,
+        query_limit: int | None = None,
     ) -> "CuratedGitHubSource":
         return cls(
             team=team,
@@ -187,6 +208,7 @@ class CuratedGitHubSource:
                 team=team, source_id=source_id, repo=repo, user_access_control=user_access_control
             ),
             user_access_control=user_access_control,
+            query_limit=query_limit,
         )
 
     def pr_source(self) -> str:
@@ -198,9 +220,7 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            self._tables.workflow_runs,
-            pull_requests_table=self._tables.pull_requests,
-            started_floor=started_floor,
+            self._runs_table(), pull_requests_table=self._tables.pull_requests, started_floor=started_floor
         )
         return f"({query})"
 
@@ -212,7 +232,26 @@ class CuratedGitHubSource:
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
-        return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
+        return (
+            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
+        )
+
+    def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
+        """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
+        Trunk tables, so a read that never touches CI pays no lookup."""
+        if not self._depot_job_attempts_resolved:
+            depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
+            self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
+            self._depot_job_attempts_resolved = True
+        return self._depot_job_attempts_table
+
+    def _runs_table(self) -> str:
+        return depot_ci.with_depot_runs(
+            self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
+        )
+
+    def _jobs_table(self, workflow_jobs_table: str) -> str:
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts())
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -363,8 +402,8 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         query = job_costs.build_query(
-            jobs_table=self._tables.workflow_jobs,
-            runs_table=self._tables.workflow_runs,
+            jobs_table=self._jobs_table(self._tables.workflow_jobs),
+            runs_table=self._runs_table(),
             include_run_columns=True,
             created_floor=created_floor,
         )
@@ -501,21 +540,45 @@ class CuratedGitHubSource:
         """Prefix ``select`` with the given CTEs and fill its ``__PR_SOURCE__`` placeholder with the PR source."""
         return f"WITH {', '.join(ctes)} {select}".replace("__PR_SOURCE__", self.pr_source())
 
-    def run_paged(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr]) -> list[tuple]:
-        """Read every row of a query with a stable ORDER BY, without the per-query result cap."""
+    def run_paged(
+        self,
+        sql: str,
+        *,
+        page_key: tuple[tuple[str, int], ...],
+        query_type: str,
+        placeholders: dict[str, ast.Expr],
+    ) -> list[tuple]:
+        """Read every row by an immutable unique key, without the per-query result cap."""
         rows: list[tuple] = []
-        offset = 0
+        cursor: tuple[object, ...] | None = None
+        key_columns = [column for column, _index in page_key]
+        order_by = ", ".join(key_columns)
         while True:
+            cursor_filter = ""
+            page_placeholders = placeholders
+            if cursor is not None:
+                cursor_names = [f"paged_after_{index}" for index in range(len(cursor))]
+                left = key_columns[0] if len(key_columns) == 1 else f"({', '.join(key_columns)})"
+                right = (
+                    f"{{{cursor_names[0]}}}"
+                    if len(cursor_names) == 1
+                    else f"({', '.join(f'{{{name}}}' for name in cursor_names)})"
+                )
+                cursor_filter = f"WHERE {left} > {right}"
+                page_placeholders = {
+                    **placeholders,
+                    **{name: ast.Constant(value=value) for name, value in zip(cursor_names, cursor, strict=True)},
+                }
             response = self.run(
-                f"{sql}\nLIMIT {_QUERY_PAGE_SIZE} OFFSET {offset}",
+                f"SELECT * FROM ({sql}) AS paged\n{cursor_filter}\nORDER BY {order_by}\nLIMIT {_QUERY_PAGE_SIZE}",
                 query_type=query_type,
-                placeholders=placeholders,
+                placeholders=page_placeholders,
             )
             page = list(response.results or [])
             rows.extend(page)
             if len(page) < _QUERY_PAGE_SIZE:
                 return rows
-            offset += len(page)
+            cursor = tuple(page[-1][index] for _column, index in page_key)
 
     def run(
         self,
@@ -541,6 +604,10 @@ class CuratedGitHubSource:
         ``logs`` table). The warehouse-ACL reasoning above governs warehouse tables only and is a no-op
         for such reads — those tables carry no per-table ACL, so the ``team_id`` scope is their boundary.
         """
+        if self._queries_remaining is not None:
+            if self._queries_remaining <= 0:
+                raise QueryWorkLimitExceededError
+            self._queries_remaining -= 1
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(

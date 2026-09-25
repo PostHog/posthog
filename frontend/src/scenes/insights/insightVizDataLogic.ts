@@ -108,6 +108,7 @@ import {
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -334,6 +335,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined,
         payload?:
@@ -365,6 +367,7 @@ export interface insightVizDataLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
             | undefined
     } // insightDataLogic
@@ -2248,7 +2251,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     (formula && !formulas) ||
                     (formulas && formulas.length === 1) ||
                     (formulaNodes && formulaNodes.length === 1)
-                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
+                return (
+                    !hasBreakdownFilter(breakdownFilter) &&
+                    ((isTrends && hasSingleFormula) || (series || []).length <= 1)
+                )
             },
         ],
         isBreakdownSeries: [

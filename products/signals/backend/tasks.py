@@ -13,10 +13,12 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.models.integration import SlackIntegration
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration, SlackIntegration
 from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
@@ -30,6 +32,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
@@ -39,6 +42,8 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
+from products.signals.backend.pull_request_label import apply_pull_request_label
+from products.signals.backend.pull_requests import update_pull_request_review_decision
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -67,6 +72,51 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.refresh_pull_request_review_decision",
+    ignore_result=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, GitHubRateLimitError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_pull_request_review_decision(team_id: int, repository: str, pr_number: int) -> None:
+    pr = (
+        SignalReportPullRequest.objects.for_team(team_id)
+        .filter(repository=repository.lower(), number=pr_number)
+        .first()
+    )
+    if pr is None:
+        return
+
+    github = GitHubIntegration.first_for_team_repository(
+        team_id,
+        repository,
+        source="signals_pr_review_decision",
+        priority=Priority.BATCH,
+    )
+    if github is None:
+        return
+    snapshot = github.get_pull_request_snapshot(pr.url)
+    if not snapshot.get("success"):
+        logger.warning(
+            "signals_pr_review_decision_refresh_failed",
+            team_id=team_id,
+            repository=repository,
+            pr_number=pr_number,
+            error=snapshot.get("error"),
+        )
+        return
+    raw_review_decision = snapshot.get("review_decision")
+    review_decision = raw_review_decision if isinstance(raw_review_decision, str) else None
+    update_pull_request_review_decision(
+        team_id=team_id,
+        repository=repository,
+        number=pr_number,
+        review_decision=review_decision,
+    )
 
 
 @shared_task(
@@ -243,7 +293,7 @@ def deliver_scout_slack_thread_replies(
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
-    slack = SlackIntegration(integration)
+    slack = SlackIntegration(integration, source="signals_scout")
     channel_id = _slack_channel_id(channel)
 
     def _schedule_retry(
@@ -678,6 +728,21 @@ def move_merged_report_signals(team_id: int, survivor_report_id: str, source_rep
             source_report_id=source_report_id,
             signal_count=moved,
         )
+
+
+@shared_task(
+    name="products.signals.backend.tasks.label_implementation_pr",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def label_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
+    """Put the team's label on a report's implementation PR, so GitHub search can find it.
+
+    Runs on a worker for the same reason as reviewer assignment: the GitHub calls must not hold up
+    the claim, sync, or webhook that queued it. Best-effort end to end, so this never retries.
+    """
+    apply_pull_request_label(team_id=team_id, report_id=report_id, pr_url=pr_url)
 
 
 def _capture_refund_sync_event(refund: SignalReportRefund, event: str, extra: dict[str, object]) -> None:

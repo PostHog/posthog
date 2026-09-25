@@ -59,5 +59,6 @@ describe("buildTaskSystemPrompt", () => {
     expect(prompt).toContain("Use the existing pull request.");
     expect(prompt).toContain("## Keeping the task summary");
     expect(prompt).toContain("task_summary_update");
+    expect(prompt).toContain("A turn that only answers a question counts.");
   });
 });

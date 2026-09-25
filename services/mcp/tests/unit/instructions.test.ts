@@ -1,47 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GroupType } from '@/api/client'
 import {
     buildActiveEnvironmentContextPrompt,
-    buildDefinedGroupsBlock,
     buildQueryToolsBlock,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     QueryToolCatalog,
     type QueryToolInfo,
 } from '@/lib/instructions'
-import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
-
-describe('buildDefinedGroupsBlock', () => {
-    it('should format group types as a comma-separated list of group_type names', () => {
-        const groupTypes: GroupType[] = [
-            {
-                group_type: 'organization',
-                group_type_index: 0,
-                name_singular: 'Organization',
-                name_plural: 'Organizations',
-            },
-            { group_type: 'instance', group_type_index: 1, name_singular: 'Instance', name_plural: 'Instances' },
-            { group_type: 'business', group_type_index: 2, name_singular: null, name_plural: null },
-        ]
-        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: organization, instance, business')
-    })
-
-    it('should ignore singular/plural names and only use group_type', () => {
-        const groupTypes: GroupType[] = [
-            { group_type: 'workspace', group_type_index: 0, name_singular: 'Workspace', name_plural: 'Workspaces' },
-        ]
-        expect(buildDefinedGroupsBlock(groupTypes)).toBe('Defined group types: workspace')
-    })
-
-    it('should return empty string for undefined', () => {
-        expect(buildDefinedGroupsBlock(undefined)).toBe('')
-    })
-
-    it('should return empty string for empty array', () => {
-        expect(buildDefinedGroupsBlock([])).toBe('')
-    })
-})
+import type { CachedOrg, CachedProject } from '@/tools/types'
 
 describe('buildToolDomainsBlock', () => {
     it('should extract CRUD domains from tool names grouped by category', () => {
@@ -181,6 +148,7 @@ describe('buildToolDomainsBlock', () => {
             'show',
             'start',
             'test',
+            'transfer',
             'unarchive',
             'unfreeze',
         ]
@@ -312,61 +280,58 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         api_token: 'token_1',
         person_on_events_querying_enabled: false,
     } satisfies Partial<CachedProject> as unknown as CachedProject
-    const user = {
-        first_name: 'Jane',
-        last_name: 'Doe',
-        email: 'jane@acme.com',
-    } satisfies Partial<CachedUser> as unknown as CachedUser
-
     it('renders the full project + org line when both are present', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, project)
+        const result = buildActiveEnvironmentContextPrompt(org, project)
         expect(result).toContain(
-            'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
+            'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).'
         )
+    })
+
+    it('never leaks the project API token into the environment prompt', () => {
+        const result = buildActiveEnvironmentContextPrompt(org, project)
+        expect(result).not.toContain('token_1')
     })
 
     it('omits the organization clause when org is undefined (scope-gated path)', () => {
         // Project-scoped personal API keys lack `organization:read`, so the org
         // fetch is skipped. The line drops the "within organization …" tail
         // rather than rendering a fabricated "Unknown" placeholder.
-        const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
-        expect(result).toContain('You are currently in project "My App" (id: 1, token: token_1).')
+        const result = buildActiveEnvironmentContextPrompt(undefined, project)
+        expect(result).toContain('You are currently in project "My App" (id: 1).')
         expect(result).not.toContain('within organization')
         expect(result).not.toContain('Unknown')
         expect(result).not.toContain('unknown')
     })
 
-    it('keeps the timezone and user lines when org is omitted', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
-        expect(result).toContain('Project timezone: America/New_York.')
-        expect(result).toContain("The user's name is Jane Doe (jane@acme.com).")
+    it('points to project-get for project settings instead of inlining them', () => {
+        const result = buildActiveEnvironmentContextPrompt(org, project)
+        expect(result).toContain('call `project-get` without an ID')
+        expect(result).not.toContain('America/New_York')
     })
 
     it('renders a single base URL line (scheme stripped, project segment appended) when a base URL is given', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com')
+        const result = buildActiveEnvironmentContextPrompt(org, project, 'https://us.posthog.com')
         expect(result).toContain('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')
         // Sits right after the project/org context line.
         const lines = (result ?? '').split('\n')
         expect(lines.indexOf('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')).toBe(
-            lines.indexOf(
-                'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
-            ) + 1
+            lines.indexOf('You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).') + 1
         )
     })
 
     it('renders the base URL without a project segment when no project is active', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, undefined, undefined, 'https://us.posthog.com')
+        const result = buildActiveEnvironmentContextPrompt(org, undefined, 'https://us.posthog.com')
         expect(result).toContain('Base URL: us.posthog.com.')
         expect(result).not.toContain('/project/')
     })
 
     it('omits the base URL line when no base URL is given', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, project)
+        const result = buildActiveEnvironmentContextPrompt(org, project)
         expect(result).not.toContain('Base URL:')
     })
 
     it('returns undefined when no context is available at all', () => {
-        expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
+        expect(buildActiveEnvironmentContextPrompt(undefined, undefined)).toBeUndefined()
     })
 
     it.each([
@@ -374,7 +339,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         ['unchecked', false, false],
         ['unset', undefined, false],
     ])('surfaces the test account filter default only when %s', (_name, testAccountFiltersDefaultChecked, expected) => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, {
+        const result = buildActiveEnvironmentContextPrompt(org, {
             ...project,
             test_account_filters_default_checked: testAccountFiltersDefaultChecked,
         } as CachedProject)
@@ -383,14 +348,14 @@ describe('buildActiveEnvironmentContextPrompt', () => {
 
     it('still renders an "Unknown" project when org is present but project is missing', () => {
         // The org branch is unchanged — only the no-org branch was added.
-        const result = buildActiveEnvironmentContextPrompt(user, org, undefined)
+        const result = buildActiveEnvironmentContextPrompt(org, undefined)
         expect(result).toContain(
-            'You are currently in project "Unknown" (id: unknown, token: unknown) within organization "Acme" (id: org_1).'
+            'You are currently in project "Unknown" (id: unknown) within organization "Acme" (id: org_1).'
         )
     })
 
     it('buckets flag-backed products strictly, so only an explicit true counts as enabled', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, {
+        const result = buildActiveEnvironmentContextPrompt(org, {
             ...project,
             session_recording_opt_in: true,
             autocapture_exceptions_opt_in: false,
@@ -402,7 +367,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
     })
 
     it('lists only onboarding-completed product intents, with underscores humanized', () => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, {
+        const result = buildActiveEnvironmentContextPrompt(org, {
             ...project,
             product_intents: [
                 { product_type: 'feature_flags', onboarding_completed_at: '2026-01-01T00:00:00Z' },
@@ -418,7 +383,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
             product_type: `product_${String(i).padStart(2, '0')}`,
             onboarding_completed_at: '2026-01-01T00:00:00Z',
         }))
-        const result = buildActiveEnvironmentContextPrompt(user, org, {
+        const result = buildActiveEnvironmentContextPrompt(org, {
             ...project,
             product_intents: intents,
         } as CachedProject)
@@ -431,7 +396,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         ['an empty list', [], 'Integrations connected: none.'],
         ['a duplicated unsorted list', ['slack', 'github', 'github'], 'Integrations connected: github, slack.'],
     ])('renders the integrations line for %s', (_name, kinds, expectedLine) => {
-        const result = buildActiveEnvironmentContextPrompt(user, org, project, undefined, {
+        const result = buildActiveEnvironmentContextPrompt(org, project, undefined, {
             integrationKinds: kinds,
         })
         if (expectedLine) {
@@ -440,23 +405,5 @@ describe('buildActiveEnvironmentContextPrompt', () => {
             // Unknown (missing scope or failed fetch) must not read as "none connected".
             expect(result).not.toContain('Integrations connected')
         }
-    })
-
-    it('omits all product and integration lines when includeProductContext is false', () => {
-        // The claude.ai exec command reference sits within tens of characters of the
-        // registry's inputSchema cap; the compact variant must add nothing to it.
-        const result = buildActiveEnvironmentContextPrompt(
-            user,
-            org,
-            {
-                ...project,
-                session_recording_opt_in: true,
-                product_intents: [{ product_type: 'feature_flags', onboarding_completed_at: '2026-01-01T00:00:00Z' }],
-            } as CachedProject,
-            undefined,
-            { integrationKinds: ['github'], includeProductContext: false }
-        )
-        expect(result).not.toContain('Products')
-        expect(result).not.toContain('Integrations connected')
     })
 })

@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
+from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
+
 from products.visual_review.backend.logic import owners, story_index
 from products.visual_review.backend.logic.run_queries import SnapshotKey
 
@@ -37,11 +38,16 @@ class TestOwnerTeams:
         ownership = PathOwnership(
             team_by_path={"frontend/src/scenes/Button.stories.tsx": "team-replay"}, registry={}, resolved=resolved
         )
+        repo = MagicMock(repo_full_name="org/repo", team_id=7)
         with (
             patch("products.visual_review.backend.logic.story_index.latest_story_index", return_value=_INDEX),
             patch("products.visual_review.backend.logic.owners.resolve_path_owners", return_value=ownership),
+            # The reader reaches the team's integration and the cache, which this test has neither of.
+            patch("products.visual_review.backend.logic.owners.fetcher_for_team") as reader,
             patch.object(owners, "_MAX_OWNED_PATHS", max_paths),
         ):
-            result = owners.owner_teams(MagicMock(repo_full_name="org/repo"), [_BUTTON, _CARD, _GONE, _PLAYWRIGHT], {})
+            result = owners.owner_teams(repo, [_BUTTON, _CARD, _GONE, _PLAYWRIGHT], {})
 
         assert result == expected
+        if max_paths > 1:
+            assert reader.call_args.args == (7, "org/repo")

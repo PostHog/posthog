@@ -7,7 +7,7 @@ The Rust feature flags service evaluates flags using a deterministic, hash-based
 Stored configuration dispatch reads `filters.version`; the row's `FeatureFlag.version` remains a concurrency counter.
 An absent discriminator or numeric 1 (including 1.0) selects v1.
 Numeric 2 (including 2.0) selects the closed v2 parser; other discriminator values are unsupported.
-The service does not evaluate any non-v1 format, including a successfully parsed v2 configuration.
+The service evaluates v1 and a successfully parsed v2 configuration; every other non-v1 document is rejected per flag.
 The classification converts the discriminator to correctly rounded binary64, matching Python's `detect_config_format` (`products/feature_flags/backend/facade/config.py`) and its cache producer's normalization.
 
 Cache and PostgreSQL ingress classify the original document before decoding v1 fields.
@@ -16,7 +16,7 @@ PostgreSQL decodes filters as raw JSON through the same reader used by service-c
 V2 validation checks the retained tokens for duplicate object keys, nonzero numeric underflow, and excess percentage precision before admitting the typed configuration.
 These checks share one token pass with the compact document-size limit; original tokens survive cache round trips.
 Validation cannot recover precision or duplicate keys already lost by an upstream producer, so writers must enforce these constraints before ordinary JSON decoding.
-The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, and seeds.
+The prepared cache retains this data through an `Arc`; requests reuse the parse result, and its byte estimate includes raw JSON, typed rules, property values, seeds, and compiled regexes.
 Manually constructed opaque filters still use the passthrough-map serialization fallback.
 
 The parser accepts person-assigned boolean configurations with ordered targeted-release and percentage-rollout rules.
@@ -38,7 +38,7 @@ Parser fixtures from harness release 1.6.0 are pinned under contract version 2.1
 The Rust suite checks parser field sets, limits, and literals against the released schema and registry.
 Definitions-feed artifacts belong to the future definitions route and are not part of this parser pin.
 
-The evaluator classifies them once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
+The evaluator classifies eligible non-v1 flags once per request, next to `filtered_out_flag_ids`, rather than failing per flag inside `get_match`: an eligible non-v1 flag whose document the v2 parser did not accept gets a `flag_data_parsing_error` response entry, is skipped by regex, cohort, dependency, and property preparation, and is pre-seeded false like any other skipped flag, so a dependent's `flag_evaluates_to: false` condition still resolves.
 Detailed responses mark them failed.
 The legacy `/flags` map and `/decide?v=3` retain false entries with `errorsWhileComputingFlags=true`; older `/decide` formats omit them.
 Healthy siblings still evaluate, and request eligibility remains unchanged.
@@ -47,14 +47,45 @@ Each recognized v2 ingress increments `flags_v2_config_parse_total` with a fixed
 These outcomes cover cache and PostgreSQL reads and contain no configuration values.
 
 The internal batch evaluation endpoint rejects a non-v1 target with HTTP 400 and `unsupported_config_format` before it pages the team, so cohort generation treats the failure as permanent.
-The Rust cache builder fails a team's rebuild on an evaluable non-v1 document, the way Python does.
-The cache builder consumer labels flag data parsing failures `config_format` in metrics and dead-letter queue headers and sends them to that queue without retrying.
-Inactive and deleted non-v1 flags do not fail the team's rebuild.
+The Rust and Python cache builders omit an unsupported non-v1 flag and its dependents instead of failing the team's rebuild, as the [service cache section](./hypercache-system.md#service-cache-rust) describes; the PostgreSQL fallback applies the same omission, so a Redis miss does not change which flags a team serves.
 `/remote_config` stays outside this boundary: it reads `filters.payloads["true"]` raw, as Django's shadow-compared view does.
 This boundary does not make legacy definitions producers or older cache writers safe for persisted v2 rows.
 Those paths need independent exclusion and deployment-floor protection before such rows can exist.
 To roll back parsing, remove its reader consumer first while retaining opaque non-v1 reads and evaluator/producer rejection.
 Never restore a reader that interprets v2 data as v1.
+
+The `evaluate_v2::Evaluator` consumes the reader's successful typed person-boolean config by reference.
+The reader compiles each regex predicate once at parse time and stores it on the cached config, counted as a fixed `ESTIMATED_COMPILED_REGEX_BYTES` (2048) per compiled regex, as v1 does; an invalid pattern is stored rather than rejected, so its error surfaces only when evaluation reaches it.
+Its caller supplies the resolved person distinct ID, complete or partial properties (or unavailable context), timezone, exact-matching setting, and a fixed evaluation time.
+`get_match` runs it for an active flag whose parse succeeded, with the request distinct ID as the subject (hash key overrides, device identifiers and experience continuity do not apply), the team timezone and exact-matching setting, and the matcher's request time.
+Person properties come from the same override-and-database acquisition v1 conditions use: a v2 predicate key absent from the request overrides triggers database preparation, and the merged map is `Complete` once the database was consulted or the request restricted evaluation to its overrides (`only_use_override_person_properties`, which the historical `test_evaluation` endpoint sets with the reconstructed property set, so a missing key means not set, as for v1), and `Partial` when the overrides covered every predicate key without a database read.
+A request always carries its distinct ID as an override, so a predicate never sees `Unavailable` context; that variant is passed only for a rule set without predicates, where it is never read.
+The typed outcome is projected onto the existing match shape and reaches every response format unchanged: a targeting match sets `enabled` to the rule value with `condition_match` and the rule index, a terminal rollout miss and no rule match set `enabled` to the flag default (`false` for a null default) with `out_of_rollout_bound` or `no_condition_match`, never a variant or a payload.
+An evaluation error (missing context, an invalid property value, an invalid regex, a hash failure) returns that flag with `failed: true`, `enabled: false` and the `flag_evaluation_error` reason, and sets `errorsWhileComputingFlags`, so a configured `false` stays distinct from an error and from omission.
+Detailed condition analysis describes v1 release conditions, so a v2 flag reports an empty `conditions` list when a request asks for it; the field stays present because Django's `test_evaluation` reads its absence as a rejected internal request.
+The core truncates only the hashing subject to 200 Unicode scalar values without normalization; device and experience-continuity overrides are not part of this input.
+The service adapter must retain eligibility and load/merge property context before invoking it.
+
+Rules and their ANDed predicates run in stored order.
+The first conclusive predicate miss skips that rule; a reached error fails the evaluation, and negation applies only after a conclusive result.
+The property adapter reuses existing operator semantics and an explicit clock for relative dates.
+Invalid compiled regexes are errors in this evaluator, so negation cannot turn invalid syntax into success; v1 keeps its existing invalid-pattern behavior.
+Targeted matches and percentage inclusions return the rule's boolean, including false, with its UUID, kind, and original index.
+With `on_rollout_miss: return_default`, a rollout miss returns the configured boolean/null default and reports the missed rule.
+With `on_rollout_miss: continue`, evaluation moves to the next rule and the missed rule is not reported in the result.
+Exhaustion returns the default with no matched rule.
+Null means no configured value for the caller.
+Errors and flags left out of the `/flags` response remain separate from a successful false or null.
+
+Percentage rules use the stored seed and the shared SHA1/60-bit binary64 primitive with an empty salt.
+The comparison is inclusive, including hash zero at 0%.
+An empty subject always misses; a nonempty subject at 100% bypasses hashing.
+Repeated seeds reuse their hash within one evaluation.
+The evaluator has no database access, writes, events, identity allocation, or gate decisions.
+`get_match` is its response consumer; the cache builders and the PostgreSQL fallback carry supported v2 rows beside v1.
+Evaluator fixtures from harness release 1.8.0 are pinned under contract version 2.2.0.
+`SOURCE.json` lists the vendored subset; its README, manifest, and checksum index keep the upstream bytes, and the integrity test checks each vendored file against that index.
+To roll back evaluation, remove the `get_match` dispatch first; supported v2 rows then follow the per-request rejection path, and the format-aware readers required by stored data stay.
 
 The production `v1_bucketing` functions accept prescribed hashes for contract tests.
 Rollout returns included at 100% before identifier resolution or hashing; other percentages use `hash <= percentage / 100.0`.
@@ -267,7 +298,8 @@ if hash <= rollout_percentage / 100.0 → user is IN the rollout
 if hash >  rollout_percentage / 100.0 → user is OUT (OutOfRolloutBound)
 ```
 
-A 100% rollout skips the hash calculation entirely.
+A 100% rollout skips the rollout hash entirely. Variant selection still hashes, with its own
+salt, unless the condition pins a variant by name.
 
 ### Identifier resolution priority
 
@@ -276,8 +308,16 @@ The identifier used for hashing depends on the flag configuration:
 | Flag type   | Bucketing     | Identifier (in priority order)                                     |
 | ----------- | ------------- | ------------------------------------------------------------------ |
 | Group flag  | N/A           | Group key from `groups` map                                        |
-| Person flag | `device_id`   | `$device_id` from request, fallback to `distinct_id`               |
+| Person flag | `device_id`   | `$device_id` from request (see below when it is absent)            |
 | Person flag | `distinct_id` | DB hash_key_override > request `$anon_distinct_id` > `distinct_id` |
+
+A person condition on a `device_id`-bucketed flag needs the `$device_id` only when the hash
+decides its outcome. If the request carries no `$device_id`, a partial rollout, or an unpinned
+variant set that splits the hash range, is withheld and reports `OutOfRolloutBound`. It is not
+bucketed on `distinct_id`. A condition at 100% rollout is evaluated as usual when the condition
+pins a variant by name, or when every hash gets the same variant: the flag has no variants, the
+first variant with a non-zero share has 100%, or every share is 0%. The identifier then changes
+nothing about the result.
 
 ## Condition matching
 

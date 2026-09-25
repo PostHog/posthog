@@ -637,7 +637,9 @@ with the requested measure, dimensions, grain, and time semantics, and must be r
 data-catalog-metric-run.
 - Multiple materially different approved matches require a clarification question and no metric run.
 - The runner response is the current trust result: recheck status and is_drifted after execution. \
-If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical.
+If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical. \
+The word itself belongs in the query context. In the final answer, a plain statement that the number \
+is a one-off calculation rather than a saved definition counts as that label.
 - A 'proposed' or drifted metric must never be presented as canonical or official; the agent \
 must derive the number itself (it may note the unapproved definition exists).
 - An empty catalog is normal: the agent must derive the number itself without stalling or \

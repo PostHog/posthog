@@ -427,8 +427,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                     let apiUrl =
                         url ||
-                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
                     return {
@@ -450,8 +451,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                 const beforeChange = { ...values.rawDashboards[id] }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const response = await api.update<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
                 )
                 refreshTreeItem('dashboard', id)
@@ -472,8 +474,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         button: {
                             label: 'Undo',
                             action: async () => {
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                                 const reverted = await api.update<DashboardType>(
-                                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
                                 )
                                 actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
@@ -496,7 +499,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(
-                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
@@ -506,7 +510,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
             },
             restoreDashboard: async ({ id }) => {
                 const restored = getQueryBasedDashboard(
-                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
                 ) as DashboardType
@@ -514,18 +519,17 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return restored
             },
             pinDashboard: async ({ id, source }) => {
-                const response = await api.update(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
-                    {
-                        pinned: true,
-                    }
-                )
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
+                const response = await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                    pinned: true,
+                })
                 eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const response = await api.update<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     {
                         pinned: false,
                     }
@@ -534,8 +538,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                 const result = await api.create<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
                     {
                         use_dashboard: id,
                         name: `${name} (Copy)`,

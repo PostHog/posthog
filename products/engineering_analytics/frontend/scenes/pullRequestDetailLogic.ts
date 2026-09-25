@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { ApiConfig } from 'lib/api'
 import { urls } from 'scenes/urls'
@@ -11,6 +12,7 @@ import {
     engineeringAnalyticsPrCost,
     engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPrRuns,
+    engineeringAnalyticsPullRequestFriction,
     engineeringAnalyticsPullRequestTimelines,
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
@@ -19,6 +21,7 @@ import type {
     PRCostSummaryApi,
     PRLifecycleApi,
     PRTimelineApi,
+    PullRequestFrictionDetailApi,
     PullRequestTimelinesApi,
     WorkflowJobApi,
     WorkflowRunDetailApi,
@@ -26,6 +29,7 @@ import type {
 import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import { WorkflowRun, isDecisiveFailure, isPassingConclusion } from '../lib/lifecycle'
+import { withScope } from '../lib/scope'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -171,11 +175,15 @@ export interface pullRequestDetailLogicValues {
     filteredCommitGroups: PrCommitRuns[]
     filteredPrWorkflowRows: PrWorkflowRow[]
     filteredRuns: PrRunRow[]
+    friction: PullRequestFrictionDetailApi | null
+    frictionFailed: boolean
+    frictionLoading: boolean
     latestPushStats: LatestPushStats | null
     lifecycle: PRLifecycleApi | null
     lifecycleLoading: boolean
     loadFailed: boolean
     prCost: PRCostSummaryApi | null
+    prCostFailed: boolean
     prCostLoading: boolean
     prRuns: WorkflowRunDetailApi[]
     prRunsFailed: boolean
@@ -218,6 +226,21 @@ export interface pullRequestDetailLogicActions {
         payload?: any
     ) => {
         failureLogs: CIFailureLogsApi | 'unavailable'
+        payload?: any
+    }
+    loadFriction: () => any
+    loadFrictionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFrictionSuccess: (
+        friction: PullRequestFrictionDetailApi,
+        payload?: any
+    ) => {
+        friction: PullRequestFrictionDetailApi
         payload?: any
     }
     loadJobs: ({ runId, runAttempt }: { runAttempt: number | null; runId: number }) => {
@@ -349,7 +372,13 @@ export interface pullRequestDetailLogicMeta {
         pushes: (authoredRuns: WorkflowRunDetailApi[]) => number
         rerunCycles: (authoredRuns: WorkflowRunDetailApi[]) => number
         timeline: (timelines: PullRequestTimelinesApi | null) => PRTimelineApi | null
-        breadcrumbs: (repoOwner: string, repoName: string, number: number) => Breadcrumb[]
+        breadcrumbs: (
+            repoOwner: string,
+            repoName: string,
+            number: number,
+            sourceId: string | null,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -422,6 +451,17 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     }),
             },
         ],
+        friction: [
+            null as PullRequestFrictionDetailApi | null,
+            {
+                loadFriction: async (): Promise<PullRequestFrictionDetailApi> =>
+                    await engineeringAnalyticsPullRequestFriction(projectId(), {
+                        pr_number: props.number,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
         // Fetched only once a decisive failure is known; 'unavailable' = the fetch itself failed.
         failureLogs: [
             null as CIFailureLogsApi | 'unavailable' | null,
@@ -481,7 +521,16 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadPrRunsFailure: () => true,
             },
         ],
+        prCostFailed: [
+            false,
+            {
+                loadPrCost: () => false,
+                loadPrCostSuccess: () => false,
+                loadPrCostFailure: () => true,
+            },
+        ],
         timelinesFailed: [false, { loadTimelines: () => false, loadTimelinesFailure: () => true }],
+        frictionFailed: [false, { loadFriction: () => false, loadFrictionFailure: () => true }],
         expandedRunKeys: [
             [] as string[],
             {
@@ -496,6 +545,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
         setRunExpanded: ({ expanded, runId, runAttempt }) => {
             if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
                 actions.loadJobs({ runId, runAttempt })
+            }
+        },
+        // Only a merged pull request has friction, so an open one skips the read.
+        loadLifecycleSuccess: ({ lifecycle }) => {
+            if (lifecycle?.pull_request?.state === 'merged') {
+                actions.loadFriction()
             }
         },
         // Failure logs only exist once something failed — skip the Logs query otherwise.
@@ -658,18 +713,24 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 timelines?.items.find((item) => item.segments.length > 0) ?? null,
         ],
         breadcrumbs: [
-            (_, p) => [p.repoOwner, p.repoName, p.number],
-            (repoOwner: string, repoName: string, number: number): Breadcrumb[] => [
+            (s, p) => [p.repoOwner, p.repoName, p.number, s.sourceId, router.selectors.searchParams],
+            (
+                repoOwner: string,
+                repoName: string,
+                number: number,
+                sourceId: string | null,
+                searchParams: Record<string, string | undefined>
+            ): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
                     name: 'Engineering analytics',
-                    path: urls.engineeringAnalytics(),
+                    path: withScope(urls.engineeringAnalytics(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {
                     key: 'EngineeringAnalyticsPullRequests',
                     name: 'Pull requests',
-                    path: urls.engineeringAnalyticsPullRequestList(),
+                    path: withScope(urls.engineeringAnalyticsPullRequestList(), searchParams, sourceId),
                     iconType: 'health',
                 },
                 {

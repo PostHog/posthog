@@ -40,6 +40,7 @@ import {
 import { insightDataLogic } from './insightDataLogic'
 import { createEmptyInsight, insightLogic } from './insightLogic'
 import { insightVizDataLogic } from './insightVizDataLogic'
+import { insightsApi } from './utils/api'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -833,6 +834,33 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
+    })
+
+    it.each(['clean', 'draft', 'draft during refresh'])('handles an external save with a %s editor', async (state) => {
+        logic = insightLogic({ dashboardItemId: Insight42 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const original = logic.values.insight
+        const updated = { ...original, name: 'Externally saved name' } as InsightModel
+        let resolveRefresh!: (value: InsightModel) => void
+        const refresh = new Promise<InsightModel>((resolve) => {
+            resolveRefresh = resolve
+        })
+        const fetchInsight = jest.spyOn(insightsApi, 'getByShortId').mockReturnValue(refresh)
+        if (state === 'draft') {
+            logic.actions.setInsightMetadataLocal({ name: 'Unsaved name' })
+        }
+        insightsModel.actions.insightSaved(Insight42)
+        if (state === 'draft during refresh') {
+            logic.actions.setInsightMetadataLocal({ name: 'Unsaved name' })
+        }
+        resolveRefresh(updated)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.insight.name).toEqual(state === 'clean' ? 'Externally saved name' : 'Unsaved name')
+        if (state === 'draft') {
+            expect(fetchInsight).not.toHaveBeenCalled()
+        }
+        fetchInsight.mockRestore()
     })
 
     describe('setInsight name preservation', () => {

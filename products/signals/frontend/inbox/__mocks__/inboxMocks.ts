@@ -43,6 +43,8 @@ export function makeReport(overrides: Partial<SignalReport> = {}): SignalReport 
                           overrides.implementation_pr_state ??
                           (overrides.implementation_pr_merged ? 'merged' : 'unknown'),
                       merged: overrides.implementation_pr_merged ?? false,
+                      review_decision: null,
+                      merged_at: null,
                       claim_id: null,
                       attached_at: BASE_DATE,
                       attached_by: {

@@ -14,7 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import { ACCOUNTS_DEFAULT_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { ACCOUNTS_DEFAULT_COLUMNS, ACCOUNTS_TAGS_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsLogic, SEARCH_DEBOUNCE_MS } from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
@@ -280,6 +280,20 @@ describe('accountsViewsLogic', () => {
         expect(accountsLogic.values.assignmentStatus).toBe('assigned')
         const source = accountsLogic.values.accountsQuerySource as AccountsTableQuery
         expect(source.filters).toContainEqual({ kind: 'assigned' })
+    })
+
+    it('does not mark a saved view dirty when normalizing legacy tag columns', async () => {
+        const view = buildView({
+            columns: ['accounts.tags.account_id AS account_id', 'accounts.tags.names AS names'],
+        })
+        useMocks({ get: { '/api/projects/:team_id/column_configurations/': { count: 1, results: [view] } } })
+        mountAll()
+        await expectLogic(logic).toDispatchActions(['loadViewsSuccess'])
+
+        await expectLogic(logic, () => logic.actions.applyView(view)).toFinishAllListeners()
+
+        expect(accountsColumnConfigLogic.values.selectColumns).toEqual(['name', ACCOUNTS_TAGS_COLUMN])
+        expect(logic.values.isDirty).toBe(false)
     })
 
     it('keeps column widths when the selected view changes', async () => {

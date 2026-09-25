@@ -426,3 +426,124 @@ class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
         names = {r["name"] for r in response.json()["results"]}
         self.assertIn("50%off", names)
         self.assertNotIn("50ABCoff", names)
+
+
+class TestLogAttributesKeysFilter(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    DATE_RANGE = '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}'
+    FILLER_KEYS = [f"filler.key.{i:03d}" for i in range(100)]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # The 100 filler keys occur in two logs. The environment key occurs in one log.
+        # A list of the 100 most common keys omits the environment key. The facet probe must find it.
+        filler = dict.fromkeys(cls.FILLER_KEYS, "x")
+        resources = [
+            {"service.name": "api", **filler},
+            {"service.name": "api", **filler},
+            {"service.name": "api", "deployment.environment": "production"},
+        ]
+        sql = ""
+        for i, resource_attributes in enumerate(resources):
+            sql += (
+                json.dumps(
+                    {
+                        "uuid": f"019b2664-0000-7000-0000-0000000001{i:02d}",
+                        "team_id": cls.team.id,
+                        "timestamp": "2025-12-16 09:30:00.000000",
+                        "observed_timestamp": "2025-12-16 09:30:00.000000",
+                        "body": f"keys filter log {i}",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "api",
+                        "resource_attributes": resource_attributes,
+                    }
+                )
+                + "\n"
+            )
+        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+
+    def _get(self, params: dict):
+        query_params = {"dateRange": self.DATE_RANGE, "attribute_type": "resource", **params}
+        return self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+
+    def _names(self, params: dict) -> list[str]:
+        response = self._get(params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return [r["name"] for r in response.json()["results"]]
+
+    def test_keys_returns_low_volume_key_beyond_top_100(self):
+        self.assertNotIn("deployment.environment", self._names({}))
+        self.assertEqual(
+            self._names({"keys": "deployment.environment.name,deployment.environment,env"}),
+            ["deployment.environment"],
+        )
+
+    def test_keys_survive_resource_attribute_filter(self):
+        # Keep the key filter out of the resource fingerprint subquery. That subquery has no attribute_key.
+        filter_group = json.dumps(
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "service.name",
+                                "type": "log_resource_attribute",
+                                "operator": "exact",
+                                "value": ["api"],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+        self.assertEqual(
+            self._names({"keys": "deployment.environment", "filterGroup": filter_group}), ["deployment.environment"]
+        )
+
+    @parameterized.expand(
+        [
+            ("spaces_and_blanks", " deployment.environment , ,env,", ["deployment.environment"]),
+            ("duplicates", "deployment.environment,deployment.environment", ["deployment.environment"]),
+            ("absent_key", "k8s.pod.name", []),
+        ]
+    )
+    def test_keys_parsing(self, _name, keys, expected):
+        self.assertEqual(self._names({"keys": keys}), expected)
+
+    def test_empty_keys_does_not_filter(self):
+        self.assertEqual(len(self._names({"keys": ""})), 100)
+
+    @parameterized.expand(
+        [
+            ("window_over_the_seed", "2025-12-16T09:00:00Z", "2025-12-16T11:00:00Z", ["deployment.environment"]),
+            ("window_before_the_seed", "2025-12-15T09:00:00Z", "2025-12-15T11:00:00Z", []),
+        ]
+    )
+    def test_flat_date_params_scope_window(self, _name, date_from, date_to, expected):
+        # The generated frontend client cannot send the JSON dateRange, so it scopes the window with flat params.
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/logs/attributes",
+            {
+                "attribute_type": "resource",
+                "keys": "deployment.environment",
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([r["name"] for r in response.json()["results"]], expected)
+
+    def test_date_range_json_wins_over_flat_params(self):
+        names = self._names(
+            {"keys": "deployment.environment", "date_from": "2025-12-15T09:00:00Z", "date_to": "2025-12-15T11:00:00Z"}
+        )
+        self.assertEqual(names, ["deployment.environment"])
+
+    def test_too_many_keys_returns_400(self):
+        response = self._get({"keys": ",".join(f"key.{i}" for i in range(101))})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

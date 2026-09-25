@@ -72,8 +72,9 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             [] as InsightModel[],
             {
                 loadRecentInsights: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsMyLastViewedRetrieve() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const insights = await api.get<InsightModel[]>(
-                        `api/environments/${values.currentProjectId}/insights/my_last_viewed`
+                        `api/projects/${values.currentProjectId}/insights/my_last_viewed`
                     )
                     return insights.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                 },

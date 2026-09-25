@@ -5,9 +5,12 @@ import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
+  DESKTOP_SOURCE,
+  migrateSourceFilter,
 } from "@posthog/core/canvas/channelItems";
 import { ALL_WORKSPACE_MODES } from "@posthog/core/sidebar/buildSidebarData";
 import type { WorkspaceMode } from "@posthog/shared";
+import type { PreferredWorkSectionHeights } from "@posthog/ui/features/canvas/workSectionLayout";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { SIDEBAR_MIN_WIDTH } from "./constants";
@@ -35,6 +38,7 @@ interface SidebarStoreState {
   channelItemFilters: ChannelItemFilters;
   channelItemSort: ChannelItemSort;
   channelItemGrouping: ChannelItemGrouping;
+  workSectionHeights: PreferredWorkSectionHeights;
   // Reveals the Channels feature in the unified sidebar (channel tree replaces
   // the task list, Canvas nav item appears). Off by default — Code merged into
   // the Bluebird chrome ships with channels hidden until the user opts in.
@@ -62,10 +66,16 @@ interface SidebarStoreActions {
   setChannelItemFilters: (filters: ChannelItemFilters) => void;
   setChannelItemSort: (sort: ChannelItemSort) => void;
   setChannelItemGrouping: (grouping: ChannelItemGrouping) => void;
+  setWorkSectionHeights: (heights: PreferredWorkSectionHeights) => void;
   setChannelsEnabled: (channelsEnabled: boolean) => void;
 }
 
 type SidebarStore = SidebarStoreState & SidebarStoreActions;
+
+export const DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  ...DEFAULT_CHANNEL_ITEM_FILTERS,
+  sources: [DESKTOP_SOURCE],
+};
 
 export const useSidebarStore = create<SidebarStore>()(
   persist(
@@ -83,9 +93,10 @@ export const useSidebarStore = create<SidebarStore>()(
       showAllUsers: false,
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
-      channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+      channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
       channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
       channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
+      workSectionHeights: {},
       channelsEnabled: false,
       setOpen: (open) => set({ open, hasUserSetOpen: true }),
       setOpenAuto: (open) =>
@@ -151,9 +162,29 @@ export const useSidebarStore = create<SidebarStore>()(
       setChannelItemSort: (channelItemSort) => set({ channelItemSort }),
       setChannelItemGrouping: (channelItemGrouping) =>
         set({ channelItemGrouping }),
+      setWorkSectionHeights: (workSectionHeights) =>
+        set({ workSectionHeights }),
     }),
     {
       name: "sidebar-storage",
+      version: 2,
+      migrate: (persisted, version) => {
+        const state = persisted as {
+          channelItemFilters?: Partial<ChannelItemFilters> & {
+            source?: unknown;
+          };
+        };
+        const saved = state.channelItemFilters;
+        if (version >= 2 || !saved) return state;
+        const filters = migrateSourceFilter(saved);
+        return {
+          ...state,
+          channelItemFilters:
+            version === 0 && !filters.sources?.length
+              ? { ...filters, sources: [DESKTOP_SOURCE] }
+              : filters,
+        };
+      },
       partialize: (state) => ({
         open: state.open,
         hasUserSetOpen: state.hasUserSetOpen,
@@ -170,6 +201,7 @@ export const useSidebarStore = create<SidebarStore>()(
         channelItemFilters: state.channelItemFilters,
         channelItemSort: state.channelItemSort,
         channelItemGrouping: state.channelItemGrouping,
+        workSectionHeights: state.workSectionHeights,
         channelsEnabled: state.channelsEnabled,
       }),
       merge: (persisted, current) => {
@@ -189,6 +221,7 @@ export const useSidebarStore = create<SidebarStore>()(
           channelItemFilters?: Partial<ChannelItemFilters>;
           channelItemSort?: ChannelItemSort;
           channelItemGrouping?: ChannelItemGrouping;
+          workSectionHeights?: PreferredWorkSectionHeights;
           channelsEnabled?: boolean;
         };
         return {
@@ -223,6 +256,8 @@ export const useSidebarStore = create<SidebarStore>()(
             persistedState.channelItemSort ?? current.channelItemSort,
           channelItemGrouping:
             persistedState.channelItemGrouping ?? current.channelItemGrouping,
+          workSectionHeights:
+            persistedState.workSectionHeights ?? current.workSectionHeights,
           channelsEnabled:
             persistedState.channelsEnabled ?? current.channelsEnabled,
         };

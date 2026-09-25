@@ -6,6 +6,7 @@ import type { JSX } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { hasWildcard } from 'lib/components/heatmaps/heatmapUrlMatch'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -40,7 +41,7 @@ import type {
     SavedHeatmapRequestApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { IFrameBanner, PagePreflight, heatmapsBrowserLogic, isUrlPattern } from '../../components/heatmapsBrowserLogic'
+import { IFrameBanner, PagePreflight, heatmapsBrowserLogic } from '../../components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from '../heatmaps/heatmapsSceneLogic'
 import { DEFAULT_HEATMAP_NAME, HeatmapSettings, normalizeHeatmapSettings } from './heatmapSettings'
 
@@ -85,11 +86,13 @@ function getCreationFailureCategory(error: unknown): 'validation' | 'permission'
     return 'unknown'
 }
 
+const PREVIEW_SCALE_SLACK_PX = 8
+
 function isValidPageUrl(url: string | null): boolean {
     if (!url) {
         return true
     }
-    if (isUrlPattern(url)) {
+    if (hasWildcard(url)) {
         return false
     }
     try {
@@ -145,6 +148,7 @@ export interface heatmapLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
     containerWidth: number | null
+    dataUrlEditDisabledReason: string | null
     desiredNumericWidth: number
     displayUrlIsPattern: boolean
     draftSettings: HeatmapSettings
@@ -162,6 +166,7 @@ export interface heatmapLogicValues {
     pageUrlDraft: string
     pageUrlDraftIsPattern: boolean
     previewError: string | JSX.Element | null
+    previewScale: number
     previewType: HeatmapType
     previewUnavailable: boolean
     previewVersion: number
@@ -332,6 +337,7 @@ export interface heatmapLogicMeta {
         previewType: (savedSettings: HeatmapSettings | null, type: HeatmapType) => HeatmapType
         editDisabledReason: (userAccessLevel: AccessControlLevel | null) => string | null
         renderSettingsEditDisabledReason: (editDisabledReason: string | null, source: HeatmapSource) => string | null
+        dataUrlEditDisabledReason: (editDisabledReason: string | null) => string | null
         urlEditDisabledReason: (editDisabledReason: string | null, source: HeatmapSource) => string | null
         saveDisabledReason: (
             editDisabledReason: string | null,
@@ -365,7 +371,8 @@ export interface heatmapLogicMeta {
         pageUrlDraftIsPattern: (pageUrlDraft: string) => boolean
         desiredNumericWidth: (widthOverride: number, containerWidth: number | null) => number
         effectiveWidth: (desiredNumericWidth: number) => number
-        scalePercent: (widthOverride: number, containerWidth: number | null) => number
+        previewScale: (widthOverride: number, containerWidth: number | null) => number
+        scalePercent: (previewScale: number) => number
     }
 }
 
@@ -825,6 +832,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (reason: string | null, source: HeatmapSource): string | null =>
                 reason || (source === 'toolbar' ? 'Open in toolbar to capture a new screenshot.' : null),
         ],
+        dataUrlEditDisabledReason: [
+            (s) => [s.editDisabledReason],
+            (reason: string | null): string | null =>
+                reason || getAccessControlDisabledReason(AccessControlResourceType.Heatmap, AccessControlLevel.Editor),
+        ],
         urlEditDisabledReason: [
             (s) => [s.editDisabledReason, s.source],
             (reason: string | null, source: HeatmapSource): string | null =>
@@ -902,12 +914,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (error: string | JSX.Element | null, generating: boolean): boolean => !!error || generating,
         ],
         isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
-        displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => isUrlPattern(displayUrl ?? '')],
+        displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => hasWildcard(displayUrl ?? '')],
         isPageUrlDraftValid: [
             (s) => [s.pageUrlDraft],
             (pageUrlDraft: string) => isValidPageUrl(pageUrlDraft.trim() || null),
         ],
-        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => isUrlPattern(pageUrlDraft)],
+        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => hasWildcard(pageUrlDraft)],
         desiredNumericWidth: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {
@@ -915,13 +927,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
         effectiveWidth: [(s) => [s.desiredNumericWidth], (desiredNumericWidth: number) => desiredNumericWidth],
-        scalePercent: [
+        previewScale: [
             (s) => [s.widthOverride, s.containerWidth],
-            (widthOverride: number, containerWidth: number | null) => {
-                const scale = containerWidth ? Math.min(1, containerWidth / widthOverride) : 1
-                return Math.round(scale * 100)
-            },
+            (widthOverride: number, containerWidth: number | null) =>
+                containerWidth && widthOverride > 0 && containerWidth < widthOverride - PREVIEW_SCALE_SLACK_PX
+                    ? containerWidth / widthOverride
+                    : 1,
         ],
+        scalePercent: [(s) => [s.previewScale], (previewScale: number) => Math.round(previewScale * 100)],
     }),
     selectors(({ props }) => ({
         [SIDE_PANEL_CONTEXT_KEY]: [

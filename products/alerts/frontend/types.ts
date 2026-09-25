@@ -167,6 +167,8 @@ export interface AlertType extends AlertTypeBase {
     next_check_at?: string | null
     checks_total?: number
     checks?: AlertCheck[]
+    /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
+    llm_detector_available?: boolean | null
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number
