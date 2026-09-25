@@ -1,14 +1,17 @@
-import type { ElementCommentAnchor } from "@posthog/core/comments/anchors";
+import {
+  type ElementCommentAnchor,
+  isSameCommentTarget,
+} from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import { commentAgentContext } from "@posthog/ui/features/sessions/commentAgentContext";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
   useCommentsQuery,
   useCreateComment,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
-import { useCallback, useMemo, useRef, useState } from "react";
-import { PreviewCommentThreads } from "./PreviewCommentThreads";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { previewPins, previewThreads } from "./previewComments";
 import { previewCommentTarget } from "./previewCommentTarget";
 import { TaskPreviewFrame } from "./TaskPreviewFrame";
@@ -49,10 +52,15 @@ export function AnnotatedTaskPreview({
   const createComment = useCreateComment(target, taskId);
   const { members } = useOrgMembers();
   const frameRef = useRef<HTMLDivElement>(null);
-  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [locateRequest, setLocateRequest] =
     useState<TaskPreviewLocateRequest | null>(null);
   const [pending, setPending] = useState<PendingComment | null>(null);
+  const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
+  const requestCommentFocus = useCommentNavigationStore(
+    (state) => state.requestCommentFocus,
+  );
+  const activeThreadId =
+    focus && isSameCommentTarget(focus.target, target) ? focus.threadId : null;
 
   const threads = useMemo(
     () => previewThreads(commentsQuery.data ?? []),
@@ -63,10 +71,21 @@ export function AnnotatedTaskPreview({
     [threads, activeThreadId],
   );
 
-  const selectThread = useCallback((id: string) => {
-    setActiveThreadId(id);
-    setLocateRequest((current) => ({ id, nonce: (current?.nonce ?? 0) + 1 }));
-  }, []);
+  useEffect(() => {
+    if (!focus || !activeThreadId || focus.intent !== "navigate") return;
+    if (!threads.some((thread) => thread.id === activeThreadId)) return;
+    setLocateRequest((current) =>
+      current?.nonce === focus.nonce
+        ? current
+        : { id: activeThreadId, nonce: focus.nonce },
+    );
+  }, [focus, activeThreadId, threads]);
+
+  const revealThread = useCallback(
+    (id: string) =>
+      requestCommentFocus(taskId, target, id, { intent: "reveal-thread" }),
+    [requestCommentFocus, taskId, target],
+  );
 
   const onPicked = useCallback(
     (
@@ -103,7 +122,7 @@ export function AnnotatedTaskPreview({
       context: { anchor },
       mentions,
     });
-    setActiveThreadId(created.id);
+    requestCommentFocus(taskId, target, created.id, { intent: "focus-only" });
   };
 
   const sendToAgent = (
@@ -124,10 +143,8 @@ export function AnnotatedTaskPreview({
     });
   };
 
-  const showThreads = threads.length > 0 || commenting;
-
   return (
-    <div className="@container flex size-full min-h-0">
+    <div className="flex size-full min-h-0">
       <div ref={frameRef} className="relative min-w-0 flex-1">
         <TaskPreviewFrame
           url={url}
@@ -138,7 +155,7 @@ export function AnnotatedTaskPreview({
           onLoadFailed={onLoadFailed}
           onPicked={onPicked}
           onPickCancelled={() => onCommentingChange(false)}
-          onActivatePin={selectThread}
+          onActivatePin={revealThread}
         />
         {commenting && (
           <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
@@ -148,20 +165,6 @@ export function AnnotatedTaskPreview({
           </div>
         )}
       </div>
-      {showThreads && (
-        <aside className="@[640px]:block hidden w-72 shrink-0 overflow-y-auto border-border border-l">
-          <PreviewCommentThreads
-            threads={threads}
-            target={target}
-            taskId={taskId}
-            name={title}
-            port={port}
-            members={members}
-            activeThreadId={activeThreadId}
-            onSelect={selectThread}
-          />
-        </aside>
-      )}
       <SelectionCommentOverlay
         selection={
           pending

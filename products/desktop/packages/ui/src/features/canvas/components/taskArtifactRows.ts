@@ -20,6 +20,7 @@ import {
   type TaskThreadMessage,
 } from "@posthog/shared/domain-types";
 import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
+import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 
 export type RunFile = RunArtifact & { runId: string };
@@ -77,7 +78,14 @@ export type CommentSource =
       runId: string;
     }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
-  | { kind: "task"; target: CommentTarget; name: string };
+  | { kind: "task"; target: CommentTarget; name: string }
+  | {
+      kind: "preview";
+      target: CommentTarget;
+      name: string;
+      runId: string;
+      port: number;
+    };
 
 export function taskCommentTarget(taskId: string): CommentTarget {
   return { scope: "task", itemId: taskId };
@@ -106,6 +114,14 @@ export function commentSources(
       });
     } else if (row.kind === "canvas") {
       sources.push({ kind: "canvas", target, name: row.name, url: row.url });
+    } else if (row.kind === "preview") {
+      sources.push({
+        kind: "preview",
+        target,
+        name: previewLabel({ port: row.port, name: row.name }),
+        runId: row.runId,
+        port: row.port,
+      });
     }
   }
   return sources;

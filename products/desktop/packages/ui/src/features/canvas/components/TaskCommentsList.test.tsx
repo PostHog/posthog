@@ -72,6 +72,9 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
     return {};
   },
 }));
+vi.mock("@posthog/ui/features/task-preview/useTaskPreviewEnabled", () => ({
+  useTaskPreviewEnabled: () => true,
+}));
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
 }));
@@ -430,6 +433,52 @@ describe("TaskCommentsList", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
+  });
+
+  it("lists a live preview's element comments and opens the preview on them", () => {
+    mocks.runs = [
+      {
+        id: "run-live",
+        status: "in_progress",
+        created_at: "2024-01-01T00:00:00Z",
+        output: null,
+        artifacts: [],
+        exposed_ports: [{ port: 5173, name: "Web app" }],
+      } as unknown as TaskRun,
+    ];
+    mocks.comments = [
+      comment({
+        id: "preview-comment",
+        content: "Make the heading red",
+        scope: "task_preview",
+        item_id: "task-1:5173",
+        item_context: {
+          anchor: {
+            kind: "element",
+            path: "/",
+            selector: "h1",
+            tag: "h1",
+            text: "Hot stuff",
+            html: "<h1>Hot stuff</h1>",
+            attributes: {},
+          },
+          taskId: "task-1",
+        },
+      }),
+    ];
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
+
+    expect(screen.getByText("Web app")).toBeTruthy();
+    openThread("Make the heading red");
+
+    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-live",
+      port: 5173,
+      label: "Web app",
+    });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"]?.target,
+    ).toEqual({ scope: "task_preview", itemId: "task-1:5173" });
   });
 
   it("opens an artifact when activity requests its comment thread", () => {
