@@ -196,8 +196,7 @@ tools:
             Update a support ticket. Can change status (new, open, pending, on_hold, resolved), priority (low, medium,
             high, critical), assignee, SLA deadline, escalation reason, and tags. Assignee should be an object with type
             ('user' or 'role') and id, or null to unassign. By default, tags replaces the ticket's whole tag list. Pass
-            tags_mode 'add' to append without reading the current list first, or 'remove' to delete only the named
-            tags.
+            tags_mode 'add' to append without reading the current list first, or 'remove' to delete only the named tags.
         exclude_params:
             - anonymous_traits
             - ai_resolved
