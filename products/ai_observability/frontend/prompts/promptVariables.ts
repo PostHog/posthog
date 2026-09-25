@@ -6,8 +6,5 @@ export function extractPromptVariables(text: string): string[] {
 
 /** Replace each `{{name}}` that has a non-empty value. Placeholders without a value stay as they are. */
 export function fillPromptVariables(text: string, values: Record<string, string>): string {
-    return text.replace(PROMPT_VARIABLE_REGEX, (placeholder, name: string) => {
-        const value = values[name.trim()]
-        return value ? value : placeholder
-    })
+    return text.replace(PROMPT_VARIABLE_REGEX, (placeholder, name: string) => values[name.trim()] || placeholder)
 }
