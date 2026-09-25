@@ -10,6 +10,7 @@ import {
   DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
+  hasActiveChannelItemFilters,
   sortChannelItems,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
@@ -398,6 +399,7 @@ describe("filterChannelItems", () => {
     model({ id: "local", environment: "local" }),
     model({ id: "cloud", environment: "cloud" }),
     model({ id: "from-slack", source: "slack" }),
+    model({ id: "from-tracker", source: "error_tracking" }),
     model({ id: "quiet" }),
   ];
 
@@ -407,7 +409,11 @@ describe("filterChannelItems", () => {
     { filter: { pinned: "pinned" }, kept: ["pinned"] },
     { filter: { environment: "local" }, kept: ["local"] },
     { filter: { environment: "cloud" }, kept: ["cloud"] },
-    { filter: { source: "slack" }, kept: ["from-slack"] },
+    { filter: { sources: ["slack"] }, kept: ["from-slack"] },
+    {
+      filter: { sources: ["slack", "error_tracking"] },
+      kept: ["from-slack", "from-tracker"],
+    },
   ] as const)("keeps only $kept for $filter", ({ filter, kept }) => {
     const result = filterChannelItems(CANDIDATES, {
       query: "",
@@ -433,6 +439,22 @@ describe("filterChannelItems", () => {
       me,
     });
     expect(result.map((i) => i.id)).toEqual(["match"]);
+  });
+});
+
+describe("hasActiveChannelItemFilters", () => {
+  it.each([
+    { sources: [DESKTOP_SOURCE, "slack"], active: false },
+    { sources: ["slack", DESKTOP_SOURCE], active: false },
+    { sources: ["slack"], active: true },
+    { sources: [], active: true },
+  ])("is $active for sources $sources", ({ sources, active }) => {
+    expect(
+      hasActiveChannelItemFilters(filters({ sources }), {
+        ...DEFAULT_CHANNEL_ITEM_FILTERS,
+        sources: [DESKTOP_SOURCE, "slack"],
+      }),
+    ).toBe(active);
   });
 });
 
