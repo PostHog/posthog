@@ -190,7 +190,7 @@ class MarketingSourceFactory:
         """Register a new adapter type for a marketing source"""
         cls._adapter_registry[source_type] = adapter_class
 
-    def create_adapters(self) -> list[MarketingSourceAdapter]:
+    def create_adapters(self, *, raise_on_error: bool = False) -> list[MarketingSourceAdapter]:
         """Discover all available marketing sources and create adapters for them."""
         try:
             adapters = []
@@ -202,6 +202,8 @@ class MarketingSourceFactory:
 
         except Exception as e:
             self.logger.exception("Error creating marketing source adapters", error=str(e))
+            if raise_on_error:
+                raise
             return []
 
     def _create_native_adapters(self) -> list[MarketingSourceAdapter]:
@@ -415,6 +417,21 @@ class MarketingSourceFactory:
             except Exception as e:
                 self.logger.exception("Error validating adapter", source_type=adapter.get_source_type(), error=str(e))
         return valid_adapters
+
+    def get_validation_errors(self, adapters: list[MarketingSourceAdapter]) -> dict[str, list[str]]:
+        errors_by_source: dict[str, list[str]] = {}
+        for adapter in adapters:
+            try:
+                result = adapter.validate()
+                if not result.is_valid:
+                    errors_by_source[adapter.config.source_id] = [
+                        error if not error.startswith("Validation error:") else "Source validation failed."
+                        for error in result.errors
+                    ] or ["Source validation failed."]
+            except Exception:
+                self.logger.exception("Error validating adapter", source_type=adapter.get_source_type())
+                errors_by_source[adapter.config.source_id] = ["Source validation failed."]
+        return errors_by_source
 
     def build_union_query_ast(self, adapters: list[MarketingSourceAdapter]) -> ast.SelectQuery | ast.SelectSetQuery:
         """Build union query AST from all valid adapters.

@@ -31,9 +31,21 @@ Data warehouse syncs continue independently of this flag.
 Sync `campaigns` and `campaign_insights` to include OpenAI Ads campaign delivery in Marketing analytics.
 Spend is already in major currency units; the importer adds `currency_code` from the account metadata so reports can convert spend at each bucket date.
 Existing connections need a full resync of `campaign_insights` to populate currency on historical rows.
-Cost tiles are unavailable without the currency column; queries with empty historical currency values stop with a resync message.
+Without the currency column, cost tiles are unavailable and the campaign table excludes the source.
+The dashboard and source settings show a warning with a link to the affected warehouse source and instructions to fully resync `campaign_insights`.
+Queries with empty historical currency values stop with a resync message.
 Reported conversions and revenue are zero because the importer currently requests delivery metrics only.
 Ad groups and individual ads are not included in the native integration.
+
+## Source warnings in Marketing analytics
+
+The dashboard and source settings show validation errors for connected native and mapped external sources.
+They use the same adapter validators as campaign queries, so warnings follow each integration's supported checks without a separate frontend list of required columns.
+Warnings identify the affected connection and link to its settings.
+The dashboard also shows missing or disabled required tables and running, failed, paused, or cancelled syncs.
+Reload the dashboard after correcting the configuration or resyncing a table to refresh validation.
+This check uses table metadata and configuration; it does not scan imported rows for data quality issues.
+Query execution errors still appear on the affected dashboard tile or table.
 
 ## Adding a new source
 
