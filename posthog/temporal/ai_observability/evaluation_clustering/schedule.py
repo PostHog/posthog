@@ -43,11 +43,9 @@ async def create_evaluation_sampler_schedule(client: Client) -> None:
         ),
         spec=ScheduleSpec(
             intervals=[
-                ScheduleIntervalSpec(
-                    every=timedelta(hours=SAMPLER_SCHEDULE_INTERVAL_HOURS), offset=timedelta(minutes=2)
-                )
+                # nosemgrep: schedule-must-avoid-minute-zero -- the rolling one-hour sample window has no cursor, so shifting the schedule skips data
+                ScheduleIntervalSpec(every=timedelta(hours=SAMPLER_SCHEDULE_INTERVAL_HOURS))
             ],
-            jitter=timedelta(minutes=10),
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )

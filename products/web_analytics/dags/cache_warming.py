@@ -1550,6 +1550,8 @@ def _warm_queries(
         # at the interpreter's exit join.
         stop_releasing.set()
         pool.shutdown(wait=False, cancel_futures=True)
+        # wait() can report shutdown-cancelled futures as pending even though they are done.
+        pending = {future for future in pending if not future.done()}
         if pending:
             _, still_pending = wait(pending, timeout=WARMING_CANCEL_GRACE_SECONDS)
             if still_pending:

@@ -1154,8 +1154,10 @@ class TestWarmQueriesOp(BaseTest):
         # the early warm into a silent no-op.
         self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-    @parameterized.expand([("released", False), ("cancelled", True)])
-    def test_release_window_delays_work_and_cancellation_wakes_workers(self, _name: str, cancel: bool) -> None:
+    @parameterized.expand([("released", False, 1), ("cancelled", True, 1), ("cancelled_backlog", True, 3)])
+    def test_release_window_delays_work_and_cancellation_wakes_workers(
+        self, _name: str, cancel: bool, shape_count: int
+    ) -> None:
         team = Team.objects.create(id=987654, organization=self.organization, name="delayed warming")
         window = timedelta(minutes=10)
         expected_delay = deterministic_offset(str(team.pk), window).total_seconds()
@@ -1163,6 +1165,7 @@ class TestWarmQueriesOp(BaseTest):
         clock = SimpleNamespace(now=0.0)
         entered = threading.Event()
         stop = threading.Event()
+        finish_worker = threading.Event()
         waits: list[float] = []
         real_wait = cache_warming.wait
 
@@ -1171,7 +1174,9 @@ class TestWarmQueriesOp(BaseTest):
                 waits.append(timeout)
                 entered.set()
                 if cancel:
-                    return stop.wait()
+                    stop.wait()
+                    finish_worker.wait()
+                    return True
                 clock.now += timeout
                 return False
 
@@ -1184,6 +1189,12 @@ class TestWarmQueriesOp(BaseTest):
             if cancel and return_when == "FIRST_COMPLETED":
                 self.assertTrue(entered.wait(5))
                 raise KeyboardInterrupt()
+            if cancel:
+                finish_worker.set()
+                for future in pending:
+                    if not future.cancelled():
+                        future.result(timeout=5)
+                return real_wait(pending, timeout=0)
             done, remaining = real_wait(pending, timeout=5, return_when=return_when)
             self.assertFalse(remaining)
             return done, remaining
@@ -1198,8 +1209,15 @@ class TestWarmQueriesOp(BaseTest):
                 patch("products.web_analytics.dags.cache_warming.time", SimpleNamespace(monotonic=lambda: clock.now)),
                 patch("products.web_analytics.dags.cache_warming.wait", side_effect=wait_for_work),
                 patch("products.web_analytics.dags.cache_warming.WARMING_QUERIES_COUNTER") as counter,
+                patch(
+                    "products.web_analytics.dags.cache_warming.os._exit", side_effect=AssertionError("unexpected exit")
+                ),
+                override_instance_config("WEB_ANALYTICS_WARMING_SHARD_THREADS", 1),
             ):
-                shapes = [{"team_id": team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": "h"}]
+                shapes = [
+                    {"team_id": team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": f"h{index}"}
+                    for index in range(shape_count)
+                ]
                 config = WarmQueriesConfig(release_window_seconds=int(window.total_seconds()))
                 if cancel:
                     with self.assertRaises(KeyboardInterrupt):
@@ -1212,6 +1230,7 @@ class TestWarmQueriesOp(BaseTest):
                 self.assertEqual(waits, [expected_delay])
         finally:
             stop.set()
+            finish_worker.set()
 
     def test_cancellation_drains_or_exits_within_grace(self) -> None:
         # Cancellation mid-pass must not hand the executor a queue to drain nor
