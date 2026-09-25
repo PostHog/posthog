@@ -1507,6 +1507,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [router.values.location.pathname, searchParams.toString()]
             }
             const searchParams = new URLSearchParams()
+            const currentSearchParams = new URLSearchParams(router.values.location.search)
+            for (const key of ['select', 'order_column', 'order_direction', 'pinned_columns']) {
+                const value = currentSearchParams.get(key)
+                if (value !== null) {
+                    searchParams.set(key, value)
+                }
+            }
 
             // Tab
             if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
