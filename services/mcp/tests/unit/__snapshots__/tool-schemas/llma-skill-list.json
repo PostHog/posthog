@@ -24,6 +24,10 @@
         "search": {
             "description": "Optional substring filter applied to skill names and descriptions.",
             "type": "string"
+        },
+        "tags": {
+            "description": "Comma-separated tag names. Returns skills carrying at least one of them, so adding a tag widens the result. Tags are keyed on the logical skill, so this is stable across versions.",
+            "type": "string"
         }
     },
     "type": "object"
