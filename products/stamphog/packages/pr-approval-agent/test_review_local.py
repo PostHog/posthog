@@ -1,6 +1,7 @@
 """Tests for the offline review entrypoint's context handling."""
 
 import sys
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -679,3 +680,26 @@ def test_pregate_refusal_reasoning_falls_back_to_the_gate_messages(monkeypatch) 
     assert "deny-list: matches: infra_cicd" in fallback["reviewer"]["reasoning"]
     assert summarized["reviewer"]["reasoning"] == "Terraform needs a human."
     assert summarized["review_body"].startswith("Terraform needs a human.")
+
+
+def test_main_prints_the_result_with_phase_timings_as_its_last_line(monkeypatch, tmp_path, capsys) -> None:
+    # The server parses only the last stdout line, and reads the phase timings from it to split the
+    # sandbox's reviewer step into uv launch, LLM and exit time.
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(reviewer.Reviewer, "review", approve)
+    context_path = tmp_path / "context.json"
+    context_path.write_text(json.dumps(_run_context([_api_file("src/app.py")])))
+    monkeypatch.setenv(review_local.LAUNCHED_AT_ENV, str(review_local._now_ms() - 1500))
+    monkeypatch.setattr(sys, "argv", ["review_local.py", "--context", str(context_path)])
+
+    review_local.main()
+
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["final_verdict"] == "APPROVED"
+    assert result["timings_ms"]["launch"] >= 1500
+    assert {"gates", "llm", "flush", "total"} <= set(result["timings_ms"])

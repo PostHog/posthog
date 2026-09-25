@@ -47,6 +47,8 @@ import os
 import json
 import time
 import argparse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from familiarity import (
@@ -81,6 +83,32 @@ from migration_risk import migration_check_pending
 from policy import FamiliarityPolicy
 from review_pr import REPO_ROOT, GateResult, Pipeline, flush_analytics
 from version import STAMPHOG_VERSION
+
+# The hosted server exports the sandbox's wall clock in milliseconds right before `uv run`, so the
+# engine can report how long uv and the interpreter took to reach main().
+LAUNCHED_AT_ENV = "STAMPHOG_LAUNCHED_AT_MS"
+
+_TIMINGS_MS: dict[str, int] = {}
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+@contextmanager
+def _timed_phase(name: str) -> Iterator[None]:
+    started = _now_ms()
+    try:
+        yield
+    finally:
+        _TIMINGS_MS[name] = _now_ms() - started
+
+
+def _launched_at_ms() -> int | None:
+    try:
+        return int(os.environ.get(LAUNCHED_AT_ENV, ""))
+    except ValueError:
+        return None
 
 
 def _api_file_status(status: str) -> str:
@@ -615,8 +643,9 @@ def run(context: dict) -> dict:
         return pipeline.to_dict()
 
     try:
-        pipeline._classify()
-        _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+        with _timed_phase("gates"):
+            pipeline._classify()
+            _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
         gate_verdict = pipeline._gate_verdict()
 
         # A `Migration risk` check that has not reported yet is a race with CI, and not a judgment
@@ -651,8 +680,10 @@ def run(context: dict) -> dict:
             }
             return pipeline.to_dict()
 
-        _attach_familiarity(pipeline, context)
-        pipeline._llm_review(gate_verdict)
+        with _timed_phase("familiarity"):
+            _attach_familiarity(pipeline, context)
+        with _timed_phase("llm"):
+            pipeline._llm_review(gate_verdict)
     finally:
         if pipeline._diff_path is not None:
             pipeline._diff_path.unlink(missing_ok=True)
@@ -704,6 +735,9 @@ def main() -> None:
         print(json.dumps(pregate_result), flush=True)
         return
 
+    launched_at = _launched_at_ms()
+    if launched_at is not None:
+        _TIMINGS_MS["launch"] = _now_ms() - launched_at
     try:
         result = run(context)
     except Exception as exc:  # never let a crash become a silent non-verdict
@@ -711,7 +745,11 @@ def main() -> None:
 
     # Flush BEFORE the final line: batched capture events are dropped at process exit otherwise,
     # and any client noise the flush prints must stay above the machine-readable line.
-    flush_analytics()
+    with _timed_phase("flush"):
+        flush_analytics()
+    if launched_at is not None:
+        _TIMINGS_MS["total"] = _now_ms() - launched_at
+    result["timings_ms"] = dict(_TIMINGS_MS)
 
     # The single machine-readable line the server parses — always last on stdout.
     print(json.dumps(result), flush=True)

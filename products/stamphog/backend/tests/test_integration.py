@@ -224,13 +224,34 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     ]
     recorder.author_history["src"] = [commit("c-author", author)]
 
-    status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
+    capture_fn = MagicMock()
+    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
+        mock_capture_cm.return_value.__enter__.return_value = capture_fn
+        mock_capture_cm.return_value.__exit__.return_value = False
+        status = stamphog_chain.post_webhook(_opened_event(101, author, head_sha), delivery_id=str(uuid.uuid4()))
     assert status == 202
 
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
     assert run.status == ReviewRunStatus.COMPLETED
     assert run.verdict == ReviewVerdict.APPROVED
+
+    (timings_call,) = [c for c in capture_fn.call_args_list if c.kwargs["event"] == "stamphog_review_timings"]
+    timings = timings_call.kwargs["properties"]
+    assert timings["stamphog_review_run_id"] == str(run.id)
+    assert timings["stamphog_final_verdict"] == "approved"
+    assert timings["stamphog_pregate_outcome"] == "skipped:file_list_incomplete"
+    assert timings["stamphog_familiarity_status"] == "ok"
+    assert timings["stamphog_bot_wait_polls"] == 1
+    assert {
+        "stamphog_timing_total_ms",
+        "stamphog_timing_context_total_ms",
+        "stamphog_timing_context_history_ms",
+        "stamphog_timing_clone_ms",
+        "stamphog_timing_ship_engine_ms",
+        "stamphog_timing_reviewer_ms",
+        "stamphog_timing_post_verdict_ms",
+    } <= set(timings)
 
     # The sandbox gets familiarity from GitHub facts, and only the blame ranges of changed lines ride
     # along. It therefore needs no history, and the prefetch walks none.

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import json
 import time
 import shlex
@@ -630,13 +631,23 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
     if run.status == ReviewRunStatus.SUPERSEDED:
         return {"in_flight": []}
+    started_at = timezone.now()
     repo_config = run.pull_request.repo_config
     client = StamphogGitHubClient(repo_config.installation_id)
     reactions = client.get_pr_reactions(repo_config.repository, run.pull_request.pr_number)
-    run.output = {**(run.output or {}), "pr_reactions": reactions}
+    now = timezone.now()
+    # From the first poll's start to this poll's end. The workflow stops polling after the poll that
+    # finds no bot in flight, so the last write is the whole wait.
+    bot_wait = (run.output or {}).get("bot_wait") or {"started_at": started_at.isoformat(), "polls": 0}
+    first_started_at = parse_datetime(str(bot_wait.get("started_at") or "")) or started_at
+    bot_wait = {
+        "started_at": first_started_at.isoformat(),
+        "polls": int(bot_wait.get("polls") or 0) + 1,
+        "ms": int((now - first_started_at).total_seconds() * 1000),
+    }
+    run.output = {**(run.output or {}), "pr_reactions": reactions, "bot_wait": bot_wait}
     run.save(update_fields=["output", "updated_at"])
 
-    now = timezone.now()
     # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
     # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
     # with it today — but that set is just literal strings, not a same-app check, so a future
@@ -707,6 +718,18 @@ class _StepTimer:
             yield
         finally:
             self.timings_ms[name] = int((time.monotonic() - started) * 1000)
+
+
+def _engine_timings(stdout: str) -> dict[str, int]:
+    """The engine's own phase timings from its last stdout line, or {} when it printed none."""
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    try:
+        timings = json.loads(lines[-1]).get("timings_ms") if lines else None
+    except (ValueError, AttributeError):
+        return {}
+    if not isinstance(timings, dict):
+        return {}
+    return {str(name): value for name, value in timings.items() if isinstance(value, int)}
 
 
 def _destroy_sandbox_in_background(sandbox: SandboxBase, run_id: str) -> None:
@@ -987,8 +1010,11 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 with timer.step("ship_engine"):
                     _ship_review_payload(sandbox, policy_files, invocation.context_json)
 
+                # GNU date prints epoch milliseconds, so the engine can report how long `uv run` took to
+                # reach its main().
                 command = (
-                    f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
+                    f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
+                    f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
                 )
                 with timer.step("reviewer"):
                     result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS))
@@ -1006,6 +1032,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
                 "reviewer_exit_code": result.exit_code,
                 "timings_ms": timer.timings_ms,
+                "engine_timings_ms": _engine_timings(result.stdout),
             }
             run.save(update_fields=["output", "updated_at"])
 
@@ -1176,10 +1203,66 @@ def _remove_own_eyes_reaction(client: StamphogGitHubClient, run: ReviewRun) -> N
     client.remove_pr_reaction(pull_request.repo_config.repository, pull_request.pr_number, reaction_id)
 
 
+def _timing_properties(prefix: str, timings_ms: object) -> dict[str, int]:
+    if not isinstance(timings_ms, dict):
+        return {}
+    return {
+        f"stamphog_timing_{prefix}{re.sub(r'[^a-z0-9]+', '_', str(name).lower()).strip('_')}_ms": value
+        for name, value in timings_ms.items()
+        if isinstance(value, int)
+    }
+
+
+def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int) -> dict[str, object]:
+    """Where a review spent its time, from the created run to the posted verdict, one property per step.
+
+    ``stamphog_timing_sandbox_exec_tail_ms`` is the reviewer step minus the engine's own run, which is
+    process exit and the provider's exec overhead.
+    """
+    output = run.output or {}
+    pull_request = run.pull_request
+    steps = output.get("timings_ms") or {}
+    engine = output.get("engine_timings_ms") or {}
+    bot_wait = output.get("bot_wait") or {}
+    properties: dict[str, object] = {
+        **_hosted_analytics_properties(run),
+        "stamphog_repo": pull_request.repo_config.repository,
+        "stamphog_pr_number": pull_request.pr_number,
+        "stamphog_final_verdict": verdict,
+        "stamphog_fast_path": bool(output.get("fast_path")),
+        "stamphog_pregate_outcome": output.get("pregate_outcome"),
+        "stamphog_familiarity_status": output.get("familiarity_status"),
+        "stamphog_bot_wait_polls": bot_wait.get("polls", 0),
+        "stamphog_timing_total_ms": int((timezone.now() - run.created_at).total_seconds() * 1000),
+        "stamphog_timing_bot_wait_ms": bot_wait.get("ms", 0),
+        "stamphog_timing_post_verdict_ms": post_verdict_ms,
+        **_timing_properties("context_", output.get("context_timings_ms")),
+        **_timing_properties("", steps),
+        **_timing_properties("engine_", engine),
+    }
+    if isinstance(steps.get("reviewer"), int) and isinstance(engine.get("total"), int):
+        properties["stamphog_timing_sandbox_exec_tail_ms"] = steps["reviewer"] - engine["total"]
+    return properties
+
+
+def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) -> None:
+    """Emit ``stamphog_review_timings``. Best effort: the verdict is already posted and saved."""
+    try:
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=run.pull_request.author_login or run.pull_request.repo_config.repository,
+                event="stamphog_review_timings",
+                properties=_review_timing_properties(run, verdict, post_verdict_ms),
+            )
+    except Exception:
+        activity.logger.exception(f"Failed to capture review timings for run {run.id}")
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
     """Parse the engine output and post the approval or sticky comment."""
+    post_started = time.monotonic()
     run = _load_run(input)
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -1412,6 +1495,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # "review in flight" 👀 now, whichever verdict landed (approved, gated, refused, escalate).
     _remove_own_eyes_reaction(client, run)
 
+    _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
     return {"verdict": str(parsed.verdict)}
 
