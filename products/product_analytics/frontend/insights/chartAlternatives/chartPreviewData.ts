@@ -36,7 +36,9 @@ function resultsOf(response: AnyResponseType): TrendResult[] {
 }
 
 export function hasPreviewData(response: AnyResponseType): boolean {
-    return hasTrendsChartData(resultsOf(response))
+    const results = resultsOf(response)
+    const shape = shapeOf(results)
+    return shape === 'boxPlot' || shape === 'heatmap' || hasTrendsChartData(results)
 }
 
 // insightDataLogic rebuilds `result` from `results`, so both keys must carry the derived rows.

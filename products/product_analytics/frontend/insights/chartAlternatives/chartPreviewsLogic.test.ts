@@ -11,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { BaseMathType, ChartDisplayType, InsightShortId } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from '~/types'
 
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { chartPreviewsLogic } from './chartPreviewsLogic'
@@ -117,6 +117,28 @@ describe('chartPreviewsLogic', () => {
         expect(previews.length).toBeGreaterThan(0)
         expect(previews.every((preview) => preview.response === null && !preview.sample)).toBe(true)
         expect(previews.some((preview) => preview.suggested)).toBe(true)
+    })
+
+    it('keeps the box plot preview when the loaded result is a box plot', () => {
+        load(
+            {
+                ...trendsQuery(ChartDisplayType.BoxPlot),
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        math: PropertyMathType.Median,
+                        math_property: 'duration',
+                    },
+                ],
+            },
+            { day: '2026-01-01', label: '1-Jan', min: 1, p25: 2, median: 3, p75: 4, max: 5, mean: 3 }
+        )
+
+        const boxPlot = chartPreviewsLogic(logicProps).values.previews.find(
+            (preview) => preview.option.display === ChartDisplayType.BoxPlot
+        )
+        expect(boxPlot?.response).not.toBeNull()
     })
 
     it('reuses the time series it saw before the chart became a total value, even when the total loaded later', async () => {
