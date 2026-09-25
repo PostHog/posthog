@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import TypedDict
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 
 from posthog.models.comment import Comment
@@ -339,26 +340,27 @@ def _seed_email_thread(*, team: Team, account: Account, manager: User | None, in
             .first()
         )
         if message is None:
-            comment = Comment.objects.create(
-                team=team,
-                scope=EMAIL_THREAD_COMMENT_SCOPE,
-                item_id=str(thread.id),
-                content=content,
-            )
-            EmailThreadMessage.objects.for_team(team.id).create(
-                team=team,
-                thread=thread,
-                comment=comment,
-                message_id=f"<{source_id}@example.com>",
-                sent_at=sent_at,
-                sender_email=sender_email,
-                sender_name=sender_name,
-                to_recipients=[],
-                cc_recipients=[],
-                direction=direction,
-                source_type="customer_analytics_seed",
-                source_id=source_id,
-            )
+            with transaction.atomic():
+                comment = Comment.objects.create(
+                    team=team,
+                    scope=EMAIL_THREAD_COMMENT_SCOPE,
+                    item_id=str(thread.id),
+                    content=content,
+                )
+                EmailThreadMessage.objects.for_team(team.id).create(
+                    team=team,
+                    thread=thread,
+                    comment=comment,
+                    message_id=f"<{source_id}@example.com>",
+                    sent_at=sent_at,
+                    sender_email=sender_email,
+                    sender_name=sender_name,
+                    to_recipients=[],
+                    cc_recipients=[],
+                    direction=direction,
+                    source_type="customer_analytics_seed",
+                    source_id=source_id,
+                )
 
 
 def _seed_support_ticket(*, team: Team, account: Account, index: int) -> None:
