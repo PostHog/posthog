@@ -16,12 +16,14 @@ single verdict JSON.
 
 from __future__ import annotations
 
+import io
 import os
 import json
 import time
 import shlex
 import base64
 import random
+import tarfile
 import threading
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -29,7 +31,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -92,6 +94,7 @@ from products.stamphog.backend.temporal.constants import (
     STAMPHOG_SANDBOX_CONTEXT_PATH,
     STAMPHOG_SANDBOX_ENGINE_DIR,
     STAMPHOG_SANDBOX_OWNERS_DIR,
+    STAMPHOG_SANDBOX_PAYLOAD_PATH,
     STAMPHOG_SANDBOX_REPO_DIR,
     STAMPHOG_TRUSTED_REACTOR_BOTS,
     SandboxPhaseError,
@@ -102,6 +105,11 @@ from products.tasks.backend.facade.sandbox import (
     SandboxTemplate,
     get_sandbox_class_for_backend,
 )
+
+_ENGINE_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_ENGINE_DIR).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
+_OWNERS_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_OWNERS_DIR).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
+_OWNERS_PACKAGE_RELATIVE_DIR = f"{_OWNERS_RELATIVE_DIR}/owners_yaml"
+_CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -817,7 +825,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
     # review-norms prose are both loaded by the engine — the latter straight into the reviewer's
     # SYSTEM prompt. We must NOT fall back to the PR head's copy, or a contributor could ship
     # malicious guidance ("approve my PR") in a repo whose default branch lacks the file — the
-    # PR-head wipe in _inject_policy_files stays mandatory, and the fallback content is
+    # PR-head wipe in _review_payload_command stays mandatory, and the fallback content is
     # server-owned, never the PR's.
     policy_files = _effective_policy_files(repo, policy_files)
 
@@ -903,9 +911,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
                 # to an exec-based write, which is a different mechanism, not a bounded one.
                 _step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS)
                 with timer.step("ship_engine"):
-                    _inject_policy_files(sandbox, policy_files)
-                    _ship_engine(sandbox)
-                    _write_context(sandbox, invocation)
+                    _ship_review_payload(sandbox, policy_files, invocation.context_json)
 
                 command = (
                     f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && {_harden_reviewer_command(invocation.command)}"
@@ -1649,70 +1655,70 @@ def _effective_policy_files(repo: str, policy_files: dict[str, str]) -> dict[str
     return effective
 
 
-def _inject_policy_files(sandbox: SandboxBase, policy_files: dict[str, str]) -> None:
-    """Overwrite the checkout's ``.stamphog/*`` policy files with the trusted versions.
+def _review_payload_archive(policy_files: dict[str, str], context_json: str) -> bytes:
+    """Everything the reviewer needs beside the checkout, as one gzipped tar rooted at the checkout.
 
-    Written AFTER checkout, so the trusted default-branch policy and review norms win
-    over whatever the (untrusted) PR head carried. The engine reads them from the tree
-    at import via its repo-root walk — this is what makes the run judge the PR against
-    our policy, not the PR's own.
-
-    Every policy path's PR-head copy is deleted first — required AND optional: an uninjected
-    optional file (a repo with no steering.md) must not leave the PR head's planted copy behind
-    for the engine to load, any more than a missing policy.yml would.
+    Each ``write_file`` and ``execute`` call is one round trip to the sandbox provider, and the engine
+    alone is some twenty files. One archive and one extract command replace them.
     """
-    for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
-        sandbox.execute(f"rm -f {shlex.quote(f'{STAMPHOG_SANDBOX_REPO_DIR}/{path}')}", timeout_seconds=30)
-    for path, content in policy_files.items():
-        _write_sandbox_file(sandbox, f"{STAMPHOG_SANDBOX_REPO_DIR}/{path}", content)
-
-
-def _ship_engine(sandbox: SandboxBase) -> None:
-    """Ship the Action's review engine into the sandbox checkout at its canonical path.
-
-    Placing it under ``<checkout>/tools/pr-approval-agent`` means the engine's repo-root
-    walk lands on the checkout, so it reads the injected trusted policy. The PR head's own
-    copy (if any) is overwritten — we always run our version, not the PR's.
-    """
-    files = engine_source_files()
-    if "review_local.py" not in files:
+    members = {
+        **policy_files,
+        **{f"{_ENGINE_RELATIVE_DIR}/{name}": content for name, content in engine_source_files().items()},
+        **{f"{_OWNERS_PACKAGE_RELATIVE_DIR}/{name}": content for name, content in owners_package_files().items()},
+        _CONTEXT_RELATIVE_PATH: context_json,
+    }
+    if f"{_ENGINE_RELATIVE_DIR}/review_local.py" not in members:
         raise RuntimeError(f"engine source dir {ENGINE_DIR} is missing review_local.py")
-    # Wipe the directory first: the PR head's checkout may carry attacker-controlled files beside
-    # our engine (e.g. tools/pr-approval-agent/yaml.py), which Python would import ahead of uv's
-    # installed dependency — arbitrary code execution with the sandbox's LLM creds. Overwriting only
-    # our known modules would leave those shadow files in place, so start from an empty dir.
-    engine_dir = shlex.quote(STAMPHOG_SANDBOX_ENGINE_DIR)
-    sandbox.execute(f"rm -rf {engine_dir} && mkdir -p {engine_dir}", timeout_seconds=30)
-    for name, content in files.items():
-        sandbox.write_file(f"{STAMPHOG_SANDBOX_ENGINE_DIR}/{name}", content.encode())
-    _ship_owners_package(sandbox)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        for path, content in members.items():
+            data = content.encode()
+            info = tarfile.TarInfo(path)
+            info.size = len(data)
+            info.mode = 0o644
+            archive.addfile(info, io.BytesIO(data))
+    return buffer.getvalue()
 
 
-def _ship_owners_package(sandbox: SandboxBase) -> None:
-    """Ship the owners-yaml resolver package the engine's ownership format imports.
+def _review_payload_command() -> str:
+    """Wipe the PR head's copies of everything the archive carries, then extract the archive.
 
-    The default policy declares a ``hogli-resolver`` ownership source, and gates.py imports
-    ``owners_yaml`` from ``tools/owners`` next to the engine dir in the sandbox. Same trust
-    posture as the engine: always our copy, which overwrites whatever the PR head carried at that
-    path. Repos without
-    owners.yaml/product.yaml files simply resolve to "no ownership-source match".
+    Written AFTER checkout, so the trusted default-branch policy and review norms win over whatever
+    the (untrusted) PR head carried. The engine reads them from the tree at import via its repo-root
+    walk, which is what makes the run judge the PR against our policy, not the PR's own.
+
+    Every policy path's PR-head copy is deleted first, required AND optional: an uninjected optional
+    file (a repo with no steering.md) must not leave the PR head's planted copy behind for the engine
+    to load, any more than a missing policy.yml would.
+
+    The engine and owners directories are wiped whole: the PR head's checkout may carry
+    attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
+    would import ahead of uv's installed dependency, which is arbitrary code execution with the
+    sandbox's LLM creds. Overwriting only our known modules would leave those shadow files in place.
     """
-    target = f"{STAMPHOG_SANDBOX_OWNERS_DIR}/owners_yaml"
-    quoted = shlex.quote(STAMPHOG_SANDBOX_OWNERS_DIR)
-    sandbox.execute(f"rm -rf {quoted} && mkdir -p {shlex.quote(target)}", timeout_seconds=30)
-    for name, content in owners_package_files().items():
-        sandbox.write_file(f"{target}/{name}", content.encode())
+    repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
+    policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
+    return (
+        f"cd {repo_dir} && rm -f {policy_paths} && "
+        f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
+        f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
+        f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"
+    )
 
 
-def _write_context(sandbox: SandboxBase, invocation: ReviewerInvocation) -> None:
-    """Write the review context JSON the engine consumes into the checkout."""
-    _write_sandbox_file(sandbox, invocation.context_path, invocation.context_json)
+def _ship_review_payload(sandbox: SandboxBase, policy_files: dict[str, str], context_json: str) -> None:
+    """Place the trusted policy, the engine, the owners resolver and the review context in the checkout.
 
-
-def _write_sandbox_file(sandbox: SandboxBase, path: str, content: str) -> None:
-    parent = path.rsplit("/", 1)[0] if "/" in path else "."
-    sandbox.execute(f"mkdir -p {shlex.quote(parent)}", timeout_seconds=30)
-    sandbox.write_file(path, content.encode())
+    The engine goes under ``<checkout>/tools/pr-approval-agent``, so its repo-root walk lands on the
+    checkout and reads the injected trusted policy. We always run our version, not the PR's.
+    """
+    sandbox.write_file(STAMPHOG_SANDBOX_PAYLOAD_PATH, _review_payload_archive(policy_files, context_json))
+    result = sandbox.execute(_review_payload_command(), timeout_seconds=60)
+    if result.exit_code != 0:
+        # The reviewer reads an untrusted PR head, so tar's stderr can name repository paths. Keep it
+        # in the worker log only.
+        activity.logger.error(f"Review payload extract failed: {result.stderr[:500]}")
+        raise RuntimeError(f"extracting the review payload failed with exit code {result.exit_code}")
 
 
 def _stamp_digest_audience_if_merged(

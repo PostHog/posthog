@@ -13,16 +13,20 @@ audience / channel-resolution / digest logic) runs as real code. The dev runner
 
 from __future__ import annotations
 
+import io
 import re
 import hmac
 import json
 import hashlib
+import tarfile
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
+
+from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_PAYLOAD_PATH, STAMPHOG_SANDBOX_REPO_DIR
 
 # --- Webhook payload + signing (mirrors what GitHub sends) ---
 
@@ -604,7 +608,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise.
 
     ``write_sink``, when given, records every ``write_file`` as ``(path, payload)`` so a test can
-    assert what was injected into the checkout (e.g. the default policy files).
+    assert what was injected into the checkout (e.g. the default policy files). The review payload
+    archive is recorded member by member, at the path it extracts to in the checkout.
     """
 
     class _FakeSandbox:
@@ -637,7 +642,13 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
 
         def write_file(self, path: str, payload: bytes) -> FakeExecResult:
-            if write_sink is not None:
+            if write_sink is not None and path == STAMPHOG_SANDBOX_PAYLOAD_PATH:
+                with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+                    for member in archive.getmembers():
+                        extracted = archive.extractfile(member)
+                        assert extracted is not None
+                        write_sink.append((f"{STAMPHOG_SANDBOX_REPO_DIR}/{member.name}", extracted.read()))
+            elif write_sink is not None:
                 write_sink.append((path, payload))
             return FakeExecResult(stdout="", stderr="", exit_code=0)
 

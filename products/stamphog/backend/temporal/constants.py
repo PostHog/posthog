@@ -49,6 +49,8 @@ STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
 # vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
+# Outside the checkout, so the archive never shows up in the tree the reviewer explores.
+STAMPHOG_SANDBOX_PAYLOAD_PATH = "/tmp/stamphog/review-payload.tar.gz"
 
 # Trusted review-norms prose the engine reads as its reviewer system guidance, and
 # the gate policy entrypoint. Both are fetched from the target repo's DEFAULT branch
