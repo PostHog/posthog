@@ -11,7 +11,7 @@ run starts with personhog_shadow_lane_start_job and reset_state=true.
 """
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import closing
 
 import dagster
@@ -49,6 +49,7 @@ class DriftCategoryReport:
 
     @property
     def compared_keys(self) -> int:
+        # Legacy keys plus the keys only personhog has: the union of both sides.
         return self.legacy_total + self.missing_in_legacy
 
     @property
@@ -206,18 +207,18 @@ _TOTAL_COLUMNS = frozenset(
 )
 
 
-def _person_samples(row: dict) -> str:
+def _person_samples(row: Mapping[str, object]) -> str:
     return f"team={row['team_id']} uuid={row['uuid']} {row['drift']}"
 
 
-def _distinct_id_samples(row: dict) -> str:
+def _distinct_id_samples(row: Mapping[str, object]) -> str:
     return (
         f"team={row['team_id']} distinct_id={row['distinct_id']!r} "
         f"legacy_person={row['legacy_person']} personhog_person={row['personhog_person']} {row['drift']}"
     )
 
 
-def _hash_key_samples(row: dict) -> str:
+def _hash_key_samples(row: Mapping[str, object]) -> str:
     return f"team={row['team_id']} person={row['person_uuid']} flag={row['feature_flag_key']} {row['drift']}"
 
 
@@ -226,7 +227,7 @@ def _run_category(
     category: str,
     drift_sql: str,
     sample_sql: str,
-    format_sample: Callable[[dict], str],
+    format_sample: Callable[[Mapping[str, object]], str],
     sample_size: int,
 ) -> DriftCategoryReport:
     cursor.execute(drift_sql)
@@ -246,7 +247,10 @@ def compute_shadow_drift(connection: psycopg2.extensions.connection, sample_size
     with connection.cursor() as cursor:
         cursor.execute("SET application_name = 'dagster_personhog_shadow_drift'")
         cursor.execute("SET statement_timeout = '30min'")
-        cursor.execute("SET work_mem = '512MB'")
+        # work_mem applies per hash node and per parallel worker, and hash joins
+        # get hash_mem_multiplier times it, so a three-join query can reserve
+        # many times this value at once.
+        cursor.execute("SET work_mem = '256MB'")
         return [
             _run_category(cursor, "persons", _PERSON_DRIFT_SQL, _PERSON_SAMPLE_SQL, _person_samples, sample_size),
             _run_category(
