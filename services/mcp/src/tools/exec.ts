@@ -845,16 +845,39 @@ function discriminatedBranches(
     return branches
 }
 
-/** The key every branch of a union pins to a literal: the selector the caller sets. */
+/**
+ * The key a union switches on: pinned to a literal by every branch, and to a
+ * different literal by each.
+ *
+ * Disjointness is what separates the selector from a mere shared constant. Every
+ * property filter in the generated query tools pins `type` to the same value on
+ * each of its branches, so reading `type` as the selector maps every branch onto
+ * one entry in `discriminatedBranches` and the guidance then describes whichever
+ * branch was built last. `discriminatorKey` picks the widest key on the issue
+ * side for the same reason.
+ */
 function schemaDiscriminatorKey(node: Record<string, unknown>): string | undefined {
     const variants = variantsOf(node)
     if (variants.length < 2) {
         return undefined
     }
     // A key pinned by every variant is pinned by the first, so the first names the candidates.
-    return Object.keys(branchProperties(variants[0]!) ?? {}).find((name) =>
-        variants.every((variant) => pinnedSchemaValues(branchProperties(variant)?.[name]).length > 0)
-    )
+    return Object.keys(branchProperties(variants[0]!) ?? {}).find((name) => {
+        const seen = new Set<string>()
+        for (const variant of variants) {
+            const values = pinnedSchemaValues(branchProperties(variant)?.[name])
+            if (values.length === 0) {
+                return false
+            }
+            for (const value of values) {
+                if (seen.has(value)) {
+                    return false
+                }
+                seen.add(value)
+            }
+        }
+        return true
+    })
 }
 
 /**

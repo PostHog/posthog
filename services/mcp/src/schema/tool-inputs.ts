@@ -966,7 +966,9 @@ function normalizeReadDataSchemaInput(input: unknown, ctx: z.RefinementCtx): unk
         delete fields['offset']
     }
     for (const [name, subject] of Object.entries(READ_DATA_SCHEMA_ONE_PER_CALL)) {
-        if (Array.isArray(fields[name])) {
+        // Only several subjects earn this message. An empty list names no subject to split
+        // across calls, so it keeps the schema's own type complaint.
+        if (Array.isArray(fields[name]) && fields[name].length > 1) {
             ctx.addIssue({
                 code: 'custom',
                 path: ['query', name],

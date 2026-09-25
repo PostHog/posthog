@@ -2539,6 +2539,33 @@ describe('exec tool', () => {
                 expect(message).not.toContain('accepts')
             })
 
+            // Every property filter in the generated query tools pins `type` to the same value
+            // on each branch, so a key that merely holds a constant must not be read as the
+            // selector: it maps every branch onto one value and describes whichever came last.
+            it('picks the key whose value varies, not a constant every branch shares', () => {
+                const sharedConstantSchema = z.object({
+                    query: z.discriminatedUnion('kind', [
+                        z.object({ type: z.literal('filter'), kind: z.literal('events'), limit: z.number() }).strict(),
+                        z
+                            .object({
+                                type: z.literal('filter'),
+                                kind: z.literal('event_properties'),
+                                event_name: z.string(),
+                            })
+                            .strict(),
+                    ]),
+                })
+                const input = { query: { type: 'filter', kind: 'events', search: 'x' } }
+                const result = sharedConstantSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('some-tool', result.error!, input, sharedConstantSchema)
+
+                expect(message).toContain('"kind": "events"')
+                expect(message).toContain('"limit": ...')
+                expect(message).not.toContain('"event_name": ...')
+            })
+
             it('names the fields of a plain object parameter too', () => {
                 const plainSchema = z.object({ query: z.object({ limit: z.number().optional() }).strict() })
                 const input = { query: { search: 'x' } }

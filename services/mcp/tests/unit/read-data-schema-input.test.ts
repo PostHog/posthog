@@ -155,6 +155,11 @@ describe('read-data-schema input', () => {
             { kind: 'event_property_values', event_name: 'purchase', property_names: ['plan', 'tier'] },
             'parameter "query.property_name": this read takes one property per call, so send a separate call for each property',
         ],
+        [
+            'an empty list, which names no event to split across calls',
+            { kind: 'event_properties', event_names: [] },
+            'parameter "query.event_name" must be of type string',
+        ],
     ])('still rejects %s, and names what to send instead', (_name, input, guidance) => {
         const result = ReadDataSchemaSchema.safeParse(input, { reportInput: true })
         expect(result.success).toBe(false)
