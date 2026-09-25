@@ -233,7 +233,8 @@ export interface settingsLogicMeta {
             sections: SettingSection[],
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
-            currentTeam: TeamPublicType | TeamType | null
+            currentTeam: TeamPublicType | TeamType | null,
+            isAdminOrOwner: boolean | null
         ) => Setting[]
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean
@@ -244,7 +245,8 @@ export interface settingsLogicMeta {
             sections: SettingSection[],
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
-            currentTeam: TeamPublicType | TeamType | null
+            currentTeam: TeamPublicType | TeamType | null,
+            isAdminOrOwner: boolean | null
         ) => GlobalSearchFuse
         searchResults: (searchTerm: string, globalSearchIndex: GlobalSearchFuse) => SearchResultGroup[]
         filteredLevels: (
@@ -497,6 +499,9 @@ export const settingsLogic = kea<settingsLogicType>([
                     if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
                         return false
                     }
+                    if (setting.organizationAdminOnly && !isAdminOrOwner) {
+                        return false
+                    }
                     return true
                 }
 
@@ -641,6 +646,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.doesMatchFlags,
                 s.preflight,
                 s.currentTeam,
+                s.isAdminOrOwner,
             ],
             (
                 selectedLevel: SettingLevelId,
@@ -649,7 +655,8 @@ export const settingsLogic = kea<settingsLogicType>([
                 sections: SettingSection[],
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 preflight: null | import('../../types').PreflightStatus,
-                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
+                isAdminOrOwner: boolean | null
             ): Setting[] => {
                 const effectiveSectionId = selectedSectionId ?? defaultSectionId
 
@@ -671,6 +678,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (x.hideWhenNoSection && !effectiveSectionId) {
+                        return false
+                    }
+                    if (x.organizationAdminOnly && !isAdminOrOwner) {
                         return false
                     }
                     if (x.allowForTeam) {
@@ -728,18 +738,22 @@ export const settingsLogic = kea<settingsLogicType>([
         isSearching: [(s) => [s.searchTerm], (searchTerm: string): boolean => searchTerm.trim().length > 0],
 
         globalSearchIndex: [
-            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
+            (s) => [s.sections, s.doesMatchFlags, s.preflight, s.currentTeam, s.isAdminOrOwner],
             (
                 sections: SettingSection[],
                 doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
                 preflight: null | import('../../types').PreflightStatus,
-                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType
+                currentTeam: null | import('../../types').TeamPublicType | import('../../types').TeamType,
+                isAdminOrOwner: boolean | null
             ): GlobalSearchFuse => {
                 const isSettingVisible = (setting: Setting): boolean => {
                     if (!doesMatchFlags(setting)) {
                         return false
                     }
                     if (preflight?.realm && setting.hideOn?.includes(preflight.realm)) {
+                        return false
+                    }
+                    if (setting.organizationAdminOnly && !isAdminOrOwner) {
                         return false
                     }
                     return !setting.allowForTeam || setting.allowForTeam(currentTeam)

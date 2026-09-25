@@ -151,6 +151,7 @@ export interface marketingAnalyticsSettingsLogicActions {
             | 'GoogleAds'
             | 'LinkedinAds'
             | 'MetaAds'
+            | 'OpenAIAds'
             | 'PinterestAds'
             | 'RedditAds'
             | 'SnapchatAds'
