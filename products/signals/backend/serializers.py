@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING, cast
 from django.db.models import TextChoices
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
 from rest_framework.request import Request
 
@@ -48,7 +50,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -84,6 +86,8 @@ from .report_metrics import (
     REPORT_METRIC_VALUE_FORMATS,
 )
 from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -1085,6 +1089,24 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
 
 
+class ReportRankingSerializer(serializers.Serializer):
+    served_key = serializers.CharField(
+        help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
+    )
+    model_name = serializers.CharField(help_text="Feature family of the served model.")
+    model_version = serializers.CharField(help_text="Training partition of the served model, as `YYYY-MM-DD`.")
+    manifest_version = serializers.CharField(help_text="Version of the serving manifest that chose the model.")
+    scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
+    scores = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+    )
+    readable_heads = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -1201,6 +1223,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "The general view lists every report regardless of this value."
         ),
     )
+    ranking = serializers.SerializerMethodField(
+        help_text=(
+            "The served model's score from the latest ranking score artefact. Staff only: null for "
+            "other users, and null when the report has no score."
+        ),
+    )
     collapsed_note_count = serializers.SerializerMethodField(
         help_text=(
             "How many scout notes this report received beyond the few its work log keeps as entries. "
@@ -1248,6 +1276,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund_ineligibility_reason",
             "billing_exempt_reason",
             "channel_id",
+            "ranking",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1366,6 +1395,43 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(ReportRankingSerializer(allow_null=True))
+    def get_ranking(self, obj: SignalReport) -> dict | None:
+        from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
+            readable_head_names,
+        )
+
+        request = self.context.get("request")
+        if request is None or not request.user.is_staff:
+            return None
+        prefetched = getattr(obj, "prefetched_ranking_score_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.RANKING_SCORE)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            score = RankingScore.model_validate_json(art.content)
+            served = score.results[score.served_key]
+            readable_heads = sorted(readable_head_names(served.metadata))
+        except (PydanticValidationError, KeyError, TypeError, AttributeError):
+            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
+            return None
+        return {
+            "served_key": score.served_key,
+            "model_name": served.model_name,
+            "model_version": served.model_version,
+            "manifest_version": score.manifest_version,
+            "scored_at": score.scored_at,
+            "scores": served.scores,
+            "readable_heads": readable_heads,
+        }
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
