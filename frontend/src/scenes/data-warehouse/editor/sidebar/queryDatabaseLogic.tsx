@@ -50,12 +50,12 @@ import {
 
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
+import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
 import type { UserType } from '../../../../types'
 import { DataWarehouseSavedQuerySummary, dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { viewLinkLogic } from '../../viewLinkLogic'
 import { draftsLogic } from '../draftsLogic'
 
 export type EditorSidebarTreeRef = React.RefObject<LemonTreeRef> | null
@@ -217,6 +217,7 @@ export const getSidebarPropertyDefinitionTarget = (
         return null
     }
 
+    tableName = tableName.replace(/^posthog\./, '')
     const pathSegments = columnPath.split('.')
     const fieldName = pathSegments.at(-1)
     if (fieldName !== 'properties' && fieldName !== 'person_properties') {
@@ -313,7 +314,7 @@ const getHydrationTableNamesForNode = (node: TreeDataItem): string[] => {
         return []
     }
     if ((record.type === 'table' || record.type === 'endpoint') && record.table?.name) {
-        return [record.table.name]
+        return [record.table.type === 'posthog' ? record.table.id : record.table.name]
     }
     if (
         (record.type === 'lazy-table' || record.type === 'view-table' || record.type === 'field-traverser') &&
@@ -1212,7 +1213,13 @@ const createTableLookup = ({
 }): TableLookup => {
     return Object.fromEntries(
         [
-            ...posthogTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
+            ...posthogTables.flatMap((table) => {
+                const entry = { name: table.name, fields: table.fields }
+                return [
+                    [table.name, entry],
+                    [table.name.startsWith('posthog.') ? table.name : `posthog.${table.name}`, entry],
+                ]
+            }),
             ...systemTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...dataWarehouseTables.map((table) => [table.name, { name: table.name, fields: table.fields }]),
             ...dataWarehouseSavedQueries.map((view) => {
@@ -1238,11 +1245,12 @@ const createTableNode = (
 ): TreeDataItem => {
     const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
     const tableChildren: TreeDataItem[] = []
+    const schemaTableName = table.type === 'posthog' ? table.id : table.name
 
     if ('fields' in table) {
-        const fieldsState = getTableFieldsState(table.name, table.fields, options?.hydration)
+        const fieldsState = getTableFieldsState(schemaTableName, table.fields, options?.hydration)
         if (fieldsState === 'pending') {
-            tableChildren.push(createPendingFieldsNode(tableId, table.name))
+            tableChildren.push(createPendingFieldsNode(tableId, schemaTableName))
         } else if (fieldsState === 'error') {
             tableChildren.push(createFieldsErrorNode(tableId))
         } else {
@@ -1530,7 +1538,9 @@ const createSourceFolderNode = (
                                   ? (tables[0] as DatabaseSchemaDataWarehouseTable).url_pattern
                                   : (matches[0][0] as DatabaseSchemaDataWarehouseTable).url_pattern) ?? ''
                           )
-                        : sourceType
+                        : sourceType === 'Popular'
+                          ? 'PostHog'
+                          : sourceType
                 }
                 size="xsmall"
                 disableTooltip
@@ -1890,7 +1900,6 @@ export interface queryDatabaseLogicValues {
     latestEndpointTables: DatabaseSchemaEndpointTable[] // databaseTableListLogic
     managedViews: DatabaseSchemaManagedViewTable[] // databaseTableListLogic
     posthogTables: DatabaseSchemaTable[] // databaseTableListLogic
-    posthogTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     systemTables: DatabaseSchemaTable[] // databaseTableListLogic
     systemTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     tableFieldsStatus: TableFieldsStatus // databaseTableListLogic
@@ -1937,6 +1946,7 @@ export interface queryDatabaseLogicValues {
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedSchema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null
     sidebarOverlayTreeItems: TreeItem[]
+    sidebarPosthogTables: DatabaseSchemaTable[]
     syncMoreNoticeDismissed: boolean
     tableToLocate: string | null
     treeData: TreeDataItem[]
@@ -2202,8 +2212,12 @@ export interface queryDatabaseLogicActions {
 export interface queryDatabaseLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasNonPosthogSources: (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]) => boolean
-        relevantPosthogTables: (
+        sidebarPosthogTables: (
             posthogTables: DatabaseSchemaTable[],
+            allPosthogTables: DatabaseSchemaTable[]
+        ) => DatabaseSchemaTable[]
+        relevantPosthogTables: (
+            sidebarPosthogTables: DatabaseSchemaTable[],
             searchTerm: string
         ) => [DatabaseSchemaTable, FuseSearchMatch[] | null][]
         relevantSystemTables: (
@@ -2272,7 +2286,7 @@ export interface queryDatabaseLogicMeta {
         ) => TreeDataItem[]
         treeDataContext: (
             allPosthogTables: DatabaseSchemaTable[],
-            posthogTables: DatabaseSchemaTable[],
+            sidebarPosthogTables: DatabaseSchemaTable[],
             systemTables: DatabaseSchemaTable[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             effectiveDataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
@@ -2321,7 +2335,6 @@ export interface queryDatabaseLogicMeta {
         joinsByFieldName: (joins: DataWarehouseViewLink[]) => Record<string, DataWarehouseViewLink>
         sidebarOverlayTreeItems: (
             selectedSchema: DatabaseSchemaTable | DataWarehouseSavedQuerySummary | null,
-            posthogTablesMap: Record<string, DatabaseSchemaTable>,
             systemTablesMap: Record<string, DatabaseSchemaTable>,
             dataWarehouseTablesMap: Record<string, DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable>,
             dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary>,
@@ -2411,7 +2424,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'allPosthogTables',
                 'posthogTables',
                 'dataWarehouseTables',
-                'posthogTablesMap',
                 'dataWarehouseTablesMap',
                 'viewsMapById',
                 'managedViews',
@@ -2498,6 +2510,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'sources',
                 'views',
                 'managed-views',
+                'search-Popular',
                 'search-posthog',
                 'search-system',
                 'search-datawarehouse',
@@ -2823,8 +2836,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return dataWarehouseTables.length > 0
             },
         ],
+        sidebarPosthogTables: [
+            (s) => [s.posthogTables, s.allPosthogTables],
+            (popularTables: DatabaseSchemaTable[], allPosthogTables: DatabaseSchemaTable[]): DatabaseSchemaTable[] => [
+                ...[...popularTables].sort((a, b) => a.name.localeCompare(b.name)),
+                ...allPosthogTables
+                    .map((table) => ({
+                        ...table,
+                        name: table.name.startsWith('posthog.') ? table.name : `posthog.${table.name}`,
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name)),
+            ],
+        ],
         relevantPosthogTables: [
-            (s) => [s.posthogTables, s.searchTerm],
+            (s) => [s.sidebarPosthogTables, s.searchTerm],
             (
                 posthogTables: DatabaseSchemaTable[],
                 searchTerm: string
@@ -3078,19 +3103,22 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     loadPropertyDefinitions: actions.loadPropertyDefinitions,
                 }
 
-                // Add PostHog tables
-                if (relevantPosthogTables.length > 0) {
-                    expandedIds.push('search-posthog')
-                    sourcesChildren.push(
-                        createSourceFolderNode(
-                            'PostHog',
+                for (const category of ['Popular', 'PostHog']) {
+                    const matches = relevantPosthogTables.filter(([table]) =>
+                        category === 'PostHog' ? table.name.startsWith('posthog.') : !table.name.startsWith('posthog.')
+                    )
+                    if (matches.length > 0) {
+                        const folder = createSourceFolderNode(
+                            category,
                             [],
-                            relevantPosthogTables,
+                            matches,
                             true,
                             tableLookup,
                             tableNodeOptions
                         )
-                    )
+                        expandedIds.push(folder.id)
+                        sourcesChildren.push(folder)
+                    }
                 }
 
                 // Add System tables
@@ -3230,7 +3258,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         treeDataContext: [
             (s) => [
                 s.allPosthogTables,
-                s.posthogTables,
+                s.sidebarPosthogTables,
                 s.systemTables,
                 s.dataWarehouseTables,
                 s.effectiveDataWarehouseSavedQueries,
@@ -3337,11 +3365,17 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                         type: 'loading-indicator',
                     })
                 } else {
-                    // Add PostHog tables
-                    if (posthogTables.length > 0) {
-                        sourcesChildren.push(
-                            createSourceFolderNode('PostHog', posthogTables, [], false, tableLookup, tableNodeOptions)
+                    for (const category of ['Popular', 'PostHog']) {
+                        const tables = posthogTables.filter((table) =>
+                            category === 'PostHog'
+                                ? table.name.startsWith('posthog.')
+                                : !table.name.startsWith('posthog.')
                         )
+                        if (tables.length > 0) {
+                            sourcesChildren.push(
+                                createSourceFolderNode(category, tables, [], false, tableLookup, tableNodeOptions)
+                            )
+                        }
                     }
 
                     // Add System tables
@@ -3670,7 +3704,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         sidebarOverlayTreeItems: [
             (s) => [
                 s.selectedSchema,
-                s.posthogTablesMap,
                 s.systemTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
@@ -3684,7 +3717,6 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     | DatabaseSchemaTable
                     | DataWarehouseSavedQuerySummary
                     | null,
-                posthogTablesMap: Record<string, DatabaseSchemaTable>,
                 systemTablesMap: Record<string, DatabaseSchemaTable>,
                 dataWarehouseTablesMap: Record<
                     string,
@@ -3709,7 +3741,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     | DataWarehouseSavedQuerySummary
                     | null = null
                 if (isPostHogTable(selectedSchema)) {
-                    table = posthogTablesMap[selectedSchema.name]
+                    table = allTablesMap[selectedSchema.id]
                 } else if (isSystemTable(selectedSchema)) {
                     table = systemTablesMap[selectedSchema.name]
                 } else if (isDataWarehouseTable(selectedSchema)) {
@@ -3805,7 +3837,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectSchema: ({ schema }) => {
             // The sidebar overlay lists the selected table's columns, so make sure they're loaded.
             if (schema && 'name' in schema && schema.name) {
-                actions.hydrateTableFields([schema.name])
+                actions.hydrateTableFields([isPostHogTable(schema) ? schema.id : schema.name])
             }
         },
         setSearchTerm: ({ searchTerm }) => {
@@ -3880,7 +3912,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 values.connectionId
             )
         },
-        posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
+        sidebarPosthogTables: (posthogTables: DatabaseSchemaTable[]) => {
             posthogTablesFuse.setCollection(posthogTables)
         },
         systemTables: (systemTables: DatabaseSchemaTable[]) => {

@@ -47,10 +47,8 @@ Remote announcements can drive this flow: a `required-update` announcement block
 
 ## Releasing a patch
 
-Merge to `master` and wait for the next scheduled `desktop-tag.yml` run. To release sooner:
-
-- Add the `desktop-release` label to your PR before merging (the labeler must be a `team-posthog-desktop` member). The merge then tags immediately.
-- Or trigger `desktop-tag.yml` manually with `gh workflow run desktop-tag.yml`.
+Merge to `master` and wait for the next scheduled `desktop-tag.yml` run.
+To release sooner, ask a `team-posthog-desktop` member to run `gh workflow run desktop-tag.yml`, which tags `master`.
 
 ## Releasing a minor or major version
 
@@ -66,6 +64,12 @@ The next `desktop-tag.yml` run releases `desktop-v0.16.N`.
 A tag ruleset protects `desktop-v*` and `agent-v*` tags, because pushing one publishes a release.
 Only a repository admin can push a base tag.
 `desktop-tag.yml` and `desktop-agent-tag.yml` push release tags through the Releaser GitHub App, which the ruleset allows.
+
+## Agent package releases
+
+Agent releases are separate from desktop app releases. Changes to `products/desktop/packages/agent` or `products/desktop/packages/harness` on `master` trigger an agent release.
+The patch version counts commits that change either package since the agent base tag. A commit that changes both packages counts once.
+See the [agent release process](../packages/agent/README.md#releasing) for the tag and publish steps.
 
 ## Checking current version
 

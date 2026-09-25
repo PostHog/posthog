@@ -2,15 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    FilterType,
-    InsightModel,
-    InsightShortId,
-    InsightType,
-    PropertyFilterType,
-    PropertyOperator,
-    SubscriptionType,
-} from '~/types'
+import { InsightModel, InsightShortId, SubscriptionType } from '~/types'
 
 import { subscriptionsLogic } from './subscriptionsLogic'
 
@@ -31,18 +23,12 @@ export const fixtureSubscriptionResponse = (id: number, args: Partial<Subscripti
         ...args,
     }) as SubscriptionType
 
-const API_FILTERS: Partial<FilterType> = {
-    insight: InsightType.TRENDS as InsightType,
-    events: [{ id: 3 }],
-    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person }],
-}
 function fixtureInsightResponse(id: number, data?: Partial<InsightModel>): Partial<InsightModel> {
     return {
         id: id,
         short_id: id.toString() as InsightShortId,
         name: 'insight',
         result: [`result ${id}`],
-        filters: API_FILTERS,
         ...data,
     }
 }

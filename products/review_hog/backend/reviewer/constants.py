@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
-REVIEW_MODEL = "gpt-5.6-sol"
+REVIEW_MODEL = "gpt-6-sol"
 REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # Codex's default "auto" approval mode does not auto-approve MCP tool calls, so a headless reviewer
 # stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
@@ -68,23 +68,33 @@ REVIEW_MODE_FLASH = "flash"
 # Share the arm so Flash's reviewer and validator use the same cost and reasoning budget.
 FLASH_ARM = ReviewArm(
     runtime_adapter=RuntimeAdapter.CODEX,
-    model="gpt-5.6-luna",
+    model="gpt-6-luna",
     reasoning_effort=ReasoningEffort.MEDIUM,
     initial_permission_mode="full-access",
 )
 
 # Every GitHub message a flash turn writes (status comment, promo, review body, inline comments)
 # starts with this, so a reader can tell a flash review from a full one at a glance.
-FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE\n"
+FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
 def message_prefix_for_mode(review_mode: str) -> str:
     return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
 
 
-def review_arm_for_mode(review_mode: str, persisted: ReviewArm) -> ReviewArm:
+def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:
+    if reasoning_effort == ReasoningEffort.XHIGH.value:
+        return replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
+    if reasoning_effort != ReasoningEffort.MEDIUM.value:
+        logger.warning("Unknown Flash reasoning effort %s; using medium", reasoning_effort)
+    return FLASH_ARM
+
+
+def review_arm_for_mode(
+    review_mode: str, persisted: ReviewArm, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
     """The arm a turn's review units run on: the flash arm for a flash turn, else the report's own."""
-    return FLASH_ARM if review_mode == REVIEW_MODE_FLASH else persisted
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else persisted
 
 
 class ReviewTier(StrEnum):
@@ -133,8 +143,8 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
 # CLI, or the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking). Only the inbox trigger fires with nobody
-# asking, and a trigger from this set on an inbox-created report lifts its tier
+# tool on someone's behalf counts as that person asking). Inbox and automatic authored-PR triggers
+# fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
@@ -215,7 +225,7 @@ def resolve_review_arm(
 # Pins for the per-chunk warm validation sessions, bundled like the review arm so a mode can swap
 # the whole seat at once.
 VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL = "claude-opus-5"
+VALIDATION_MODEL = "claude-opus-5-5"
 VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -227,16 +237,18 @@ DEFAULT_VALIDATION_ARM = ReviewArm(
 )
 
 
-def validation_arm_for_mode(review_mode: str) -> ReviewArm:
+def validation_arm_for_mode(
+    review_mode: str, *, flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+) -> ReviewArm:
     """The arm a turn's validation sessions run on: the flash arm for a flash turn, else the pins."""
-    return FLASH_ARM if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
+    return flash_arm_for_effort(flash_reasoning_effort) if review_mode == REVIEW_MODE_FLASH else DEFAULT_VALIDATION_ARM
 
 
 # RESOLUTION MODEL
 # Pins for the resolution stage's warm per-PR session (assess + implement, one thread per turn).
 # The validator's model and effort: resolution is judgment plus careful editing, the validator's job.
 RESOLUTION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-RESOLUTION_MODEL: str | None = "claude-opus-5"
+RESOLUTION_MODEL: str | None = "claude-opus-5-5"
 RESOLUTION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 RESOLUTION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -357,7 +369,7 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 # a judge sharing the reviewer's model family would inherit the same blind spots the telemetry
 # exists to measure. Effort is "high" — a focused yes/no on a small diff, not the reviewer's
 # exhaustive xhigh pass.
-OUTCOME_JUDGE_MODEL = "claude-opus-5"
+OUTCOME_JUDGE_MODEL = "claude-opus-5-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.

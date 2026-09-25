@@ -11,10 +11,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
-    PaginatedPersonRecordListApi,
+    PaginatedPersonListRecordListApi,
     PatchedPersonRecordApi,
     PersonBulkDeleteRequestApi,
     PersonBulkDeleteResponseApi,
+    PersonCohortsResponseApi,
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonRecordApi,
@@ -83,8 +84,8 @@ export const personsList = async (
     projectId: string,
     params?: PersonsListParams,
     options?: RequestInit
-): Promise<PaginatedPersonRecordListApi> => {
-    return apiMutator<PaginatedPersonRecordListApi>(getPersonsListUrl(projectId, params), {
+): Promise<PaginatedPersonListRecordListApi> => {
+    return apiMutator<PaginatedPersonListRecordListApi>(getPersonsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -601,8 +602,8 @@ export const personsCohortsRetrieve = async (
     projectId: string,
     params: PersonsCohortsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsCohortsRetrieveUrl(projectId, params), {
+): Promise<PersonCohortsResponseApi> => {
+    return apiMutator<PersonCohortsResponseApi>(getPersonsCohortsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

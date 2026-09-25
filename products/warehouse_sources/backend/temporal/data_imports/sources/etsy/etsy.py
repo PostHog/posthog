@@ -37,9 +37,44 @@ NO_SHOP_ERROR = (
 )
 INVALID_SHOP_ID_ERROR = "The Etsy shop ID must be a positive number. Leave it blank to use the token's own shop."
 
+# Etsy meters each app's own API key, as a per-second allowance and then a sliding 24-hour quota.
+# When a refusal carries this header, a zero says the day's quota is gone rather than a burst.
+REMAINING_TODAY_HEADER = "x-remaining-today"
+
+# Stable sentinels the source classifies on. Keep them in step with `EtsySource`.
+DAILY_QUOTA_EXHAUSTED_ERROR = "Etsy daily request quota exhausted"
+RATE_LIMITED_ERROR = "Etsy rate limit reached"
+
+DAILY_QUOTA_EXHAUSTED_MESSAGE = (
+    "Your Etsy app has used its whole 24 hour request quota, so this sync stopped early. The quota frees up again "
+    "over the next 24 hours and the next sync carries on from here. If it keeps happening, ask Etsy to raise your "
+    "app's daily limit or sync this source less often."
+)
+RATE_LIMITED_MESSAGE = (
+    "Etsy is rate limiting your app's requests, so this sync stopped early. The next sync carries on from here. "
+    "If it keeps happening, ask Etsy to raise your app's rate limit."
+)
+RATE_LIMITED_VALIDATION_MESSAGE = (
+    "Etsy is rate limiting your app, so we could not check these credentials. Try again in a few minutes."
+)
+
 
 class EtsyAPIError(Exception):
     """An Etsy request failed in a way the caller cannot recover from."""
+
+
+class EtsyRateLimitError(EtsyAPIError):
+    """Etsy refused the request because the app is out of requests."""
+
+
+def _remaining_today(response: Response) -> Optional[int]:
+    raw = response.headers.get(REMAINING_TODAY_HEADER)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _validate_shop_id(shop_id: str) -> str:
@@ -78,6 +113,8 @@ class EtsyClient:
         self._refresh_token = refresh_token
         self._logger = logger
         self._access_token: Optional[str] = None
+        self._shop_opened_at: Optional[int] = None
+        self._shop_opened_at_resolved = False
         self._session = make_tracked_session(
             headers={"x-api-key": f"{api_key}:{shared_secret}", "Accept": "application/json"},
             redact_values=(api_key, shared_secret, refresh_token),
@@ -119,6 +156,14 @@ class EtsyClient:
             self._access_token = self._mint_token()
             response = self._send(path, params)
 
+        if response.status_code == 429:
+            # The tracked session already retried this while honoring Etsy's retry-after, so what
+            # reaches here is a limit no backoff inside the run can clear. Raising now also stops
+            # the walk from spending the rest of the quota on requests that can only be refused.
+            raise EtsyRateLimitError(
+                DAILY_QUOTA_EXHAUSTED_ERROR if _remaining_today(response) == 0 else RATE_LIMITED_ERROR
+            )
+
         if response.status_code >= 300:
             self._logger.error(
                 f"Etsy API error: status={response.status_code}, path={path}, body={response.text[:500]}"
@@ -142,6 +187,23 @@ class EtsyClient:
             raise EtsyAPIError(NO_SHOP_ERROR)
         return str(shop_id)
 
+    def shop_opened_at(self, shop_id: str) -> Optional[int]:
+        """Epoch second the shop opened, or None when Etsy reports no usable value.
+
+        Nothing a shop owns predates the shop, so a walk with no cursor starts here rather than at
+        Etsy's launch year. Every window in between can only come back empty, and each one spends a
+        request against the app's daily quota, which is what a sync runs out of before it finishes.
+        """
+        if not self._shop_opened_at_resolved:
+            # getShop needs no OAuth scope, so this stays readable for any token the source accepts.
+            opened_at = self.request(f"/shops/{shop_id}").get("created_timestamp")
+            try:
+                self._shop_opened_at = int(opened_at) if opened_at is not None else None
+            except (TypeError, ValueError):
+                self._shop_opened_at = None
+            self._shop_opened_at_resolved = True
+        return self._shop_opened_at
+
 
 def validate_credentials(
     api_key: str, shared_secret: str, refresh_token: str, shop_id: Optional[str]
@@ -161,6 +223,8 @@ def validate_credentials(
         # No job logger exists on the create-time probe path, so use the module logger.
         client = EtsyClient(api_key, shared_secret, refresh_token, structlog.get_logger(__name__))
         identity = client.request("/users/me")
+    except EtsyRateLimitError:
+        return False, RATE_LIMITED_VALIDATION_MESSAGE
     except Exception:
         return False, "Could not authenticate with Etsy. Check your API keystring, shared secret and refresh token."
 
@@ -326,7 +390,8 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ETSY_ENDPOINTS[endpoint]
     client = EtsyClient(api_key, shared_secret, refresh_token, logger)
-    path = f"/shops/{client.resolve_shop_id(shop_id)}{config.path}"
+    resolved_shop_id = client.resolve_shop_id(shop_id)
+    path = f"/shops/{resolved_shop_id}{config.path}"
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
@@ -341,14 +406,24 @@ def get_rows(
         if window_param is None:
             yield from _offset_pages(client, path, config, resumable_source_manager, resume, logger)
         else:
+            end = int(time.time())
             start = _window_start(should_use_incremental_field, db_incremental_field_last_value)
+            # A resumed walk carries on from its saved window, so `start` is unused and looking the
+            # shop up would only spend a request.
+            resuming_window = resume is not None and resume.window_start is not None
+            if start == ETSY_HISTORY_START and not resuming_window:
+                opened_at = client.shop_opened_at(resolved_shop_id)
+                # A missing or clock-skewed opening date falls back to the full range, so a bad
+                # value can never shorten the walk.
+                if opened_at is not None and ETSY_HISTORY_START < opened_at <= end:
+                    start = opened_at
             yield from _windowed_pages(
                 client,
                 path,
                 config,
                 window_param,
                 start,
-                int(time.time()),
+                end,
                 resumable_source_manager,
                 resume,
                 logger,

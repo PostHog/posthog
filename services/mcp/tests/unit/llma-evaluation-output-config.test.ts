@@ -10,6 +10,7 @@ describe('llma-evaluation-update output settings', () => {
         { output_config: { allows_na: true } },
         { output_config: { allows_na: false } },
         { output_config: {} },
+        { output_config: { min: 0, max: 10, passing_rule: { operator: 'gte', threshold: 7 } } },
         { name: 'Renamed evaluation' },
     ])('only sends the supplied settings for %j', async (body) => {
         const request = vi.fn().mockResolvedValue({})
@@ -26,5 +27,10 @@ describe('llma-evaluation-update output settings', () => {
             path: '/api/projects/17/evaluations/evaluation-1/',
             body,
         })
+    })
+
+    it.each(['true', 'false', 1, 0, null])('rejects malformed detector flag %j', (true_is_failure) => {
+        const tool = GENERATED_TOOLS['llma-evaluation-update']!()
+        expect(tool.schema.safeParse({ id: 'evaluation-1', output_config: { true_is_failure } }).success).toBe(false)
     })
 })

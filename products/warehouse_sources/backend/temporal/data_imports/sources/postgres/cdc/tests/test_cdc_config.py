@@ -56,6 +56,21 @@ def test_from_dict_defaults():
     assert config.consistent_point is None
 
 
+@pytest.mark.parametrize(
+    "job_inputs",
+    [
+        {"cdc_slot_name": "slot_a", "cdc_ingest_mode": "buffered"},
+        '{"cdc_slot_name": "slot_a", "cdc_ingest_mode": "buffered"}',
+    ],
+)
+def test_from_dict_reads_whichever_shape_job_inputs_decrypted_to(job_inputs):
+    # EncryptedJSONField hands back a value that was written as a string as that same string, and
+    # every field here is read off a mapping.
+    config = PostgresCDCConfig.from_dict(job_inputs)
+    assert config.slot_name == "slot_a"
+    assert config.ingest_mode == "buffered"
+
+
 def test_from_dict_thresholds_coerce_stringified_ints():
     config = PostgresCDCConfig.from_dict(
         {"cdc_lag_warning_threshold_mb": "256", "cdc_lag_critical_threshold_mb": "1024"}

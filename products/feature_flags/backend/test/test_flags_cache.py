@@ -22,10 +22,12 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core.management.base import OutputWrapper
 from django.db import connection
+from django.db.models import JSONField, Value
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
@@ -576,7 +578,7 @@ class TestServiceFlagsCache(BaseTest):
         flag.refresh_from_db()
         assert flag.filters == stored_filters
 
-    def test_update_flags_cache_keeps_existing_entry_when_a_flag_has_unsupported_format(self):
+    def test_update_flags_cache_publishes_without_unsupported_flag_and_its_dependent(self):
         FeatureFlag.objects.create(
             team=self.team,
             key="v1-flag",
@@ -587,20 +589,189 @@ class TestServiceFlagsCache(BaseTest):
         etag_before = flags_hypercache.get_etag(self.team)
 
         # A v2 discriminator over v1-looking groups: reading it as v1 would publish the
-        # document into the service payload instead of failing this team's rebuild.
+        # document into the service payload, and failing the team would freeze v1-flag's
+        # cached targeting at whatever it was before the row arrived.
         unsupported_filters = {"version": 2, "groups": [{"properties": [], "rollout_percentage": 100}]}
         unsupported = FeatureFlag.objects.create(
             team=self.team, key="unsupported-format", created_by=self.user, filters=unsupported_filters
         )
+        FeatureFlag.objects.create(
+            team=self.team, key="dependent", created_by=self.user, filters=_dependency_filters(unsupported.id)
+        )
 
-        assert update_flags_cache(self.team) is False
+        assert update_flags_cache(self.team) is True
 
         cached = get_flags_from_cache(self.team)
         assert cached is not None
         assert [f["key"] for f in cached] == ["v1-flag"]
+        # The published bytes are those of the v1-only team, so the content ETag is unchanged.
         assert flags_hypercache.get_etag(self.team) == etag_before
         unsupported.refresh_from_db()
         assert unsupported.filters == unsupported_filters
+
+
+def _insert_config_format_fixture(team: Team, user) -> tuple[dict, dict[str, FeatureFlag]]:
+    fixture = json.loads(
+        (_REPO_ROOT / "rust" / "feature-flags" / "tests" / "fixtures" / "flags_cache_config_formats.json").read_text()
+    )
+    flags = {
+        row["key"]: FeatureFlag.objects.create(
+            team=team,
+            key=row["key"],
+            created_by=user,
+            active=row["active"],
+            archived=row.get("archived", False),
+            filters={},
+        )
+        for row in fixture["flags"]
+    }
+    for row in fixture["flags"]:
+        filters = copy.deepcopy(row["filters"])
+        groups = filters.get("groups") if isinstance(filters, dict) else None
+        for group in groups if isinstance(groups, list) else []:
+            for prop in group.get("properties") or []:
+                if prop.get("type") == "flag":
+                    reference = prop["key"]
+                    prop["key"] = str(
+                        fixture["missing_dependency_id"] if reference == "$missing" else flags[reference].id
+                    )
+        flags[row["key"]].filters = filters
+        # Written like a stored row, past the model save hooks that assume a v1 document.
+        # A JSON null needs an expression, or the ORM writes SQL NULL and the column refuses it.
+        FeatureFlag.objects.filter(id=flags[row["key"]].id).update(
+            filters=Value(None, output_field=JSONField()) if filters is None else filters
+        )
+    return fixture, flags
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestOmitUnsupportedFlags(BaseTest):
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def _assert_fixture_payload(self, payload: dict, fixture: dict, flags: dict[str, FeatureFlag]) -> None:
+        published = {f["id"]: f for f in payload["flags"]}
+        assert {f["key"] for f in payload["flags"]} == {r["key"] for r in fixture["flags"] if r["expect"] == "kept"}
+        for row in fixture["flags"]:
+            if row["expect"] != "kept":
+                continue
+            filters = published[flags[row["key"]].id]["filters"]
+            if row.get("blanked"):
+                assert filters == {"groups": []}, row["key"]
+            else:
+                assert filters == flags[row["key"]].filters, row["key"]
+
+        metadata = payload["evaluation_metadata"]
+        expected_missing = sorted(flags[r["key"]].id for r in fixture["flags"] if r.get("missing_dependency"))
+        assert metadata["flags_with_missing_deps"] == expected_missing
+        staged = {flag_id for stage in metadata["dependency_stages"] for flag_id in stage}
+        assert staged == set(published) - {flags["cycle-a"].id, flags["cycle-b"].id}
+        assert metadata["transitive_deps"][str(flags["depends-true-on-v1-true"].id)] == [flags["v1-boolean-true"].id]
+
+    def test_single_and_batch_builders_omit_unsupported_configs_and_their_dependents(self):
+        fixture, flags = _insert_config_format_fixture(self.team, self.user)
+        stored = {key: copy.deepcopy(flag.filters) for key, flag in flags.items()}
+
+        with capture_logs() as log_events:
+            single = _get_feature_flags_for_service(self.team)
+            batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+
+        self._assert_fixture_payload(single, fixture, flags)
+        assert {f["id"]: f for f in batch["flags"]} == {f["id"]: f for f in single["flags"]}
+        assert batch["evaluation_metadata"] == single["evaluation_metadata"]
+        assert batch["cohorts"] == single["cohorts"] == []
+        for key, flag in flags.items():
+            flag.refresh_from_db()
+            assert flag.filters == stored[key], key
+
+        # The warning is the only operator-visible record of what a team's cache left out.
+        def omitted_ids(expect: str) -> list[int]:
+            return sorted(flags[row["key"]].id for row in fixture["flags"] if row["expect"] == expect)
+
+        expected = {
+            "team_id": self.team.id,
+            "unsupported_flag_ids": omitted_ids("unsupported"),
+            "dependent_flag_ids": omitted_ids("dependent"),
+        }
+        omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
+        assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
+
+    def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        FeatureFlag.objects.create(
+            team=self.team, key="unsupported", created_by=self.user, filters={"version": 2, "groups": "junk"}
+        )
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = _get_feature_flags_for_teams_batch([self.team, other_team])
+
+        assert result[self.team.id]["flags"] == []
+        assert [f["key"] for f in result[other_team.id]["flags"]] == ["v1-flag"]
+
+    def test_cohorts_are_collected_from_surviving_flags_only(self):
+        def cohort(name: str) -> Cohort:
+            return Cohort.objects.create(
+                team=self.team,
+                name=name,
+                filters={"properties": {"type": "OR", "values": [{"key": "email", "value": "a", "type": "person"}]}},
+            )
+
+        def cohort_filters(cohort_id: int, **extra) -> dict:
+            return {
+                **extra,
+                "groups": [{"properties": [{"type": "cohort", "value": cohort_id}], "rollout_percentage": 100}],
+            }
+
+        kept_cohort, unsupported_cohort, dependent_cohort = cohort("kept"), cohort("unsupported"), cohort("dependent")
+        FeatureFlag.objects.create(
+            team=self.team, key="v1-flag", created_by=self.user, filters=cohort_filters(kept_cohort.id)
+        )
+        unsupported = FeatureFlag.objects.create(
+            team=self.team,
+            key="unsupported",
+            created_by=self.user,
+            filters=cohort_filters(unsupported_cohort.id, version=2),
+        )
+        dependent_filters = _dependency_filters(unsupported.id)
+        dependent_filters["groups"][0]["properties"].append({"type": "cohort", "value": dependent_cohort.id})
+        FeatureFlag.objects.create(team=self.team, key="dependent", created_by=self.user, filters=dependent_filters)
+
+        single = _get_feature_flags_for_service(self.team)
+        batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+
+        assert [c["id"] for c in single["cohorts"]] == [kept_cohort.id]
+        assert [c["id"] for c in batch["cohorts"]] == [kept_cohort.id]
+
+    @patch("products.feature_flags.backend.tasks.publish_shadow_invalidation")
+    def test_celery_task_publishes_the_omitted_payload(self, mock_publish_shadow_invalidation):
+        from products.feature_flags.backend.tasks import update_team_service_flags_cache
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        unsupported = FeatureFlag.objects.create(
+            team=self.team, key="unsupported", created_by=self.user, filters={"version": 2, "rules": []}
+        )
+        FeatureFlag.objects.create(
+            team=self.team, key="dependent", created_by=self.user, filters=_dependency_filters(unsupported.id)
+        )
+
+        update_team_service_flags_cache(self.team.id)
+
+        cached = get_flags_from_cache(self.team)
+        assert cached is not None
+        assert [f["key"] for f in cached] == ["v1-flag"]
+        assert flags_hypercache.get_etag(self.team) is not None
+        mock_publish_shadow_invalidation.assert_called_once_with(self.team.id)
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

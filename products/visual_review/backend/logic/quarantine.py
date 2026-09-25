@@ -110,26 +110,35 @@ def quarantine_identifier(
     # quarantine itself still wins; we just lose the "what was wrong" pointer.
     # We fetch (not just .exists()) so the facade can serialize source_run
     # without a lazy-load on the freshly-created row.
-    source_run: Run | None = None
-    if source_run_id is not None:
-        source_run = Run.objects.using(WRITER_DB).filter(id=source_run_id, repo_id=repo_id, team_id=team_id).first()
-    QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
-        repo_id=repo_id,
-        identifier=identifier,
-        run_type=run_type,
-        team_id=team_id,
-    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
-    return QuarantinedIdentifier.objects.using(WRITER_DB).create(
-        repo_id=repo_id,
-        identifier=identifier,
-        run_type=run_type,
-        team_id=team_id,
-        reason=reason,
-        expires_at=expires_at,
-        created_by_id=user_id,
-        source_run=source_run,
-        source=source,
-    )
+    # The source run is locked first, in the same order as the retention sweep,
+    # so a run the sweep deletes meanwhile resolves to None instead of failing
+    # the insert.
+    with transaction.atomic(using=WRITER_DB):
+        source_run: Run | None = None
+        if source_run_id is not None:
+            source_run = (
+                Run.objects.using(WRITER_DB)
+                .select_for_update()
+                .filter(id=source_run_id, repo_id=repo_id, team_id=team_id)
+                .first()
+            )
+        QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
+            repo_id=repo_id,
+            identifier=identifier,
+            run_type=run_type,
+            team_id=team_id,
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)).update(expires_at=now)
+        return QuarantinedIdentifier.objects.using(WRITER_DB).create(
+            repo_id=repo_id,
+            identifier=identifier,
+            run_type=run_type,
+            team_id=team_id,
+            reason=reason,
+            expires_at=expires_at,
+            created_by_id=user_id,
+            source_run=source_run,
+            source=source,
+        )
 
 
 def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_id: int) -> None:

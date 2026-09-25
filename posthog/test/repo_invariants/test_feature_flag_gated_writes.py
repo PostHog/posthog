@@ -23,7 +23,6 @@ GATED_PATH = {
 
 # Shrink-only. Move a write to the facade, then regenerate the baseline and drop its entry here.
 ALLOWED_REASONS: dict[str, str] = {
-    "ee/clickhouse/views/experiment_holdouts.py": "holdout edit and delete",
     "products/feature_flags/backend/api/organization_feature_flag.py": "copy a flag to other projects",
     "products/surveys/backend/api/survey.py": "targeting flag writes and the start/stop mirror of active",
     "posthog/api/file_system/registrations.py": "file-system trash and restore flip active",

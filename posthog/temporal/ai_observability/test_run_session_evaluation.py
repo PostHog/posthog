@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -12,6 +13,13 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 
+from posthog.cdp.validation import compile_hog
+from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    ExecuteLLMJudgeInputs,
+    _execute_llm_judge_activity,
+    get_output_type_config,
+)
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
@@ -26,8 +34,17 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     execute_session_llm_judge_activity,
     fetch_session_for_evaluation,
     format_session_for_judge,
+    run_hog_eval_over_recent_sessions,
     session_fetch_lookback,
 )
+from posthog.temporal.ai_observability.run_trace_evaluation import (
+    ExecuteTraceEvaluationInputs,
+    TraceFetchOutcome,
+    execute_trace_hog_eval_activity,
+    execute_trace_llm_judge_activity,
+)
+
+from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -219,8 +236,57 @@ class TestCountSessionEvents:
         assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
 
 
+class TestRunHogEvalOverRecentSessions:
+    @time_machine.travel(FROZEN_NOW, tick=False)
+    def test_preview_applies_user_to_sampling_and_session_reads(self) -> None:
+        team = Mock(pk=1)
+        user = Mock()
+        trace = _trace("t1", cost=0, latency=0, event_count=2)
+        bytecode = compile_hog("return target.type == 'session' and length(evaluation_events) == 2", "destination")
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team") as mock_team,
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
+                side_effect=[
+                    Mock(results=[["s-1"]]),
+                    Mock(results=[[2, FROZEN_NOW - timedelta(hours=1)]]),
+                    Mock(results=[[0]]),
+                ],
+            ) as mock_query,
+            patch("posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner") as mock_runner,
+        ):
+            mock_team.objects.get.return_value = team
+            mock_runner.return_value.calculate.return_value = Mock(results=[trace], hasMore=False)
+            results = run_hog_eval_over_recent_sessions(
+                team=team,
+                user=user,
+                bytecode=bytecode,
+                condition_filter=None,
+                sample_count=1,
+                allows_na=False,
+                quiet_period_seconds=120,
+            )
+
+        assert len(results) == 1
+        assert results[0].session_id == "s-1"
+        assert results[0].verdict is True
+        assert results[0].error is None
+        for query_call in mock_query.call_args_list:
+            assert query_call.kwargs["user"] is user
+        assert mock_runner.call_args.kwargs["user"] is user
+
+
 class TestFetchSessionForEvaluation:
+    @pytest.fixture(autouse=True)
+    def unrestricted_project_defaults(self) -> Iterator[None]:
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.get_restricted_properties_with_group_type_index_for_team",
+            return_value=set(),
+        ):
+            yield
+
     def test_queries_in_evaluation_mode_with_both_date_bounds(self):
+        user = Mock()
         with (
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
@@ -238,10 +304,11 @@ class TestFetchSessionForEvaluation:
             mock_session_query_runner.return_value.calculate.return_value = Mock(
                 results=[_trace("t1", cost=0, latency=0)], hasMore=False
             )
-            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
+            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), user=user)
 
         kwargs = mock_session_query_runner.call_args.kwargs
         assert kwargs["for_evaluation"] is True
+        assert kwargs["user"] is user
         assert kwargs["query"].dateRange.date_from is not None
         assert kwargs["query"].dateRange.date_to is not None
         # SessionQueryRunner defaults to 100 rows under LimitContext.QUERY, which would drop the
@@ -408,11 +475,97 @@ class TestFetchSessionForEvaluation:
 
 
 class TestExecuteSessionActivities:
+    @pytest.mark.parametrize("runtime", ["hog", "llm_judge"])
+    @pytest.mark.parametrize("target", ["generation", "trace", "session"])
+    @pytest.mark.parametrize("score", [0.25, None])
+    def test_numeric_outputs_across_targets(self, runtime: str, target: str, score: float | None) -> None:
+        trace = _trace("trace-1", cost=0, latency=0)
+        evaluation = {
+            "id": "numeric-eval",
+            "team_id": 1,
+            "evaluation_type": runtime,
+            "evaluation_config": {
+                "prompt": "Rate quality",
+                "bytecode": compile_ai_observability_hog(
+                    "return null" if score is None else "return 0.25",
+                    "destination",
+                ),
+            },
+            "output_type": "numeric",
+            "output_config": {"min": 0, "max": 1, "allows_na": True},
+        }
+        schema = get_output_type_config(True, output_type="numeric").response_format
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(traces=[trace], skip_reason=None, event_count=1),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+        ):
+            model_spec.return_value.resolve.return_value = Mock(
+                provider="openai",
+                model="gpt-4o-mini",
+                provider_key=None,
+                is_byok=False,
+            )
+            client.return_value.complete.return_value = Mock(
+                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
+                usage=None,
+            )
+            if target == "generation":
+                event_data = {"event": "$ai_generation", "properties": trace.events[0].properties}
+                result = (
+                    async_to_sync(run_hog_eval_for_event)(evaluation, event_data)
+                    if runtime == "hog"
+                    else _execute_llm_judge_activity(
+                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+                    )
+                )
+            elif target == "trace":
+                trace_inputs = ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation, team_id=1, trace_id="trace-1", window_start=FROZEN_NOW.isoformat()
+                )
+                result = (
+                    async_to_sync(execute_trace_hog_eval_activity)(trace_inputs)
+                    if runtime == "hog"
+                    else execute_trace_llm_judge_activity(trace_inputs)
+                )
+            else:
+                session_inputs = ExecuteSessionEvaluationInputs(
+                    evaluation=evaluation, team_id=1, session_id="session-1", window_start=FROZEN_NOW.isoformat()
+                )
+                result = (
+                    async_to_sync(execute_session_hog_eval_activity)(session_inputs)
+                    if runtime == "hog"
+                    else execute_session_llm_judge_activity(session_inputs)
+                )
+        assert result["result_type"] == "numeric"
+        assert "verdict" not in result
+        assert result["applicable"] is (score is not None)
+        if score is None:
+            assert "score" not in result
+        else:
+            assert result["score"] == score
+            assert result["score_min"] == 0
+            assert result["score_max"] == 1
+
     @pytest.mark.parametrize(
         "skip_reason",
-        ["session_not_found", "session_too_large", "session_payload_too_large", "session_truncated"],
+        [
+            "session_not_found",
+            "session_too_large",
+            "session_payload_too_large",
+            "session_truncated",
+            "property_access_restricted",
+        ],
     )
-    def test_hog_skips_carry_a_session_specific_reason(self, skip_reason):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_hog_skips_carry_a_session_specific_reason(self, skip_reason, output_type):
         with patch(
             "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
             return_value=SessionFetchOutcome(traces=None, skip_reason=skip_reason, event_count=0),
@@ -423,6 +576,7 @@ class TestExecuteSessionActivities:
                         "evaluation_type": "hog",
                         "evaluation_config": {"bytecode": ["_H", 1, 32, True]},
                         "output_config": {"allows_na": False},
+                        "output_type": output_type,
                     },
                     team_id=1,
                     session_id="s-1",
@@ -432,6 +586,10 @@ class TestExecuteSessionActivities:
         assert result["skipped"] is True
         assert result["skip_reason"] == skip_reason
         assert "session" in result["reasoning"].lower()
+        assert result["result_type"] == output_type
+        assert "score" not in result
+        if output_type == "numeric":
+            assert "verdict" not in result
 
     def test_judge_rejects_a_non_judge_evaluation(self):
         with pytest.raises(ApplicationError, match="Unsupported evaluation type"):
@@ -444,11 +602,13 @@ class TestExecuteSessionActivities:
                 )
             )
 
-    def test_judge_skips_without_judging_when_the_session_is_truncated(self):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    @pytest.mark.parametrize("skip_reason", ["session_truncated", "property_access_restricted"])
+    def test_judge_skips_without_judging(self, output_type: str, skip_reason: str) -> None:
         with (
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
-                return_value=SessionFetchOutcome(traces=None, skip_reason="session_truncated", event_count=0),
+                return_value=SessionFetchOutcome(traces=None, skip_reason=skip_reason, event_count=0),
             ),
             patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
         ):
@@ -457,7 +617,7 @@ class TestExecuteSessionActivities:
                     evaluation={
                         "evaluation_type": "llm_judge",
                         "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
-                        "output_type": "boolean",
+                        "output_type": output_type,
                         "output_config": {"allows_na": False},
                     },
                     team_id=1,
@@ -466,7 +626,13 @@ class TestExecuteSessionActivities:
                 )
             )
         assert result["skipped"] is True
-        assert result["skip_reason"] == "session_truncated"
+        assert result["skip_reason"] == skip_reason
+        assert result["result_type"] == output_type
+        assert "score" not in result
+        if output_type == "numeric":
+            assert "verdict" not in result
+        if skip_reason == "property_access_restricted":
+            assert "property access rules" in result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
 

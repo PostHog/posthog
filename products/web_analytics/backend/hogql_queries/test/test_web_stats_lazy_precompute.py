@@ -53,6 +53,13 @@ PARITY_BREAKDOWNS = [
     ("exit_page", WebStatsBreakdown.EXIT_PAGE),
 ]
 
+# The span gate measures `date_to - date_from` in whole days, so these three
+# dates straddle MAX_PRECOMPUTE_DAYS exactly: 366 days from MAX_SPAN_DATE_FROM
+# and 367 from OVER_MAX_SPAN_DATE_FROM.
+SPAN_DATE_TO = "2024-01-07"
+MAX_SPAN_DATE_FROM = "2023-01-06"
+OVER_MAX_SPAN_DATE_FROM = "2023-01-05"
+
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
@@ -244,25 +251,43 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
         assert lazy == raw, f"lazy/raw mismatch under channel filter: raw={raw}, lazy={lazy}"
 
+    @parameterized.expand(
+        [
+            (
+                "channel_filtered",
+                [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)],
+                False,
+            ),
+            ("unfiltered", [], False),
+            ("with_compare_period", [], True),
+        ]
+    )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
-    def test_channel_filter_over_max_days_still_admitted(self):
-        # The gate check the customer path depends on: a channel-filtered range
-        # past MAX_PRECOMPUTE_DAYS (90) but under CHANNEL_MAX_PRECOMPUTE_DAYS
-        # (366) must stay eligible instead of DateRangeOverMax falling to live.
-        props = [SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)]
+    def test_year_long_range_stays_admitted(self, _name: str, props: list, compare: bool):
+        # Sits exactly on MAX_PRECOMPUTE_DAYS (366), so any narrower cap sends a
+        # "this year" tile back to the live path through DateRangeOverMax. The
+        # compare case pins the measured span to the current period: the previous
+        # period gets its own `ensure_web_stats_precomputed` call (parity covered
+        # by `test_lazy_matches_raw_with_compare`), so a gate measuring both would
+        # see ~732 days and reject.
         runner = WebStatsTableQueryRunner(
             team=self.team,
-            query=self._build_query(properties=props, date_from="2023-06-01", date_to="2024-01-07"),
+            query=self._build_query(
+                properties=props, date_from=MAX_SPAN_DATE_FROM, date_to=SPAN_DATE_TO, compare=compare
+            ),
         )
         with self._enable_lazy():
             assert can_use_stats_lazy_precompute(runner)
 
-        unfiltered = WebStatsTableQueryRunner(
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_range_one_day_past_max_falls_through(self):
+        # One day wider than the case above, so the cap bites at 367 days.
+        runner = WebStatsTableQueryRunner(
             team=self.team,
-            query=self._build_query(date_from="2023-06-01", date_to="2024-01-07"),
+            query=self._build_query(date_from=OVER_MAX_SPAN_DATE_FROM, date_to=SPAN_DATE_TO),
         )
         with self._enable_lazy():
-            assert not can_use_stats_lazy_precompute(unfiltered), "the 366-day cap is channel-scoped, not general"
+            assert not can_use_stats_lazy_precompute(runner)
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_uuid_session_mode_stays_rejected_with_channel_filter(self):

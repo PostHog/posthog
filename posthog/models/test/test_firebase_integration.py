@@ -1,5 +1,6 @@
 import time
 from datetime import timedelta
+from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import FirebaseIntegration, Integration
@@ -76,14 +78,29 @@ class TestFirebaseIntegration(BaseTest):
     def test_reconnecting_preserves_identity_verification(self):
         # Rotating the service account key is a routine action that re-upserts the integration. It
         # must not silently reset the verification policy, which would reopen device takeover.
-        self._create_firebase_integration(push_identity_verification="required")
+        public_pem = _ec_public_pem()
+        self._create_firebase_integration(push_identity_verification="required", push_identity_public_keys=[public_pem])
         reconnected = self._create_firebase_integration()
 
         assert reconnected.config["push_identity_verification"] == "required"
+        assert reconnected.config["push_identity_public_keys"] == [public_pem]
 
-    def test_rejects_an_unknown_identity_verification_mode(self):
+    @parameterized.expand(
+        [
+            ("unknown_mode", {"push_identity_verification": "enabled"}),
+            ("required_without_a_public_key", {"push_identity_verification": "required"}),
+        ]
+    )
+    def test_rejects_an_unusable_identity_verification_policy(self, _name: str, policy: dict[str, Any]) -> None:
         with self.assertRaises(ValidationError):
-            self._create_firebase_integration(push_identity_verification="enabled")
+            self._create_firebase_integration(**policy)
+
+    def test_reconnecting_an_optional_channel_without_a_public_key(self):
+        self._create_firebase_integration(push_identity_verification="optional")
+        reconnected = self._create_firebase_integration()
+
+        assert reconnected.config["push_identity_verification"] == "optional"
+        assert "push_identity_public_keys" not in reconnected.config
 
     def test_reconnecting_preserves_identity_public_keys(self):
         # Same rotation guard as the mode: re-upserting on a credential rotation must keep the

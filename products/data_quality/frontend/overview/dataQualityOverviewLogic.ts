@@ -32,6 +32,8 @@ const CHECKS_LIMIT = 500
 
 export type OverviewStatusFilter = 'all' | 'failing' | 'never_run'
 
+export type OverviewChecksStatus = 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
+
 export interface OverviewFilters {
     search: string
     status: OverviewStatusFilter
@@ -139,6 +141,7 @@ export interface dataQualityOverviewLogicValues {
     allSubjectKeys: string[]
     checkRunsByCheckId: Record<string, DataQualityCheckRunApi[]>
     checks: DataQualityOverviewCheckApi[]
+    checksStatus: OverviewChecksStatus
     deletingCheckIds: Record<string, boolean>
     expandedSubjectKeys: string[]
     expansionInitialized: boolean
@@ -289,6 +292,7 @@ export interface dataQualityOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         checks: (overview: OverviewSnapshot | null) => DataQualityOverviewCheckApi[]
         subjectHealth: (overview: OverviewSnapshot | null) => DataQualitySubjectHealthApi[]
+        checksStatus: (checks: DataQualityOverviewCheckApi[]) => OverviewChecksStatus
         scheduleBySubjectKey: (
             subjectSchedules: DataQualitySubjectScheduleApi[]
         ) => Record<string, DataQualitySubjectScheduleApi>
@@ -478,6 +482,18 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
     selectors({
         checks: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.checks ?? []],
         subjectHealth: [(s) => [s.overview], (overview: OverviewSnapshot | null) => overview?.health ?? []],
+        checksStatus: [
+            (s) => [s.checks],
+            (checks: DataQualityOverviewCheckApi[]): OverviewChecksStatus => {
+                if (checks.length === 0) {
+                    return 'none'
+                }
+                if (!checks.every((check) => check.last_status === 'passed')) {
+                    return 'some-not-passed'
+                }
+                return checks.length < CHECKS_LIMIT ? 'all-passed' : 'unknown'
+            },
+        ],
         scheduleBySubjectKey: [
             (s) => [s.subjectSchedules],
             (subjectSchedules: DataQualitySubjectScheduleApi[]): Record<string, DataQualitySubjectScheduleApi> =>

@@ -413,6 +413,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
 
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
@@ -550,6 +551,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         Array.from([...values.eventDefinitionPropertiesLoading, definition.id])
                     )
                     cache.propertiesStartTime = performance.now()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
@@ -560,6 +562,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
                             exampleEventProperties = cache.apiCache[exampleUrl]
                         } else {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             exampleEventProperties = (await api.get(exampleUrl))?.results?.[0].properties ?? {}
                             cache.apiCache = {
                                 ...cache.apiCache,

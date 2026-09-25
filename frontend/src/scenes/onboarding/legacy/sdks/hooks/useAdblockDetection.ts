@@ -1,6 +1,8 @@
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
+import { apiHostOrigin } from 'lib/utils/apiHost'
+
 export type AdblockDetectionResult = 'unknown' | 'blocked' | 'ok'
 
 /**
@@ -32,7 +34,7 @@ export function useAdblockDetection(delayMs: number = 20_000): AdblockDetectionR
 
             // Check 2 – attempt a fetch to the ingestion endpoint
             try {
-                await fetch('https://us.i.posthog.com/decide/?v=3', {
+                await fetch(`${apiHostOrigin()}/decide/?v=3`, {
                     method: 'POST',
                     mode: 'no-cors',
                     body: JSON.stringify({}),

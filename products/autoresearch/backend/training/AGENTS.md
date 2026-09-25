@@ -7,12 +7,13 @@ This is the expensive half of the product. A real run costs roughly a dollar in 
 
 The other half is `../inference/`, which consumes what this package produces and must never re-fit.
 
-This package landed ahead of its callers. `../temporal/` and the `autoresearch_train` command arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
+This package landed ahead of one caller. `../temporal/` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to it below describe where it will sit.
 
 ## What lives here
 
 - `runner.py`
   The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
+  The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads and the autoresearch scopes), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
@@ -21,7 +22,7 @@ This package landed ahead of its callers. `../temporal/` and the `autoresearch_t
 - `ingestion.py`
   The safety net. `handle_task_run_completed()` is called from the `TaskRun` `post_save` signal registered in `../apps.py`, and runs synchronously in the Temporal worker thread.
   If the agent recorded iterations but never called complete, this finalizes through the same promotion path. If it recorded nothing, the run is marked failed — which is what produces `"Agent recorded no iterations before the run ended."`
-  The `autoresearch_training_run_id` marker in `TaskRun.state` is client-writable, so it names a run rather than proving ownership of it. A `TaskRun` may only finalize the run whose server-stamped `task_run_id` is its own id.
+  `run_training()` writes the `autoresearch_training_run_id` marker into `TaskRun.state` when it creates the task, and tasks refuses a patch to it. The marker names a run; ownership is proved by the run's server-stamped `task_run_id`, so a `TaskRun` may only finalize the run whose `task_run_id` is its own id.
 - `promotion.py`
   Champion selection. `complete_training_run()` is the single entry point, used both by the training-run `complete` API action and by `ingestion.py`.
   A challenger must beat the incumbent by `CHAMPION_PROMOTION_MARGIN` (0.005 holdout AUC) to be promoted — near-ties keep the incumbent rather than churning the champion on noise.

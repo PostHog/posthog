@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -43,6 +44,28 @@ export interface apiStatusLogicActions {
 
 export type apiStatusLogicType = MakeLogicType<apiStatusLogicValues, apiStatusLogicActions>
 
+type SensitiveActionCallbacks = [onSuccess: () => void, onFailure: () => void]
+
+function callEach(callbacks: (() => void)[]): void {
+    for (const callback of callbacks) {
+        try {
+            callback()
+        } catch (e) {
+            posthog.captureException(e)
+        }
+    }
+}
+
+function joinSensitiveActionCallbacks(
+    pending: SensitiveActionCallbacks,
+    next: boolean | SensitiveActionCallbacks
+): SensitiveActionCallbacks {
+    if (!Array.isArray(next)) {
+        return pending
+    }
+    return [() => callEach([pending[0], next[0]]), () => callEach([pending[1], next[1]])]
+}
+
 export const apiStatusLogic = kea<apiStatusLogicType>([
     path(['lib', 'apiStatusLogic']),
     actions({
@@ -72,7 +95,12 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             // or reject: the pending checkReauthentication listener awaits them fire-and-forget.
             false as boolean | [onSuccess: () => void, onFailure: () => void],
             {
-                setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
+                // Several requests can wait on one re-authentication. A new waiter joins the pending
+                // callbacks instead of replacing them, or the replaced waiter never settles.
+                setTimeSensitiveAuthenticationRequired: (state, { required }) =>
+                    Array.isArray(state) && required !== false
+                        ? joinSensitiveActionCallbacks(state, required)
+                        : required,
             },
         ],
 
@@ -123,9 +151,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
             try {
                 if (response?.status === 403) {
                     const responseData = await response?.json()
-                    if (responseData.code === 'sensitive_action_required_reauth') {
-                        actions.setTimeSensitiveAuthenticationRequired(true)
-                    } else if (
+                    if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen
@@ -202,6 +228,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (now - 10000 > (cache.lastUnauthorizedCheck ?? 0)) {
                     cache.lastUnauthorizedCheck = Date.now()
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                     await api.get('api/users/@me/').catch((error: any) => {
                         if (error.status === 401) {
                             userLogic.findMounted()?.actions.logout(true)
@@ -212,3 +239,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         },
     })),
 ])
+
+export function awaitReauthentication(): Promise<boolean> {
+    const logic = apiStatusLogic.findMounted()
+    if (!logic || !timeSensitiveAuthenticationLogic.findMounted()) {
+        return Promise.resolve(false)
+    }
+    return new Promise((resolve) =>
+        logic.actions.setTimeSensitiveAuthenticationRequired([() => resolve(true), () => resolve(false)])
+    )
+}

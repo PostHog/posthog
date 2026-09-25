@@ -68,6 +68,7 @@ import {
 import { notebooksCollabPresenceCreate } from 'products/notebooks/frontend/generated/api'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 
+import type { Node } from '../../../queries/schema/schema-general'
 import type { CommentType, UserType } from '../../../types'
 import {
     buildNotebookDependencyGraph,
@@ -308,7 +309,7 @@ export interface notebookLogicValues {
     findNodeLogicById: (id: string) => BuiltLogic<notebookNodeLogicType> | null
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
-    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
+    getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
     hasUnsavedVariables: boolean
     isEditable: boolean
     isLocalOnly: boolean
@@ -703,8 +704,8 @@ export interface notebookLogicMeta {
         cachedInlineQueryResultsByNodeId: (arg: any) => Record<string, AnyResponseType>
         getSharedCachedInsight: (
             isShared: boolean,
-            cachedInsightsByShortId: Record<string, InsightModel>
-        ) => (shortId: string | null | undefined) => InsightModel | null
+            cachedInsightsByShortId: Record<string, InsightModel<Node<Record<string, any>>>>
+        ) => (shortId: string | null | undefined) => InsightModel<Node<Record<string, any>>> | null
         getSharedCachedInlineQueryResults: (
             isShared: boolean,
             cachedInlineQueryResultsByNodeId: Record<string, AnyResponseType>

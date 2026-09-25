@@ -15,6 +15,7 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
+from django.http.request import RawPostDataException
 
 import grpc
 import requests
@@ -35,6 +36,8 @@ from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
+
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -94,6 +97,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
+from products.approvals.backend.policies import PolicyEngine, lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -125,8 +129,12 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
     restore_redacted_flag_payloads,
 )
-from products.feature_flags.backend.facade import filters as flag_filters
+from products.feature_flags.backend.facade import (
+    config_writes,
+    filters as flag_filters,
+)
 from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -146,7 +154,11 @@ from products.feature_flags.backend.session_recording_links import (
     teams_gating_replay_on_flag,
 )
 from products.feature_flags.backend.types import PropertyFilterType
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import (
+    get_person_blast_radius_v2,
+    get_user_blast_radius,
+    use_blast_radius_query_v2,
+)
 from products.feature_flags.backend.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
@@ -289,6 +301,14 @@ EARLY_EXIT_FLAG = "feature-flag-early-exit"
 ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG = "enforce-feature-flag-write-scope-cross-resource"
 
 ENCRYPTED_VERSION_HISTORY_UNAVAILABLE = "Version history is not available for flags with encrypted payloads."
+
+# What an admitted config version 2 update may change, beside a full-document `filters`
+# replacement. Everything else on such a row — activation, archival, deletion, remote
+# config, payloads, aggregation, experiment and lifecycle fields — stays unsupported
+# until the task that owns it lands, so a permissive metadata route cannot stand in for
+# the emergency write path (PH-WRITE-SAFETY) or approval application (PH-WRITE-APPROVAL).
+V2_UPDATE_FIELDS = frozenset({"get_filters", "name", "key", "tags", "version"})
+V2_APPROVAL_ACTIONS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
 
 
 def parse_created_by_ids(value: Any) -> list[int]:
@@ -901,6 +921,23 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
+def _uses_reserved_variant_key(filters: dict) -> bool:
+    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
+
+    Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
+    rollout switch.
+    """
+    multivariate = filters.get("multivariate")
+    if not isinstance(multivariate, dict):
+        return False
+    variants = multivariate.get("variants")
+    if not isinstance(variants, list):
+        return False
+    return any(
+        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+    )
+
+
 def _filters_rule_is_enforced(rule_id: str | None) -> bool:
     """Whether a violation of `rule_id` rejects the write, per the #50084 staged rollout.
 
@@ -1421,6 +1458,10 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError({"filters": exc.detail}) from exc
         attrs = super().validate(attrs)
 
+        if self._v2_update_limits is not None:
+            self._reject_lossy_v2_request_json()
+            self._reject_unsupported_v2_operations(attrs)
+
         # Run universal validations before any early returns so they always apply,
         # regardless of creation_context (surveys, etc.) or evaluation contexts.
         self._validate_device_bucketing_with_persist_auth(attrs)
@@ -1670,13 +1711,161 @@ class FeatureFlagSerializer(
             raise
 
     def _validate_stored_config_format(self) -> None:
-        if self.instance is not None and detect_config_format(self.instance.filters).kind != "v1":
+        if self.instance is None or self._v2_update_limits is not None:
+            return
+        if detect_config_format(self.instance.filters).kind != "v1":
             raise serializers.ValidationError(
                 "This flag's stored configuration cannot be updated through this API. Contact support.",
                 code="unsupported_config_version",
             )
 
+    @functools.cached_property
+    def _v2_update_limits(self) -> ValidationLimits | None:
+        """Trusted limits when this write is an admitted config version 2 update, else None.
+
+        `config_writes.v2_update_limits` is closed in every deployed configuration, so this is
+        None on every production path — creates, v1 rows, unsupported stored formats and v2
+        rows alike — and the unchanged v1/closed handling applies. Admission never reads the
+        request: it needs an existing row whose stored config is v2 and a family this
+        milestone can own, so a request that merely contains numeric 2 cannot reach it.
+        """
+        limits = config_writes.v2_update_limits()
+        if limits is None or self.instance is None:
+            return None
+        assert isinstance(self.instance, FeatureFlag)
+        if detect_config_format(self.instance.filters).kind != "v2":
+            return None
+        # Encrypted payloads and remote config are v1-only features; a row carrying either is
+        # not in the admitted family, whatever its discriminator says.
+        if self.instance.has_encrypted_payloads or self.instance.is_remote_configuration:
+            return None
+        return limits
+
+    def _reject_unsupported_v2_operations(self, attrs: dict) -> None:
+        """Deny everything about an admitted v2 update that this milestone does not own."""
+        submitted_fields = set(self.initial_data) if isinstance(self.initial_data, Mapping) else set()
+        # DRF drops unknown and read-only input fields. original_flag remains an ignored
+        # v1 compatibility field; the required row-version token still forbids merging.
+        allowed_input_fields = (V2_UPDATE_FIELDS - {"get_filters"}) | {"filters", "original_flag"}
+        unsupported = sorted((set(attrs) - V2_UPDATE_FIELDS) | (submitted_fields - allowed_input_fields))
+        if unsupported:
+            names = ", ".join("filters" if field == "get_filters" else field for field in unsupported)
+            raise serializers.ValidationError(
+                f"These fields cannot be updated on this flag: {names}.", code="unsupported_config_version"
+            )
+        # PH-WRITE-APPROVAL owns approval application for v2. Until it exists, reject the
+        # operation outright rather than let the gate create a pending request whose apply
+        # path (replayed through this serializer with approval_apply set) is unsupported.
+        if self.context.get("approval_apply"):
+            raise serializers.ValidationError(
+                "Approved changes cannot be applied to this flag.", code="unsupported_config_version"
+            )
+        # Derived the way the approval gate derives it, including its instance fallback: a
+        # caller that builds no get_team context (internal service paths, organization copy)
+        # must not skip this check, or an enabled policy would be bypassed rather than denied.
+        get_team = self.context.get("get_team")
+        assert isinstance(self.instance, FeatureFlag)
+        team = (get_team() if get_team else None) or self.instance.team
+        self._reject_v2_approval_policy(team)
+
+    def _reject_v2_approval_policy(self, team: Team) -> None:
+        engine = PolicyEngine()
+        # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
+        # this team denies the write, because a v2 change that needs approval has nowhere to go.
+        if any(
+            engine.get_policy(action_key=action, team=team, organization=team.organization) is not None
+            for action in V2_APPROVAL_ACTIONS
+        ):
+            raise serializers.ValidationError(
+                "This flag cannot be updated while an approval policy is enabled.",
+                code="unsupported_config_version",
+            )
+
+    def _reject_lossy_v2_request_json(self) -> None:
+        """Reject request bytes that repeat a key, before JSON normalization hides it.
+
+        `json.loads` keeps the last of two duplicate keys, so bytes the Rust parser rejects
+        would otherwise be validated and stored as a clean document. Scoped to the v2 path:
+        v1 parsing, coercion and error behavior are untouched. Non-finite numbers and excess
+        percentage precision need no ingress handling — the strict validator rejects both.
+        """
+        request = self.context.get("request")
+        if not str(getattr(request, "content_type", "") or "").startswith("application/json"):
+            return
+        try:
+            body = getattr(request, "body", b"")
+        except (AttributeError, RawPostDataException):
+            # A caller that already consumed the stream, or a request shim with no bytes at
+            # all. Direct Python callers pass a parsed dict and cannot carry a duplicate key.
+            return
+        if not body:
+            return
+        try:
+            config_writes.reject_duplicate_json_keys(body)
+        except ConfigValidationError as exc:
+            raise self._v2_validation_error(exc) from exc
+
+    @staticmethod
+    def _v2_validation_error(exc: ConfigValidationError) -> serializers.ValidationError:
+        """Translate pure validation errors into this endpoint's error envelope.
+
+        Same shape as the v1 structural tier: one detail per field error, prefixed with its
+        `filters....` path and carrying the validator's code. The validator's details never
+        echo config values, seeds or metadata.
+        """
+        return serializers.ValidationError(
+            [ErrorDetail(f"{error.attr}: {error.detail}", code=error.code) for error in exc.errors]
+        )
+
+    def _apply_v2_update(
+        self, locked_instance: FeatureFlag, validated_data: dict, locked_version: int, limits: ValidationLimits
+    ) -> None:
+        """Enforce the v2 row-version token and resolve the final document under the lock.
+
+        `FeatureFlag.version` is the row's concurrency counter, unrelated to
+        `filters.version`. Unlike v1 it is required here and never merged: a stale v2
+        replacement is a conflict even when its individual fields do not clash, because the
+        document replaces the whole configuration.
+        """
+        # Use the submitted token: IntegerField coerces strings and defaults missing PUT
+        # values, while facade callers' ServiceRequest.data contains no submitted fields.
+        token = self.initial_data.get("version") if isinstance(self.initial_data, dict) else None
+        if token is None:
+            raise serializers.ValidationError({"version": "This field is required for this flag."}, code="required")
+        if isinstance(token, bool) or not isinstance(token, int):
+            raise serializers.ValidationError({"version": "Must be an integer."})
+        if token != locked_version:
+            raise Conflict(flag_version_conflict_message(token, locked_version))
+        if "filters" not in validated_data:
+            return  # a metadata update; the stored config is not rewritten or normalized
+        stored = locked_instance.filters or {}
+        try:
+            document = config_writes.resolve_identity(validated_data["filters"], stored=stored)
+            warnings = config_writes.review_update(document, stored=stored, limits=limits)
+        except ConfigValidationError as exc:
+            raise self._v2_validation_error(exc) from exc
+        if warnings:
+            # No response field carries these yet; the editor preview (PH-UI-FLAG) owns
+            # surfacing them. Recording the codes keeps the detectors exercised meanwhile.
+            logger.info(
+                "feature_flag_v2_update_warnings",
+                extra={"flag_id": locked_instance.pk, "codes": [warning.code for warning in warnings]},
+            )
+        validated_data["filters"] = document
+
     def _validate_filters_inner(self, filters, operation: str):
+        if _uses_reserved_variant_key(filters):
+            raise serializers.ValidationError(
+                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
+                code="reserved_variant_key",
+            )
+
+        if self._v2_update_limits is not None:
+            # An admitted v2 replacement passes through untouched — no v1 merge, no
+            # normalization. It is resolved and validated in update(), against the locked
+            # state it actually replaces; nothing this side of the lock can decide it.
+            return filters
+
         # Unknown keys survive normalization during the validation rollout. Reserve the
         # config discriminator before that path can store an unsupported format.
         if "version" in filters:
@@ -2263,7 +2452,7 @@ class FeatureFlagSerializer(
 
         return instance
 
-    @approval_gate(["feature_flag.enable", "feature_flag.disable", "feature_flag.update"])
+    @approval_gate(list(V2_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # Service-layer callers may carry no body, and an endpoint that declares no request schema
@@ -2350,16 +2539,24 @@ class FeatureFlagSerializer(
 
         try:
             with transaction.atomic():
+                v2_limits = self._v2_update_limits
+                if v2_limits is not None:
+                    lock_approval_policies(instance.team.organization_id, shared=True)
                 # select_for_update locks the database row so we ensure version updates are atomic.
                 # Uses objects_including_soft_deleted so that restoring a soft-deleted flag
                 # (setting deleted=False) can acquire the lock.
                 locked_instance = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=instance.pk)
                 locked_version = locked_instance.version or 0
 
-                self._apply_stored_filter_rules(validated_data, locked_instance, request)
+                # V1 cleanup must not strip unknown keys from a v2 document before validation.
+                if v2_limits is None:
+                    self._apply_stored_filter_rules(validated_data, locked_instance, request)
 
                 # NOW check for conflicts after all transformations
-                if version != -1 and version != locked_version:
+                if v2_limits is not None:
+                    self._reject_v2_approval_policy(locked_instance.team)
+                    self._apply_v2_update(locked_instance, validated_data, locked_version, v2_limits)
+                elif version != -1 and version != locked_version:
                     if getattr(request, "strict_version_precondition", False):
                         # The default check below needs the caller's `original_flag` and only
                         # refuses a write whose own fields collide. A caller that sends a version
@@ -3646,6 +3843,14 @@ class FeatureFlagViewSet(
         from products.feature_flags.backend.facade.api import update_flag
 
         instance = self.get_object()
+        if (
+            config_writes.v2_update_limits() is not None
+            and detect_config_format(instance.filters).kind == "v2"
+            and request.content_type.startswith("application/json")
+        ):
+            # Cache the bytes before DRF consumes the stream, so validation can detect
+            # duplicate keys even when middleware has not already read the body.
+            _ = request.body
         flag = update_flag(
             instance,
             request.data,
@@ -5239,7 +5444,10 @@ class FeatureFlagViewSet(
         condition = request.data.get("condition") or {}
         group_type_index = request.data.get("group_type_index", None)
 
-        result = get_user_blast_radius(self.team, condition, group_type_index)
+        if group_type_index is None and use_blast_radius_query_v2(self.team):
+            result = get_person_blast_radius_v2(self.team, condition)
+        else:
+            result = get_user_blast_radius(self.team, condition, group_type_index)
 
         return Response({"affected": result.affected, "total": result.total})
 

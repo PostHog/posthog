@@ -38,6 +38,12 @@ class DesktopFeedbackSource(models.TextChoices):
     POSTHOG_WEB = "Visiting PostHog web"
 
 
+class DesktopFeedbackType(models.TextChoices):
+    BUG = "bug", "Bug"
+    FEATURE = "feature", "Feature"
+    GENERAL = "general", "General"
+
+
 class DesktopFeedbackServiceUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "Could not send feedback. Please try again."
@@ -80,6 +86,11 @@ class DesktopFeedbackRequestSerializer(serializers.Serializer):
     feedback_view = serializers.CharField(
         max_length=100,
         help_text="Desktop view that was active when the feedback form opened.",
+    )
+    feedback_type = serializers.ChoiceField(
+        choices=DesktopFeedbackType.choices,
+        required=False,
+        help_text="Feedback type selected by the user: bug, feature, or general.",
     )
     feedback_task_id = serializers.CharField(
         required=False,

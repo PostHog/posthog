@@ -1,0 +1,43 @@
+rules:
+    - id: csp-header-outside-csp-middleware
+      message: >-
+          Do not set a `Content-Security-Policy` header here. The policy the app serves lives in
+          `posthog/csp_middleware.py`, which team-security owns in `.github/CODEOWNERS`, so a
+          policy change gets a security review. A header set on a view escapes that review, and
+          `CSPMiddleware` returns a response that already carries one unchanged, so it also drops
+          the app policy for that document. Widen the matching list in `posthog/csp_middleware.py`
+          instead. A document that must carry its own sandbox, such as untrusted HTML, needs
+          team-security to add the path to this rule's `paths.exclude`.
+      severity: ERROR
+      languages: [python]
+      patterns:
+          - pattern-either:
+                - pattern: $RESPONSE[$HEADER] = $POLICY
+                - pattern: $RESPONSE.headers[$HEADER] = $POLICY
+                - pattern: $RESPONSE.setdefault($HEADER, $POLICY)
+                - pattern: $RESPONSE.headers.setdefault($HEADER, $POLICY)
+                - pattern: '$RESPONSE.headers.update({..., $HEADER: $POLICY, ...})'
+                - pattern: '$RESPONSE_CLASS(..., headers={..., $HEADER: $POLICY, ...})'
+          - metavariable-regex:
+                metavariable: $HEADER
+                regex: (?i)^["']?content-security-policy(-report-only)?["']?$
+          # Three documents sandbox untrusted HTML, so each carries a policy of its own rather than
+          # the app policy. Each exception names the policy it allows, not the file, so a fourth
+          # document in the same file trips the rule, and a change to one of these three policies
+          # trips it too. Each exception also pins the enforced header name, because the `sandbox`
+          # directive these three documents rely on has no effect when a browser gets the policy as
+          # `Content-Security-Policy-Report-Only`. Adding an exception needs a team-security review.
+          - pattern-not: $RESPONSE["Content-Security-Policy"] = artifact_csp(...)
+          - pattern-not: $RESPONSE["Content-Security-Policy"] = _public_survey_csp(...)
+          - pattern-not: >-
+                $RESPONSE["Content-Security-Policy"] = "sandbox; default-src 'none'; img-src https:
+                data:; style-src 'unsafe-inline'"
+      paths:
+          exclude:
+              # The app and admin policies, and the middleware that attaches them.
+              - /posthog/csp_middleware.py
+              # Rule fixtures and tests set the header on purpose.
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'

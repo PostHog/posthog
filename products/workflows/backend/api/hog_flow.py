@@ -6,7 +6,7 @@ import dataclasses
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import Any, NamedTuple, Optional, cast
+from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -72,10 +72,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -108,6 +107,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
+from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
@@ -161,14 +161,13 @@ from products.workflows.backend.services.account_audience import (
     parse_account_audience_filters,
 )
 from products.workflows.backend.services.audience_v2 import (
-    bounded_memory_settings,
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
     use_audience_query_v2,
 )
 from products.workflows.backend.services.batch_audience import (
-    PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
+    audience_page_size,
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
@@ -816,6 +815,20 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
 
 
+_EVENT_TRIGGER_NEEDS_A_TARGET = "Pick at least one event or property filter, or the trigger will never fire."
+
+
+def _event_trigger_targets_something(filters: Any) -> bool:
+    # Checked on the filters the serializer hands back, after it drops the keys a source does not
+    # support, so a person-updates trigger that only named events counts as empty.
+    if not isinstance(filters, dict):
+        return False
+    entries = [*(filters.get("events") or []), *(filters.get("actions") or [])]
+    if any(isinstance(entry, dict) and entry.get("id") not in (None, "") for entry in entries):
+        return True
+    return any(isinstance(prop, dict) and prop.get("key") for prop in filters.get("properties") or [])
+
+
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # Non-draft saves always validate fully. Drafts stay lenient for the web UI builder (which saves
     # incomplete graphs mid-edit) and for internal re-saves (e.g. the refresh management command), which
@@ -1207,6 +1220,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             "Type-specific config keyed by action type. "
             "trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, "
             "filters?}. "
+            "An active event trigger must name at least one event, action or property filter; with "
+            "filters.source 'person-updates' that means at least one property filter. "
             "internal-event requires filters.events naming one or more allowed event ids, and runs once "
             "for each matching event on the internal-events stream. Runs are person-less, so "
             "person-dependent steps are rejected. "
@@ -1445,6 +1460,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
+                if filters is not None and not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters = filters or {}
                 # Move filter_test_accounts into filters for bytecode compilation
                 if data.get("config", {}).get("filter_test_accounts") is not None:
                     filters["filter_test_accounts"] = data["config"].pop("filter_test_accounts")
@@ -1455,7 +1473,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                             data["config"]["filters"] = serializer.validated_data
                     else:
                         serializer.is_valid(raise_exception=True)
+                        # The builder refuses this; the API and MCP paths did not. Stored without a
+                        # target the trigger has no bytecode and fails on every event, or compiles to
+                        # match-all once the serializer drops what its source does not support. A
+                        # draft is not running yet, so an agent can still build the flow up in steps.
+                        if not is_draft and not _event_trigger_targets_something(serializer.validated_data):
+                            raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
                         data["config"]["filters"] = serializer.validated_data
+                elif not is_draft:
+                    raise serializers.ValidationError({"filters": _EVENT_TRIGGER_NEEDS_A_TARGET})
             elif data.get("config", {}).get("type") == "batch":
                 filters = data.get("config", {}).get("filters", {})
                 if strict:
@@ -1996,8 +2022,9 @@ class HogFlowConversionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "How long after entering the workflow a conversion still counts, as a duration string: "
-            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. "
-            "Omit it to use the default window. Set this or 'window_minutes', not both."
+            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, "
+            "and at most '365d'. Omit it to use the default of 90 days. "
+            "Set this or 'window_minutes', not both."
         ),
     )
     window_minutes = serializers.IntegerField(
@@ -2005,7 +2032,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
-            "person enters the workflow. Maximum 129600 (90 days). null = use the default window. "
+            "person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. "
             "Set this or 'window', not both."
         ),
     )
@@ -3783,12 +3810,83 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
 
+# A workflow's type is what owns it, else what it does. `loop` and `broadcast` name the surfaces that
+# have their own page, and the behavioural values exclude them: a flow those surfaces own is tagged
+# by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
+# tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
+# workflows page asks for everything except the ones that moved out.
+WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast")
+OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
+    "loop": HogFlow.OriginProduct.LOOPS,
+    "broadcast": HogFlow.OriginProduct.BROADCASTS,
+}
+
+
+def workflow_type_q(requested: set[str]) -> Q:
+    owned = Q(origin_product__in=[OWNED_WORKFLOW_TYPES[t] for t in requested if t in OWNED_WORKFLOW_TYPES])
+    behavioural = requested - set(OWNED_WORKFLOW_TYPES)
+    if not behavioural:
+        return owned
+
+    messaging = Q()
+    for action_type in MESSAGING_ACTION_TYPES:
+        messaging |= Q(actions__contains=[{"type": action_type}])
+    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
+    if behavioural == {"messaging", "automation"}:
+        return owned | unowned
+    return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
+
+
+BROADCAST_TRIGGER_TYPE = "batch"
+BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
+
+
+def _json_path(path: str) -> models.Func:
+    # A jsonpath bind parameter. Postgres types a plain parameter as text and the jsonb_path_*
+    # functions take jsonpath, so the cast has to be spelled out.
+    return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
+
+
+def _jsonb_path_exists(path: str) -> models.Func:
+    return models.Func(
+        models.F("actions"),
+        _json_path(path),
+        function="jsonb_path_exists",
+        output_field=models.BooleanField(),
+    )
+
+
+def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
+    # Whether a workflow has the shape the broadcasts UI renders: a batch trigger and one email step,
+    # evaluated in Postgres so a list can filter on the graph without loading every row's actions.
+    # The trigger comes from the trigger action, where mask_trigger_config reads it: the `trigger`
+    # column is a legacy copy and rows exist where the two disagree. jsonpath runs in lax mode, so a
+    # row whose `actions` is not an array yields no matches rather than an error.
+    other_step = " && ".join(f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES))
+    return queryset.annotate(
+        _has_batch_trigger=_jsonb_path_exists(
+            f'$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
+        ),
+        _email_step_count=models.Func(
+            models.Func(
+                models.F("actions"),
+                _json_path('$[*] ? (@.type == "function_email")'),
+                function="jsonb_path_query_array",
+                output_field=models.JSONField(),
+            ),
+            function="jsonb_array_length",
+            output_field=models.IntegerField(),
+        ),
+        _has_other_step=_jsonb_path_exists(f"$[*] ? ({other_step})"),
+    )
+
+
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status"]
+        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -3914,8 +4012,7 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
             OpenApiParameter(
                 "type",
                 OpenApiTypes.STR,
-                enum=["messaging", "automation", "loop"],
-                description="Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.",
+                description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
             ),
             OpenApiParameter(
                 "origin_product",
@@ -3927,6 +4024,11 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
                 "trigger",
                 OpenApiTypes.STR,
                 description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
+            ),
+            OpenApiParameter(
+                "broadcast_eligible",
+                OpenApiTypes.BOOL,
+                description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
             ),
         ]
     )
@@ -4060,22 +4162,28 @@ class HogFlowViewSet(
 
             workflow_type = self.request.GET.get("type")
             if workflow_type:
-                if workflow_type not in ("messaging", "automation", "loop"):
-                    raise exceptions.ValidationError({"type": "Must be one of: messaging, automation, loop"})
-                if workflow_type == "loop":
-                    queryset = queryset.filter(origin_product=HogFlow.OriginProduct.LOOPS)
-                else:
-                    # A loop-origin workflow renders a "Loop" tag regardless of its actions (see
-                    # WorkflowTypeTag), so it must not also match messaging/automation - otherwise
-                    # picking one of those filters could return rows the UI still labels "Loop".
-                    messaging_q = Q()
-                    for action_type in MESSAGING_ACTION_TYPES:
-                        messaging_q |= Q(actions__contains=[{"type": action_type}])
-                    queryset = queryset.exclude(origin_product=HogFlow.OriginProduct.LOOPS)
-                    queryset = (
-                        queryset.filter(messaging_q) if workflow_type == "messaging" else queryset.exclude(messaging_q)
-                    )
+                requested = {value for value in workflow_type.split(",") if value}
+                unknown = sorted(requested - set(WORKFLOW_TYPES))
+                # A value of only separators names no type. Filtering on nothing would answer with an
+                # empty list, so it is rejected the way any other unusable value is.
+                if unknown or not requested:
+                    named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
+                    raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
+                queryset = queryset.filter(workflow_type_q(requested))
 
+            if self.request.GET.get("broadcast_eligible") == "true":
+                queryset = annotate_broadcast_shape(queryset).filter(
+                    Q(origin_product=HogFlow.OriginProduct.BROADCASTS)
+                    | Q(
+                        origin_product__isnull=True,
+                        _has_batch_trigger=True,
+                        _email_step_count=1,
+                        _has_other_step=False,
+                    )
+                )
+
+            # `?type=loop` and `?type=broadcast` return the same rows, but Desktop's Loops list sends
+            # this param and ships on its own release cadence, so installed builds keep sending it.
             origin_product = self.request.GET.get("origin_product")
             if origin_product:
                 if origin_product not in HogFlow.OriginProduct.values:
@@ -6025,7 +6133,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     {
                         "users_affected": users_affected,
                         "cursor": users_affected[-1] if users_affected else None,
-                        "has_more": len(users_affected) == WORKFLOWS_PERSON_BATCH_SIZE,
+                        "has_more": len(users_affected) == audience_page_size(group_type_index),
                     }
                 ).data
             )

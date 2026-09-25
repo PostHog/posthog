@@ -130,12 +130,13 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     missing_label_columns,
     model_feature_set,
     model_mismatch,
-    readable_head_files,
+    readable_head_names,
     report_grade_rows,
     score_event_rows,
     score_pool,
     scored_pool,
     scores_table,
+    trained_head_files,
     unseen_pool,
     with_model_names,
 )
@@ -156,6 +157,9 @@ _LABEL_COLUMNS = (
     "pr_created_count",
     "pr_merged_count",
     "refund_count",
+    "feedback_positive_count",
+    "reviewer_add_count",
+    "reviewer_remove_count",
     *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every
@@ -816,14 +820,14 @@ def load_family_models(
             context.log.warning(f"{model_name} {role} {metadata.get('model_version')} not scored: {mismatch}")
             continue
         boosters = {}
-        for head_name, filename in readable_head_files(metadata).items():
+        for head_name, filename in trained_head_files(metadata).items():
             body = _read_bytes_if_exists(
                 client, bucket, model_object_key(prefix, model_name, metadata["model_version"], filename)
             )
             if body is not None:
                 boosters[head_name] = body
         if not boosters:
-            context.log.warning(f"{model_name} {role} {metadata['model_version']} has no readable head to score")
+            context.log.warning(f"{model_name} {role} {metadata['model_version']} has no trained head to score")
             continue
         models.append(
             UnseenModel(
@@ -832,6 +836,7 @@ def load_family_models(
                 model_role=role,
                 feature_set=feature_set,
                 boosters=boosters,
+                readable_heads=readable_head_names(metadata),
             )
         )
     return models

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { byStatusAttention, checkRunDisplayName, failingForLabel } from './checksConstants'
+import { byStatusAttention, checkRunDisplayName, failingForLabel, runResultCell } from './checksConstants'
 import { CheckTypeEnumApi } from './generated/api.schemas'
 
 describe('checksConstants', () => {
@@ -61,5 +61,78 @@ describe('checksConstants', () => {
             'skipped',
             'passed',
         ])
+    })
+
+    it.each<[string, CheckTypeEnumApi, number | null, Record<string, unknown> | null, string, string | null]>([
+        [
+            'a freshness run reads as a duration with its limit',
+            CheckTypeEnumApi.Freshness,
+            147117,
+            { max_age_minutes: 2160 },
+            '1d\u00a016h old',
+            'Newest row is 147,117 seconds old. The limit is 1d\u00a012h.',
+        ],
+        [
+            'a freshness run without a config snapshot omits the limit',
+            CheckTypeEnumApi.Freshness,
+            147117,
+            null,
+            '1d\u00a016h old',
+            'Newest row is 147,117 seconds old.',
+        ],
+        [
+            'a row count run names the bound it is held to',
+            CheckTypeEnumApi.RowCount,
+            1493355,
+            { min: 1000000, max: 2000000 },
+            '1,493,355\u00a0rows',
+            '1,493,355\u00a0rows. The limit is between 1,000,000 and 2,000,000\u00a0rows.',
+        ],
+        [
+            'a row count run with one bound names only that one',
+            CheckTypeEnumApi.RowCount,
+            12,
+            { max: 10 },
+            '12\u00a0rows',
+            '12\u00a0rows. The limit is at most 10\u00a0rows.',
+        ],
+        [
+            'a row count run with a bound of one reads in the singular',
+            CheckTypeEnumApi.RowCount,
+            0,
+            { min: 1 },
+            '0\u00a0rows',
+            '0\u00a0rows. The limit is at least 1\u00a0row.',
+        ],
+        [
+            'a freshness run whose newest row is ahead of the clock says so',
+            CheckTypeEnumApi.Freshness,
+            -3600,
+            { max_age_minutes: 2160 },
+            '1h in the future',
+            'Newest row is 3,600 seconds in the future. The limit is 1d\u00a012h.',
+        ],
+        ['a not null run counts null rows', CheckTypeEnumApi.NotNull, 7, null, '7\u00a0null rows', null],
+        [
+            'a unique run counts duplicate values, singular at one',
+            CheckTypeEnumApi.Unique,
+            1,
+            null,
+            '1\u00a0duplicate value',
+            null,
+        ],
+        [
+            'a custom SQL run counts the rows its query returned',
+            CheckTypeEnumApi.CustomSql,
+            0,
+            null,
+            '0\u00a0rows returned',
+            null,
+        ],
+        ['a run with nothing observed shows a dash', CheckTypeEnumApi.Freshness, null, null, '-', null],
+    ])('%s', (_case, checkType, observedValue, checkConfig, label, tooltip) => {
+        expect(
+            runResultCell({ check_type: checkType, observed_value: observedValue, check_config: checkConfig })
+        ).toEqual({ label, tooltip })
     })
 })

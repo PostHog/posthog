@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -7,7 +9,8 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
     REVIEW_MODE_FLASH,
@@ -17,6 +20,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
 from products.review_hog.backend.reviewer.tools.publish_review import PublishOutcome
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 _PUBLISH = "products.review_hog.backend.management.commands.publish_review.publish_persisted_review"
 _INTEGRATION = (
@@ -67,6 +71,23 @@ class TestPublishReviewCommand(BaseTest):
         )
         return report_id
 
+    def _finding_mode(self, report_id: str, run_index: int, mode: str | None) -> None:
+        ReviewReportArtefact.append_finding(
+            team_id=self.team.id,
+            report_id=report_id,
+            content=ReviewIssueFinding(
+                issue_key=f"r{run_index}:a.py:1:logic:1",
+                run_index=run_index,
+                validation_context=json.dumps({"review_mode": mode}) if mode is not None else None,
+                title="Missing guard",
+                file="a.py",
+                body="The value can be absent.",
+                suggestion="Check the value before using it.",
+                priority=IssuePriority.SHOULD_FIX,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
     def test_errors_when_no_review_exists(self) -> None:
         with pytest.raises(CommandError, match="No review found"):
             call_command("publish_review", pr_url=_URL, team_id=self.team.id)
@@ -77,15 +98,30 @@ class TestPublishReviewCommand(BaseTest):
         with pytest.raises(CommandError, match="hasn't completed a run"):
             call_command("publish_review", pr_url=_URL, team_id=self.team.id)
 
-    @parameterized.expand([(None, REVIEW_MODE_FULL), (REVIEW_MODE_FLASH, REVIEW_MODE_FLASH)])
+    @parameterized.expand(
+        [
+            (None, None, REVIEW_MODE_FULL),
+            (None, REVIEW_MODE_FLASH, REVIEW_MODE_FLASH),
+            (REVIEW_MODE_FLASH, REVIEW_MODE_FLASH, REVIEW_MODE_FLASH),
+            (None, REVIEW_MODE_FULL, REVIEW_MODE_FULL),
+        ]
+    )
     @patch(_STALE, return_value=None)
     @patch(_PUBLISH, return_value=PublishOutcome(posted=True))
     def test_publishes_latest_completed_run_with_no_recompute(
-        self, review_mode: str | None, expected_mode: str, mock_publish: MagicMock, _stale: MagicMock
+        self,
+        review_mode: str | None,
+        stored_mode: str | None,
+        expected_mode: str,
+        mock_publish: MagicMock,
+        _stale: MagicMock,
     ) -> None:
         # The standalone publish targets the last completed turn — run_index == run_count, at the
         # report's reviewed head_sha — and reuses the shared DB-driven publish path (no workflow).
         report_id = self._report(run_count=2, head_sha="sha7")
+        earlier_mode = REVIEW_MODE_FULL if expected_mode == REVIEW_MODE_FLASH else REVIEW_MODE_FLASH
+        self._finding_mode(report_id, 1, earlier_mode)
+        self._finding_mode(report_id, 2, stored_mode)
         integration = MagicMock()
         integration.get_access_token.return_value = "tok"
         integration.github_installation_id = "9876543"
@@ -102,6 +138,15 @@ class TestPublishReviewCommand(BaseTest):
         assert kwargs["review_mode"] == expected_mode
         # The installation id rides along so the publish calls are metered against the right budget.
         assert kwargs["installation_id"] == "9876543"
+
+    @parameterized.expand([(REVIEW_MODE_FLASH, REVIEW_MODE_FULL), (REVIEW_MODE_FULL, REVIEW_MODE_FLASH)])
+    def test_rejects_a_mode_that_differs_from_the_stored_review(self, stored_mode: str, requested_mode: str) -> None:
+        report_id = self._report(run_count=1)
+        self._finding_mode(report_id, 1, stored_mode)
+        with patch(_INTEGRATION) as integration:
+            with pytest.raises(CommandError, match=f"The stored review used {stored_mode} mode"):
+                call_command("publish_review", "--review-mode", requested_mode, pr_url=_URL, team_id=self.team.id)
+        integration.assert_not_called()
 
     @patch(_STALE, return_value=None)
     @patch(_PUBLISH, return_value=PublishOutcome(posted=True))

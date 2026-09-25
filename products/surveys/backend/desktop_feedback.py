@@ -198,6 +198,7 @@ def submit_desktop_feedback(
         **media_properties,
     }
     optional_properties = {
+        "feedback_type": data.get("feedback_type"),
         "feedback_task_id": data.get("feedback_task_id"),
         "feedback_folder_id": data.get("feedback_folder_id"),
         "feedback_app_logs": data.get("feedback_app_logs"),

@@ -71,6 +71,7 @@ _test_state: _TestState = {"generate_called": False, "send_called": False, "capt
 class MockGenerateDigestDataWorkflow:
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
+        await workflow.sleep(timedelta(hours=7))
         _test_state["generate_called"] = True
 
 
@@ -153,7 +154,7 @@ class LegacyGenerateDigestDataWorkflow:
 
 @pytest.mark.asyncio
 async def test_weekly_digest_workflow():
-    """Test the main weekly digest workflow that orchestrates generation and sending."""
+    """Generation can take seven hours and still complete before sending starts."""
     _test_state["generate_called"] = False
     _test_state["send_called"] = False
 

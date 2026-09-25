@@ -1,4 +1,7 @@
-import type { IFeedbackContext } from "@posthog/platform/feedback-context";
+import type {
+  FeedbackSubmissionInput,
+  IFeedbackContext,
+} from "@posthog/platform/feedback-context";
 import {
   Button,
   Dialog,
@@ -8,7 +11,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Field,
+  FieldLabel,
   Kbd,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Text,
   Textarea,
 } from "@posthog/quill";
@@ -20,14 +30,28 @@ import {
   captureException,
   getAnalyticsSessionId,
 } from "@posthog/ui/shell/analytics";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FeedbackAttachments,
   type FeedbackAttachmentsValue,
 } from "./FeedbackAttachments";
+import {
+  type FeedbackImage,
+  MAX_FEEDBACK_IMAGE_COUNT,
+  readFeedbackImage,
+} from "./feedbackImages";
 import type { FeedbackModalMode } from "./feedbackStore";
 
 export type { FeedbackModalMode } from "./feedbackStore";
+
+const FEEDBACK_TYPES = [
+  { value: "bug", label: "Bug" },
+  { value: "feature", label: "Feature" },
+  { value: "general", label: "General" },
+] satisfies {
+  value: NonNullable<FeedbackSubmissionInput["feedbackType"]>;
+  label: string;
+}[];
 
 const MODAL_COPY: Record<
   FeedbackModalMode,
@@ -131,8 +155,11 @@ function FeedbackModalForm({
   initialScreenshot: string | null;
 }) {
   const [value, setValue] = useState("");
+  const [feedbackType, setFeedbackType] =
+    useState<NonNullable<FeedbackSubmissionInput["feedbackType"]>>("general");
   const [view] = useState(getAppViewSnapshot);
   const [submitting, setSubmitting] = useState(false);
+  const imagesLoadingRef = useRef(false);
   const [attachments, setAttachments] = useState<FeedbackAttachmentsValue>({
     includeScreenshot: false,
     includeLogs: false,
@@ -149,7 +176,7 @@ function FeedbackModalForm({
 
   const handleSubmit = async () => {
     const response = value.trim();
-    if (!canSubmit || !response) return;
+    if (!canSubmit || imagesLoadingRef.current || !response) return;
     setSubmitting(true);
     try {
       const includeScreenshot =
@@ -158,6 +185,7 @@ function FeedbackModalForm({
       await contextClient.submitFeedback({
         response,
         source: FEEDBACK_SOURCE_BY_MODE[mode],
+        ...(mode === "feedback" ? { feedbackType } : {}),
         feedbackView: view.type,
         ...(view.taskId ? { feedbackTaskId: view.taskId } : {}),
         ...(view.folderId ? { feedbackFolderId: view.folderId } : {}),
@@ -188,13 +216,93 @@ function FeedbackModalForm({
     }
   };
 
+  const handleImageFiles = async (files: File[]): Promise<void> => {
+    if (submitting || files.length === 0) return;
+    if (imagesLoadingRef.current) {
+      toast.warning("An image is still loading. Wait, then paste it again.");
+      return;
+    }
+    const availableSlots = MAX_FEEDBACK_IMAGE_COUNT - attachments.images.length;
+    if (files.length > availableSlots) {
+      toast.warning(`You can attach up to ${MAX_FEEDBACK_IMAGE_COUNT} images.`);
+    }
+    if (availableSlots === 0) return;
+    imagesLoadingRef.current = true;
+    setAttachments((current) => ({ ...current, imagesLoading: true }));
+    try {
+      const nextImages = await Promise.all(
+        files.slice(0, availableSlots).map(async (file) => {
+          try {
+            return await readFeedbackImage(file);
+          } catch (error) {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : "Could not attach this image.",
+            );
+            return null;
+          }
+        }),
+      );
+      setAttachments((current) => ({
+        ...current,
+        images: [
+          ...current.images,
+          ...nextImages.filter(
+            (image): image is FeedbackImage =>
+              image !== null &&
+              !current.images.some((existing) => existing.id === image.id),
+          ),
+        ].slice(0, MAX_FEEDBACK_IMAGE_COUNT),
+      }));
+    } finally {
+      imagesLoadingRef.current = false;
+      setAttachments((current) => ({ ...current, imagesLoading: false }));
+    }
+  };
+
   return (
     <>
       <DialogBody>
         <div className="flex flex-col gap-3">
+          {mode === "feedback" && (
+            <Field className="gap-1">
+              <FieldLabel htmlFor="feedback-type">Feedback type</FieldLabel>
+              <Select
+                value={feedbackType}
+                items={FEEDBACK_TYPES}
+                disabled={submitting}
+                onValueChange={(next) => {
+                  if (next) setFeedbackType(next);
+                }}
+              >
+                <SelectTrigger id="feedback-type" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FEEDBACK_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Textarea
             value={value}
+            disabled={submitting}
             onChange={(event) => setValue(event.target.value)}
+            onPaste={(event) => {
+              if (mode !== "feedback") return;
+              const files = Array.from(event.clipboardData.files).filter(
+                (file) => !file.type || file.type.startsWith("image/"),
+              );
+              if (files.length === 0) return;
+              if (!event.clipboardData.getData("text/plain"))
+                event.preventDefault();
+              void handleImageFiles(files);
+            }}
             placeholder={MODAL_COPY[mode].placeholder}
             rows={4}
             maxLength={4000}
@@ -213,12 +321,15 @@ function FeedbackModalForm({
               <Text size="xxs" variant="muted" className="mt-1">
                 Always included: app version and current page.
               </Text>
-              <FeedbackAttachments
-                screenshot={initialScreenshot}
-                value={attachments}
-                onChange={setAttachments}
-                contextClient={contextClient}
-              />
+              <fieldset disabled={submitting} className="min-w-0">
+                <FeedbackAttachments
+                  screenshot={initialScreenshot}
+                  value={attachments}
+                  onChange={setAttachments}
+                  onImageFiles={handleImageFiles}
+                  contextClient={contextClient}
+                />
+              </fieldset>
             </>
           )}
         </div>

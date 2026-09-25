@@ -25,6 +25,7 @@ from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -295,7 +296,9 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
-    except StructuredOutputParseError as e:
+    except (OutputTokenLimitError, StructuredOutputParseError) as e:
+        # A reply cut off at the output limit reaches the tagger as unusable output, same as a
+        # malformed one, so both take the parse path.
         raise ApplicationError(
             str(e),
             {"error_type": "parse_error"},

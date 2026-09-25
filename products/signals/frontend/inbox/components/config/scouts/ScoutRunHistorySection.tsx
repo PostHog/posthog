@@ -26,6 +26,7 @@ import {
     scoutRunGroupKey,
     scoutRunReportLabel,
     SCOUT_NO_RECENT_RUNS,
+    SCOUT_RUN_HISTORY_UNAVAILABLE,
     SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutTimestamp } from './ScoutTimestamp'
@@ -425,7 +426,7 @@ export function ScoutRunHistorySection({
     skillName: string
     filter: ScoutRunFilter
 }): JSX.Element {
-    const { scoutRunsLoadedOnce } = useValues(scoutFleetLogic)
+    const { scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
     const runs = useScoutRuns(skillName)
 
     const filteredRuns = useMemo(() => runs.filter((run) => runMatchesFilter(run, filter)), [runs, filter])
@@ -446,7 +447,12 @@ export function ScoutRunHistorySection({
             <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                 {runs.length > 0
                     ? `No runs match this filter in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`
-                    : SCOUT_NO_RECENT_RUNS}
+                    : // Past the fleet the per-scout response covers, this scout was never read, so
+                      // reporting it as a scout with no recent runs would hide history rather than
+                      // report it.
+                      scoutRunsCoverFleet
+                      ? SCOUT_NO_RECENT_RUNS
+                      : SCOUT_RUN_HISTORY_UNAVAILABLE}
             </div>
         )
     }

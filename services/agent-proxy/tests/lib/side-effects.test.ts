@@ -8,16 +8,19 @@ const cases = JSON.parse(
 ) as {
     name: string
     event: Record<string, unknown>
-    expect: { turn_complete: boolean; idle_resume: boolean; pi_error: boolean; session_update: boolean }
+    expect: Record<string, boolean>
 }[]
 
+// The fixture also carries expectations for predicates only the Python side has, so
+// each side compares the keys it implements.
 describe('turn event contract', () => {
     it.each(cases)('$name', ({ event, expect: expected }) => {
-        expect({
+        const actual = {
             turn_complete: isTurnComplete(event),
             idle_resume: isIdleResumeTurnComplete(event),
             pi_error: isPiTurnError(event),
             session_update: isSessionUpdate(event),
-        }).toEqual(expected)
+        }
+        expect(actual).toEqual(Object.fromEntries(Object.keys(actual).map((key) => [key, expected[key]])))
     })
 })

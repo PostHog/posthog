@@ -65,6 +65,20 @@ from products.surveys.backend.models import Survey
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
+def _stored_metric_result(*significant: bool | None) -> dict[str, Any]:
+    # The shape recalculation stores: significance lives on each variant, and the legacy
+    # top-level field stays null. A variant's significance is null when validation stopped the
+    # analysis, for example on too few samples.
+    return {
+        "significant": None,
+        "baseline": {"key": "control", "number_of_samples": 100},
+        "variant_results": [
+            {"key": f"test_{index}", "number_of_samples": 100, "significant": variant_significant}
+            for index, variant_significant in enumerate(significant)
+        ],
+    }
+
+
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
 # and to continue allowing it here keeps test setup simple (instead of creating events before)
 class TestExperimentService(APIBaseTest):
@@ -1040,6 +1054,19 @@ class TestExperimentService(APIBaseTest):
                     "start_handling": "first_seen",
                 },
             ),
+            (
+                "valid_retention_exposure_start",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureNode"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                },
+            ),
         ]
     )
     def test_validate_experiment_metrics_accepts_valid_payloads(self, _: str, metric: dict) -> None:
@@ -1171,6 +1198,56 @@ class TestExperimentService(APIBaseTest):
                 ]
             )
         assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    # ------------------------------------------------------------------
+    # validate_experiment_metrics — retention with an exposure start
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _retention_metric(**overrides) -> dict:
+        return {
+            "kind": "ExperimentMetric",
+            "metric_type": "retention",
+            "start_event": {"kind": "ExperimentExposureNode"},
+            "completion_event": {"kind": "EventsNode", "event": "purchase"},
+            "retention_window_start": 0,
+            "retention_window_end": 7,
+            "retention_window_unit": "day",
+            "start_handling": "first_seen",
+            **overrides,
+        }
+
+    def test_validate_experiment_metrics_accepts_conversion_window_on_custom_start_retention(self) -> None:
+        ExperimentService.validate_experiment_metrics(
+            [
+                self._retention_metric(
+                    start_event={"kind": "EventsNode", "event": "$pageview"},
+                    start_handling="last_seen",
+                    conversion_window=14,
+                    conversion_window_unit="day",
+                )
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "conversion_window",
+                {"conversion_window": 14, "conversion_window_unit": "day"},
+                "conversion window",
+            ),
+            ("conversion_window_unit_only", {"conversion_window_unit": "day"}, "conversion window"),
+            ("last_seen_start_handling", {"start_handling": "last_seen"}, "last_seen"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_ignored_settings_on_exposure_start(
+        self, _: str, overrides: dict, expected_fragment: str
+    ) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics([self._retention_metric(**overrides)])
+        assert expected_fragment in str(ctx.exception), (
+            f"Expected fragment {expected_fragment!r} in error: {ctx.exception}"
+        )
 
     # ------------------------------------------------------------------
     # validate_experiment_metrics — improved pydantic error messages
@@ -3417,7 +3494,7 @@ class TestExperimentService(APIBaseTest):
             query_from=experiment.start_date,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
-            result={"significant": True, "variants": []},
+            result=_stored_metric_result(True),
             completed_at=timezone.now(),
         )
 
@@ -3521,8 +3598,11 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("significant", {"significant": True, "variants": []}, "Primary metric: significant"),
-            ("inconclusive", {"significant": False, "variants": []}, "Primary metric: inconclusive"),
+            ("significant", _stored_metric_result(True), "Primary metric: significant"),
+            ("inconclusive", _stored_metric_result(False), "Primary metric: inconclusive"),
+            ("not_analyzed", _stored_metric_result(None), ""),
+            ("one_of_many_significant", _stored_metric_result(False, True), "Primary metric: significant"),
+            ("analyzed_variants_decide", _stored_metric_result(None, False), "Primary metric: inconclusive"),
             ("no_result", None, ""),
         ]
     )
@@ -5598,6 +5678,7 @@ class TestExperimentService(APIBaseTest):
             service.update_experiment(experiment, update_data)
         self.assertIn("legacy metric formats", str(cm.exception))
         self.assertIn(f"Cannot update: {expected_field_in_error}", str(cm.exception))
+        self.assertIn(f"/experiments/{experiment.id}/migrate", str(cm.exception))
 
     @parameterized.expand(
         [

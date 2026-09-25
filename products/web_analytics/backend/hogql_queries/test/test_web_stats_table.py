@@ -1189,7 +1189,12 @@ class TestWebStatsTableQueryRunner(
             with self._patch_first_pageview_flag(enabled=flag_on):
                 return WebStatsTableQueryRunner(team=self.team, query=query).get_cache_key()
 
+        def runtime_hash(flag_on):
+            with self._patch_first_pageview_flag(enabled=flag_on):
+                return WebStatsTableQueryRunner(team=self.team, query=query).get_query_identity().runtime_hash
+
         assert cache_key(flag_on=False) != cache_key(flag_on=True)
+        assert runtime_hash(flag_on=False) != runtime_hash(flag_on=True)
 
     def test_first_pageview_attribution_bypasses_lazy_precompute(self):
         query = WebStatsTableQuery(

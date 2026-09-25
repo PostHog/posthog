@@ -81,6 +81,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "version": "Version identifier of the brand.",
         },
     },
+    "Lists": {
+        "description": "A named group of recipients that a send can target as a whole, instead of one user at a time.",
+        "docs_url": "https://www.courier.com/docs/api-reference/lists/list-lists",
+        "columns": {
+            "id": "Unique identifier for the list.",
+            "name": "Name of the list.",
+            "created": "Timestamp at which the list was created.",
+            "updated": "Timestamp at which the list was last updated.",
+        },
+    },
     "ListSubscriptions": {
         "description": "A user's subscription to a list, with the notification preferences recorded for that subscription.",
         "docs_url": "https://www.courier.com/docs/api-reference/lists/list-subscriptions-for-a-list",
@@ -104,6 +114,55 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "topic_id": "Subscription topic the template is linked to.",
             "note": "Note stored against the template. Legacy templates only.",
             "event_ids": "Event ids mapped to this template.",
+        },
+    },
+    "TenantUsers": {
+        "description": "A user's membership of a tenant, which is who a tenant-scoped send reaches.",
+        "docs_url": "https://www.courier.com/docs/api-reference/tenants/get-users-in-tenant",
+        "columns": {
+            "tenant_id": "Unique identifier of the tenant the user belongs to.",
+            "user_id": "Unique identifier of the user.",
+            "type": "Type of the association. Always `user`.",
+            "profile": "Tenant-specific profile that overrides the user's workspace profile for sends in this tenant.",
+        },
+    },
+    "Journeys": {
+        "description": "A journey in the workspace: the multi-step flow a message can be attributed to. Lists the published version of each journey.",
+        "docs_url": "https://www.courier.com/docs/api-reference/journeys/list-journeys",
+        "columns": {
+            "id": "Unique identifier of the journey.",
+            "name": "Name of the journey.",
+            "version": "Which version of the journey this row describes (`published` or `draft`).",
+            "createdAt": "Timestamp at which the journey was created.",
+            "updatedAt": "Timestamp at which the journey was last updated.",
+        },
+    },
+    "JourneyVersions": {
+        "description": "A published version of a journey, most recent first, giving the publish history behind a journey's current behaviour.",
+        "docs_url": "https://www.courier.com/docs/api-reference/journeys/list-versions-of-a-journey",
+        "columns": {
+            "journey_id": "Unique identifier of the journey this version belongs to.",
+            "version": "Version identifier, used to roll the journey back to this publish.",
+            "name": "Name the journey carried at this version.",
+            "created": "Timestamp at which the version was created.",
+            "creator": "User who created the version.",
+            "published": "Timestamp at which the version was published.",
+        },
+    },
+    "DigestInstances": {
+        "description": "What a digest schedule has accumulated for one user, explaining why their messages were batched or held back.",
+        "docs_url": "https://www.courier.com/docs/api-reference/digests/list-digest-instances",
+        "columns": {
+            "schedule_id": "Unique identifier of the digest schedule the instance belongs to.",
+            "digest_instance_id": "Unique identifier for the digest instance.",
+            "status": "Whether the instance is still accumulating events (`IN_PROGRESS`) or has been released (`COMPLETED`).",
+            "event_count": "Total number of events received for this instance.",
+            "user_id": "Unique identifier of the user the instance belongs to.",
+            "tenant_id": "Unique identifier of the tenant the instance belongs to, if any.",
+            "categories": "Categories configured for the digest, with how events are retained in each.",
+            "category_key_counts": "Number of events received per category key.",
+            "disabled": "Whether the digest instance has been disabled.",
+            "created_at": "Timestamp at which the digest instance was created.",
         },
     },
     "Tenants": {

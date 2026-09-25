@@ -437,6 +437,9 @@ export const surveyResultsSamplePayload = {
 
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
 export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey): WidgetOverviewDemoState {
+    if (catalogKey === 'notebook_widget') {
+        return { config: {}, result: {}, loading: false }
+    }
     const catalogEntry = getDashboardWidgetCatalogEntry(catalogKey)
     const defaultConfig = catalogEntry.defaultConfig as Record<string, unknown>
     const defaultTitle = catalogEntry.headerTitle ?? catalogEntry.label

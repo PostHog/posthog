@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import * as notebooksModel from '~/models/notebooksModel'
 import {
     AgentMode,
@@ -30,10 +31,18 @@ import {
     SlashCommandName,
 } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { Conversation, ConversationDetail, ConversationStatus, ConversationType, OrganizationType } from '~/types'
+import {
+    Conversation,
+    ConversationDetail,
+    ConversationStatus,
+    ConversationType,
+    OrganizationType,
+    InsightShortId,
+} from '~/types'
 
 import { attachedContextLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
-import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import * as tasksApi from 'products/tasks/frontend/generated/api'
+import { TaskRunDetailDTOApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { EnhancedToolCall, MESSAGE_TOO_LONG, TOOL_DEFINITIONS } from './max-constants'
 import { maxContextLogic } from './maxContextLogic'
@@ -1758,7 +1767,9 @@ describe('maxThreadLogic', () => {
             logic.unmount()
             jest.spyOn(api.conversations, 'get').mockResolvedValue(sandboxConversation(SANDBOX_RUN_ID))
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
-            const runSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            const runSpy = jest
+                .spyOn(tasksApi, 'tasksRunsRetrieve')
+                .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
             const streamSpy = mockStream()
 
             logic = maxThreadLogic({
@@ -1773,8 +1784,13 @@ describe('maxThreadLogic', () => {
 
             // bootstrapRun replayed logs/ and refetched the run, then opened SSE — and the LangGraph
             // stream was never touched (coexistence).
-            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
-            expect(runSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID)
+            expect(logsSpy).toHaveBeenCalledWith(SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
+                signal: expect.any(AbortSignal),
+                projectId: 997,
+            })
+            expect(runSpy).toHaveBeenCalledWith('997', SANDBOX_TASK_ID, SANDBOX_RUN_ID, {
+                signal: expect.any(AbortSignal),
+            })
             expect(streamSpy).not.toHaveBeenCalled()
         })
 
@@ -2208,6 +2224,33 @@ describe('maxThreadLogic', () => {
         beforeEach(() => {
             logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
+        })
+
+        it('dispatches a saved insight refresh from a create insight result', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+            const dashboardModel = insightsModel()
+            dashboardModel.mount()
+            const cache = {}
+            const emit = async (message: object): Promise<void> =>
+                onEventImplementation(AssistantEventType.Message, JSON.stringify(message), {
+                    actions: logic.actions,
+                    values: logic.values,
+                    props: logic.props,
+                    agentMode: null,
+                    cache,
+                })
+            const saved = {
+                id: 'save-result',
+                type: AssistantMessageType.ToolCall,
+                content: 'Updated insight',
+                tool_call_id: 'save-tool',
+                ui_payload: { create_insight: { saved_insight: { short_id: 'saved-chart' } } },
+            }
+            await expectLogic(dashboardModel, () => emit(saved)).toDispatchActions([
+                dashboardModel.actionCreators.insightSaved('saved-chart' as InsightShortId),
+            ])
+            await expectLogic(dashboardModel, () => emit(saved)).toNotHaveDispatchedActions(['insightSaved'])
+            dashboardModel.unmount()
         })
 
         it('handles streaming message with temp- ID by adding it first time', async () => {
@@ -3791,12 +3834,13 @@ describe('maxThreadLogic', () => {
             expect(maxLogicInstance.values.activeStreamingThreads).toEqual(0)
         })
 
-        it('degrades a keyed non-allowlisted context item to a text attachment instead of dropping it', async () => {
+        it('degrades a keyed non-allowlisted item to text but keeps instructions trusted', async () => {
             const openSpy = jest.spyOn(api.conversations, 'open').mockResolvedValue(sandboxRunResponse)
             // initKeaTests() in beforeEach resets the kea context, so no explicit unmount is needed
             attachedContextLogic.mount()
             attachedContextLogic.actions.registerContext('test-provider', [
                 { type: 'trace', key: '0189-abc', label: 'LLM trace' },
+                { type: 'instructions', value: 'Prefer the live query.' },
             ])
 
             await expectLogic(logic, () => {
@@ -3806,10 +3850,15 @@ describe('maxThreadLogic', () => {
                 )
             }).toDispatchActions(['openSandboxSse'])
 
+            // Flattening the instructions item to `text` would render it into the untrusted block,
+            // alongside values read off the page the user has open.
             expect(openSpy).toHaveBeenCalledWith(
                 MOCK_CONVERSATION_ID,
                 expect.objectContaining({
-                    attached_context: expect.arrayContaining([{ type: 'text', value: 'trace 0189-abc ("LLM trace")' }]),
+                    attached_context: expect.arrayContaining([
+                        { type: 'text', value: 'trace 0189-abc ("LLM trace")' },
+                        { type: 'instructions', value: 'Prefer the live query.' },
+                    ]),
                 })
             )
         })

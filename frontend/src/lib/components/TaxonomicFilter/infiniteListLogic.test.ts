@@ -886,11 +886,14 @@ describe('infiniteListLogic', () => {
             }
         })
 
-        it('clears the error state when a retry succeeds', async () => {
+        it.each([null, 'page_opened'])('clears the error state on retry after selecting %p', async (selectedEvent) => {
             let attempts = 0
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': () => {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        if (!new URL(request.url).searchParams.get('search')) {
+                            return [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }]
+                        }
                         attempts += 1
                         return attempts === 1
                             ? [500, { detail: 'server error' }]
@@ -904,23 +907,41 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                groupType: TaxonomicFilterGroupType.Events,
+                value: selectedEvent,
             })
             retryingLogic.mount()
+            if (selectedEvent) {
+                await expectLogic(retryingLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+                expect(retryingLogic.values.results).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ name: selectedEvent })])
+                )
+            }
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.setSearchQuery('user_signed_up')
             })
                 .toDispatchActions(['loadRemoteItemsFailure'])
                 .toFinishAllListeners()
-                .toMatchValues({ showErrorState: true })
+                .toMatchValues({
+                    showErrorState: true,
+                    showEmptyState: false,
+                    showNonCapturedEventOption: false,
+                    results: [],
+                    value: selectedEvent,
+                })
 
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.retryRemoteItems()
+                expect(retryingLogic.values.results).toEqual([])
+                expect(retryingLogic.values.showNonCapturedEventOption).toBe(false)
             })
                 .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     showErrorState: false,
                     showEmptyState: false,
+                    value: selectedEvent,
                 })
             expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
         })
@@ -1374,6 +1395,38 @@ describe('infiniteListLogic', () => {
             logic.mount()
         })
 
+        it('shows a scoped search failure even when the full count succeeds', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'device') {
+                            return url.searchParams.has('filter_by_event_names')
+                                ? [500, { detail: 'server error' }]
+                                : [200, { results: [{ name: '$device_type' }], count: 9 }]
+                        }
+                        return [200, { results: [{ name: '$browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.setSearchQuery('device'))
+                    .toDispatchActions(['loadRemoteItemsFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        expandedCount: 9,
+                        isExpandable: false,
+                        results: [],
+                        showErrorState: true,
+                        showEmptyState: false,
+                    })
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+        })
+
         it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {
             let resolveCount!: (response: [number, { count: number; results: { name: string }[] }]) => void
             useMocks({
@@ -1774,11 +1827,20 @@ describe('infiniteListLogic', () => {
                 ...props,
             })
 
-        it('floats the selected value above the group list when idle, without displacing a leading catch-all row', async () => {
-            logic = logicWith({ value: 'search term', groupType: TaxonomicFilterGroupType.Events })
+        it.each([
+            ['keeps the catch-all item first by default', undefined, ['All events', 'search term'], 'All events'],
+            ['puts the selected series first when requested', true, ['search term', 'All events'], 'search term'],
+        ])('%s', async (_description, promoteSelectedItemToFirstPosition, expectedNames, expectedSelectedName) => {
+            logic = logicWith({
+                value: 'search term',
+                groupType: TaxonomicFilterGroupType.Events,
+                promoteSelectedItemToFirstPosition,
+            })
             await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess'])
-            expect((logic.values.results[0] as { name?: string })?.name).toBe('All events')
-            expect((logic.values.results[1] as { name?: string })?.name).toBe('search term')
+            expect(logic.values.results.slice(0, 2).map((item) => (item as { name?: string })?.name)).toEqual(
+                expectedNames
+            )
+            expect((logic.values.selectedItem as { name?: string } | undefined)?.name).toBe(expectedSelectedName)
         })
 
         it('statically inserts the committed selection while its row is not yet loaded', async () => {

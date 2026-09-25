@@ -714,14 +714,18 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             raise exceptions.ValidationError("resource does not support object access rules")
         if not resource_id:
             raise exceptions.ValidationError("resource_id is required")
+        # _base_manager, not the default one: a rule left on a soft-deleted object still shows in
+        # the rules list, and this is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
-            display.model._default_manager.filter(team_id=team.id),
+            display.model._base_manager.filter(team_id=team.id),
             include_all_if_admin=True,
             resource=cast(APIScopeObject, resource),
         )
         # An object the requester cannot see is not theirs to configure; 404 rather than 403 so the
         # endpoint doesn't confirm it exists
         target = get_object_or_404(visible, pk=resource_id)
+        if request.data.get("access_level") is not None and getattr(target, "deleted", None) is True:
+            raise exceptions.ValidationError("cannot set an access rule on a deleted object")
 
         data = {**request.data, "resource": resource, "resource_id": resource_id}
         context = {

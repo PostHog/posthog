@@ -85,11 +85,17 @@ _REDIRECTED = (
     "ClickHouse HTTP interface directly rather than at a proxy or load balancer in front of it."
 )
 
+# Matches the wording the other database sources use for a rejected login, so the same
+# problem reads the same way across Postgres, MySQL and ClickHouse.
+_INVALID_CREDENTIALS = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
-    "authentication failed": "Invalid user or password",
-    "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
+    "authentication failed": _INVALID_CREDENTIALS,
+    "code: 516": _INVALID_CREDENTIALS,  # AUTHENTICATION_FAILED
     "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
