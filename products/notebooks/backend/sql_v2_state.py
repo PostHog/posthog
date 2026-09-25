@@ -156,8 +156,12 @@ def validate_cell_count(previous_content: Any, next_content: Any) -> None:
     or by a path that predates it — stays editable, so its owner can delete cells down instead
     of finding every save rejected. A save that leaves the count unchanged always passes.
     """
-    next_count = sum(cell.cell_type != "saved_insight" for cell in extract_cells(next_content))
-    previous_count = sum(cell.cell_type != "saved_insight" for cell in extract_cells(previous_content))
+    next_count = sum(
+        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(next_content)
+    )
+    previous_count = sum(
+        cell.cell_type != "saved_insight" or bool(cell.code.strip()) for cell in extract_cells(previous_content)
+    )
     if next_count <= MAX_NOTEBOOK_CELLS or next_count <= previous_count:
         return
     raise NotebookCellLimitExceeded(

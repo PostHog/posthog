@@ -2479,6 +2479,7 @@ export interface SignalReportStateRequestApi {
  * * `implementation_dispatch` - Implementation Dispatch
  * * `implementation_replacement` - Implementation Replacement
  * * `implementation_handover` - Implementation Handover
+ * * `ranking_score` - Ranking Score
  */
 export type SignalReportArtefactArtefactTypeEnumApi =
     (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
@@ -2513,6 +2514,7 @@ export const SignalReportArtefactArtefactTypeEnumApi = {
     ImplementationDispatch: 'implementation_dispatch',
     ImplementationReplacement: 'implementation_replacement',
     ImplementationHandover: 'implementation_handover',
+    RankingScore: 'ranking_score',
 } as const
 
 export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknown[]

@@ -30,7 +30,7 @@ describe('ImageFetchBatchJoiner', () => {
     })
     afterEach(() => jest.useRealTimers())
 
-    it.each([2, 16])('joins batches from %i consumers before processing', async (consumerCount) => {
+    it.each([1, 2, 16])('joins batches from %i consumers before processing', async (consumerCount) => {
         const pass = deferred()
         const processBatch = jest.fn(() => pass.promise)
         const joiner = new ImageFetchBatchJoiner(consumerCount, processBatch)

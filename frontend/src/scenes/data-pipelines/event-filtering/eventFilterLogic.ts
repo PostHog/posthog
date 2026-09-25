@@ -414,6 +414,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     ...formValues,
                     test_cases: formValues.test_cases.map(({ _key, ...tc }) => tc),
                 }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create(`api/projects/${currentTeamId}/event_filter/`, payload)
                 lemonToast.success('Event filter saved')
             },
@@ -546,6 +547,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
     // Load existing config from the API on mount
     afterMount(({ actions, values }) => {
         const { currentTeamId } = values
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         api.get(`api/projects/${currentTeamId}/event_filter/`)
             .then((data) => {
                 if (!data) {

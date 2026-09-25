@@ -30,6 +30,7 @@ def _path_with_fake_curl(tmp_path: Path, body: str, delay_seconds: float) -> dic
     [
         ('{"status":"ok","hasSession":true}', 0, "ok:1"),
         ('{"status":"ok","hasSession":false}', 1, ""),
+        ('{"status":"error","code":"codex_credential_unavailable"}', 1, "codex_credential_unavailable"),
     ],
 )
 def test_health_check_loop_stops_at_wall_clock_budget(tmp_path, body, expected_exit_code, expected_stdout) -> None:
