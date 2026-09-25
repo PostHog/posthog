@@ -866,6 +866,21 @@ class TestErrorTracking(APIBaseTest):
         assert reopened[0].distinct_id == str(target.id)
         assert reopened[0].properties["previous_status"] == "Resolved"
 
+        status_activity = ActivityLog.objects.get(
+            scope="ErrorTrackingIssue", activity="updated", item_id=str(target.id)
+        )
+        assert status_activity.user == self.user
+        assert status_activity.detail is not None
+        assert status_activity.detail["changes"] == [
+            {
+                "type": "ErrorTrackingIssue",
+                "action": "changed",
+                "field": "status",
+                "before": "resolved",
+                "after": "active",
+            }
+        ]
+
     def test_issue_merge_without_effect_logs_no_activity(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
 

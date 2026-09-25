@@ -203,6 +203,27 @@ def merge_issues(
             extra_properties={"merged_issue_ids": merged_id_strings},
         )
         if outcome.reopened and outcome.previous_status is not None:
+            log_activity(
+                organization_id=issue.team.organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(issue.id),
+                scope="ErrorTrackingIssue",
+                activity="updated",
+                detail=Detail(
+                    name=issue.name,
+                    changes=[
+                        Change(
+                            type="ErrorTrackingIssue",
+                            field="status",
+                            before=outcome.previous_status,
+                            after=issue.status,
+                            action="changed",
+                        )
+                    ],
+                ),
+            )
             produce_issue_lifecycle_event_on_commit(
                 event=STATUS_CHANGE_EVENTS[issue.status],
                 issue=issue,
