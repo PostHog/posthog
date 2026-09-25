@@ -8,10 +8,10 @@ Keep the bundle ID and storage keys stable so updates preserve existing installa
 
 ## Updates
 
-Over-the-air updates are disabled until the app is linked to its own EAS project.
+The app has its own EAS project ID, but over-the-air updates remain disabled.
 Store builds use the bundled JavaScript.
 
-To enable updates, run `eas init` and `eas update:configure` from `products/desktop/apps/mobilehog` with access to the correct Expo organization.
+To enable updates, run `eas update:configure` from `products/desktop/apps/mobilehog` with access to the correct Expo organization.
 Check that `extra.eas.projectId` and `updates.url` refer to that project, then set `updates.enabled` to `true`.
 Build and install a new binary before publishing an update to its channel.
 Do not reuse the older mobile app's project ID.
@@ -45,6 +45,12 @@ Pull to refresh or return to the app to update tasks.
 New tasks omit the channel so the server creates them in the user's personal space.
 Accessible tasks owned by the user remain visible and can receive replies, regardless of their space.
 The mobile app does not show space names in the drawer, search, composer, or Activity.
+
+## Push notifications
+
+Task completion from Desktop or mobile uses the same server-side owner notification path. Delivery requires a signed-in account, permission to show notifications, an Expo push token registered with the server, and working iOS push credentials for the app's EAS project.
+Settings shows whether this device registered successfully and offers a retry or a shortcut to device settings. Registration runs again when the app becomes active. Expo push delivery can be tested on a supported iOS simulator or a physical device; it needs a push-enabled native build.
+To check cross-device delivery, start a cloud task from Desktop, put the mobile app in the background, and confirm that the completion alert arrives and opens that task. Server delivery metrics count Expo acceptance, not confirmed device delivery.
 
 ## Inbox and task conversations
 
