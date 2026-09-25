@@ -320,14 +320,14 @@ function SlackChannelPickerNotices({
     const {
         allSlackChannels,
         allSlackChannelsLoading,
+        slackChannelByIdLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
-        getChannelRefreshButtonDisabledReason,
         slackIntegrationInactiveMessage,
     } = useValues(logic)
-    const { loadAllSlackChannels } = useActions(logic)
+    const { recheckSlackChannelMembership } = useActions(logic)
 
-    const showSlackMembershipWarning = values.some((value) => isMemberOfSlackChannel(value) === false)
+    const channelsMissingTheApp = values.filter((value) => isMemberOfSlackChannel(value) === false)
     const showPrivateChannelWarning = values.some((value) => isPrivateChannelWithoutAccess(value))
 
     return (
@@ -348,22 +348,22 @@ function SlackChannelPickerNotices({
                 </p>
             ) : null}
 
-            {showSlackMembershipWarning ? (
+            {channelsMissingTheApp.length ? (
                 <LemonBanner type="info">
                     <div className="flex gap-2 items-center">
                         <span>
                             {values.length > 1
-                                ? 'The PostHog Slack app is not in every selected channel. Add it to each channel before continuing. '
-                                : 'The PostHog Slack app is not in this channel. Add it to the channel before continuing. '}
+                                ? 'The PostHog Slack app is not in every selected channel. '
+                                : 'The PostHog Slack app is not in this channel. '}
+                            Invite it with <code>/invite @PostHog</code> in Slack, then check again.{' '}
                             <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                 See the docs for more information
                             </Link>
                         </span>
                         <LemonButton
                             type="secondary"
-                            disabledReason={getChannelRefreshButtonDisabledReason()}
-                            onClick={() => loadAllSlackChannels(true)}
-                            loading={allSlackChannelsLoading}
+                            onClick={() => recheckSlackChannelMembership(channelsMissingTheApp.map(slackChannelId))}
+                            loading={slackChannelByIdLoading}
                         >
                             Check again
                         </LemonButton>

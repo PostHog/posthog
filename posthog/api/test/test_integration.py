@@ -2412,6 +2412,115 @@ class TestIntegrationAPIKeyAccess:
             assert cache.get(cache_key) is None
         mock_slack_class.return_value.list_channels.assert_not_called()
 
+    # The write-back runs only against Redis, so the default LocMem cache would make the
+    # assertions below vacuous.
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://slack-channel-recheck-test:6379/0",
+                "OPTIONS": {"CONNECTION_POOL_KWARGS": {"connection_class": FakeConnection}},
+            },
+        }
+    )
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_force_refresh_rechecks_one_channel(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RECHECK",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        # Slack now reports the app as a member, because someone invited it to the channel.
+        mock_slack_instance.get_channel_by_id.return_value = {
+            "id": "C1",
+            "name": "general",
+            "is_private": False,
+            "is_member": True,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
+        mock_slack_class.return_value = mock_slack_instance
+
+        # The cached list still holds what Slack said before the invite.
+        cache.set(
+            f"slack/{slack_integration.id}/True/channels",
+            {
+                "channels": [
+                    {
+                        "id": "C1",
+                        "name": "general",
+                        "is_private": False,
+                        "is_member": False,
+                        "is_ext_shared": False,
+                        "is_private_without_access": False,
+                    }
+                ],
+                "lastRefreshedAt": (timezone.now() - timedelta(minutes=5)).isoformat(),
+            },
+            3600,
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+        client.force_login(self.user)
+
+        cached_lookup = client.get(f"{base_url}?channel_id=C1")
+        assert cached_lookup.status_code == status.HTTP_200_OK
+        assert cached_lookup.json()["channels"][0]["is_member"] is False
+        mock_slack_instance.get_channel_by_id.assert_not_called()
+
+        forced_lookup = client.get(f"{base_url}?channel_id=C1&force_refresh=true")
+        assert forced_lookup.status_code == status.HTTP_200_OK
+        assert forced_lookup.json()["channels"][0]["is_member"] is True
+        mock_slack_instance.get_channel_by_id.assert_called_once_with("C1", True, "test_user_id")
+
+        # The live answer replaces its copy in the cached list, so the next plain load of the
+        # picker does not report the app as missing all over again.
+        listed = client.get(base_url)
+        assert listed.status_code == status.HTTP_200_OK
+        assert listed.json()["channels"][0]["is_member"] is True
+        mock_slack_instance.list_channels.assert_not_called()
+
+        # A channel Slack no longer returns leaves the cached list, so the picker stops offering it.
+        mock_slack_instance.get_channel_by_id.return_value = None
+        gone_lookup = client.get(f"{base_url}?channel_id=C1&force_refresh=true")
+        assert gone_lookup.status_code == status.HTTP_200_OK
+        assert gone_lookup.json()["channels"] == []
+
+        listed_after_removal = client.get(base_url)
+        assert listed_after_removal.status_code == status.HTTP_200_OK
+        assert listed_after_removal.json()["channels"] == []
+        mock_slack_instance.list_channels.assert_not_called()
+
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 2)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_throttles_distinct_uncached_lookups(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_CHANNELS_BUDGET",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_channel_by_id.return_value = None
+        mock_slack_class.return_value = mock_slack_instance
+        client.force_login(self.user)
+
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+        # A forced lookup skips the cached list, and a miss caches nothing, so distinct ids would
+        # otherwise reach Slack one conversations.info call at a time.
+        for index, expected_status in enumerate(
+            [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+        ):
+            response = client.get(f"{base_url}?channel_id=CPROBE{index}&force_refresh=true")
+            assert response.status_code == expected_status
+        assert mock_slack_instance.get_channel_by_id.call_count == 2
+
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",
         [

@@ -9,26 +9,34 @@ import type { IntegrationType } from '~/types'
 
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
-const WORKSPACE = { id: 1, kind: 'slack', display_name: 'PostHog' } as IntegrationType
+const WORKSPACE = {
+    id: 1,
+    kind: 'slack',
+    display_name: 'PostHog',
+    // A real install records what Slack granted, and the direct message needs users:read.
+    config: { scope: 'chat:write,channels:read,users:read' },
+} as IntegrationType
 const DM_TARGET = 'U0123ABC456|@sam'
 const DM_SAVED = 'PostHog sends these to @sam in Slack.'
 // Anchored: the team card's copy carries the same sentence, after one of its own.
 const CHANNEL_HELP = /^PostHog must be in the channel/
 
 describe('SlackNotificationsSection', () => {
+    let workspace: IntegrationType = WORKSPACE
     let autonomyConfig: Record<string, unknown> | null = null
     let saves: Record<string, unknown>[] = []
     let saveGate: Promise<void> | null = null
 
     beforeEach(() => {
         initKeaTests()
+        workspace = WORKSPACE
         autonomyConfig = null
         saves = []
         saveGate = null
         // msw handlers reset between tests, so register per test rather than once per file.
         useMocks({
             get: {
-                '/api/projects/:team_id/integrations/': () => [200, { results: [WORKSPACE] }],
+                '/api/projects/:team_id/integrations/': () => [200, { results: [workspace] }],
                 '/api/environments/:team_id/integrations/:id/channels': () => [200, { channels: [], has_more: false }],
                 '/api/projects/:team_id/signals/config/': () => [200, { default_slack_notification_channel: null }],
                 '/api/users/@me/signal_autonomy/': () =>
@@ -109,6 +117,22 @@ describe('SlackNotificationsSection', () => {
         expect(toggle).toBeDisabled()
         finishSave()
         expect(await screen.findByText(DM_SAVED)).toBeInTheDocument()
+    })
+
+    // A workspace that cannot resolve a member can never deliver a direct message, so the save
+    // only ever came back as a red toast the user could not act on. An install that records no
+    // scopes is the same case: assuming it has users:read is what produced that toast.
+    it.each<[string, Record<string, unknown> | undefined]>([
+        ['users:read was never granted', { scope: 'chat:write,channels:read' }],
+        ['no scopes are recorded', undefined],
+    ])('asks for a reconnect instead of saving a direct message when %s', async (_label, config) => {
+        workspace = { ...WORKSPACE, config } as IntegrationType
+
+        render(<SlackNotificationsSection />)
+        await userEvent.click(await screen.findByLabelText('Enable Slack notifications'))
+
+        expect(await screen.findByText(/Reconnect Slack to grant it/)).toBeInTheDocument()
+        expect(saves).toEqual([])
     })
 
     it('returns to direct message mode after notifications are disabled', async () => {

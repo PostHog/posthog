@@ -66,6 +66,17 @@ const OFF_PAGE_CHANNELS = [
 ]
 const OFF_PAGE_CHANNEL = OFF_PAGE_CHANNELS[0]
 
+// The channel someone picks before inviting the PostHog app to it.
+const NOT_JOINED_CHANNEL = {
+    id: 'CNOTJOINED1',
+    name: 'not-joined',
+    is_private: false,
+    is_member: false,
+    is_ext_shared: false,
+    is_private_without_access: false,
+}
+const MISSING_APP_WARNING = /The PostHog Slack app is not in this channel/
+
 // Typing a channel name and then clicking away is the interaction that drops a search. Two cases
 // below start from it and differ only in what they assert next.
 async function dropASearch(container: HTMLElement): Promise<void> {
@@ -78,13 +89,21 @@ async function dropASearch(container: HTMLElement): Promise<void> {
 describe('SlackChannelPicker', () => {
     let channelsRequestSearchQueries: (string | null)[] = []
     let channelIdLookups: string[] = []
+    let forcedChannelIdLookups: string[] = []
     // A test that must observe the by-id lookup mid-flight sets this so the mock waits to respond.
     let holdChannelIdLookup: Promise<void> | null = null
+    // Channels the bulk list returns on top of CHANNELS, for a test that needs its own fixture.
+    let extraListedChannels: (typeof NOT_JOINED_CHANNEL)[] = []
+    // Whether Slack now reports the app as a member of NOT_JOINED_CHANNEL.
+    let appJoinedTheChannel = false
 
     beforeEach(() => {
         channelsRequestSearchQueries = []
         channelIdLookups = []
+        forcedChannelIdLookups = []
         holdChannelIdLookup = null
+        extraListedChannels = []
+        appJoinedTheChannel = false
         useMocks({
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': async ({ request }) => {
@@ -93,25 +112,32 @@ describe('SlackChannelPicker', () => {
                     const channelId = url.searchParams.get('channel_id')
                     if (channelId) {
                         channelIdLookups.push(channelId)
+                        if (url.searchParams.get('force_refresh') === 'true') {
+                            forcedChannelIdLookups.push(channelId)
+                        }
                         if (holdChannelIdLookup) {
                             await holdChannelIdLookup
                         }
                         const match =
                             CHANNELS.find((c) => c.id === channelId) ??
-                            OFF_PAGE_CHANNELS.find((c) => c.id === channelId)
+                            OFF_PAGE_CHANNELS.find((c) => c.id === channelId) ??
+                            (channelId === NOT_JOINED_CHANNEL.id
+                                ? { ...NOT_JOINED_CHANNEL, is_member: appJoinedTheChannel }
+                                : undefined)
                         return [200, { channels: match ? [match] : [] }]
                     }
                     channelsRequestSearchQueries.push(search)
                     // Server-side search: substring match in name or id (mirrors the backend).
                     // The bulk endpoint deliberately never returns OFF_PAGE_CHANNEL so we can
                     // verify name resolution falls back to the direct-by-id lookup.
+                    const listed = [...CHANNELS, ...extraListedChannels]
                     const filtered = search
-                        ? CHANNELS.filter(
+                        ? listed.filter(
                               (c) =>
                                   c.name.toLowerCase().includes(search.toLowerCase()) ||
                                   c.id.toLowerCase().includes(search.toLowerCase())
                           )
-                        : CHANNELS
+                        : listed
                     return [
                         200,
                         {
@@ -187,6 +213,32 @@ describe('SlackChannelPicker', () => {
         )
         // Never forward the composite to /channels?channel_id=… — that would 404 against Slack.
         expect(channelIdLookups).not.toContain('COFFPAGE9XX|#off-page-channel')
+    })
+
+    // The dead end this replaces: the warning was answered from a copy of the channel that no
+    // button could refresh, so inviting the app changed nothing on screen.
+    it('clears the missing-app warning when a re-check finds the app in the channel', async () => {
+        extraListedChannels = [NOT_JOINED_CHANNEL]
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    value={`${NOT_JOINED_CHANNEL.id}|#${NOT_JOINED_CHANNEL.name}`}
+                    onChange={jest.fn()}
+                />
+            </Provider>
+        )
+        expect(await screen.findByText(MISSING_APP_WARNING)).toBeInTheDocument()
+
+        appJoinedTheChannel = true
+        await userEvent.click(screen.getByText('Check again'))
+
+        await waitFor(() => {
+            expect(container).not.toHaveTextContent('The PostHog Slack app is not in this channel')
+        })
+        // One live lookup of the picked channel, not a full re-enumeration of the workspace.
+        expect(forcedChannelIdLookups).toEqual([NOT_JOINED_CHANNEL.id])
+        expect(channelsRequestSearchQueries).toEqual([''])
     })
 
     it('resolves a saved channel name when the picker is disabled without displaying its ID', async () => {
