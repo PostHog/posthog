@@ -16,7 +16,7 @@ import sys
 
 from tqdm import tqdm
 
-from products.signals.backend.temporal.safety_filter import SCOUT_SOURCE_PRODUCT, safety_filter
+from products.signals.backend.temporal.safety_filter import safety_filter
 from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
 from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.scout_safety_data import SCOUT_SAFETY_CASES
@@ -33,7 +33,7 @@ class EvalScoutSafety:
         leaks = 0
 
         for case in tqdm(cases, desc="Scout safety", unit="case", file=sys.stderr):
-            result = await safety_filter(EVAL_TEAM_ID, case.description, source_product=SCOUT_SOURCE_PRODUCT)
+            result = await safety_filter(EVAL_TEAM_ID, case.description, source_product=case.source_product)
             correct = result.safe == case.safe
             if case.safe and not result.safe:
                 false_positives += 1
