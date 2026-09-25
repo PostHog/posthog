@@ -992,8 +992,8 @@ class Team(UUIDTClassicModel):
                 self.save()
                 secret_api_token_rotated.send(sender=self.__class__, team=self)
         except Exception:
-            # save() already cached this team (post_save) with the rolled-back tokens;
-            # rewrite the entry from the committed row so the cache never lies.
+            # save() already cached this team (post_save) with the new tokens, which the
+            # rollback discarded. Rewrite that entry from the committed row.
             self.refresh_from_db(fields=["secret_api_token", "secret_api_token_backup"])
             set_team_in_cache(self.api_token, self)
             raise
