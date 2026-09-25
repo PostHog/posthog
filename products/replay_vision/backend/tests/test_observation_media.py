@@ -274,9 +274,13 @@ class TestObservationMediaSerialization(BaseTest):
             video_start_ms=1000 * (position + 1),
         )
 
-    def test_only_rendered_media_is_served(self) -> None:
+    def test_only_rendered_unexpired_media_is_served(self) -> None:
         ready = self._add_media(rendered=True, position=0)
         self._add_media(rendered=False, position=1)
+        expired = self._add_media(rendered=True, position=2)
+        ExportedAsset.objects_including_ttl_deleted.filter(pk=expired.asset_id).update(
+            expires_after=timezone.now() - timedelta(seconds=1)
+        )
 
         observation = hydrate_for_serialization(ReplayObservation.objects.filter(pk=self.observation.pk)).get()
         media = ReplayObservationSerializer(observation).data["media"]

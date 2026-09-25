@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconVideoCamera } from '@posthog/icons'
+import { IconVideoCamera, IconWarning } from '@posthog/icons'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -58,7 +59,18 @@ export function ObservationThumbnail({ observation, className, children }: Obser
             return
         }
         setFailedId(observation.id)
+        posthog.capture('replay vision frame load failed')
     }
+
+    // A failed frame gets its own state, so it does not look like an observation that never had one.
+    const placeholder = failed ? (
+        <div className="flex flex-col items-center gap-1 text-tertiary">
+            <IconWarning className="text-xl" aria-hidden />
+            <span className="text-xs">Frame unavailable</span>
+        </div>
+    ) : (
+        <IconVideoCamera className="text-xl text-tertiary" aria-hidden />
+    )
 
     return (
         <div className={`relative aspect-video overflow-hidden rounded border bg-surface-secondary ${className ?? ''}`}>
@@ -72,9 +84,7 @@ export function ObservationThumbnail({ observation, className, children }: Obser
                     onError={onError}
                 />
             )}
-            <div className="absolute inset-0 flex items-center justify-center">
-                {children ?? (!src && <IconVideoCamera className="text-xl text-tertiary" aria-hidden />)}
-            </div>
+            <div className="absolute inset-0 flex items-center justify-center">{children ?? (!src && placeholder)}</div>
         </div>
     )
 }

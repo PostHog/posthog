@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { type DiffOverlayBand, VisualImageDiffViewer } from './VisualImageDiffViewer'
@@ -30,6 +30,29 @@ describe('VisualImageDiffViewer', () => {
 
         const zoomedImage = document.querySelector('[data-attr="visual-review-zoomed-image"] img')
         expect(zoomedImage).toHaveAttribute('src', expectedUrl)
+    })
+
+    it('replaces an image that fails to load with a retry that requests it again', async () => {
+        const user = userEvent.setup()
+
+        render(
+            <VisualImageDiffViewer
+                baselineUrl={null}
+                currentUrl="/new.png"
+                diffUrl={null}
+                diffPercentage={null}
+                result="new"
+            />
+        )
+
+        fireEvent.error(screen.getByAltText('New snapshot'))
+
+        expect(screen.queryByAltText('New snapshot')).not.toBeInTheDocument()
+        expect(screen.getByText("Couldn't load image")).toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+        expect(screen.getByAltText('New snapshot')).toHaveAttribute('src', '/new.png')
     })
 
     it.each<[string, DiffOverlayBand, string, string]>([
