@@ -243,18 +243,21 @@ describe('ReportContextMenu', () => {
         })
 
         // The URL names the survivor and the body names the source. A swapped pair archives the report
-        // the person picked to keep, and nothing can undo a merge.
+        // the person picked to keep, and nothing can undo a merge. Enter in the picker only picks a
+        // result: if it reached the dialog form, the form would submit the survivor from its last
+        // render, which after a second search is the report the person replaced.
         it('merges the row into the picked report', async () => {
             openMenu(makeReport())
 
             fireEvent.click(screen.getByText('Merge into…'))
-            fireEvent.click(await screen.findByPlaceholderText('Search reports by title'))
+            const picker = await screen.findByPlaceholderText('Search reports by title')
+            fireEvent.click(picker)
             fireEvent.click(await screen.findByText('Report two'))
+            fireEvent.keyDown(picker, { key: 'Enter' })
             fireEvent.click(screen.getByText('Merge report'))
 
-            await waitFor(() => {
-                expect(mergeRequests).toEqual([{ survivorId: 'report-2', body: { source_report_ids: ['report-1'] } }])
-            })
+            await waitFor(() => expect(screen.queryByText('Merge report')).not.toBeInTheDocument())
+            expect(mergeRequests).toEqual([{ survivorId: 'report-2', body: { source_report_ids: ['report-1'] } }])
         })
     })
 })
