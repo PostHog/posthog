@@ -569,6 +569,8 @@ describe("buildSessionOptions", () => {
       "apac.anthropic.claude-haiku-4-5-20251001-v1:0",
       "au.anthropic.claude-haiku-4-5-20251001-v1:0",
       "jp.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abcd1234efgh",
     ])("drops the Bedrock id %s", (modelId) => {
       process.env.ANTHROPIC_SMALL_FAST_MODEL = modelId;
 
