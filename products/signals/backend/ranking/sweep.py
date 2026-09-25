@@ -77,14 +77,14 @@ class ScoreInboxReportsInput:
 
 @frozen
 class ScoreInboxReportsResult:
-    candidates: int
-    scored: int
-    no_vector: int
-    teams: int
-    failed_teams: int
-    manifest_version: str | None
+    candidates: int = 0
+    scored: int = 0
+    no_vector: int = 0
+    teams: int = 0
+    failed_teams: int = 0
+    manifest_version: str | None = None
     # "disabled" or "no manifest". None when the pass ran.
-    skipped_reason: str | None
+    skipped_reason: str | None = None
 
 
 def _batches(items: Sequence[str]) -> Iterator[Sequence[str]]:
@@ -197,27 +197,11 @@ def reports_due_for_scoring(
 
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.INBOX_RANKING_SCORING_ENABLED:
-        return ScoreInboxReportsResult(
-            candidates=0,
-            scored=0,
-            no_vector=0,
-            teams=0,
-            failed_teams=0,
-            manifest_version=None,
-            skipped_reason="disabled",
-        )
+        return ScoreInboxReportsResult(skipped_reason="disabled")
     # A served model that does not load raises here and aborts the run.
     serving = load_serving_set()
     if serving is None:
-        return ScoreInboxReportsResult(
-            candidates=0,
-            scored=0,
-            no_vector=0,
-            teams=0,
-            failed_teams=0,
-            manifest_version=None,
-            skipped_reason="no manifest",
-        )
+        return ScoreInboxReportsResult(skipped_reason="no manifest")
     manifest_version = serving.manifest.manifest_version
     now = timezone.now()
     candidates = reports_due_for_scoring(
@@ -251,7 +235,6 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         teams=len(ids_by_team),
         failed_teams=failed_teams,
         manifest_version=manifest_version,
-        skipped_reason=None,
     )
     logger.info(
         "inbox_ranking_sweep_finished",
