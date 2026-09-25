@@ -222,9 +222,9 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             return value
         # An IdP sign-on URL is never hosted by PostHog, so a PostHog host means the admin pasted
         # the ACS consumer URL shown above the field. Accepting it locks the organization out of login.
-        entered = urlsplit(normalized if "//" in normalized else f"//{normalized}")
-        site = urlsplit(settings.SITE_URL)
-        if entered.netloc and site.netloc and entered.netloc.lower() == site.netloc.lower():
+        entered_host = urlsplit(normalized if "//" in normalized else f"//{normalized}").hostname
+        site_host = urlsplit(settings.SITE_URL).hostname
+        if entered_host and site_host and entered_host == site_host:
             raise serializers.ValidationError(
                 "This is a PostHog URL. Enter the sign-on URL from your identity provider instead. "
                 "Okta calls it the sign-on URL, Microsoft Entra ID calls it the login URL."

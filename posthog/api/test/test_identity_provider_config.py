@@ -235,6 +235,7 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             ("site_root", "https://posthog.example.com"),
             ("no_scheme", "posthog.example.com/complete/saml/"),
             ("mixed_case_host", "https://PostHog.Example.com/complete/saml/"),
+            ("explicit_port", "https://posthog.example.com:443/complete/saml/"),
         ]
     )
     def test_cannot_set_posthog_url_as_saml_sign_on_url(self, _name: str, acs_url: str):
