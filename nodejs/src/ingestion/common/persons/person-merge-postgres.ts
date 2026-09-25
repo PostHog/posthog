@@ -141,7 +141,6 @@ export interface PostgresMergePolicy {
 /** A person in a merge, with a copy of the store's pending changes for it in case the live entry goes. */
 interface MergeParticipant {
     person: InternalPerson
-    distinctId: string
     pending?: PendingPersonChanges
 }
 
@@ -311,57 +310,13 @@ export class PostgresPersonMerge {
         }
     }
 
-    private participant(person: InternalPerson, distinctId: string): MergeParticipant {
+    private participant(person: InternalPerson): MergeParticipant {
         const pending = this.store.pendingChanges(person.team_id, person.id)
         return {
             person,
-            distinctId,
             pending: pending
-                ? {
-                      toSet: { ...pending.toSet },
-                      toUnset: [...pending.toUnset],
-                      createdAt: pending.createdAt,
-                      landedCreatedAt: pending.landedCreatedAt,
-                  }
+                ? { toSet: { ...pending.toSet }, toUnset: [...pending.toUnset], createdAt: pending.createdAt }
                 : undefined,
-        }
-    }
-
-    /**
-     * A rolled-back move cleared the sources' cache entries; whatever they held goes back for the
-     * next flush. The entry is rebuilt on the birth that last landed and forced, because the
-     * person's view already shows the pending values, then the view's birth is lowered onto it.
-     */
-    private async restoreSourcePending(sources: MergeParticipant[]): Promise<void> {
-        for (const { person, distinctId, pending } of sources) {
-            if (!pending) {
-                continue
-            }
-            const landed = { ...person, created_at: pending.landedCreatedAt }
-            await this.store.updatePersonWithPropertiesDiffForUpdate(
-                landed,
-                pending.toSet,
-                pending.toUnset,
-                {},
-                distinctId,
-                this.batchId,
-                true
-            )
-            await this.store.updatePersonForMerge(person, { created_at: pending.createdAt }, distinctId, this.batchId)
-        }
-    }
-
-    /** Runs a merge transaction; a rollback puts the sources' pending back before the error goes on. */
-    private async inMergeTx<T>(
-        description: string,
-        sources: MergeParticipant[],
-        body: (tx: PersonsStoreTransactionForBatch) => Promise<T>
-    ): Promise<T> {
-        try {
-            return await this.inTransaction(description, body)
-        } catch (error) {
-            await this.restoreSourcePending(sources)
-            throw error
         }
     }
 
@@ -454,10 +409,9 @@ export class PostgresPersonMerge {
 
         // Each pending copy is taken right after its fetch, before anything else can clear the entry.
         const otherPerson = await this.store.fetchForUpdate(teamId, otherPersonDistinctId, this.batchId)
-        const otherParticipant = otherPerson === null ? null : this.participant(otherPerson, otherPersonDistinctId)
+        const otherParticipant = otherPerson === null ? null : this.participant(otherPerson)
         const mergeIntoPerson = await this.store.fetchForUpdate(teamId, mergeIntoDistinctId, this.batchId)
-        const mergeIntoParticipant =
-            mergeIntoPerson === null ? null : this.participant(mergeIntoPerson, mergeIntoDistinctId)
+        const mergeIntoParticipant = mergeIntoPerson === null ? null : this.participant(mergeIntoPerson)
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -710,7 +664,7 @@ export class PostgresPersonMerge {
         }
 
         // Taken before the sources fetch, so nothing can clear the target's entry in between.
-        const targetParticipant = this.participant(target, this.targetDistinctId)
+        const targetParticipant = this.participant(target)
         const sources = await this.store.fetchPersonsForUpdateByDistinctIds(
             teamId,
             sourcesToFold.map((source) => source.distinctId),
@@ -754,7 +708,7 @@ export class PostgresPersonMerge {
             }
             seenSourceIds.add(source.id)
             mergeSources.push(source)
-            participants.push(this.participant(source, pair.distinctId))
+            participants.push(this.participant(source))
             mergedSourceOutcomes.push({
                 sourceDistinctId: pair.distinctId,
                 outcome: 'merged',
@@ -773,7 +727,7 @@ export class PostgresPersonMerge {
         const currentTarget = target
         this.discardOverrideCounts()
         const lifecycleOpId = lifecycleOpIdFromEvent(teamId, this.request.eventUuid)
-        const [mergedPerson, kafkaMessages] = await this.inMergeTx('mergePeopleFold', participants, async (tx) => {
+        const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeopleFold', async (tx) => {
             // New-world folds claim every person, keeping concurrent lifecycle operations
             // (other merges, the delete saga) off the targets and sources until commit.
             if (this.tombstoneEnabled()) {
@@ -854,6 +808,10 @@ export class PostgresPersonMerge {
             }
             return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
         })
+        // After the commit, so a rollback leaves the sources' entries and their pending as they were.
+        for (const source of mergeSources) {
+            this.store.clearAllCachesForPersonId(source.team_id, source.id)
+        }
 
         this.flushOverrideCounts()
         mergeFoldExecutedCounter.inc()
@@ -998,7 +956,7 @@ export class PostgresPersonMerge {
 
             this.discardOverrideCounts()
             const lifecycleOpId = lifecycleOpIdFromEvent(this.teamId, this.request.eventUuid)
-            const [mergedPerson, kafkaMessages] = await this.inMergeTx('mergePeople', [currentSource], async (tx) => {
+            const [mergedPerson, kafkaMessages] = await this.inTransaction('mergePeople', async (tx) => {
                 // New-world merges claim both persons in the lifecycle mark table: at
                 // most one live operation (merge or delete saga) may hold a person, so
                 // neither can be tombstoned under this transaction. The marks say
@@ -1095,6 +1053,8 @@ export class PostgresPersonMerge {
                 }
                 return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
             })
+            // After the commit, so a rollback leaves the source's entry and its pending as they were.
+            this.store.clearAllCachesForPersonId(currentSourcePerson.team_id, currentSourcePerson.id)
 
             this.flushOverrideCounts()
             mergeTxnSuccessCounter
@@ -1311,7 +1271,7 @@ export class PostgresPersonMerge {
                         return mergeSuccess(currentTarget.person, kafkaAck, true)
                     }
 
-                    currentSource = this.participant(refreshedPerson, sourceDistinctId)
+                    currentSource = this.participant(refreshedPerson)
                     continue
                 } else if (result.error instanceof TargetPersonNotFoundError) {
                     const refreshedPerson = await this.refreshPersonData(
@@ -1327,7 +1287,7 @@ export class PostgresPersonMerge {
                         return mergeSuccess(currentTarget.person, kafkaAck, true)
                     }
 
-                    currentTarget = this.participant(refreshedPerson, targetDistinctId)
+                    currentTarget = this.participant(refreshedPerson)
                     continue
                 } else {
                     // Non-retryable error, return the failure result

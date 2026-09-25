@@ -31,13 +31,7 @@ export interface PersonUpdate {
 export type MergePersonUpdate = Partial<InternalPerson> & { properties_to_unset?: string[] }
 
 /** What a batch has buffered for a person and not yet flushed. */
-export type PendingPersonChanges = {
-    toSet: Properties
-    toUnset: string[]
-    createdAt: DateTime
-    /** The birth as it last landed; created_at differs from it when a merge lowered it and no flush has run. */
-    landedCreatedAt: DateTime
-}
+export type PendingPersonChanges = { toSet: Properties; toUnset: string[]; createdAt: DateTime }
 
 export interface PersonPropertyUpdate {
     updated: boolean

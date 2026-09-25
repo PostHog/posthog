@@ -1502,10 +1502,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const response = await (tx || this.personRepository).deletePerson(personToDelete)
         observeLatencyByVersion(person, start, 'deletePerson')
-
-        // Clear ALL caches related to this person id
-        this.clearAllCachesForPersonId(person.team_id, person.id)
-
+        // The merge clears the person's caches after its commit, so a rollback leaves them intact.
         return response
     }
 
@@ -1550,12 +1547,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
         const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
         return cached
-            ? {
-                  toSet: cached.properties_to_set,
-                  toUnset: cached.properties_to_unset,
-                  createdAt: cached.created_at,
-                  landedCreatedAt: cached.original_created_at,
-              }
+            ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset, createdAt: cached.created_at }
             : null
     }
 
@@ -1603,11 +1595,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (persons.length > 0) {
             observeLatencyByVersion(persons[0], start, 'deletePersons')
         }
-
-        for (const person of persons) {
-            this.clearAllCachesForPersonId(person.team_id, person.id)
-        }
-
+        // The merge clears the persons' caches after its commit, so a rollback leaves them intact.
         return response
     }
 
@@ -1640,9 +1628,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const start = performance.now()
         const response = await tx.moveDistinctIds(source, target, limit)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
-
-        // Clear the cache for the source person id to ensure deleted person isn't cached
-        this.clearAllCachesForPersonId(source.team_id, source.id)
 
         // Update cache for the target person for the current distinct ID
         // Check if we already have cached data for the target person that includes merged properties
@@ -1677,10 +1662,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const start = performance.now()
         const response = await tx.moveDistinctIdsFromPersons(sources, target)
         observeLatencyByVersion(target, start, 'moveDistinctIdsFromPersons')
-
-        for (const source of sources) {
-            this.clearAllCachesForPersonId(source.team_id, source.id)
-        }
 
         // Mirror moveDistinctIds' target-cache handling for the triggering distinct id
         const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)

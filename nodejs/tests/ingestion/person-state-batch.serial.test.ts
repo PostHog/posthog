@@ -2215,6 +2215,8 @@ describe('PersonState.processEvent()', () => {
             if (!result.success) {
                 throw new Error('Expected successful merge result')
             }
+            // The committed merge cleared the source's entry before any flush could.
+            expect(batchStore.getCachedPersonForUpdateByPersonId(teamId, source!.id)).toBeUndefined()
             await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
 
             const persons = await fetchPostgresPersonsH()
@@ -2262,64 +2264,6 @@ describe('PersonState.processEvent()', () => {
                     return await fetchForUpdate(team, distinctId, batchId)
                 })
             }
-
-            const mergeService = personMergeService(
-                {
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: { $anon_distinct_id: oldUserDistinctId },
-                },
-                hub,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                batchStore
-            )
-            const result = await mergeService.handleIdentifyOrAlias()
-            expect(result.success).toBe(true)
-            if (!result.success) {
-                throw new Error('Expected successful merge result')
-            }
-            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
-
-            const persons = await fetchPostgresPersonsH()
-            expect(persons.length).toEqual(1)
-            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
-        })
-
-        it(`merge keeps the source's pending set when a fresh entry replaces the cleared one during the move`, async () => {
-            await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
-                distinctId: oldUserDistinctId,
-            })
-            await createPerson(hub, timestamp2, { b: 2 }, {}, {}, teamId, null, false, newUserUuid, {
-                distinctId: newUserDistinctId,
-            })
-            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
-            const source = await batchStore.fetchForUpdate(teamId, oldUserDistinctId, 0)
-            await batchStore.updatePersonWithPropertiesDiffForUpdate(
-                source!,
-                { pending: 'yes' },
-                [],
-                {},
-                oldUserDistinctId,
-                0
-            )
-
-            // A sibling's read lands after the move cleared the entry: the source is cached again, with nothing pending.
-            const moveDistinctIds = batchStore.moveDistinctIds.bind(batchStore)
-            jest.spyOn(batchStore, 'moveDistinctIds').mockImplementationOnce(async (...args) => {
-                const moved = await moveDistinctIds(...args)
-                batchStore.setCachedPersonForUpdate(
-                    teamId,
-                    oldUserDistinctId,
-                    fromInternalPerson(source!, oldUserDistinctId),
-                    0
-                )
-                return moved
-            })
 
             const mergeService = personMergeService(
                 {

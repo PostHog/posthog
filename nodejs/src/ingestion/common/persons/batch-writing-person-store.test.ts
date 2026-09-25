@@ -335,7 +335,7 @@ describe('BatchWritingPersonStore', () => {
         )
     })
 
-    it('should remove person from caches when deleted', async () => {
+    it('deletes the cached person and leaves the caches for the merge to clear after its commit', async () => {
         const mockRepo = createMockRepository()
         const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
@@ -361,11 +361,11 @@ describe('BatchWritingPersonStore', () => {
             })
         )
 
-        // Validate cache
+        // The transaction may still roll back, so the caches stay.
         updateCache = personStore.getUpdateCache()
         checkCache = personStore.getCheckCache()
-        expect(updateCache.get(`${teamId}:${person.id}`)).toBeUndefined()
-        expect(checkCache.get(`${teamId}:${person.id}`)).toBeUndefined()
+        expect(updateCache.get(`${teamId}:${person.id}`)).toBeDefined()
+        expect(checkCache.get(`${teamId}:test`)).toBeDefined()
     })
 
     it('should flush person updates with default NO_ASSERT mode', async () => {
@@ -632,7 +632,7 @@ describe('BatchWritingPersonStore', () => {
         }
     })
 
-    it('should handle clearing cache for different team IDs', async () => {
+    it('should handle clearing cache for different team IDs', () => {
         const mockRepo = createMockRepository()
         const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
         const person2 = { ...person, id: 'person2-id', uuid: 'person2-uuid', team_id: 2 }
@@ -648,14 +648,8 @@ describe('BatchWritingPersonStore', () => {
         personStore.setDistinctIdToPersonId(person.team_id, 'test', person.id)
         personStore.setDistinctIdToPersonId(person2.team_id, 'test', person2.id)
 
-        // Delete person from team 1
-        await personStore.deletePerson(person, 'test')
-        expect(mockRepo.deletePerson).toHaveBeenCalledWith(
-            expect.objectContaining({
-                ...person,
-                properties: { test: 'test' },
-            })
-        )
+        // Clear team 1's person, the way the merge does after its commit
+        personStore.clearAllCachesForPersonId(person.team_id, person.id)
 
         // Only team 1 entries should be removed
         expect(updateCache.has(`${person.team_id}:${person.id}`)).toBe(false)
@@ -1490,7 +1484,7 @@ describe('BatchWritingPersonStore', () => {
             expect(cacheAfterMove?.distinct_id).toBe('target-distinct')
         })
 
-        it('should clear source person cache', async () => {
+        it('leaves the source person cached for the merge to clear after its commit', async () => {
             const mockRepo = createMockRepository()
             const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
 
@@ -1526,8 +1520,8 @@ describe('BatchWritingPersonStore', () => {
             expect(tx.moveDistinctIds).toHaveBeenCalledTimes(1)
             expect(tx.moveDistinctIds).toHaveBeenCalledWith(sourcePerson, targetPerson, undefined)
 
-            // Verify source cache is cleared
-            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeUndefined()
+            // The transaction may still roll back, so the source's entry and its pending stay.
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, sourcePerson.id)).toBeDefined()
         })
 
         it('should handle complex merge scenario with multiple properties', async () => {
