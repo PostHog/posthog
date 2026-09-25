@@ -21,6 +21,7 @@ LOCKABLE_NOTIFICATION_SETTINGS: dict[str, str] = {
     "materialized_view_sync_failed": "",
     "materialized_view_sync_failed_daily": "",
     "materialized_view_sync_failed_immediate": "",
+    "data_catalog_weekly_digest": "",
 }
 
 # Stored per pipeline but governed per project, so these cannot be merged into the stored map by
