@@ -960,7 +960,7 @@ export const accountsByExternalIdRetrieve = async (
 }
 
 export const getAccountsPresenceListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/accounts/presence-list/`
+    return `/api/projects/${projectId}/accounts/presence_list/`
 }
 
 export const accountsPresenceList = async (

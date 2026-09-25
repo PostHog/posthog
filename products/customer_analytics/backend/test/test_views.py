@@ -675,7 +675,7 @@ class TestAccountViewSet(APIBaseTest):
 
         self.client.force_login(self.user)
         response = self.client.post(
-            f"{self.endpoint_base}presence-list/",
+            f"{self.endpoint_base}presence_list/",
             {"account_ids": [str(first_account.id), str(second_account.id)]},
             format="json",
         )

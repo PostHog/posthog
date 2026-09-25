@@ -27,6 +27,7 @@ import {
     accountRelationshipDefinitionsList,
     accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
+    accountsPresenceList,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -34,6 +35,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountApi,
+    AccountPresenceApi,
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -49,7 +51,13 @@ import {
     relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
-import { accountsLogic, customPropertySavingKey, savingRoleKey, SEARCH_DEBOUNCE_MS } from './accountsLogic'
+import {
+    ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS,
+    accountsLogic,
+    customPropertySavingKey,
+    savingRoleKey,
+    SEARCH_DEBOUNCE_MS,
+} from './accountsLogic'
 import { accountsOverviewTilesLogic } from './accountsOverviewTilesLogic'
 import { readAccountsViewDraft, writeAccountsViewDraft } from './accountsViewState'
 import { AccountsEvents, DEFAULT_TILES } from './constants'
@@ -65,6 +73,7 @@ jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     customPropertyDefinitionsList: jest.fn(),
     accountsCustomPropertyValuesCreate: jest.fn(),
     accountsPartialUpdate: jest.fn(),
+    accountsPresenceList: jest.fn(),
     accountsRelationshipsCreate: jest.fn(),
     accountsRelationshipsEndCreate: jest.fn(),
     accountsRelationshipsList: jest.fn(),
@@ -85,6 +94,7 @@ const mockCustomPropertyValuesCreate = accountsCustomPropertyValuesCreate as jes
     typeof accountsCustomPropertyValuesCreate
 >
 const mockPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
+const mockAccountsPresenceList = accountsPresenceList as jest.MockedFunction<typeof accountsPresenceList>
 
 const CSM_DEFINITION_ID = '11111111-2222-3333-4444-555555555555'
 const AE_DEFINITION_ID = '66666666-7777-8888-9999-aaaaaaaaaaaa'
@@ -677,6 +687,69 @@ describe('accountsLogic', () => {
 
                 expect(logic.values.assignedToFilter).toEqual([7])
             })
+        })
+    })
+
+    describe('account presence', () => {
+        const responseWithAccount = (): AccountsTableQueryResponse => ({
+            kind: NodeKind.AccountsTableQuery,
+            results: [
+                {
+                    id: ACCOUNT_ID,
+                    name: 'Acme',
+                    accountFields: {},
+                    relationships: {},
+                    customProperties: {},
+                    customPropertyHistory: {},
+                    noteCount: 0,
+                },
+            ],
+            hasMore: false,
+            limit: 100,
+            offset: 0,
+        })
+        const responsePayload = {
+            overrideQuery: undefined,
+            pollOnly: true,
+            queryId: 'presence-request',
+            refresh: undefined,
+        }
+
+        it('refreshes presence while account rows remain loaded', async () => {
+            jest.useFakeTimers()
+            mockAccountsPresenceList.mockResolvedValue([
+                { account_id: ACCOUNT_ID, viewers: [{ user_id: 1, display_name: 'Alex Rivera' }] },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.listLoadDataSuccess(responseWithAccount(), responsePayload)
+            }).toFinishAllListeners()
+
+            expect(logic.values.accountPresenceByAccountId[ACCOUNT_ID]).toHaveLength(1)
+
+            mockAccountsPresenceList.mockResolvedValue([])
+            await jest.advanceTimersByTimeAsync(ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPresenceList).toHaveBeenCalledTimes(2)
+            expect(logic.values.accountPresenceByAccountId).toEqual({})
+        })
+
+        it('ignores an in-flight response after the account list becomes empty', async () => {
+            let resolvePresence!: (presence: AccountPresenceApi[]) => void
+            mockAccountsPresenceList.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolvePresence = resolve
+                    })
+            )
+
+            logic.actions.loadAccountPresence([ACCOUNT_ID])
+            logic.actions.loadAccountPresence([])
+            resolvePresence([{ account_id: ACCOUNT_ID, viewers: [{ user_id: 1, display_name: 'Alex Rivera' }] }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.accountPresenceByAccountId).toEqual({})
         })
     })
 

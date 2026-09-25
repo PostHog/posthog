@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { apiMutator } from 'lib/api-orval-mutator'
 import {
     type AssignmentStatus,
     isAssignmentStatus,
@@ -32,6 +31,7 @@ import type { UserBasicType } from '~/types'
 import {
     accountsCustomPropertyValuesCreate,
     accountsPartialUpdate,
+    accountsPresenceList,
     accountsRelationshipsCreate,
     accountsRelationshipsEndCreate,
     accountsRelationshipsList,
@@ -45,6 +45,7 @@ import {
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
 import type {
+    AccountPresenceApi,
     AccountPresenceViewerApi,
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -83,8 +84,9 @@ export const SEARCH_DEBOUNCE_MS = 300
 
 // Debounce tag edits because ObjectTags emits each addition and removal separately.
 export const TAGS_SAVE_DEBOUNCE_MS = 300
+export const ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS = 30_000
 
-type AccountPresenceResponse = Array<{ account_id: string; viewers: AccountPresenceViewerApi[] }>
+type AccountPresenceResponse = AccountPresenceApi[]
 
 // Wait for refetched rows before scrolling to an account.
 const SCROLL_TO_ACCOUNT_POLL_MS = 100
@@ -969,7 +971,7 @@ export const accountsLogic = kea<accountsLogicType>([
             {} as Record<string, AccountPresenceViewerApi[]>,
             {
                 loadAccountPresenceSuccess: (_, { presence }) =>
-                    Object.fromEntries(presence.map(({ account_id, viewers }) => [account_id, viewers])),
+                    Object.fromEntries(presence.map(({ account_id, viewers }) => [account_id, [...viewers]])),
                 loadAccountPresenceFailure: () => ({}),
             },
         ],
@@ -1472,7 +1474,19 @@ export const accountsLogic = kea<accountsLogicType>([
                 response && typeof response === 'object' && 'results' in response && Array.isArray(response.results)
                     ? response.results.filter(isAccountsTableRow).map((account) => account.id)
                     : []
-            actions.loadAccountPresence(accountIds)
+            cache.disposables.dispose('accountPresencePoll')
+            if (accountIds.length) {
+                cache.disposables.add(() => {
+                    actions.loadAccountPresence(accountIds)
+                    const intervalId = window.setInterval(
+                        () => actions.loadAccountPresence(accountIds),
+                        ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS
+                    )
+                    return () => window.clearInterval(intervalId)
+                }, 'accountPresencePoll')
+            } else {
+                actions.loadAccountPresence([])
+            }
             const queryId = payload?.queryId
             const requestState = cache.latestListRequestState
             if (
@@ -1496,21 +1510,16 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
         loadAccountPresence: async ({ accountIds }) => {
+            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
+            const requestSequence = cache.accountPresenceRequestSequence
             if (!values.currentTeamId || !accountIds.length) {
                 actions.loadAccountPresenceSuccess([])
                 return
             }
-            cache.accountPresenceRequestSequence = (cache.accountPresenceRequestSequence ?? 0) + 1
-            const requestSequence = cache.accountPresenceRequestSequence
             try {
-                const presence = await apiMutator<AccountPresenceResponse>(
-                    `/api/projects/${values.currentTeamId}/accounts/presence-list/`,
-                    {
-                        body: JSON.stringify({ account_ids: accountIds.slice(0, 100) }),
-                        headers: { 'Content-Type': 'application/json' },
-                        method: 'POST',
-                    }
-                )
+                const presence = await accountsPresenceList(String(values.currentTeamId), {
+                    account_ids: accountIds.slice(0, 100),
+                })
                 if (requestSequence === cache.accountPresenceRequestSequence) {
                     actions.loadAccountPresenceSuccess(presence)
                 }

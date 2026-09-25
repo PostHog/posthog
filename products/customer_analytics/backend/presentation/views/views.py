@@ -1879,7 +1879,6 @@ class AccountViewSet(
     @action(
         methods=["POST"],
         detail=False,
-        url_path="presence-list",
         pagination_class=None,
         required_scopes=["account:read"],
     )
