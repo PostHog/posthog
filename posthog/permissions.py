@@ -1143,6 +1143,11 @@ class AccessControlPermission(ScopeBasePermission):
         if hasattr(view, "param_derived_from_user_current_team"):
             if view.param_derived_from_user_current_team in ("team_id", "project_id"):
                 if request.user.current_team_id is None:
+                    if getattr(view, "resolves_organization_without_current_team", False):
+                        # The view reads the organization off the user instead. Its own
+                        # permission classes check the access level on that organization.
+                        return True
+
                     # Not `AuthenticationFailed`: the credential is valid, the account state is
                     # not. A 401 here tells a token caller to replace a key that was never the
                     # problem, and clients act on it by refreshing the token and retrying.

@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { Dispatch, SetStateAction, useState } from 'react'
+import posthog from 'posthog-js'
+import { Dispatch, SetStateAction, useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { Link } from 'lib/lemon-ui/Link'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
@@ -75,12 +78,38 @@ export function DeleteOrganizationModal({
 
 export function OrganizationDangerZone(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
+    const { billing, billingLoading } = useValues(billingLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Owner,
         scope: RestrictionScope.Organization,
     })
+
+    const hasActiveSubscription = !!billing?.has_active_subscription
+
+    useEffect(() => {
+        if (!restrictionReason && hasActiveSubscription) {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('organization deletion blocked', {
+                reason: 'active_subscription',
+                source: 'settings_danger_zone',
+            })
+        }
+    }, [restrictionReason, hasActiveSubscription])
+
+    let deletionDisabledReason: JSX.Element | string | null = restrictionReason
+    if (!deletionDisabledReason && billingLoading) {
+        deletionDisabledReason = 'Checking your subscription.'
+    }
+    if (!deletionDisabledReason && hasActiveSubscription) {
+        deletionDisabledReason = (
+            <>
+                Cancel your subscription before you delete this organization.{' '}
+                <Link to={urls.organizationBilling()}>Go to billing</Link>
+            </>
+        )
+    }
 
     return (
         <>
@@ -96,7 +125,8 @@ export function OrganizationDangerZone(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="delete-organization-button"
                     icon={<IconTrash />}
-                    disabledReason={restrictionReason}
+                    disabledReason={deletionDisabledReason}
+                    disabledReasonInteractive={hasActiveSubscription}
                 >
                     Delete {currentOrganization?.name || 'the current organization'}
                 </LemonButton>

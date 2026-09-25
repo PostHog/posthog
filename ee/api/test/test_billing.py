@@ -1609,26 +1609,30 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("list", "/api/billing/", "ee.billing.billing_manager.BillingManager.get_billing"),
-            ("usage", "/api/billing/usage/", "ee.billing.billing_manager.BillingManager.get_usage_data"),
+            ("list", "/api/billing/", "ee.billing.billing_manager.BillingManager.get_billing", {}),
+            (
+                "usage",
+                "/api/billing/usage/",
+                "ee.billing.billing_manager.BillingManager.get_usage_data",
+                {"results": [{"data": [1, 2], "count": 2}]},
+            ),
         ]
     )
-    def test_a_billing_read_without_a_current_project_is_denied_rather_than_unauthenticated(
-        self, _name: str, path: str, billing_call: str
+    def test_a_billing_read_without_a_current_project_reads_the_organization(
+        self, _name: str, path: str, billing_call: str, billing_response: dict
     ):
         headers = self._oauth_token_headers(["billing:read"])
         self.user.current_team = None
         self.user.save()
 
         with patch(billing_call) as mock_billing_call:
+            mock_billing_call.return_value = billing_response
             response = self.client.get(
                 path, {"start_date": "2025-01-01"}, HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"]
             )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "permission_denied")
-        self.assertIn("your account has none", response.json()["detail"])
-        mock_billing_call.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_billing_call.assert_called_once()
 
     @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
     def test_get_usage_rejects_other_org_team_ids_for_project_scoped_billing_read(self, mock_get_usage_data):
@@ -2504,6 +2508,38 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
         self.assertIn(
             response.status_code, [status.HTTP_200_OK, status.HTTP_301_MOVED_PERMANENTLY, status.HTTP_302_FOUND]
         )
+
+
+class TestBillingOrganizationWithoutProjects(APILicensedTest):
+    """An organization keeps its billing access after the last project is gone."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        Team.objects.filter(organization=self.organization).delete()
+        self.user.current_team = None
+        self.user.current_organization = self.organization
+        self.user.save()
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_owner_reaches_the_billing_portal(self, mock_request):
+        mock_request.return_value.status_code = 200
+        mock_request.return_value.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+
+        response = self.client.get("/api/billing/portal")
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+    def test_user_without_an_organization_gets_404(self):
+        self.organization_membership.delete()
+        self.user.current_organization = None
+        self.user.save()
+
+        response = self.client.get("/api/billing/portal")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertNotEqual(response.json()["detail"], BILLING_ACCESS_DENIED_MESSAGE)
 
 
 class TestResolveTeamLabels(APIBaseTest):
