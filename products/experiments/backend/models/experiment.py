@@ -160,6 +160,12 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     class Meta:
         db_table = "posthog_experiment"
+        indexes = [
+            # Matches the list endpoint: one team's unarchived experiments, newest first. `deleted`
+            # stays out because it is nullable, so `exclude(deleted=True)` compiles to a predicate
+            # Postgres applies as a filter, and the column would only break the sort order here.
+            models.Index(fields=["team", "archived", "-created_at"], name="experiment_team_arch_created"),
+        ]
         constraints = [
             # Rule IDs are UUIDs that no later experiment may reuse, so uniqueness is global, not per team.
             models.UniqueConstraint(
