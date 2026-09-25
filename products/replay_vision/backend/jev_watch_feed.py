@@ -83,15 +83,22 @@ _WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:"
 WATCH_RANK_TTL = timedelta(hours=3)
 
 # User text stays in the request state; these instructions refer to it by observation id only, so
-# session prose cannot become an instruction (the rule from posthog/llm/system_one.py).
+# session prose cannot become an instruction (the rule from posthog/llm/system_one.py). Each
+# question is an independent probability, not a pick, and the instruction says so: without the
+# "every answer may be no" sentence a relative phrasing grades the window on a curve, forcing
+# winners out of an all-routine window and suppressing an all-failures one.
 _WINDOW_INSTRUCTIONS = (
     "The state holds recent AI scans of recorded product sessions, all from one scanner, keyed by "
-    "id. Judge the scan with id {index}: compared to the other scans in the state, should a "
-    "product team spend time watching that session's recording in a 'What to watch' feed? "
+    "id. Judge the scan with id {index} on its own evidence: should a product team spend time "
+    "watching that session's recording in a 'What to watch' feed? "
     "Sessions worth watching show user friction, failures, confusion, surprising behavior, or an "
-    "outcome unusual for this scanner. A routine session that reads like the rest of the state is "
-    "not worth watching. A session about a product whose subject matter is errors or debugging is "
-    "not automatically worth watching; only what the recorded user experienced counts."
+    "outcome unusual for this scanner. "
+    "Use the other scans in the state only as context for what is routine for this scanner; the "
+    "scans do not compete with each other. It is correct to answer no for every scan in the state "
+    "when nothing stands out, and to answer yes for many scans when many sessions show real "
+    "problems. "
+    "A session about a product whose subject matter is errors or debugging is not automatically "
+    "worth watching; only what the recorded user experienced counts."
 )
 
 _CALLS = Counter(
