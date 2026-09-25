@@ -41,7 +41,11 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import (
+    ComposeTicketSerializer,
+    TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
+)
 from products.conversations.backend.models import (
     EmailChannel,
     EmailChannelKind,
@@ -329,6 +333,53 @@ class TestTicketAPI(APIBaseTest):
 
         self.ticket.refresh_from_db()
         self.assertEqual(getattr(self.ticket, field_name), expected_response_value)
+
+    @parameterized.expand(
+        [
+            ("default_replaces", ["bug"], {"tags": ["urgent"]}, ["urgent"]),
+            ("set_replaces", ["bug"], {"tags": ["urgent"], "tags_mode": "set"}, ["urgent"]),
+            ("add_keeps_existing", ["bug"], {"tags": ["urgent", "bug"], "tags_mode": "add"}, ["bug", "urgent"]),
+            (
+                "remove_strips_named",
+                ["bug", "urgent", "billing"],
+                {"tags": ["bug", "billing"], "tags_mode": "remove"},
+                ["urgent"],
+            ),
+        ]
+    )
+    def test_update_tags_mode(self, mock_on_commit, _name, existing_tags, payload, expected_tags):
+        for name in existing_tags:
+            self.ticket.tagged_items.create(tag=Tag.objects.create(name=name, team_id=self.team.id))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(response.json()["tags"]), expected_tags)
+        self.assertEqual(sorted(self.ticket.tagged_items.values_list("tag__name", flat=True)), expected_tags)
+
+    @parameterized.expand(
+        [
+            ("add", {"tags": ["urgent"], "tags_mode": "add"}, ["bug", "urgent"]),
+            ("remove", {"tags": ["urgent"], "tags_mode": "remove"}, ["bug"]),
+        ]
+    )
+    def test_update_tags_add_and_remove_ignore_the_tags_loaded_with_the_ticket(
+        self, mock_on_commit, _name, payload, expected_tags
+    ):
+        self.ticket.tagged_items.create(tag=Tag.objects.create(name="bug", team_id=self.team.id))
+        self.ticket.tagged_items.create(tag=Tag.objects.create(name="urgent", team_id=self.team.id))
+        # A concurrent request attached "bug" after this one loaded the ticket, so the
+        # prefetched snapshot is stale. add and remove must not write from it.
+        self.ticket.prefetched_tags = []
+
+        serializer = TicketUpdateRequestSerializer(self.ticket, data=payload, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        serializer.save()
+
+        self.assertEqual(sorted(self.ticket.tagged_items.values_list("tag__name", flat=True)), expected_tags)
 
     @parameterized.expand(
         [

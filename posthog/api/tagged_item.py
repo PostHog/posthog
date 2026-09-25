@@ -51,6 +51,26 @@ def cleanup_orphan_tags(team_id: int) -> None:
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
 
 
+def add_tags_to_object(tags: list[str], obj: Any) -> list[TaggedItem]:
+    """Attach tags to an object without touching the tags it already has.
+
+    Each tag is a get_or_create, so concurrent adds to one object union instead of
+    overwriting each other the way ``set_tags_on_object`` would.
+    """
+    for tag in normalize_tag_names(tags):
+        tag_instance, _ = Tag.objects.get_or_create(name=tag, team_id=obj.team_id)
+        obj.tagged_items.get_or_create(tag_id=tag_instance.id)
+    return list(obj.tagged_items.select_related("tag"))
+
+
+def remove_tags_from_object(tags: list[str], obj: Any) -> list[TaggedItem]:
+    """Detach only the named tags from an object."""
+    # Individual deletes so the TaggedItem activity signal fires for each removal.
+    for tagged_item in obj.tagged_items.filter(tag__name__in=normalize_tag_names(tags)):
+        tagged_item.delete()
+    return list(obj.tagged_items.select_related("tag"))
+
+
 def normalize_tag_names(tags: Iterable[str]) -> set[str]:
     """The tag names a request's raw strings resolve to, minus the blanks.
 
