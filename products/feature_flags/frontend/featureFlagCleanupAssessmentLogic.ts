@@ -49,6 +49,7 @@ export interface featureFlagCleanupAssessmentLogicValues {
     isMaxAvailable: boolean // maxGlobalLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     featureFlags: FeatureFlagsSet // enabledFeaturesLogic
+    seed: { prompt: string; autoSubmit: boolean } | null // composerSeedLogic
     assessmentStarted: boolean
     isCleanupAvailable: boolean
 }
@@ -74,6 +75,9 @@ export interface featureFlagCleanupAssessmentLogicActions {
     } // attachedContextLogic
     setSeed: (seed: { prompt: string; autoSubmit: boolean }) => {
         seed: { prompt: string; autoSubmit: boolean }
+    } // composerSeedLogic
+    consumeSeed: () => {
+        value: true
     } // composerSeedLogic
     clearActiveCreation: () => {
         value: true
@@ -133,12 +137,19 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
     key((props) => props.id),
 
     connect(() => ({
-        values: [maxGlobalLogic, ['isMaxAvailable', 'effectivePhaiView'], enabledFeaturesLogic, ['featureFlags']],
+        values: [
+            maxGlobalLogic,
+            ['isMaxAvailable', 'effectivePhaiView'],
+            enabledFeaturesLogic,
+            ['featureFlags'],
+            composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }),
+            ['seed'],
+        ],
         actions: [
             attachedContextLogic,
             ['registerContext', 'deregisterContext', 'undismissContext'],
             composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }),
-            ['setSeed'],
+            ['setSeed', 'consumeSeed'],
             runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
             ['clearActiveCreation', 'setHistoryExpanded'],
             sidePanelStateLogic,
@@ -175,7 +186,7 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         startAssessment: ({ featureFlag, projectId }) => {
             if (values.assessmentStarted || !values.isCleanupAvailable) {
                 return
@@ -195,7 +206,8 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
             // unrelated draft - so this action never appends to an unrelated task.
             actions.clearActiveCreation()
             actions.setHistoryExpanded(false)
-            actions.setSeed({ prompt: FEATURE_FLAG_CLEANUP_ASSESSMENT_PROMPT, autoSubmit: true })
+            cache.pendingSeed = { prompt: FEATURE_FLAG_CLEANUP_ASSESSMENT_PROMPT, autoSubmit: true }
+            actions.setSeed(cache.pendingSeed)
             actions.openSidePanel(SidePanelTab.Max)
             posthog.capture('feature flag stale banner review cleanup with ai clicked', {
                 flag_id: featureFlag.id,
@@ -207,7 +219,14 @@ export const featureFlagCleanupAssessmentLogic = kea<featureFlagCleanupAssessmen
     // The registration is a global, app-wide store keyed by provider id (see attachedContextLogic), so
     // leaving it behind here would keep attaching the cleanup skill and this flag's identity to every
     // conversation started anywhere in the app after the user has navigated away from this flag.
-    beforeUnmount(({ actions, props }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
         actions.deregisterContext(providerId(props.id))
+        // The runner reads the attached context only when it consumes the seed, and it can mount after this
+        // logic unmounts (its chunks load lazily). A seed left pending here would auto-submit without the
+        // target, the skill and the assessment-only instruction. The identity check leaves alone a seed that
+        // another producer set after this one.
+        if (values.seed && values.seed === cache.pendingSeed) {
+            actions.consumeSeed()
+        }
     }),
 ])

@@ -87,6 +87,9 @@ describe('featureFlagCleanupAssessmentLogic', () => {
         // `beforeUnmount` deregisters its entry, rather than the whole store resetting because `logic`
         // happened to be its last consumer.
         attachedContextLogic.mount()
+        // The side panel holds the seed store mounted while the runner chunk loads, so a pending seed can
+        // outlive this logic. Mounting it here models that.
+        composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).mount()
         logic = featureFlagCleanupAssessmentLogic({ id: FLAG_ID })
         logic.mount()
         ;(posthog.capture as jest.Mock).mockClear()
@@ -95,6 +98,7 @@ describe('featureFlagCleanupAssessmentLogic', () => {
     afterEach(() => {
         logic?.unmount()
         attachedContextLogic.unmount()
+        composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).unmount()
     })
 
     it('is unavailable on the legacy view even when the release flag is on', async () => {
@@ -210,7 +214,7 @@ describe('featureFlagCleanupAssessmentLogic', () => {
             expect(clicks).toHaveLength(1)
         })
 
-        it('detaches the request context on unmount, so it never reaches a later, unrelated conversation', async () => {
+        it('detaches the request context and cancels its pending seed on unmount, so neither reaches a later conversation', async () => {
             await expectLogic(logic, () => {
                 logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
             }).toFinishAllListeners()
@@ -219,6 +223,19 @@ describe('featureFlagCleanupAssessmentLogic', () => {
             logic.unmount()
 
             expect(attachedContextLogic.values.contextItems).toHaveLength(0)
+            expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toBeNull()
+        })
+
+        it("leaves another producer's newer seed in place on unmount", async () => {
+            await expectLogic(logic, () => {
+                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+            }).toFinishAllListeners()
+            const otherSeed = { prompt: 'Something else', autoSubmit: false }
+            composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setSeed(otherSeed)
+
+            logic.unmount()
+
+            expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toEqual(otherSeed)
         })
     })
 })
