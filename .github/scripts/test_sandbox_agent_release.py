@@ -20,6 +20,7 @@ gh() {
         *"/check-runs "*) jq "${@: -1}" <<< "$CHECKS" ;;
         *"/jobs?"*) printf '%s' "$JOBS" ;;
         "api "*"/actions/jobs/"*) printf '%s' "$JOB" ;;
+        "api "*"/actions/runs/"*) printf '%s' "$WORKFLOW_RUN" ;;
         "run download "*)
             printf '%s' "$*" > "$RUNNER_TEMP/download"
             if [ "${DOWNLOAD_STATUS:-0}" != 0 ]; then return 1; fi
@@ -80,44 +81,104 @@ def test_wait_returns_the_latest_check_and_its_url(tmp_path: Path, status: str, 
     assert f"details-url={'https://example.com/jobs/2' if conclusion else ''}\n" in output
 
 
-@pytest.mark.parametrize(
-    "artifact_head,digest,download_status",
-    [(HEAD, DIGEST, "0"), ("c" * 40, DIGEST, "0"), (HEAD, "invalid", "0"), (HEAD, DIGEST, "1")],
-)
-def test_gateway_uses_the_built_digest_on_partial_reruns(
-    tmp_path: Path, artifact_head: str, digest: str, download_status: str
-) -> None:
-    recorded = run(
-        tmp_path, script(BUILD, "image-metadata", "sandbox_base_build"), HEAD_SHA=artifact_head, DIGEST=digest
-    )
-    assert recorded.returncode == 0, recorded.stderr
-    result = run(
-        tmp_path,
-        script(UPDATE, "image"),
-        SHA=HEAD,
-        CHECK_URL="https://example.com/actions/runs/456/job/789",
-        JOB=json.dumps(
+@pytest.fixture
+def image_env() -> dict[str, str]:
+    branch = "chore/bump-sandbox-agent-version-2.0.1"
+    return {
+        "SHA": HEAD,
+        "BRANCH": branch,
+        "PR": "123",
+        "CHECK_URL": "https://example.com/actions/runs/456/job/789",
+        "JOB": json.dumps(
             {"head_sha": HEAD, "workflow_name": "Tasks Sandbox Container Image CD", "run_id": 456, "run_attempt": 2}
         ),
-        JOBS=json.dumps(
+        "WORKFLOW_RUN": json.dumps(
+            {
+                "head_sha": HEAD,
+                "event": "pull_request",
+                "path": BUILD,
+                "head_branch": branch,
+                "head_repository": {"full_name": "PostHog/posthog"},
+                "pull_requests": [{"number": 123, "base": {"ref": "master"}}],
+            }
+        ),
+        "JOBS": json.dumps(
             [
                 {
                     "jobs": [
-                        {"name": "Build and push Tasks Sandbox container image", "run_attempt": attempt}
-                        for attempt in (1, 3)
+                        {
+                            "name": "Build and push Tasks Sandbox container image",
+                            "run_attempt": attempt,
+                            "started_at": f"2026-01-01T00:0{minute}:00Z",
+                            "completed_at": f"2026-01-01T00:0{minute}:30Z",
+                        }
+                        for attempt, minute in ((1, 1), (2, 1), (3, 3))
                     ]
                 }
             ]
         ),
-        DOWNLOAD_STATUS=download_status,
+    }
+
+
+@pytest.mark.parametrize(
+    "build_attempt,artifact_head,digest,download_status",
+    [
+        (1, HEAD, DIGEST, "0"),
+        (2, HEAD, DIGEST, "0"),
+        (1, "c" * 40, DIGEST, "0"),
+        (1, HEAD, "invalid", "0"),
+        (1, HEAD, DIGEST, "1"),
+    ],
+)
+def test_gateway_uses_the_built_digest_on_partial_reruns(
+    tmp_path: Path, image_env: dict[str, str], build_attempt: int, artifact_head: str, digest: str, download_status: str
+) -> None:
+    if build_attempt == 2:
+        jobs = json.loads(image_env["JOBS"])
+        jobs[0]["jobs"][1].update(started_at="2026-01-01T00:02:00Z", completed_at="2026-01-01T00:02:30Z")
+        image_env["JOBS"] = json.dumps(jobs)
+    recorded = run(
+        tmp_path, script(BUILD, "image-metadata", "sandbox_base_build"), HEAD_SHA=artifact_head, DIGEST=digest
     )
-    assert "--name sandbox-base-image-1 " in (tmp_path / "download").read_text()
+    assert recorded.returncode == 0, recorded.stderr
+    result = run(tmp_path, script(UPDATE, "image"), **image_env, DOWNLOAD_STATUS=download_status)
+    assert f"--name sandbox-base-image-{build_attempt} " in (tmp_path / "download").read_text()
     if artifact_head == HEAD and digest == DIGEST and download_status == "0":
         assert result.returncode == 0, result.stderr
         assert (tmp_path / "output").read_text() == f"image=ghcr.io/posthog/posthog-sandbox-base@{DIGEST}\n"
     else:
         assert result.returncode != 0
         assert not (tmp_path / "output").exists()
+
+
+@pytest.mark.parametrize(
+    "run_fields",
+    [
+        {"head_sha": "c" * 40},
+        {"event": "push"},
+        {"path": ".github/workflows/another-image.yml"},
+        {"head_branch": "another-branch-at-the-same-commit"},
+        {"head_repository": {"full_name": "someone/posthog"}},
+        {"pull_requests": [{"number": 456, "base": {"ref": "master"}}]},
+        {"pull_requests": [{"number": 123, "base": {"ref": "another-base"}}]},
+        {
+            "pull_requests": [
+                {"number": 123, "base": {"ref": "master"}},
+                {"number": 456, "base": {"ref": "another-base"}},
+            ]
+        },
+    ],
+)
+def test_gateway_rejects_image_runs_outside_the_bump_pr(
+    tmp_path: Path, image_env: dict[str, str], run_fields: dict[str, object]
+) -> None:
+    workflow_run = json.loads(image_env["WORKFLOW_RUN"])
+    workflow_run.update(run_fields)
+    image_env["WORKFLOW_RUN"] = json.dumps(workflow_run)
+    result = run(tmp_path, script(UPDATE, "image"), **image_env)
+    assert result.returncode != 0
+    assert not (tmp_path / "download").exists()
+    assert not (tmp_path / "output").exists()
 
 
 def test_packaging_smoke_uses_each_platform_digest(tmp_path: Path) -> None:
