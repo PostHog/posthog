@@ -115,6 +115,9 @@ tools:
     exports-retrieve:
         operation: exports_retrieve
         enabled: false
+    file-system-command-search-create:
+        operation: file_system_command_search_create
+        enabled: false
     file-system-count-by-path-create:
         operation: file_system_count_by_path_create
         enabled: false

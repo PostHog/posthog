@@ -21556,6 +21556,54 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface CommandCandidate {
+      /**
+         * ID of an available command in the palette.
+         * @maxLength 200
+         */
+      id: string;
+      /**
+         * Display name of the command.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * Category and search keywords.
+         * @maxLength 400
+         */
+      description: string;
+    }
+
+    export interface CommandSearchRequest {
+      /**
+         * Search text, including unfinished words.
+         * @maxLength 200
+         */
+      query: string;
+      /** Available palette commands. */
+      commands: CommandCandidate[];
+    }
+
+    export interface CommandSearchResult {
+      /** Stable result ID. */
+      id: string;
+      /** Display name. */
+      name: string;
+      /** Search context. */
+      description: string;
+      /** File navigation URL; empty for commands. */
+      href: string;
+      /** File type, or command. */
+      type: string;
+      /** Original command ID; empty for files. */
+      command_id: string;
+    }
+
+    export interface CommandSearchResponse {
+      /** Complete results in relevance order. */
+      results: CommandSearchResult[];
+    }
+
     export interface CommentSlackThreadRef {
       /** Slack channel ID this discussion is mirrored to. */
       channel_id: string;

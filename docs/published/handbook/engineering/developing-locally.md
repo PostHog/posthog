@@ -186,6 +186,40 @@ If `bin/start` sees any `op://` reference in `.env.local`, it re-execs itself un
 
 If the `op` CLI isn't installed, `op://` lines are skipped (rather than sourced as literal `op://...` strings that break downstream services with cryptic errors). Services that need those secrets will fail with their own "missing key" errors — install `1password-cli` or replace the refs with literal values.
 
+### Trying command palette ranking
+
+Cmd+k can rank commands and files with Jev through Django.
+Set `AI_GATEWAY_URL` to your region's HTTPS gateway base URL, including `/v1`, and `AI_GATEWAY_API_KEY` to a gateway credential with the `llm_gateway:read` scope in `.env.local`.
+Enable the `command-search-jev` flag for the user.
+The backend evaluates the flag locally, so the analytics SDK must have its local feature flag definitions available.
+Ranking calls the configured AI gateway's `/v1/systemone` endpoint with `posthog/hogference/jevk5-fp8-0.2`.
+The shared gateway credential owns billing; the `command_search` product header and team distinct ID attribute usage.
+Missing or invalid gateway configuration keeps the existing search active.
+The shared System One client permits plain HTTP only for loopback development gateways and never falls back to TypeSafe for command search.
+
+The browser sends the search text and available command metadata; it does not fetch or upload a project's files for ranking.
+Django retrieves up to 48 newest files, 48 files created by the current user, and 32 path text matches, within the current team and web surface.
+It removes duplicate references and combines these with up to 126 commands, favoring text matches when the available command list exceeds that limit.
+Django uses fuzzy text matching across names and descriptions to shortlist 15 candidates for one Jevk5 question, reserving the model's sixteenth option for no match.
+This keeps inference within the single-pass choice limit and avoids slower multi-question batches.
+This is bounded candidate retrieval: older files that neither belong to the user nor match the query text can be missed.
+Semantic matches outside the text shortlist can also be missed.
+File bodies and arbitrary file metadata are excluded.
+
+Typing waits 200 milliseconds before starting a request.
+The palette displays one completed result set and discards superseded responses.
+Rankings are cached for 30 seconds; provider failures and exhausted budgets fall back to text matches without a later rerank.
+Each user can trigger at most 120 inference requests per minute.
+An identical request already in flight returns text matches immediately instead of waiting for the ranked response or making another gateway call.
+The request uses a 300-millisecond connection timeout and an 800-millisecond read timeout, reuses HTTP connections, and does not retry or follow redirects.
+Gateway requests ignore environment proxy settings.
+States larger than 60 KB skip inference, and gateway failures open a shared 30-second cooldown.
+A denied or failed ranking request restores the existing search for that team while the palette is mounted.
+An empty ranking also uses the existing search, including people, groups, accounts, tickets, and playlists.
+These fallback searches finish before their results appear together.
+Successful ranked searches stay limited to commands and file candidates to keep their latency bounded.
+The existing search remains available when the flag is off.
+
 ### Running in detached mode
 
 By default, `hogli start` runs interactively with a terminal UI (phrocs) that displays logs from all processes. If you prefer to run the dev stack in the background without an attached terminal, use detached mode:

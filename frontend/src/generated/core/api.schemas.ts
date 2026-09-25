@@ -4060,6 +4060,54 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface CommandCandidateApi {
+    /**
+     * ID of an available command in the palette.
+     * @maxLength 200
+     */
+    id: string
+    /**
+     * Display name of the command.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Category and search keywords.
+     * @maxLength 400
+     */
+    description: string
+}
+
+export interface CommandSearchRequestApi {
+    /**
+     * Search text, including unfinished words.
+     * @maxLength 200
+     */
+    query: string
+    /** Available palette commands. */
+    commands: CommandCandidateApi[]
+}
+
+export interface CommandSearchResultApi {
+    /** Stable result ID. */
+    id: string
+    /** Display name. */
+    name: string
+    /** Search context. */
+    description: string
+    /** File navigation URL; empty for commands. */
+    href: string
+    /** File type, or command. */
+    type: string
+    /** Original command ID; empty for files. */
+    command_id: string
+}
+
+export interface CommandSearchResponseApi {
+    /** Complete results in relevance order. */
+    results: CommandSearchResultApi[]
+}
+
 export interface FileSystemHomeFolderApi {
     /**
      * The user's home folder ID, or null if deleted.

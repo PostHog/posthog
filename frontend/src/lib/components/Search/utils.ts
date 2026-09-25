@@ -82,6 +82,7 @@ export const shouldSearchTickets = (query: string): boolean => {
 
 export const getCategoryDisplayName = (category: string): string => {
     const displayNames: Record<string, string> = {
+        results: 'Results',
         create: 'Create new',
         'create-new': 'Create new',
         tools: 'Tools',

@@ -15,6 +15,8 @@ import type {
     CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    CommandSearchRequestApi,
+    CommandSearchResponseApi,
     DataDeletionPreviewApi,
     DataDeletionRequestApi,
     DataDeletionRequestCreateApi,
@@ -1808,6 +1810,23 @@ export const fileSystemMoveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(fileSystemApi),
+    })
+}
+
+export const getFileSystemCommandSearchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system/command_search/`
+}
+
+export const fileSystemCommandSearchCreate = async (
+    projectId: string,
+    commandSearchRequestApi: CommandSearchRequestApi,
+    options?: RequestInit
+): Promise<CommandSearchResponseApi> => {
+    return apiMutator<CommandSearchResponseApi>(getFileSystemCommandSearchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(commandSearchRequestApi),
     })
 }
 

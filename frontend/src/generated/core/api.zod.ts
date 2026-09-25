@@ -807,6 +807,39 @@ export const FileSystemMoveCreateBody = /* @__PURE__ */ zod.object({
     shortcut: zod.boolean().nullish(),
 })
 
+export const fileSystemCommandSearchCreateBodyQueryMax = 200
+
+export const fileSystemCommandSearchCreateBodyCommandsItemIdMax = 200
+
+export const fileSystemCommandSearchCreateBodyCommandsItemNameMax = 200
+
+export const fileSystemCommandSearchCreateBodyCommandsItemDescriptionMax = 400
+
+export const FileSystemCommandSearchCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(fileSystemCommandSearchCreateBodyQueryMax)
+        .describe('Search text, including unfinished words.'),
+    commands: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(fileSystemCommandSearchCreateBodyCommandsItemIdMax)
+                    .describe('ID of an available command in the palette.'),
+                name: zod
+                    .string()
+                    .max(fileSystemCommandSearchCreateBodyCommandsItemNameMax)
+                    .describe('Display name of the command.'),
+                description: zod
+                    .string()
+                    .max(fileSystemCommandSearchCreateBodyCommandsItemDescriptionMax)
+                    .describe('Category and search keywords.'),
+            })
+        )
+        .describe('Available palette commands.'),
+})
+
 /**
  * Get count of all files in a folder.
  */

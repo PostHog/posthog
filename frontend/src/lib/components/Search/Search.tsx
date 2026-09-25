@@ -396,7 +396,7 @@ function SearchRoot({
     defaultSearchValue = '',
     suggestedItems = EMPTY_SUGGESTED_ITEMS,
 }: SearchRootProps): JSX.Element {
-    const { allCategories, isSearching } = useValues(searchLogic({ logicKey }))
+    const { visibleCategories: allCategories, isSearching, useRankedSearch } = useValues(searchLogic({ logicKey }))
     const { setSearch } = useActions(searchLogic({ logicKey }))
     const { isDarkModeOn } = useValues(themeLogic)
     const { toggleTheme } = useActions(themeLogic)
@@ -431,7 +431,12 @@ function SearchRoot({
     const filteredItems = useMemo(() => {
         const normalizedSuggestedItems = suggestedItems.map((item) => ({ ...item, category: 'suggested' }))
         let items: SearchItem[]
-        if (searchValue.trim()) {
+        if (useRankedSearch && searchValue.trim()) {
+            if (isSearching) {
+                return []
+            }
+            items = allItems
+        } else if (searchValue.trim()) {
             // Client-side fuzzy filter for recents/tools/starred; keep server results as-is
             const clientItems = allItems.filter((item) => ['recents', 'tools', 'starred'].includes(item.category))
             const serverItems = allItems.filter((item) => !['recents', 'tools', 'starred'].includes(item.category))
@@ -444,7 +449,11 @@ function SearchRoot({
 
         // Add a direct shortcut to the theme setting when searching for dark/light/theme
         const normalizedQuery = searchValue.trim().toLowerCase()
-        if (normalizedQuery && SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))) {
+        if (
+            !(useRankedSearch && isSearching) &&
+            normalizedQuery &&
+            SETTINGS_THEME_ITEM_QUERY.some((keyword) => normalizedQuery.includes(keyword))
+        ) {
             const hasDark = normalizedQuery.includes('dark')
             const hasLight = normalizedQuery.includes('light')
 
@@ -475,8 +484,8 @@ function SearchRoot({
             }
         }
 
-        return [...normalizedSuggestedItems, ...items]
-    }, [allItems, searchValue, suggestedItems, isDarkModeOn])
+        return useRankedSearch && searchValue.trim() ? items : [...normalizedSuggestedItems, ...items]
+    }, [allItems, searchValue, suggestedItems, isDarkModeOn, useRankedSearch, isSearching])
 
     useEffect(() => {
         if (!isActive) {
@@ -565,7 +574,7 @@ function SearchRoot({
         }
 
         // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
-        const orderedCategories = ['suggested', 'recents', 'starred', 'tools', 'create']
+        const orderedCategories = ['suggested', 'recents', 'starred', 'tools', 'create', 'results']
         const hasSearchValue = searchValue.trim().length > 0
 
         for (const category of orderedCategories) {
@@ -599,11 +608,19 @@ function SearchRoot({
 
     // Debounce grouped items so async results don't shift the highlighted item mid-keystroke.
     // When searchValue changes, items update immediately; async result arrivals are batched.
-    const debouncedGroupedItems = useDebouncedGroupedItems(groupedItems, searchValue, debounceEnabled)
+    const debouncedGroupedItems = useDebouncedGroupedItems(
+        groupedItems,
+        searchValue,
+        debounceEnabled && !useRankedSearch
+    )
 
     // Re-rank: pin the incumbent first item so async results don't shift what's highlighted.
     // Promotes the incumbent's group to the front if needed.
-    const stableGroupedItems = useReRankedGroupedItems(debouncedGroupedItems, searchValue, reRankEnabled)
+    const stableGroupedItems = useReRankedGroupedItems(
+        debouncedGroupedItems,
+        searchValue,
+        reRankEnabled && !useRankedSearch
+    )
 
     // Derive a flat item list from groupedItems so the order passed to Autocomplete.Root
     // exactly matches the DOM render order. Without this, Base UI's keyboard navigation

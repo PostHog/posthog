@@ -23,6 +23,7 @@ from posthog.api.file_system.access_levels import (
     denied_short_id_refs,
     entries_missing_access_level,
 )
+from posthog.api.file_system.command_search import CommandSearchRequestSerializer, CommandSearchResponseSerializer
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -36,6 +37,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
 from posthog.exceptions import Conflict
+from posthog.helpers.command_search import CommandSearch
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -272,6 +274,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "unfiled",
         "count",
         "count_by_path",
+        "command_search",
     ]
     scope_object_write_actions = [
         "create",
@@ -285,6 +288,23 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "undo_delete",
         "home_folder",
     ]
+
+    @extend_schema(request=CommandSearchRequestSerializer, responses=CommandSearchResponseSerializer)
+    @action(detail=False, methods=["POST"])
+    def command_search(self, request: Request, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        if not CommandSearch.enabled(self.team, user):
+            raise PermissionDenied("Command search is not enabled for this project.")
+        serializer = CommandSearchRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        queryset = self._filter_by_access_control(
+            FileSystem.objects.filter(team_id=self.team_id).filter(surface_q(DEFAULT_SURFACE))
+        )
+        candidates = CommandSearch.candidates(queryset, user.pk, data["query"], data["commands"])
+        return Response(
+            {"results": CommandSearch.rank(data["query"], candidates, team_id=self.team_id, user_id=user.pk)}
+        )
 
     @extend_schema(request=None, responses={200: FileSystemHomeFolderSerializer})
     @action(detail=False, methods=["POST"])

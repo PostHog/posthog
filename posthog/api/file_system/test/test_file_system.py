@@ -2634,3 +2634,121 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["path"] for row in response.json()["results"]], ["!"])
+
+
+class TestCommandSearch(APIBaseTest):
+    @parameterized.expand(
+        [
+            (False, True, True, "US", 200),
+            (True, False, True, "US", 403),
+            (True, True, False, "US", 403),
+            (True, True, True, "US", 200),
+            (False, True, True, "EU", 200),
+        ]
+    )
+    def test_experiment_gate(
+        self, staff: bool, configured: bool, flag: bool, region: str, expected_status: int
+    ) -> None:
+        self.user.is_staff = staff
+        self.user.save()
+        with (
+            self.settings(
+                AI_GATEWAY_URL=f"https://ai-gateway.{region.lower()}.example.com/v1" if configured else "",
+                AI_GATEWAY_API_KEY="test-only-gateway-key" if configured else "",
+                DEBUG=False,
+                CLOUD_DEPLOYMENT=region,
+            ),
+            patch(
+                "posthog.helpers.command_search.posthoganalytics.feature_enabled", return_value=flag
+            ) as evaluate_flag,
+            patch("posthog.helpers.command_search._transport.session.post") as infer,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/file_system/command_search/",
+                {"query": "checkout", "commands": []},
+                format="json",
+            )
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(evaluate_flag.called, configured)
+        infer.assert_not_called()
+
+    @patch("posthog.helpers.command_search.CommandSearch.enabled", return_value=True)
+    @patch(
+        "posthog.helpers.command_search.CommandSearch.rank", side_effect=lambda query, candidates, **kwargs: candidates
+    )
+    def test_candidates_include_old_owned_and_text_matches_without_other_tenants(
+        self, rank: MagicMock, enabled: MagicMock
+    ) -> None:
+        FileSystem.objects.bulk_create(
+            [
+                FileSystem(
+                    team=self.team, path=f"Recent {index}", type="insight", ref=str(index), href=f"/insights/{index}"
+                )
+                for index in range(60)
+            ]
+        )
+        with time_machine.travel("2020-01-01"):
+            owned = FileSystem.objects.create(
+                team=self.team,
+                path="Owned report",
+                type="insight",
+                ref="owned",
+                href="/insights/owned",
+                created_by=self.user,
+            )
+            matched = FileSystem.objects.create(
+                team=self.team, path="Checkout history", type="insight", ref="matched", href="/insights/matched"
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path="Checkout history link",
+                type="insight",
+                ref="matched",
+                href="/insights/matched",
+                shortcut=True,
+            )
+        root_files = [
+            FileSystem.objects.create(
+                team=self.team, path=path, type="insight", ref=f"root-{index}", href=f"/insights/root-{index}"
+            )
+            for index, path in enumerate(["/", "////", ""])
+        ]
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        FileSystem.objects.create(
+            team=other_team, path="Checkout private", type="insight", ref="private", href="/insights/private"
+        )
+        FileSystem.objects.create(
+            team=self.team,
+            path="Checkout desktop",
+            type="insight",
+            ref="desktop",
+            href="/insights/desktop",
+            surface="desktop",
+        )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/file_system/command_search/",
+                {
+                    "query": "checkout",
+                    "commands": [
+                        {"id": str(index), "name": f"Command {index}", "description": "navigation"}
+                        for index in range(512)
+                    ],
+                },
+                format="json",
+            )
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["results"]
+        ids = {item["id"] for item in results}
+        self.assertIn(f"file:{owned.pk}", ids)
+        self.assertIn(f"file:{matched.pk}", ids)
+        for file in root_files:
+            self.assertEqual(next(item["name"] for item in results if item["id"] == f"file:{file.pk}"), "insight")
+        self.assertLessEqual(len(results), 254)
+        self.assertEqual(sum(bool(item["command_id"]) for item in results), 126)
+        self.assertNotIn("Checkout private", [item["name"] for item in results])
+        self.assertNotIn("Checkout desktop", [item["name"] for item in results])
+        candidate_queries = [
+            q["sql"] for q in queries if 'FROM "posthog_filesystem"' in q["sql"] and "LIMIT" in q["sql"]
+        ]
+        self.assertEqual(len(candidate_queries), 3)
