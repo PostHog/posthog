@@ -185,6 +185,7 @@ export interface proxyLogicActions {
             created_by: number
             domain: string
             id: string
+            is_legacy: boolean
             message: string | null
             root_redirect_supported: boolean
             root_redirect_url: string | null
@@ -199,6 +200,7 @@ export interface proxyLogicActions {
             created_by: number
             domain: string
             id: string
+            is_legacy: boolean
             message: string | null
             root_redirect_supported: boolean
             root_redirect_url: string | null
@@ -403,9 +405,10 @@ export const proxyLogic = kea<proxyLogicType>([
             { persist: true },
             {
                 acknowledgeCloudflareOptIn: () => true,
-                // Existing proxy records imply the org already consented previously — persist that so the
-                // banner doesn't flash on browsers where localStorage was cleared after records were created.
-                loadRecordsSuccess: (state, { proxyRecords }) => state || proxyRecords.length > 0,
+                // A proxy on the current ingress implies the org already consented previously — persist that so
+                // the banner doesn't flash on browsers where localStorage was cleared after records were created.
+                // Legacy proxies predate the Cloudflare terms, so they are not evidence of consent.
+                loadRecordsSuccess: (state, { proxyRecords }) => state || proxyRecords.some((r) => !r.is_legacy),
             },
         ],
         proxyRecordsLoaded: [
@@ -542,7 +545,9 @@ export const proxyLogic = kea<proxyLogicType>([
                 if (!recordsLoaded) {
                     return false
                 }
-                if (records.length > 0) {
+                // Only a proxy on the current ingress proves consent. An org whose proxies are all
+                // legacy has never seen these terms.
+                if (records.some((r) => !r.is_legacy)) {
                     return false
                 }
                 return true
