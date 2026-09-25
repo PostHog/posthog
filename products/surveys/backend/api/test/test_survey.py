@@ -5005,6 +5005,7 @@ class TestSurveyAppearanceSchema(SimpleTestCase):
         appearance = {
             **DEFAULT_SURVEY_APPEARANCE,
             **{field: f"{field} text" for field in SURVEY_APPEARANCE_HTML_FIELDS},
+            "inputTextColor": "black",
         }
         serializer = SurveyAppearanceSchemaSerializer(data=appearance)
 
