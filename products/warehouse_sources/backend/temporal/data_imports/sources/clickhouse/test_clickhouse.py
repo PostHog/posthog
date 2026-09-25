@@ -675,10 +675,23 @@ class TestClickHouseSourceNonRetryableErrors:
             "Received ClickHouse exception, code: 243 (for url https://host:8443)\n Code: 243. "
             "DB::Exception: Failed to reserve 1048576 bytes for temporary file: reason cannot evict "
             "enough space: While executing BufferingToFileSink. (NOT_ENOUGH_SPACE)",
+            # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own result-size
+            # limit rejected the extraction query. Some ClickHouse-compatible endpoints
+            # (e.g. Tinybird) wrap this without the usual "Code: NNN. DB::Exception:"
+            # native wording, so the match must not depend on that shape.
+            "Received ClickHouse exception, code: 396, server response: [Error] Limit for result "
+            "exceeded, max bytes: 500.00 MiB, current bytes: 501.03 MiB. (TOO_MANY_ROWS_OR_BYTES) "
+            "(query_id=abc123) (for url https://host:8443)",
             # Source table no longer exists at sync time — dropped/renamed, or a materialized
             # view's `.inner_id.<uuid>` inner table whose UUID changed when the view was recreated.
             "Table soax_stage..inner_id.8c612ff0-b72c-4b20-8ea5-405ed002c2f6 not found or has no columns",
             "Table default.some_dropped_table not found or has no columns",
+            # UNKNOWN_IDENTIFIER (code 47) — a column that resolved during discovery no longer
+            # exists at query time, e.g. a View whose underlying table had a column renamed.
+            "Received ClickHouse exception, code: 47, server response: Code: 47. DB::Exception: "
+            "Unknown expression identifier `foo` in scope SELECT `foo`, bar FROM "
+            "(SELECT * FROM some_db.some_view). Maybe you meant: ['bar']. (UNKNOWN_IDENTIFIER) "
+            "(for url http://host:8123)",
             # UNKNOWN_TYPE (code 50) — a column type ClickHouse can't serialize to Arrow,
             # e.g. an AggregateFunction state column on an aggregating materialized view.
             "Received ClickHouse exception, code: 50 (for url https://host:8443)\n Code: 50. "

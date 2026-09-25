@@ -14,7 +14,7 @@ import re
 import time
 import collections
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, timezone
 from typing import Any, Literal, LiteralString, Optional, TypeVar, cast
 
@@ -2033,7 +2033,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return _resolve_projection(fresh_table, primary_keys)
 
         def get_rows() -> Iterator[Any]:
-            with self.connect(config, team_id=inputs.team_id) as streaming_connection:
+            with ExitStack() as stack:
+                # A fresh connection can drop before the first batch is read too, just like during
+                # setup above — retrying only the open is safe here since nothing has been yielded
+                # yet. `ExitStack.enter_context` only registers cleanup after `__enter__` succeeds,
+                # so a failed attempt leaves nothing to tear down and the next attempt opens clean.
+                streaming_connection = _retry_on_transient_connection_drop(
+                    lambda: stack.enter_context(self.connect(config, team_id=inputs.team_id)), logger
+                )
                 streaming_connection.adapters.register_loader("json", JsonAsStringLoader)
                 projection = _refreshed_projection(streaming_connection)
                 table = projection.table
