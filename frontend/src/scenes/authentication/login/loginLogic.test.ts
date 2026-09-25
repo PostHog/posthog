@@ -258,7 +258,10 @@ describe('loginLogic', () => {
 
         beforeEach(() => {
             setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
-            precheckHandler = jest.fn(() => [200, { saml_available: false, sso_enforcement: 'google-oauth2' }])
+            precheckHandler = jest.fn(() => [
+                200,
+                { saml_available: false, sso_enforcement: 'google-oauth2', password_login_available: false },
+            ])
             useMocks({
                 post: {
                     '/api/login/precheck': precheckHandler,
@@ -291,6 +294,7 @@ describe('loginLogic', () => {
 
             logic.actions.setLoginValue('email', 'other@example.com')
             expect(logic.values.ssoEnforcement).toBe(null)
+            expect(logic.values.isPasswordLoginUnavailable).toBe(false)
             expect(logic.values.ssoEnforcedErrorProvider).toBe(null)
         })
     })
@@ -371,6 +375,7 @@ describe('loginLogic', () => {
 
         async function precheck(response: Record<string, any>): Promise<void> {
             precheckResponse = response
+            logic.actions.setLoginValue('email', 'user@example.com')
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
         }
@@ -457,6 +462,7 @@ describe('loginLogic', () => {
 
         it('falls back to password login when precheck fails, so a 429 cannot lock the form', async () => {
             useMocks({ post: { '/api/login/precheck': () => [429, { detail: 'Request was throttled.' }] } })
+            logic.actions.setLoginValue('email', 'user@example.com')
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
 

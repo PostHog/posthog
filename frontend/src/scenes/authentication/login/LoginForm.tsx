@@ -123,6 +123,7 @@ export function LoginForm(): JSX.Element {
         restrictToProviders,
         autoRedirectingToProvider,
         availableLoginMethods,
+        currentPrecheckResponse,
         precheckTrusted,
         ssoEnforcement,
         ssoEnforcedErrorProvider,
@@ -414,14 +415,14 @@ export function LoginForm(): JSX.Element {
                                 isLastUsed={lastLoginMethod === ssoEnforcement}
                             />
                         )}
-                        {precheckResponse.saml_available && !ssoEnforcement && (
+                        {currentPrecheckResponse.saml_available && !ssoEnforcement && (
                             <SSOEnforcedLoginButton
                                 provider="saml"
                                 email={login.email}
                                 isLastUsed={lastLoginMethod === 'saml'}
                             />
                         )}
-                        {precheckResponse.oidc_available && !ssoEnforcement && (
+                        {currentPrecheckResponse.oidc_available && !ssoEnforcement && (
                             <SSOEnforcedLoginButton
                                 provider="oidc"
                                 email={login.email}
@@ -432,18 +433,22 @@ export function LoginForm(): JSX.Element {
                 )}
                 {/* Normally SAML replaces this row, but when the account has no password we need to
                     show whatever it does have. */}
-                {!isCodeSent && !ssoEnforcement && (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
-                    <SocialLoginButtons
-                        topDivider
-                        caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
-                        captionLocation="top"
-                        lastUsedProvider={lastLoginMethod}
-                        restrictToProviders={restrictToProviders}
-                        // Once we know the account's methods, only offer a passkey if it actually has
-                        // one — otherwise this is the same dead button we're removing.
-                        showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
-                    />
-                )}
+                {!isCodeSent &&
+                    !ssoEnforcement &&
+                    (!currentPrecheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                        <SocialLoginButtons
+                            topDivider
+                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                            captionLocation="top"
+                            lastUsedProvider={lastLoginMethod}
+                            restrictToProviders={restrictToProviders}
+                            // Once we know the account's methods, only offer a passkey if it actually has
+                            // one — otherwise this is the same dead button we're removing.
+                            showPasskey={
+                                !isPasswordLoginUnavailable || !!currentPrecheckResponse.webauthn_credentials?.length
+                            }
+                        />
+                    )}
             </AuthSceneCard>
         </AuthScene>
     )
