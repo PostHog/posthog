@@ -26,13 +26,17 @@ import {
 import { useAuth } from "@/lib/auth";
 import { colors, fonts, radius } from "@/lib/theme";
 
-function AgentGlyph({ icon }: { icon: NonNullable<ActivityRow["icon"]> }) {
+function AgentGlyph({
+  icon,
+  unread,
+}: {
+  icon: NonNullable<ActivityRow["icon"]>;
+  unread: boolean;
+}) {
   const glyph = icon === "check" ? "✓" : icon === "question" ? "?" : "…";
   return (
-    <View style={[styles.glyph, icon === "check" && styles.glyphAccent]}>
-      <Text
-        style={[styles.glyphText, icon === "check" && styles.glyphTextAccent]}
-      >
+    <View style={[styles.glyph, unread && styles.glyphAccent]}>
+      <Text style={[styles.glyphText, unread && styles.glyphTextAccent]}>
         {glyph}
       </Text>
     </View>
@@ -47,7 +51,7 @@ export default function ActivityScreen() {
   const name = useAuth((s) => s.session?.userName ?? null);
   const activity = useActivity();
   const markRead = useMarkActivityRead();
-  const [unreadsOnly, setUnreadsOnly] = useState(true);
+  const [unreadsOnly, setUnreadsOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const hasActivity = (activity.data?.results.length ?? 0) > 0;
@@ -76,14 +80,7 @@ export default function ActivityScreen() {
   };
 
   const open = (row: ActivityRow): void => {
-    if (row.item.isUnread)
-      markRead.mutate([row.item], {
-        onError: () =>
-          Alert.alert(
-            "Could not mark activity as read",
-            "Try again from Activity.",
-          ),
-      });
+    if (row.item.isUnread) markRead.mutate([row.item]);
     router.push({
       pathname: "/(drawer)/task/[id]",
       params: { id: row.item.taskId },
@@ -160,11 +157,6 @@ export default function ActivityScreen() {
             </Text>
           </Pressable>
         ) : null}
-        {markRead.isError ? (
-          <Text style={styles.empty}>
-            Could not mark activity as read. Try again.
-          </Text>
-        ) : null}
         {activity.isError ? (
           <ListState
             title="Could not load activity"
@@ -225,28 +217,29 @@ export default function ActivityScreen() {
                 onPress={() => open(row)}
                 style={({ pressed }) => [
                   styles.row,
-                  row.item.isUnread && styles.rowUnread,
                   pressed && { opacity: 0.5 },
                 ]}
               >
                 {row.icon ? (
-                  <View style={!row.item.isUnread && styles.readGlyph}>
-                    <AgentGlyph icon={row.icon} />
-                  </View>
+                  <AgentGlyph icon={row.icon} unread={row.item.isUnread} />
                 ) : (
                   <View
                     style={[
                       styles.avatar,
-                      !row.item.isUnread && styles.readGlyph,
+                      row.item.isUnread && styles.glyphAccent,
                     ]}
                   >
-                    <Text style={styles.avatarText}>{row.initials}</Text>
+                    <Text
+                      style={[
+                        styles.avatarText,
+                        row.item.isUnread && styles.glyphTextAccent,
+                      ]}
+                    >
+                      {row.initials}
+                    </Text>
                   </View>
                 )}
                 <View style={styles.body}>
-                  {row.item.isUnread ? (
-                    <Text style={styles.unreadLabel}>NEW</Text>
-                  ) : null}
                   <Text
                     style={[
                       styles.rowTitle,
@@ -357,18 +350,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 4,
   },
-  rowUnread: {
-    backgroundColor: colors.fill,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-  },
-  readGlyph: { opacity: 0.5 },
-  unreadLabel: {
-    fontFamily: fonts.sansBold,
-    fontSize: 11,
-    letterSpacing: 1,
-    color: colors.accent,
-  },
   glyph: {
     width: 30,
     height: 30,
@@ -378,13 +359,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 2,
   },
-  glyphAccent: { backgroundColor: colors.accent },
+  glyphAccent: { backgroundColor: colors.unread },
   glyphText: {
     fontFamily: fonts.sansBold,
     fontSize: 14,
     color: colors.inkSoft,
   },
-  glyphTextAccent: { color: "#FFFFFF" },
+  glyphTextAccent: { color: colors.unreadInk },
   avatar: {
     width: 30,
     height: 30,

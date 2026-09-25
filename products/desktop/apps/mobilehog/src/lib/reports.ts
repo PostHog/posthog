@@ -19,11 +19,13 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
 import { create } from "zustand";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { type ReportSort, usePrefs } from "@/lib/prefs";
+import { deviceWorkspace } from "@/lib/storage";
 
 export const REPORT_SORTS: Record<
   ReportSort,
@@ -71,7 +73,6 @@ export function useReports(view: ReportView = "active", search = "") {
             ? undefined
             : INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
         search: search || undefined,
-        unread: view === "unread" ? true : undefined,
         suggested_reviewers: user.uuid,
         ordering: (REPORT_SORTS[sort] ?? REPORT_SORTS.newest).ordering,
         limit: 50,
@@ -184,14 +185,20 @@ export function useStartReport() {
   });
 }
 
-// The local copy keeps indicators available while the device is offline.
+// Keep read changes on the device until the server acknowledges them.
 const SEEN_KEY = "mobilehog_seen_reports";
 const SEEN_CAP = 500;
 let seenWrite = Promise.resolve();
 let seenVersion = 0;
+let syncing: string | null = null;
+const queuedSyncs = new Map<string, Set<string>>();
+let retryAfter = 0;
+let retryIdentity: string | null = null;
 
+type SavedReadState = { seen: string[]; pending: Record<string, boolean> };
 interface SeenState {
   seen: Set<string>;
+  pending: Record<string, boolean>;
   hydrated: boolean;
   syncError: boolean;
   hydrate: () => Promise<void>;
@@ -201,72 +208,122 @@ interface SeenState {
 
 export const useSeenReports = create<SeenState>((set, get) => ({
   seen: new Set(),
+  pending: {},
   hydrated: false,
   syncError: false,
   hydrate: async () => {
-    if (!useAuth.getState().session) return;
+    if (!useAuth.getState().session || get().hydrated) return;
     const identity = sessionIdentity();
-    try {
-      const raw = await SecureStore.getItemAsync(accountStorageKey(SEEN_KEY));
-      if (sessionIdentity() !== identity || get().hydrated) return;
-      set({
-        seen: new Set(raw ? (JSON.parse(raw) as string[]) : []),
-        hydrated: true,
-      });
-    } catch {
-      if (sessionIdentity() === identity) set({ hydrated: true });
-    }
-  },
-  sync: async (ids) => {
-    if (!ids.length) return;
-    const identity = sessionIdentity();
-    const version = seenVersion;
-    let states: Record<string, boolean>;
-    try {
-      states = await getClient().getReportReadStates(ids);
-    } catch (error) {
-      if (sessionIdentity() === identity) set({ syncError: true });
-      throw error;
-    }
-    if (sessionIdentity() !== identity || version !== seenVersion) return;
-    const next = new Set(get().seen);
-    for (const [id, read] of Object.entries(states)) {
-      if (read) next.add(id);
-      else next.delete(id);
-    }
+    const saved = await deviceWorkspace().read<SavedReadState>(
+      "report-read-state",
+      Infinity,
+    );
+    const legacy =
+      saved || Platform.OS === "web"
+        ? null
+        : await SecureStore.getItemAsync(accountStorageKey(SEEN_KEY));
+    if (sessionIdentity() !== identity || get().hydrated) return;
     set({
-      seen: new Set([...next].slice(-SEEN_CAP)),
+      seen: new Set(
+        saved?.seen ?? (legacy ? (JSON.parse(legacy) as string[]) : []),
+      ),
+      pending: saved?.pending ?? {},
       hydrated: true,
-      syncError: false,
     });
   },
-  markSeen: async (ids, read = true) => {
-    seenVersion += 1;
+  sync: async (ids) => {
     const identity = sessionIdentity();
-    const key = accountStorageKey(SEEN_KEY);
+    if (
+      !useAuth.getState().session ||
+      (retryIdentity === identity && Date.now() < retryAfter)
+    )
+      return;
+    if (syncing === identity) {
+      const queued = queuedSyncs.get(identity) ?? new Set<string>();
+      for (const id of ids) queued.add(id);
+      queuedSyncs.set(identity, queued);
+      return;
+    }
+    syncing = identity;
+    try {
+      await get().hydrate();
+      if (sessionIdentity() !== identity) return;
+      const version = seenVersion;
+      const pending = { ...get().pending };
+      if (!ids.length && !Object.keys(pending).length) return;
+      const client = getClient();
+      for (const read of [true, false]) {
+        const changes = Object.keys(pending).filter(
+          (id) => pending[id] === read,
+        );
+        for (let offset = 0; offset < changes.length; offset += 100)
+          await client.getReportReadStates(
+            changes.slice(offset, offset + 100),
+            read,
+          );
+      }
+      const states: Record<string, boolean> = {};
+      for (let offset = 0; offset < ids.length; offset += 100)
+        Object.assign(
+          states,
+          await client.getReportReadStates(ids.slice(offset, offset + 100)),
+        );
+      const workspace = deviceWorkspace();
+      const write = seenWrite
+        .catch(() => {})
+        .then(async () => {
+          if (sessionIdentity() !== identity || seenVersion !== version) return;
+          const next = new Set(get().seen);
+          for (const [id, read] of Object.entries(states)) {
+            if (read) next.add(id);
+            else next.delete(id);
+          }
+          const seen = [...next].slice(-SEEN_CAP);
+          await workspace.write("report-read-state", { seen, pending: {} });
+          if (sessionIdentity() === identity)
+            set({ seen: new Set(seen), pending: {}, syncError: false });
+        });
+      seenWrite = write;
+      await write;
+      retryAfter = 0;
+    } catch {
+      if (sessionIdentity() === identity) {
+        retryIdentity = identity;
+        retryAfter = Date.now() + 60_000;
+        set({ syncError: true });
+      }
+    } finally {
+      if (syncing === identity) syncing = null;
+      const queued = queuedSyncs.get(identity);
+      queuedSyncs.delete(identity);
+      if (sessionIdentity() === identity && queued?.size)
+        void get().sync([...queued]);
+    }
+  },
+  markSeen: async (ids, read = true) => {
+    const identity = sessionIdentity();
+    if (!useAuth.getState().session || !ids.length) return;
+    const workspace = deviceWorkspace();
     const write = seenWrite
       .catch(() => {})
       .then(async () => {
+        await get().hydrate();
         if (sessionIdentity() !== identity) return;
-        for (let offset = 0; offset < ids.length; offset += 100)
-          await getClient().getReportReadStates(
-            ids.slice(offset, offset + 100),
-            read,
-          );
-        if (sessionIdentity() !== identity) return;
+        seenVersion++;
         const next = new Set(get().seen);
+        const pending = { ...get().pending };
         for (const id of ids) {
           next.delete(id);
           if (read) next.add(id);
+          pending[id] = read;
         }
-        const list = [...next].slice(-SEEN_CAP);
-        await SecureStore.setItemAsync(key, JSON.stringify(list)).catch(
-          () => {},
-        );
+        const seen = [...next].slice(-SEEN_CAP);
+        await workspace.write("report-read-state", { seen, pending });
         if (sessionIdentity() === identity)
-          set({ seen: new Set(list), syncError: false });
+          set({ seen: new Set(seen), pending });
       });
     seenWrite = write;
     await write;
+    if (sessionIdentity() === identity) void get().sync(ids);
   },
 }));

@@ -17,6 +17,7 @@ import {
   type TranscriptRow,
   TranscriptRowView,
 } from "@/components/Transcript";
+import { toRows, useActivity, useMarkActivityRead } from "@/lib/activity";
 import type { PendingPhoto } from "@/lib/photos";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
@@ -47,6 +48,36 @@ export default function TaskScreen() {
       if (task.data && runId) connect(task.data);
       return () => disconnect(id);
     }, [id, task.data, runId, connect, disconnect]),
+  );
+
+  const activity = useActivity();
+  const markRead = useMarkActivityRead();
+  const attemptedReads = useRef(new Set<string>());
+  useFocusEffect(
+    useCallback(() => {
+      if (!session?.connected || !session.readThrough) return;
+      const visible = toRows(activity.data)
+        .map((row) => row.item)
+        .filter(
+          (item) =>
+            item.taskId === id &&
+            !item.commentId &&
+            item.isUnread &&
+            Date.parse(item.activityAt) <=
+              Date.parse(session.readThrough ?? "") &&
+            !attemptedReads.current.has(`${item.id}:${item.activityAt}`),
+        );
+      if (!visible.length) return;
+      for (const item of visible)
+        attemptedReads.current.add(`${item.id}:${item.activityAt}`);
+      markRead.mutate(visible);
+    }, [
+      id,
+      session?.connected,
+      session?.readThrough,
+      activity.data,
+      markRead.mutate,
+    ]),
   );
 
   const blocks = session?.blocks;
@@ -198,6 +229,22 @@ export default function TaskScreen() {
             }}
             keyboardDismissMode="interactive"
             keyboardShouldPersistTaps="handled"
+            ListHeaderComponent={
+              session?.historyStart ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={session.loadingHistory}
+                  onPress={() => void useSessions.getState().loadOlder(id)}
+                  style={{ padding: 16, alignItems: "center" }}
+                >
+                  <Text style={{ color: colors.inkSoft }}>
+                    {session.loadingHistory
+                      ? "Loading older messages"
+                      : (session.historyError ?? "Load older messages")}
+                  </Text>
+                </Pressable>
+              ) : null
+            }
             ListEmptyComponent={
               <View style={styles.loading}>
                 <StatusLine
@@ -209,7 +256,34 @@ export default function TaskScreen() {
             ListFooterComponent={
               <View>
                 {session?.error ? (
-                  <Text style={styles.error}>{session.error}</Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Text style={{ flex: 1, color: colors.inkSoft }}>
+                      {session.error}
+                    </Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Dismiss message"
+                      onPress={() => useSessions.getState().clearError(id)}
+                      style={{ padding: 12 }}
+                    >
+                      <Text style={{ color: colors.ink }}>×</Text>
+                    </Pressable>
+                    {!session.connected ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={() => useSessions.getState().reconnect()}
+                        style={{ padding: 12 }}
+                      >
+                        <Text style={{ color: colors.accent }}>Retry</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 ) : null}
                 {session?.turnActive && hedgehogMode ? (
                   <Hedgehog walking={walking} />

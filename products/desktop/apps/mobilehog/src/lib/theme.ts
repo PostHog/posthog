@@ -26,6 +26,8 @@ export const colors = {
   glassTint: dyn("rgba(255, 255, 255, 0.75)", "rgba(34, 34, 34, 0.75)"),
   sceneTint: dyn("rgba(238, 239, 233, 0.72)", "rgba(21, 21, 21, 0.72)"),
   accent: brand.tangerine.core,
+  unread: "#F7C325",
+  unreadInk: "#151515",
   danger: brand.coral.core,
   dangerText: dyn("#B42318", brand.coral.lighter),
   ok: brand.green.core,

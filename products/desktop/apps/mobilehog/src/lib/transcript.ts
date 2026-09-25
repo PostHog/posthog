@@ -125,6 +125,7 @@ export function foldEntries(
   previous: Block[],
   entries: StoredLogEntry[],
   localEchoes: Set<string>,
+  entryOffset?: number,
 ): FoldResult {
   const blocks = [...previous];
   const result: FoldResult = {
@@ -138,7 +139,11 @@ export function foldEntries(
     errorMessage: null,
   };
 
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
+    const entryId = (prefix: string): string =>
+      entryOffset === undefined
+        ? nextId(prefix)
+        : `${prefix}-${entryOffset + index}`;
     const method = entry.notification?.method;
     if (!method) continue;
 
@@ -163,7 +168,7 @@ export function foldEntries(
       } else {
         blocks.push({
           kind: "user",
-          id: nextId("user"),
+          id: entryId("user"),
           text: display.text,
           attachments: display.attachments,
           promptEcho: true,
@@ -262,14 +267,14 @@ export function foldEntries(
         if (update.sessionUpdate === "user_message_chunk") {
           blocks.push({
             kind: "user",
-            id: nextId("user-image"),
+            id: entryId("user-image"),
             text: "",
             attachments,
           });
         } else {
           blocks.push({
             kind: "agent",
-            id: nextId("agent-image"),
+            id: entryId("agent-image"),
             text: "",
             attachments,
             complete: true,
@@ -302,7 +307,7 @@ export function foldEntries(
         }
         result.externalUserMessages += 1;
         closeOpenAgent(blocks);
-        blocks.push({ kind: "user", id: nextId("user"), text });
+        blocks.push({ kind: "user", id: entryId("user"), text });
         break;
       }
       case "agent_message_chunk": {
@@ -315,7 +320,7 @@ export function foldEntries(
         } else {
           blocks.push({
             kind: "agent",
-            id: nextId("agent"),
+            id: entryId("agent"),
             text,
             complete: false,
           });
@@ -332,7 +337,7 @@ export function foldEntries(
         } else {
           blocks.push({
             kind: "agent",
-            id: nextId("agent"),
+            id: entryId("agent"),
             text,
             complete: true,
           });
@@ -349,7 +354,7 @@ export function foldEntries(
         } else {
           blocks.push({
             kind: "thought",
-            id: nextId("thought"),
+            id: entryId("thought"),
             text,
             at: entryTime(entry),
           });

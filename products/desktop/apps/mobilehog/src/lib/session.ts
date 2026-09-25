@@ -4,6 +4,7 @@ import { extractPromptDisplayContent } from "@posthog/core/sessions/promptConten
 import type {
   Adapter,
   CloudTaskUpdatePayload,
+  StoredLogEntry,
   Task,
   TaskRunStatus,
 } from "@posthog/shared";
@@ -40,6 +41,10 @@ export interface TaskSession {
   runStatus: TaskRunStatus | null;
   stage: string | null;
   connected: boolean;
+  historyStart: number;
+  loadingHistory: boolean;
+  historyError: string | null;
+  readThrough: string | null;
   turnActive: boolean;
   awaitingInput: boolean;
   error: string | null;
@@ -63,6 +68,8 @@ interface SessionState {
   failPending: (tempId: string, message: string) => void;
   connect: (task: Task) => void;
   disconnect: (taskId: string) => void;
+  loadOlder: (taskId: string) => Promise<void>;
+  clearError: (taskId: string) => void;
   reconnect: () => void;
   sendPrompt: (
     taskId: string,
@@ -71,7 +78,6 @@ interface SessionState {
     photos?: PendingPhoto[],
   ) => Promise<string | null>;
   cancelTurn: (taskId: string) => Promise<void>;
-  stopRun: (taskId: string) => Promise<void>;
   respondToPermission: (
     taskId: string,
     toolCallId: string,
@@ -111,6 +117,10 @@ function emptySession(taskId: string, runId: string): TaskSession {
     runStatus: null,
     stage: null,
     connected: false,
+    historyStart: 0,
+    loadingHistory: false,
+    historyError: null,
+    readThrough: null,
     turnActive: false,
     awaitingInput: false,
     error: null,
@@ -123,6 +133,10 @@ function emptySession(taskId: string, runId: string): TaskSession {
 
 export const useSessions = create<SessionState>((set, get) => {
   let generation = 0;
+  const history = new Map<
+    string,
+    { runId: string; start: number; entries: StoredLogEntry[] }
+  >();
   const patch = (
     taskId: string,
     fn: (s: TaskSession) => Partial<TaskSession>,
@@ -186,11 +200,34 @@ export const useSessions = create<SessionState>((set, get) => {
     }
 
     const isSnapshot = update.kind === "snapshot";
+    const offset = isSnapshot
+      ? (update.windowStart ?? 0)
+      : update.totalEntryCount - update.newEntries.length;
+    if (isSnapshot)
+      history.set(taskId, {
+        runId: update.runId,
+        start: offset,
+        entries: [...update.newEntries],
+      });
+    else {
+      const loaded = history.get(taskId);
+      if (loaded?.runId === update.runId)
+        loaded.entries.push(...update.newEntries);
+    }
+    const readThrough = update.newEntries.reduce(
+      (latest, entry) =>
+        entry.timestamp &&
+        Date.parse(entry.timestamp) > Date.parse(latest ?? "1970-01-01")
+          ? entry.timestamp
+          : latest,
+      session.readThrough,
+    );
     const echoes = isSnapshot ? new Set<string>() : session.localEchoes;
     const folded = foldEntries(
       isSnapshot ? [] : session.blocks,
       update.newEntries,
       echoes,
+      offset,
     );
 
     patch(taskId, (s) => {
@@ -230,6 +267,8 @@ export const useSessions = create<SessionState>((set, get) => {
 
       return {
         blocks: folded.blocks,
+        historyStart: isSnapshot ? offset : s.historyStart,
+        readThrough,
         resuming: isSnapshot ? false : s.resuming,
         connected: true,
         turnActive,
@@ -328,6 +367,7 @@ export const useSessions = create<SessionState>((set, get) => {
       for (const taskId of releases.keys()) cancelRelease(taskId);
       for (const handle of handles.values()) handle.stop();
       handles.clear();
+      history.clear();
       set({ sessions: {} });
     },
 
@@ -388,11 +428,92 @@ export const useSessions = create<SessionState>((set, get) => {
             adapter: task.latest_run?.runtime_adapter ?? null,
             runtime: task.runtime ?? "acp",
             runStatus: task.latest_run?.status ?? null,
+            readThrough: task.last_activity_at ?? null,
             blocks: existing?.blocks ?? [],
           },
         },
       }));
       watch(task.id, runId);
+    },
+
+    clearError: (taskId) => patch(taskId, () => ({ error: null })),
+
+    loadOlder: async (taskId) => {
+      const session = get().sessions[taskId];
+      const loaded = history.get(taskId);
+      if (
+        !session ||
+        !loaded ||
+        !session.historyStart ||
+        session.loadingHistory
+      )
+        return;
+      const start = session.historyStart;
+      const runId = session.runId;
+      const pageStart = Math.max(0, start - 200);
+      const currentGeneration = generation;
+      patch(taskId, () => ({ loadingHistory: true, historyError: null }));
+      try {
+        const older: StoredLogEntry[] = [];
+        let offset = pageStart;
+        while (offset < start) {
+          const page = await getClient().getTaskRunSessionLogsPage(
+            taskId,
+            runId,
+            { offset, limit: start - offset },
+          );
+          if (currentGeneration !== generation) return;
+          if (!page.entries.length)
+            throw new Error("Could not load older messages. Try again.");
+          older.push(...page.entries.slice(0, start - offset));
+          offset = pageStart + older.length;
+        }
+        const current = get().sessions[taskId];
+        if (
+          !current ||
+          current.runId !== runId ||
+          history.get(taskId) !== loaded ||
+          current.historyStart !== start
+        )
+          return;
+        // Count acknowledged echoes in the old window before adding older copies of the same text.
+        const acknowledged = new Map<string, number>();
+        for (const block of foldEntries([], loaded.entries, new Set(), start)
+          .blocks) {
+          if (block.kind === "user")
+            acknowledged.set(
+              block.text,
+              (acknowledged.get(block.text) ?? 0) + 1,
+            );
+        }
+        const pending = current.blocks.filter((block) => {
+          if (block.kind !== "user") return false;
+          const remaining = acknowledged.get(block.text) ?? 0;
+          if (remaining > 0) {
+            acknowledged.set(block.text, remaining - 1);
+            return false;
+          }
+          return current.localEchoes.has(block.text);
+        });
+        loaded.entries = [...older, ...loaded.entries];
+        loaded.start = pageStart;
+        const folded = foldEntries([], loaded.entries, new Set(), pageStart);
+        patch(taskId, () => ({
+          blocks: [...folded.blocks, ...pending],
+          historyStart: pageStart,
+        }));
+      } catch {
+        if (currentGeneration === generation)
+          patch(taskId, () => ({
+            historyError: "Could not load older messages. Tap to retry.",
+          }));
+      } finally {
+        if (
+          currentGeneration === generation &&
+          get().sessions[taskId]?.runId === runId
+        )
+          patch(taskId, () => ({ loadingHistory: false }));
+      }
     },
 
     disconnect: (taskId) => {
@@ -458,7 +579,7 @@ export const useSessions = create<SessionState>((set, get) => {
         ) {
           if (!session.runStatus || !TERMINAL.has(session.runStatus)) {
             throw new Error(
-              "Stop this run before choosing a model from another provider.",
+              "Choose a model from the same provider, or start a new task to use another provider.",
             );
           }
           patch(taskId, () => ({ resuming: true }));
@@ -494,10 +615,6 @@ export const useSessions = create<SessionState>((set, get) => {
               blocks: current.blocks.filter((block) => block.id !== localId),
               resuming: false,
               turnActive: false,
-              error:
-                resumeError instanceof Error
-                  ? resumeError.message
-                  : String(resumeError),
             }));
             throw resumeError;
           }
@@ -508,7 +625,6 @@ export const useSessions = create<SessionState>((set, get) => {
           blocks: current.blocks.filter((block) => block.id !== localId),
           turnActive: session.turnActive,
           resuming: false,
-          error: error instanceof Error ? error.message : String(error),
         }));
         throw error;
       }
@@ -529,15 +645,6 @@ export const useSessions = create<SessionState>((set, get) => {
           error: error instanceof Error ? error.message : String(error),
         }));
       }
-    },
-
-    stopRun: async (taskId) => {
-      const currentGeneration = generation;
-      const session = get().sessions[taskId];
-      if (!session) throw new Error("Task is not ready. Try again.");
-      await getClient().cancelTaskRun(taskId, session.runId);
-      if (generation !== currentGeneration) return;
-      patch(taskId, () => ({ turnActive: false, runStatus: "cancelled" }));
     },
 
     respondToPermission: async (taskId, toolCallId, optionId) => {
