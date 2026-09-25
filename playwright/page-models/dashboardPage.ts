@@ -169,6 +169,16 @@ export class DashboardPage {
         await expect(this.dateFilter).toContainText(option)
     }
 
+    async saveFilters(): Promise<void> {
+        const saveButton = this.page.getByTestId('dashboard-save-filters')
+        if (!(await saveButton.isVisible())) {
+            await this.page.getByTestId('dashboard-filters-unsaved').getByRole('button', { name: 'Actions' }).click()
+        }
+
+        await saveButton.click()
+        await expect(this.page.getByTestId('dashboard-filters-unsaved')).toBeHidden()
+    }
+
     async setVariable(name: string, value: string | number): Promise<void> {
         const field = this.page.locator('.Field').filter({ hasText: name })
         await field.locator('.DataVizVariable_Button').click()
