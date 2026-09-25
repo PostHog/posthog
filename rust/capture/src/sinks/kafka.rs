@@ -15,8 +15,8 @@
 //! * `otel::otel_handler` (`/i/v0/ai/otel`, multi-span batch)
 //!
 //! Keeping routing policy out of the sink keeps the clone-per-spawned-task
-//! cost in the scatter-gather batch path at a few `Arc::clone` calls (one per
-//! producer, plus the output table) rather than deep copies of limiter state.
+//! cost in the scatter-gather batch path at two `Arc::clone` calls (output
+//! table + producers) rather than deep copies of limiter state.
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
@@ -177,68 +177,26 @@ impl rdkafka::ClientContext for KafkaContext {
     }
 }
 
-/// One handle per named producer, looked up by a match so the per-record
-/// producer pick costs no hashing.
-pub struct Producers<P: KafkaProducer> {
-    ingestion: Arc<P>,
-}
-
-impl<P: KafkaProducer> Producers<P> {
-    fn get(&self, name: ProducerName) -> &Arc<P> {
-        match name {
-            ProducerName::Ingestion => &self.ingestion,
-        }
-    }
-
-    fn all(&self) -> [&Arc<P>; ProducerName::ALL.len()] {
-        ProducerName::ALL.map(|name| self.get(name))
-    }
-
-    /// Every name served by one producer, for tests that drive a single
-    /// mock.
-    fn uniform(producer: P) -> Self {
-        Self {
-            ingestion: Arc::new(producer),
-        }
-    }
-}
-
-impl Producers<RdKafkaProducer<KafkaContext>> {
-    pub fn from_registry(registry: &ProducerRegistry) -> Self {
-        Self {
-            ingestion: registry.get(ProducerName::Ingestion),
-        }
-    }
-}
-
-impl<P: KafkaProducer> Clone for Producers<P> {
-    fn clone(&self) -> Self {
-        Self {
-            ingestion: Arc::clone(&self.ingestion),
-        }
-    }
-}
-
 /// Generic Kafka sink that can use any producer implementation.
 ///
-/// Holds only the producer handles, the output table, and the replay envelope
-/// compression setting. No limiter state — overflow and replay-overflow routing
+/// Holds only the output table, each target carrying its producer handle,
+/// the replay envelope compression setting, and the producers to flush. No limiter state — overflow and replay-overflow routing
 /// decisions are stamped upstream in the pipeline onto
 /// `ProcessedEventMetadata::overflow_reason` and read here.
-/// Every field is cheap to clone (one atomic ref-count increment per Arc),
+/// Both Arc fields are cheap to clone (two atomic ref-count increments),
 /// which matters under the scatter-gather batch produce path where the sink
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
-    producers: Producers<P>,
-    outputs: Arc<OutputTable>,
+    outputs: Arc<OutputTable<Arc<P>>>,
+    producers: Arc<[Arc<P>]>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
 impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     fn clone(&self) -> Self {
         Self {
-            producers: self.producers.clone(),
             outputs: Arc::clone(&self.outputs),
+            producers: Arc::clone(&self.producers),
             replay_envelope_compression: self.replay_envelope_compression,
         }
     }
@@ -290,8 +248,11 @@ impl KafkaSink {
         replay_envelope_compression: EnvelopeCompression,
     ) -> KafkaSink {
         KafkaSinkBase {
-            producers: Producers::from_registry(producers),
-            outputs: Arc::new(outputs),
+            outputs: Arc::new(outputs.map_producers(|name| producers.get(*name))),
+            producers: ProducerName::ALL
+                .iter()
+                .map(|name| producers.get(*name))
+                .collect(),
             replay_envelope_compression,
         }
     }
@@ -302,11 +263,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
     pub fn with_producer(producer: P, outputs: OutputTable) -> Self {
-        Self {
-            producers: Producers::uniform(producer),
-            outputs: Arc::new(outputs),
-            replay_envelope_compression: EnvelopeCompression::None,
-        }
+        Self::with_producer_and_compression(producer, outputs, EnvelopeCompression::None)
     }
 
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
@@ -315,9 +272,10 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         outputs: OutputTable,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
+        let producer = Arc::new(producer);
         Self {
-            producers: Producers::uniform(producer),
-            outputs: Arc::new(outputs),
+            outputs: Arc::new(outputs.map_producers(|_| Arc::clone(&producer))),
+            producers: Arc::new([producer]),
             replay_envelope_compression,
         }
     }
@@ -443,7 +401,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// called in the original event order within a batch.
     fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
         let (topic, producer) = self.outputs.resolve(&payload.destination);
-        let producer = self.producers.get(producer);
 
         counter!("capture_kafka_produce_bytes_total", "topic" => Arc::clone(&topic))
             .increment(payload.payload.len() as u64);
@@ -647,7 +604,7 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
-        for producer in self.producers.all() {
+        for producer in self.producers.iter() {
             producer.flush().map_err(|e| anyhow::anyhow!(e))?;
         }
         Ok(())
