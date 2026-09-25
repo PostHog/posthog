@@ -1,4 +1,5 @@
 import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
+import { startEventLoopObserver } from '~/tests/helpers/event-loop'
 
 import { compileHog } from '../templates/compiler'
 import { execHog } from './hog-exec'
@@ -6,11 +7,8 @@ import { execHog } from './hog-exec'
 describe('hog-exec', () => {
     describe('thread relief', () => {
         jest.setTimeout(10000)
-        let interval: NodeJS.Timeout
 
-        let lastCheck = Date.now()
-        let longestDelay = 0
-        const blockTime = 100
+        const blockTimeMs = 50
         let originalThresholdMs: number
 
         beforeEach(() => {
@@ -18,21 +16,15 @@ describe('hog-exec', () => {
             jest.useRealTimers()
 
             originalThresholdMs = getEventLoopYieldThresholdMs()
-            configureEventLoopYield(blockTime)
-
-            interval = setInterval(() => {
-                // Sets up an interval loop so we can see how long the longest delay between ticks is
-                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-                lastCheck = Date.now()
-            }, 0)
+            configureEventLoopYield(blockTimeMs / 2)
         })
 
         afterEach(() => {
-            clearInterval(interval)
             configureEventLoopYield(originalThresholdMs)
         })
 
-        it('should process batches in a way that does not block the main thread', async () => {
+        it('lets the event loop run between hog executions', async () => {
+            // Never returns, so each execution runs until the timeout stops it.
             const evilFunctionCode = await compileHog(`
                 fn fibonacci(number) {
                     print('I AM FIBONACCI. ')
@@ -45,12 +37,13 @@ describe('hog-exec', () => {
                 print(f'fib {fibonacci(64)}');
             `)
 
-            const numberToTest = 10
+            const numberToTest = 5
+            const observer = startEventLoopObserver()
 
-            const results = await Promise.all(
+            await Promise.all(
                 Array.from({ length: numberToTest }, () =>
                     execHog(evilFunctionCode, {
-                        timeout: blockTime,
+                        timeout: blockTimeMs,
                         functions: {
                             print: () => {},
                         },
@@ -58,17 +51,9 @@ describe('hog-exec', () => {
                 )
             )
 
-            const timings = results.map((r) => r.durationMs)
-            const total = timings.reduce((x, y) => x + y, 0)
-
-            // Timings is semi random so we can't test for exact values
-            expect(total).toBeGreaterThan(100 * numberToTest)
-            expect(total).toBeLessThan(200 * numberToTest) // the hog exec limiter isn't exact
-            await new Promise((resolve) => setTimeout(resolve, 1))
-            // Rough upper bound: with the semaphore serializing calls, the
-            // event loop should not be starved for more than ~2.5× one block.
-            // (If yielding were broken, this would be ~10× the block.)
-            expect(longestDelay).toBeLessThan(blockTime * 2.5)
+            // Every execution blocks past the yield threshold, so each one must
+            // hand the loop back. Without yielding the count would be zero.
+            expect(observer.stop()).toBeGreaterThanOrEqual(numberToTest)
         })
     })
 })

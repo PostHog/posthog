@@ -1,4 +1,4 @@
-import { Counter, register } from 'prom-client'
+import { getEventLoopYieldCount } from '~/tests/helpers/event-loop'
 
 import {
     configureEventLoopYield,
@@ -12,16 +12,6 @@ function busyWaitMs(ms: number): void {
     while (performance.now() - start < ms) {
         // spin — the whole point is to block the event loop
     }
-}
-
-async function getYieldCount(caller: string, waited: 'true' | 'false'): Promise<number> {
-    const metric = register.getSingleMetric('event_loop_yield_total') as Counter | undefined
-    if (!metric) {
-        return 0
-    }
-    const data = await metric.get()
-    const sample = data.values.find((v) => v.labels.caller === caller && v.labels.waited === waited)
-    return sample?.value ?? 0
 }
 
 describe('event-loop-yield', () => {
@@ -64,31 +54,31 @@ describe('event-loop-yield', () => {
             configureEventLoopYield(20)
             // Prime accumulated state so the next call's after-yield trips the threshold.
             await yieldEventLoopIfNeeded('test', () => busyWaitMs(40))
-            const before = await getYieldCount('test', 'true')
+            const before = await getEventLoopYieldCount('test', 'true')
             await expect(
                 yieldEventLoopIfNeeded('test', () => {
                     busyWaitMs(40)
                     throw new Error('boom')
                 })
             ).rejects.toThrow('boom')
-            const after = await getYieldCount('test', 'true')
+            const after = await getEventLoopYieldCount('test', 'true')
             // The wrapper should have yielded at least once even though fn threw.
             expect(after).toBeGreaterThan(before)
         })
 
         it('does not actually yield when accumulated work is below the threshold', async () => {
             configureEventLoopYield(10_000)
-            const before = await getYieldCount('test', 'true')
+            const before = await getEventLoopYieldCount('test', 'true')
             await yieldEventLoopIfNeeded('test', () => busyWaitMs(20))
-            const after = await getYieldCount('test', 'true')
+            const after = await getEventLoopYieldCount('test', 'true')
             expect(after - before).toBe(0)
         })
 
         it('actually yields when accumulated work crosses the threshold', async () => {
             configureEventLoopYield(20)
-            const before = await getYieldCount('test', 'true')
+            const before = await getEventLoopYieldCount('test', 'true')
             await yieldEventLoopIfNeeded('test', () => busyWaitMs(40))
-            const after = await getYieldCount('test', 'true')
+            const after = await getEventLoopYieldCount('test', 'true')
             // Either the before- or after-yield should have crossed the threshold.
             expect(after - before).toBeGreaterThan(0)
         })
@@ -158,9 +148,8 @@ describe('event-loop-yield', () => {
         })
 
         it('serialized callers via promise chain keep the loop unblocked', async () => {
-            // To prove the helper actually protects the loop end-to-end (matching
-            // hog-exec.test.ts's longestDelay bound), callers must be serialized
-            // so the setTimeout(0) macrotask can fire between them.
+            // To prove the helper actually protects the loop end-to-end, callers
+            // must be serialized so the setTimeout(0) macrotask can fire between them.
             const blockMs = 100
             const numberOfCallers = 10
             configureEventLoopYield(blockMs)
@@ -205,11 +194,11 @@ describe('event-loop-yield', () => {
                 }
             }
 
-            const beforeSlowWaited = await getYieldCount('slow', 'true')
-            const beforeFastNot = await getYieldCount('fast', 'false')
+            const beforeSlowWaited = await getEventLoopYieldCount('slow', 'true')
+            const beforeFastNot = await getEventLoopYieldCount('fast', 'false')
             await Promise.all([slowCaller(), fastCaller()])
-            const afterSlowWaited = await getYieldCount('slow', 'true')
-            const afterFastNot = await getYieldCount('fast', 'false')
+            const afterSlowWaited = await getEventLoopYieldCount('slow', 'true')
+            const afterFastNot = await getEventLoopYieldCount('fast', 'false')
 
             // At least one slow call must have yielded.
             expect(afterSlowWaited - beforeSlowWaited).toBeGreaterThan(0)
