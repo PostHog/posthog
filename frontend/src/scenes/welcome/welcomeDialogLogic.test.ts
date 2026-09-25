@@ -64,10 +64,9 @@ describe('welcomeDialogLogic', () => {
     let logic: ReturnType<typeof welcomeDialogLogic.build>
 
     beforeEach(() => {
-        // The dialog persists dismissal in localStorage and "looked around" in sessionStorage —
-        // clear both so a prior test doesn't carry over and suppress the dialog.
+        // The dialog keeps both of its suppression markers in localStorage, so clear it or a prior
+        // test carries over and suppresses the dialog.
         window.localStorage.clear()
-        window.sessionStorage.clear()
         ;(posthog.capture as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -112,6 +111,23 @@ describe('welcomeDialogLogic', () => {
             '1'
         )
         userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        expect(logic.values.shouldShowDialog).toBe(false)
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
+    })
+
+    it('does not reopen after the dialog has been shown once, without any dismissal', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        expect(logic.values.shouldShowDialog).toBe(true)
+
+        // A second tab, or the same tab after a reload, starts from empty reducers, so only what
+        // the first showing wrote to localStorage can hold the dialog back.
+        logic.unmount()
         logic = welcomeDialogLogic()
         logic.mount()
 

@@ -11,7 +11,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { UserType } from '~/types'
 
 import { WelcomeDialog } from './WelcomeDialog'
-import { welcomeDialogLogic } from './welcomeDialogLogic'
+import { clearWelcomeSuppression, welcomeDialogLogic } from './welcomeDialogLogic'
 
 const FULL_PAYLOAD = {
     organization_name: 'Hedgebox Inc',
@@ -149,6 +149,11 @@ const meta: Meta = {
             },
         }),
     ],
+    // The dialog records the introduction the first time it opens, and every story here runs in the
+    // same browser, so each one has to start from a user who has not met it yet.
+    beforeEach: () => {
+        clearWelcomeSuppression(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_USER.organization?.id)
+    },
 }
 export default meta
 

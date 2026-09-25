@@ -79,16 +79,23 @@ export type WelcomeCloseSource = 'start_exploring' | 'modal_close' | 'ask_max_ca
 // Scoped per user AND organization so a contractor/agency who works across multiple orgs gets
 // a fresh welcome in each org instead of only ever seeing it once across their lifetime.
 const LOCAL_DISMISSED_KEY_PREFIX = 'posthog_welcome_dismissed:'
-// SessionStorage key used to suppress the dialog for the remainder of a tab's session after
-// the user closes it without dismissing it, which avoids re-opening on every project-home remount.
-const SESSION_LOOKED_AROUND_KEY = 'posthog_welcome_looked_around'
+// LocalStorage key written the first time the dialog opens. The introduction is meant to happen
+// once, so the marker cannot wait for the user to close the dialog: a second tab, a project
+// switch, or a reload each open the dialog again before any close is recorded. Scoped per user
+// AND organization like the dismiss key above.
+const LOCAL_SEEN_KEY_PREFIX = 'posthog_welcome_seen:'
 
-function dismissedKey(userUuid: string | undefined, orgId: string | undefined): string | null {
-    return userUuid && orgId ? `${LOCAL_DISMISSED_KEY_PREFIX}${userUuid}:${orgId}` : null
+// Both markers suppress the dialog, so a write to either one in another tab has to reach this one.
+function isSuppressionKey(key: string): boolean {
+    return key.startsWith(LOCAL_DISMISSED_KEY_PREFIX) || key.startsWith(LOCAL_SEEN_KEY_PREFIX)
 }
 
-function rememberDismissed(userUuid: string | undefined, orgId: string | undefined): void {
-    const key = dismissedKey(userUuid, orgId)
+function markerKey(prefix: string, userUuid: string | undefined, orgId: string | undefined): string | null {
+    return userUuid && orgId ? `${prefix}${userUuid}:${orgId}` : null
+}
+
+function rememberMarker(prefix: string, userUuid: string | undefined, orgId: string | undefined): void {
+    const key = markerKey(prefix, userUuid, orgId)
     if (typeof window === 'undefined' || !key) {
         return
     }
@@ -99,12 +106,8 @@ function rememberDismissed(userUuid: string | undefined, orgId: string | undefin
     }
 }
 
-export function wasWelcomeDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
-    return wasDismissed(userUuid, orgId)
-}
-
-function wasDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
-    const key = dismissedKey(userUuid, orgId)
+function hasMarker(prefix: string, userUuid: string | undefined, orgId: string | undefined): boolean {
+    const key = markerKey(prefix, userUuid, orgId)
     if (typeof window === 'undefined' || !key) {
         return false
     }
@@ -115,25 +118,26 @@ function wasDismissed(userUuid: string | undefined, orgId: string | undefined): 
     }
 }
 
-function rememberLookedAround(orgId: string | undefined): void {
-    if (typeof window === 'undefined' || !orgId) {
-        return
-    }
-    try {
-        window.sessionStorage.setItem(SESSION_LOOKED_AROUND_KEY, orgId)
-    } catch {
-        // sessionStorage can be unavailable (privacy mode, etc.) — degrade gracefully.
-    }
+export function wasWelcomeDismissed(userUuid: string | undefined, orgId: string | undefined): boolean {
+    return hasMarker(LOCAL_DISMISSED_KEY_PREFIX, userUuid, orgId)
 }
 
-function wasLookedAround(orgId: string | undefined): boolean {
-    if (typeof window === 'undefined' || !orgId) {
-        return false
+/** Drops both suppression markers, which puts the user back where a first-time invitee starts.
+ * Storybook renders every welcome story in one browser, so without this the marker the first
+ * showing writes leaves the rest of the stories blank. */
+export function clearWelcomeSuppression(userUuid: string | undefined, orgId: string | undefined): void {
+    if (typeof window === 'undefined') {
+        return
     }
-    try {
-        return window.sessionStorage.getItem(SESSION_LOOKED_AROUND_KEY) === orgId
-    } catch {
-        return false
+    for (const prefix of [LOCAL_DISMISSED_KEY_PREFIX, LOCAL_SEEN_KEY_PREFIX]) {
+        const key = markerKey(prefix, userUuid, orgId)
+        if (key) {
+            try {
+                window.localStorage.removeItem(key)
+            } catch {
+                // localStorage can be unavailable (privacy mode, etc.), so degrade gracefully.
+            }
+        }
     }
 }
 
@@ -220,6 +224,7 @@ export interface welcomeDialogLogicMeta {
             user: UserType | null,
             isProvisionedUser: boolean,
             locallyClosed: boolean,
+            shownAt: number | null,
             storageTick: number
         ) => boolean
     }
@@ -355,27 +360,34 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             },
         ],
         // Open for invitees (not the org creator) and for partner-provisioned accounts (which have no
-        // inviter, so they'd otherwise never see it), when not already dismissed.
+        // inviter, so they'd otherwise never see it), when the user has neither dismissed it nor
+        // already been introduced.
         // `storageTick` is in the dependency list so cross-tab localStorage changes re-run the selector.
         shouldShowDialog: [
-            (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.storageTick],
+            (s) => [s.user, s.isProvisionedUser, s.locallyClosed, s.shownAt, s.storageTick],
             (
                 user: null | import('../../types').UserType,
                 isProvisionedUser: boolean,
-                locallyClosed: boolean
+                locallyClosed: boolean,
+                shownAt: number | null
             ): boolean => {
                 if (!user || (user.is_organization_first_user !== false && !isProvisionedUser)) {
                     return false
                 }
                 const orgId = user.organization?.id
-                if (wasDismissed(user.uuid, orgId)) {
+                if (wasWelcomeDismissed(user.uuid, orgId)) {
                     return false
                 }
                 if (locallyClosed) {
                     return false
                 }
-                // Also suppress if the user opted to look around earlier in this tab's session.
-                return !wasLookedAround(orgId)
+                // This tab already put the dialog on screen. Two tabs that open together both write
+                // the seen marker, and each one then receives the other's `storage` event, so without
+                // this the dialog is pulled off the screen in both of them.
+                if (shownAt !== null) {
+                    return true
+                }
+                return !hasMarker(LOCAL_SEEN_KEY_PREFIX, user.uuid, orgId)
             },
         ],
     }),
@@ -397,6 +409,9 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
                 return
             }
             actions.markShown()
+            // Record the introduction as it happens, because the user does not have to close the
+            // dialog for it to count as seen.
+            rememberMarker(LOCAL_SEEN_KEY_PREFIX, values.user?.uuid, values.user?.organization?.id)
             posthog.capture('welcome_screen_shown', {
                 org_id: values.user?.organization?.id,
                 num_team_members: welcomeData.team_members.length,
@@ -406,8 +421,6 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
             })
         },
         closeDialog: ({ source }) => {
-            // Persist the close across remounts in the same tab.
-            rememberLookedAround(values.user?.organization?.id)
             posthog.capture('welcome_screen_closed', {
                 source,
                 time_on_screen_ms: values.shownAt ? Date.now() - values.shownAt : null,
@@ -417,7 +430,7 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         dismissWelcome: () => {
             const interactedCount = Object.keys(values.interactedCards).length
             const timeOnScreen = values.shownAt ? Date.now() - values.shownAt : null
-            rememberDismissed(values.user?.uuid, values.user?.organization?.id)
+            rememberMarker(LOCAL_DISMISSED_KEY_PREFIX, values.user?.uuid, values.user?.organization?.id)
             posthog.capture('welcome_screen_dismissed', {
                 time_on_screen_ms: timeOnScreen,
                 cards_interacted_with: interactedCount,
@@ -425,9 +438,6 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
         trackCardClick: ({ card, targetHref }) => {
             actions.markCardInteracted(card)
-            // Clicking an in-app card link counts as engagement — persist the "looked around"
-            // marker so the dialog doesn't re-appear the next time the user lands on home.
-            rememberLookedAround(values.user?.organization?.id)
             posthog.capture('welcome_screen_card_clicked', {
                 card,
                 target_href: targetHref,
@@ -452,16 +462,16 @@ export const welcomeDialogLogic = kea<welcomeDialogLogicType>([
         },
     })),
 
-    // Subscribe to the browser's storage event so that dismissal from another tab propagates
-    // to this one. The event only fires in *other* tabs (not the one that performed the write),
-    // so the acting tab is already in sync via its own reducers.
+    // Subscribe to the browser's storage event so that an introduction or a dismissal in another
+    // tab propagates to this one. The event only fires in *other* tabs (not the one that performed
+    // the write), so the acting tab is already in sync via its own reducers.
     events(({ actions, cache }) => ({
         afterMount: () => {
             if (typeof window === 'undefined') {
                 return
             }
             const handler = (event: StorageEvent): void => {
-                if (event.key && event.key.startsWith(LOCAL_DISMISSED_KEY_PREFIX)) {
+                if (event.key && isSuppressionKey(event.key)) {
                     actions.acknowledgeStorageChange()
                 }
             }
