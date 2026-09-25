@@ -79,12 +79,29 @@ export default function RootLayout() {
             <Stack.Screen name="login" options={{ animation: "fade" }} />
             <Stack.Screen name="(drawer)" />
             <Stack.Screen
-              name="settings"
+              name="config"
               options={{
                 presentation: "formSheet",
                 sheetAllowedDetents: [0.6, 1],
                 sheetGrabberVisible: true,
                 sheetCornerRadius: 32,
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            />
+            <Stack.Screen
+              name="picker"
+              options={{
+                presentation: "formSheet",
+                sheetAllowedDetents: [0.55, 1],
+                sheetGrabberVisible: true,
+                sheetCornerRadius: 32,
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            />
+            <Stack.Screen
+              name="settings"
+              options={{
+                presentation: "modal",
                 contentStyle: { backgroundColor: colors.bg },
               }}
             />
