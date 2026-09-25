@@ -34,6 +34,7 @@ import {
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
@@ -3424,7 +3425,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentTimestamp(newTimestamp)
 
-                if (props.mode !== SessionRecordingPlayerMode.Preview) {
+                // Flag-gated so only targeted viewers run the DOM read; everyone else skips the block entirely
+                if (
+                    props.mode !== SessionRecordingPlayerMode.Preview &&
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_BROWSER_SCROLL_BUG]
+                ) {
                     captureRenderedScrollSample({
                         replayer: values.player?.replayer,
                         recordingId: props.sessionRecordingId,
