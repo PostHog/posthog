@@ -232,9 +232,8 @@ function copyEmojibaseData() {
 
 export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
     copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
-    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
-    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
+    // layout.html has no import map, so it boots the hashed build.
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {

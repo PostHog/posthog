@@ -39,7 +39,7 @@
         {% for url in stable_preload_css_urls %}
             <link rel="preload" href="{{ js_url }}/{{ url }}" as="style" crossorigin="anonymous">
         {% endfor %}
-        {# Stable chunk names (opt-in, see posthog/stable_chunks.py): the import map must come before #}
+        {# Stable chunk names (see posthog/stable_chunks.py): the import map must come before #}
         {# the modulepreload hints below, because browsers ignore an import map added after module #}
         {# loading has started. #}
         {% if stable_chunks_importmap %}

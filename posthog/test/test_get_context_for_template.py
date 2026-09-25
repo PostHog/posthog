@@ -145,24 +145,29 @@ class TestGetContextForTemplate(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("opted in and logged in", True, True, ("static/index-S0000000000.js", "static/shell-S1111111111.js")),
-            ("opted in and anonymous", True, False, ("static/index-S0000000000.js",)),
-            ("not opted in", False, True, ()),
+            ("logged in", "/", True, True, ("static/index-S0000000000.js", "static/shell-S1111111111.js")),
+            ("anonymous", "/", False, True, ("static/index-S0000000000.js",)),
+            ("fallback", "/?stable_chunks=fallback", True, False, ()),
         ]
     )
-    def test_only_an_opted_in_browser_boots_through_the_import_map(
-        self, _name, opted_in, authenticated, expected_preload_js_urls
-    ):
-        request = RequestFactory().get("/?stable_chunks=1" if opted_in else "/")
+    def test_the_app_shell_boots_through_the_import_map_unless_falling_back(
+        self,
+        _name: str,
+        path: str,
+        authenticated: bool,
+        expect_stable: bool,
+        expected_preload_js_urls: tuple[str, ...],
+    ) -> None:
+        request = RequestFactory().get(path)
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
         request.user = self.user if authenticated else AnonymousUser()
 
         with mock.patch("posthog.stable_chunks._resolve_stable_chunks", return_value=STABLE_CHUNKS):
             context = get_context_for_template("index.html", request)
 
-        assert context.get("stable_chunks", False) is opted_in
+        assert context.get("stable_chunks", False) is expect_stable
         assert context["preload_js_urls"] == expected_preload_js_urls
-        if opted_in:
+        if expect_stable:
             assert json.loads(context["stable_chunks_importmap"]) == {
                 "imports": {"@c/eAAAA": f"{context['js_url']}/static/index-S0000000000.js"}
             }
