@@ -16,9 +16,6 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 from products.access_control.backend.models.access_control import AccessControl
 
-DATE_FROM = "2026-06-02T06:00:00Z"
-DATE_TO = "2026-06-02T10:00:00Z"
-
 # The form OTel ingestion writes: lowercase hex, 32 characters for a trace and 16 for a span.
 TRACE_A = "4bf92f3577b34da6a3ce929d0e0e4736"
 TRACE_B = "8a3c60f7d188f8fa79d48a391a778fa6"
@@ -34,12 +31,8 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
-    def _post(self, trace_id: str, **body: Any) -> HttpResponse:
-        return self.client.post(
-            f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_id}/ai_events/",
-            {"dateFrom": DATE_FROM, "dateTo": DATE_TO, **body},
-            format="json",
-        )
+    def _get(self, trace_id: str) -> HttpResponse:
+        return self.client.get(f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_id}/ai_events/")
 
     def _create_ai_event(
         self,
@@ -60,7 +53,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         )
         return event_uuid
 
-    def test_lists_the_traces_ai_events_in_the_window_earliest_start_first(self) -> None:
+    def test_lists_the_traces_ai_events_earliest_start_first(self) -> None:
         generation = self._create_ai_event(
             TRACE_A,
             timestamp="2026-06-02T08:00:05Z",
@@ -78,11 +71,10 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         )
         span = self._create_ai_event(TRACE_A, event="$ai_span", timestamp="2026-06-02T08:00:01Z")
         self._create_ai_event(TRACE_B)
-        self._create_ai_event(TRACE_A, timestamp="2026-06-02T11:00:00Z")
         self._create_ai_event(TRACE_A, event="$ai_feedback")
         flush_persons_and_events()
 
-        response = self._post(TRACE_A.upper())
+        response = self._get(TRACE_A.upper())
 
         assert response.status_code == status.HTTP_200_OK, response.content
         results = json.loads(response.content)["results"]
@@ -109,6 +101,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("an SDK event stamped at the finish", {"$ai_latency": 4}, "2026-06-02T08:00:00Z", 4),
+            ("an SDK event with no latency", {}, "2026-06-02T08:00:04Z", None),
             (
                 "an OTel event stamped at the start",
                 {"$ai_latency": 4, "$ai_ingestion_source": "otel"},
@@ -126,7 +119,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         self._create_ai_event(TRACE_A, timestamp="2026-06-02T08:00:04Z", properties=properties)
         flush_persons_and_events()
 
-        response = self._post(TRACE_A)
+        response = self._get(TRACE_A)
 
         assert response.status_code == status.HTTP_200_OK, response.content
         rows = json.loads(response.content)["results"]
@@ -136,7 +129,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         by_uuid = self._create_ai_event(TRACE_A_UUID)
         flush_persons_and_events()
 
-        response = self._post(TRACE_A)
+        response = self._get(TRACE_A)
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [row["uuid"] for row in json.loads(response.content)["results"]] == [by_uuid]
@@ -153,25 +146,19 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         }
         bulk_create_ai_events([row, row])
 
-        response = self._post(TRACE_A)
+        response = self._get(TRACE_A)
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [r["uuid"] for r in json.loads(response.content)["results"]] == [row["event_uuid"]]
 
-    @parameterized.expand(
-        [
-            ("non-hex trace id", "zz92f3577b34da6a3ce929d0e0e4736", {}, status.HTTP_400_BAD_REQUEST),
-            ("missing window", TRACE_A, {"dateFrom": None}, status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    def test_rejects_a_bad_request(self, _name: str, trace_id: str, body: dict, expected: int) -> None:
-        response = self._post(trace_id, **body)
+    def test_rejects_a_non_hex_trace_id(self) -> None:
+        response = self._get("zz92f3577b34da6a3ce929d0e0e4736")
 
-        assert response.status_code == expected, response.content
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_requires_the_feature_flag(self, _flag: Any) -> None:
-        response = self._post(TRACE_A)
+        response = self._get(TRACE_A)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
@@ -192,6 +179,6 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         )
         self.client.force_login(user)
 
-        response = self._post(TRACE_A)
+        response = self._get(TRACE_A)
 
         assert response.status_code == expected_status, response.content

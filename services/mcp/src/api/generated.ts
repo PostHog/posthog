@@ -102757,13 +102757,6 @@ export namespace Schemas {
       is_error: boolean;
     }
 
-    export interface _TracingTraceAiEventsRequest {
-      /** Start of the window the AI events must fall in. ISO 8601. */
-      dateFrom: string;
-      /** End of the window the AI events must fall in. ISO 8601. */
-      dateTo: string;
-    }
-
     export interface _TracingTraceAiEventsResponse {
       /** AI events in the trace, earliest start first. */
       results: _TracingTraceAiEvent[];

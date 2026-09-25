@@ -834,11 +834,6 @@ class _TracingTraceResponseSerializer(serializers.Serializer):
     )
 
 
-class _TracingTraceAiEventsRequestSerializer(serializers.Serializer):
-    dateFrom = serializers.DateTimeField(help_text="Start of the window the AI events must fall in. ISO 8601.")
-    dateTo = serializers.DateTimeField(help_text="End of the window the AI events must fall in. ISO 8601.")
-
-
 class _TracingTraceAiEventSerializer(serializers.Serializer):
     uuid = serializers.CharField(help_text="Event UUID.")
     event = serializers.CharField(
@@ -1903,19 +1898,16 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @validated_request(
-        _TracingTraceAiEventsRequestSerializer,
-        responses={200: OpenApiResponse(response=_TracingTraceAiEventsResponseSerializer)},
-    )
+    @extend_schema(responses={200: _TracingTraceAiEventsResponseSerializer})
     # Both scopes: the response is LLM analytics data, so a token scoped to tracing alone must
     # not reach it. Scopes gate the token; the access-control check below gates the user.
     @action(
         detail=False,
-        methods=["POST"],
+        methods=["GET"],
         url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)/ai_events",
         required_scopes=["tracing:read", "llm_analytics:read"],
     )
-    def trace_ai_events(self, request: ValidatedRequest, trace_id: str, *args, **kwargs) -> Response:
+    def trace_ai_events(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         """List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
         can show each model call inline with the spans.
 
@@ -1941,14 +1933,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ValueError:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        data = request.validated_data
-        events = fetch_trace_ai_events(
-            team=self.team,
-            user=cast(User, request.user),
-            trace_id=trace_id,
-            date_from=data["dateFrom"],
-            date_to=data["dateTo"],
-        )
+        events = fetch_trace_ai_events(team=self.team, user=cast(User, request.user), trace_id=trace_id)
 
         self._report_usage(request, "tracing trace ai events fetched", {"ai_events_count": len(events)})
 

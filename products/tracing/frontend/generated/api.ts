@@ -41,7 +41,6 @@ import type {
     _TracingServiceNamesResponseApi,
     _TracingSparklineRequestApi,
     _TracingSparklineResponseApi,
-    _TracingTraceAiEventsRequestApi,
     _TracingTraceAiEventsResponseApi,
     _TracingTraceRequestApi,
     _TracingTraceResponseApi,
@@ -379,7 +378,7 @@ export const tracingSpansTraceCreate = async (
     })
 }
 
-export const getTracingSpansTraceAiEventsCreateUrl = (projectId: string, traceId: string) => {
+export const getTracingSpansTraceAiEventsRetrieveUrl = (projectId: string, traceId: string) => {
     return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/ai_events/`
 }
 
@@ -390,17 +389,14 @@ export const getTracingSpansTraceAiEventsCreateUrl = (projectId: string, traceId
  * The spans and the AI events live on different ClickHouse clusters, so one query cannot join
  * them; this returns the events half and the caller places them by time.
  */
-export const tracingSpansTraceAiEventsCreate = async (
+export const tracingSpansTraceAiEventsRetrieve = async (
     projectId: string,
     traceId: string,
-    _tracingTraceAiEventsRequestApi: _TracingTraceAiEventsRequestApi,
     options?: RequestInit
 ): Promise<_TracingTraceAiEventsResponseApi> => {
-    return apiMutator<_TracingTraceAiEventsResponseApi>(getTracingSpansTraceAiEventsCreateUrl(projectId, traceId), {
+    return apiMutator<_TracingTraceAiEventsResponseApi>(getTracingSpansTraceAiEventsRetrieveUrl(projectId, traceId), {
         ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingTraceAiEventsRequestApi),
+        method: 'GET',
     })
 }
 

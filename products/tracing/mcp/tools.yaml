@@ -239,8 +239,8 @@ tools:
     tracing-spans-symbol-stats-create:
         operation: tracing_spans_symbol_stats_create
         enabled: false
-    tracing-spans-trace-ai-events-create:
-        operation: tracing_spans_trace_ai_events_create
+    tracing-spans-trace-ai-events-retrieve:
+        operation: tracing_spans_trace_ai_events_retrieve
         enabled: false
     tracing-views-create:
         operation: tracing_views_create

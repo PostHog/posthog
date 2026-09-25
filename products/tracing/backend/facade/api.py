@@ -246,12 +246,10 @@ def count_session_exceptions(
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
 
 
-def fetch_trace_ai_events(
-    *, team: "Team", user: "User | None", trace_id: str, date_from: datetime, date_to: datetime
-) -> list[TraceAiEvent]:
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> list[TraceAiEvent]:
     """List the LLM analytics events whose `$ai_trace_id` is the trace id, as lowercase hex or as
-    the hyphenated UUID the LLM gateway writes, inside the window, earliest first. The events side
-    of the trace-to-AI-events join, which the caller finishes. The user's property access rules
-    apply to the returned columns.
+    the hyphenated UUID the LLM gateway writes, earliest start first. The events side of the
+    trace-to-AI-events join, which the caller finishes. The user's property access rules apply to
+    the returned columns.
     """
-    return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id, date_from=date_from, date_to=date_to)
+    return _fetch_trace_ai_events(team=team, user=user, trace_id=trace_id)

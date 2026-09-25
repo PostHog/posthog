@@ -883,13 +883,6 @@ export interface _TracingTraceResponseApi {
     nextOffset: number | null
 }
 
-export interface _TracingTraceAiEventsRequestApi {
-    /** Start of the window the AI events must fall in. ISO 8601. */
-    dateFrom: string
-    /** End of the window the AI events must fall in. ISO 8601. */
-    dateTo: string
-}
-
 export interface _TracingTraceAiEventApi {
     /** Event UUID. */
     uuid: string

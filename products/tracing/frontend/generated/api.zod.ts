@@ -1089,18 +1089,6 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
- * can show each model call inline with the spans.
- *
- * The spans and the AI events live on different ClickHouse clusters, so one query cannot join
- * them; this returns the events half and the caller places them by time.
- */
-export const TracingSpansTraceAiEventsCreateBody = /* @__PURE__ */ zod.object({
-    dateFrom: zod.iso.datetime({ offset: true }).describe('Start of the window the AI events must fall in. ISO 8601.'),
-    dateTo: zod.iso.datetime({ offset: true }).describe('End of the window the AI events must fall in. ISO 8601.'),
-})
-
 export const tracingSpansTreeCreateBodyQueryOneCompareFilterOneCompareDefault = false
 export const tracingSpansTreeCreateBodyQueryOneFilterGroupDefault = []
 

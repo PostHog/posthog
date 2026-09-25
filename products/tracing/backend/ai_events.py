@@ -45,17 +45,17 @@ class TraceAiEvent:
     is_error: bool
 
 
-def fetch_trace_ai_events(
-    *, team: "Team", user: "User | None", trace_id: str, date_from: datetime, date_to: datetime
-) -> list[TraceAiEvent]:
-    """LLM analytics events whose `$ai_trace_id` is the OpenTelemetry trace id, inside the window,
-    earliest first. Matches the 32-hex form OTel ingestion writes and the hyphenated UUID form the
-    LLM gateway writes for a `traceparent` header.
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> list[TraceAiEvent]:
+    """LLM analytics events whose `$ai_trace_id` is the OpenTelemetry trace id, earliest start
+    first. Matches the 32-hex form OTel ingestion writes and the hyphenated UUID form the LLM
+    gateway writes for a `traceparent` header.
 
     Reads `ai_events`, whose sort key starts with `(team_id, trace_id)`, so a trace with no AI
     events costs a primary-key miss rather than a scan. That is why the lookup does not fall back
     to the shared events table: most APM traces have no AI events, and a fallback would scan the
-    team's events on every one of them. Rows older than the ai_events retention are not found.
+    team's events on every one of them. There is no time window: the trace id already bounds the
+    read, and the table partitions by retention date rather than event time, so a window prunes
+    nothing. Rows older than the ai_events retention are not found.
 
     The requesting user is passed through so property access rules mask restricted AI columns for
     that user rather than falling back to the team default.
@@ -80,15 +80,13 @@ def fetch_trace_ai_events(
             any(total_cost_usd) AS total_cost_usd,
             any(is_error) AS is_error,
             any(if(
-                properties.$ai_ingestion_source = {otel_source} OR NOT isFinite(latency) OR latency < 0 OR latency > {max_latency},
+                properties.$ai_ingestion_source = {otel_source} OR isNull(latency) OR NOT isFinite(latency) OR latency < 0 OR latency > {max_latency},
                 timestamp,
                 fromUnixTimestamp64Milli(toUnixTimestamp64Milli(timestamp) - toInt(latency * 1000))
             )) AS started_at
         FROM posthog.ai_events
         WHERE trace_id IN {trace_ids}
           AND event IN {events}
-          AND timestamp >= {date_from}
-          AND timestamp <= {date_to}
         GROUP BY uuid
         ORDER BY started_at ASC
         LIMIT {limit}
@@ -98,8 +96,6 @@ def fetch_trace_ai_events(
             # Spans read their ids back as uppercase hex, while OTel ingestion writes them
             # lowercase. Both forms are constants, so the lookup stays on the sort key.
             "trace_ids": ast.Constant(value=_stored_trace_id_forms(trace_id)),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
             "otel_source": ast.Constant(value=OTEL_INGESTION_SOURCE),
             "max_latency": ast.Constant(value=MAX_LATENCY_SECONDS),
             # Explicit, because HogQL caps a select without a LIMIT at 100 rows.
