@@ -7614,7 +7614,7 @@ describe("SessionService", () => {
       });
     });
 
-    it("reuses attachments uploaded before sending cloud follow-ups", async () => {
+    it("reuses an uploaded attachment for an artifact-only cloud follow-up", async () => {
       const service = getSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
@@ -7661,7 +7661,6 @@ describe("SessionService", () => {
       );
 
       const prompt: ContentBlock[] = [
-        { type: "text", text: "read this" },
         {
           type: "resource_link",
           uri: "file:///tmp/test.txt",
@@ -7679,7 +7678,7 @@ describe("SessionService", () => {
         "run-123",
         expect.objectContaining({
           type: "user_message",
-          content: "read this\n\nAttached files: test.txt",
+          content: "Attached files: test.txt",
           pinToTop: false,
         }),
         expect.any(String),
@@ -7701,8 +7700,8 @@ describe("SessionService", () => {
       expect(mockTrpcCloudTask.sendCommand.mutate).toHaveBeenCalledWith(
         expect.objectContaining({
           params: expect.objectContaining({
-            content: "read this",
             artifact_ids: ["artifact-1"],
+            submitted_at: expect.any(Number),
           }),
         }),
       );
@@ -7896,6 +7895,14 @@ describe("SessionService", () => {
             pendingUserMessage: "Continue",
           }),
         );
+        const optimisticCalls =
+          mockSessionStoreSetters.appendOptimisticItem.mock.calls;
+        expect(optimisticCalls).toHaveLength(2);
+        expect(optimisticCalls[1][1]).toMatchObject({
+          timestamp: optimisticCalls[0][1].timestamp,
+        });
+        expect(optimisticCalls[1][2]).toBe(optimisticCalls[0][2]);
+        expect(optimisticCalls[1][2]).toEqual(expect.any(String));
         expect(
           mockSessionStoreSetters.clearTailOptimisticItems,
         ).toHaveBeenCalledWith("run-123");
@@ -8133,6 +8140,7 @@ describe("SessionService", () => {
             content: "what is this about?\n\nAttached files: test.txt",
             pinToTop: false,
           }),
+          expect.any(String),
         );
         expect(mockSessionStoreSetters.setSession).toHaveBeenCalledWith(
           expect.objectContaining({

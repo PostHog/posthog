@@ -66,6 +66,7 @@ export type ConversationItem =
       turnContext: TurnContext;
       thoughtComplete?: boolean;
       timestamp?: number;
+      progressGroup?: string;
     }
   | {
       type: "git_action_result";
@@ -1033,6 +1034,10 @@ function ensureProgressCardForGroup(
   };
   b.progressCards.set(group, card);
   pushItem(b, renderItem);
+  const item = b.items[card.itemIndex];
+  if (item?.type === "session_update") {
+    item.progressGroup = group;
+  }
   return card;
 }
 

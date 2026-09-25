@@ -124,7 +124,6 @@ from products.tasks.backend.facade.streams import (
 )
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
-    FailedFollowupMessagesResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
     ModelCatalogueResponseSerializer,
     PinnedTaskIdsResponseSerializer,
@@ -318,17 +317,7 @@ def _release_backlog_bytes(size_bytes: int) -> None:
 def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIndex]:
     # Runs via asyncio.to_thread: parsing a log at the byte cap takes long
     # enough to stall every other stream on the ASGI event loop.
-    entries: list[dict] = []
-    for log_line in log_content.splitlines():
-        log_line = log_line.strip()
-        if not log_line:
-            continue
-        try:
-            parsed_line = json.loads(log_line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed_line, dict):
-            entries.append(parsed_line)
+    entries = list(tasks_facade.parse_task_run_log_entries(log_content))
     return entries, TaskRunStreamBacklogIndex(entries)
 
 
@@ -1761,18 +1750,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def retrieve(self, request, pk=None, **kwargs):
         return Response(TaskRunDetailSerializer(self._get_run_or_404(pk)).data)
-
-    @extend_schema(
-        responses={200: FailedFollowupMessagesResponseSerializer},
-        summary="Get confirmed failed follow-up messages",
-    )
-    @action(detail=True, methods=["get"], url_path="failed_messages", required_scopes=["task:read"])
-    def failed_messages(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        messages = tasks_facade.get_failed_task_run_messages(pk, task_id, self.team_id, actor_user_id=self._user_id())
-        if messages is None:
-            raise NotFound()
-        return Response(FailedFollowupMessagesResponseSerializer({"messages": messages}).data)
 
     def _validation_error_response(self, error: tasks_contracts.TaskRunValidationError) -> Response:
         if error.kind == "detail":
@@ -3257,7 +3234,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     artifact_ids=artifact_ids,
                     actor_user_id=request.user.id,
                     message_id=str(request_id) if request_id is not None else None,
-                    submitted_at=command_params.get("submitted_at"),
                     steer=command_params.get("steer", False),
                 )
             except ComputeBillingLimitExceeded as error:

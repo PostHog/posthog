@@ -1204,19 +1204,34 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
-    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
-        # The predecessor's stage is deliberately not carried forward: a stage makes the run
-        # read as pipeline-started and drops it out of the interactive duration ceiling.
+    @parameterized.expand(
+        [
+            ("manual_implementation", False, "implementation", "implementation", None),
+            ("pipeline_after_manual", True, "implementation", None, "implementation"),
+            ("pipeline_discussion", True, "discussion", "implementation", None),
+        ]
+    )
+    def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
+        self,
+        _name: str,
+        pipeline_rerun: bool,
+        relationship: str,
+        previous_stage: str | None,
+        expected_stage: str | None,
+    ):
         from products.signals.backend.models import SignalReport
+        from products.signals.backend.task_run_artefacts import record_report_task
 
-        # The report link is present so only `internal` can withhold the stamp here.
         report = SignalReport.objects.create(team=self.team)
         task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={"ai_stage": "implementation"},
+            state={"ai_stage": previous_stage} if previous_stage else {},
         )
 
         with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
@@ -1225,11 +1240,13 @@ class TestFacadeReadsAndMappers(TestCase):
                 self.team.id,
                 self.user.id,
                 validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                pipeline_rerun=pipeline_rerun,
+                free_trial_enabled=False,
             )
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertNotIn("ai_stage", new_run.state)
+        self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
 
     @parameterized.expand(
         [
@@ -1850,16 +1867,6 @@ class TestSignalTaskRunUserMessage(TestCase):
         recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
         self.assertLessEqual(recorded_at, signalled_at[0])
 
-    def test_records_original_submission_time_for_queued_messages(self):
-        run = self._run()
-        submitted_at = django_timezone.now() - timedelta(hours=1)
-
-        self.assertTrue(self._signal(run, submitted_at=int(submitted_at.timestamp() * 1000)))
-
-        run.refresh_from_db()
-        recorded_at = datetime.fromisoformat(run.state["pending_followup_messages"][0]["ts"])
-        self.assertAlmostEqual(recorded_at.timestamp(), submitted_at.timestamp(), delta=0.001)
-
     @parameterized.expand([("no message id", {"message_id": None}), ("no content", {"content": "  "})])
     def test_records_nothing_without_an_identifiable_message(self, _name, overrides):
         run = self._run()
@@ -1868,15 +1875,6 @@ class TestSignalTaskRunUserMessage(TestCase):
 
         run.refresh_from_db()
         self.assertNotIn("pending_followup_messages", run.state or {})
-
-    def test_attachment_only_message_has_a_failure_record_but_cannot_resend_without_files(self):
-        run = self._run()
-
-        self.assertTrue(self._signal(run, content=None, artifact_ids=["artifact-1"]))
-
-        run.refresh_from_db()
-        self.assertEqual(run.state["pending_followup_messages"][0]["content"], "Message with attachments")
-        self.assertFalse(run.state["pending_followup_messages"][0]["resendable"])
 
 
 class TestRecentWizardCloudRunTimes(TestCase):
@@ -2535,3 +2533,34 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         flag_mock.assert_not_called()
         self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
+
+    def test_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+
+        with (
+            self._on_trial() as flag_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background"},
+                free_trial_enabled=False,
+            )
+        flag_mock.assert_not_called()
+        assert result is not None and result.error is None
+        self.assertTrue(task.runs.exists())

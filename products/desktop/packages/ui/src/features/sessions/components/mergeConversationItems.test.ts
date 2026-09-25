@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { ConversationItem } from "./buildConversationItems";
 import { mergeConversationItems } from "./mergeConversationItems";
 
-function progressGroup(id: string): ConversationItem {
+function progressGroup(id: string, group?: string): ConversationItem {
   return {
     type: "session_update",
     id,
+    progressGroup: group,
     update: {
       sessionUpdate: "progress_group",
       steps: [],
@@ -75,6 +76,52 @@ describe("mergeConversationItems", () => {
 
     expect(result.map((item) => item.id)).toEqual(["echo", "failed-id"]);
   });
+
+  it("keeps a failed message when a different optimistic message has the same text", () => {
+    const result = mergeConversationItems({
+      conversationItems: [],
+      optimisticItems: [userMessage("optimistic-id", "same")],
+      failedMessages: [
+        {
+          id: "failed-id",
+          content: "same",
+          ts: new Date(200).toISOString(),
+          truncated: false,
+          resendable: true,
+        },
+      ],
+      isCloud: true,
+    });
+
+    expect(result.map((item) => item.id)).toEqual([
+      "optimistic-id",
+      "failed-id",
+    ]);
+    expect(result[1]).toMatchObject({ deliveryFailed: true });
+  });
+
+  it("replaces the legacy delivery error card with the failed message", () => {
+    const result = mergeConversationItems({
+      conversationItems: [
+        progressGroup("delivery-error", "followup-delivery:failed-id:run-1"),
+      ],
+      optimisticItems: [],
+      failedMessages: [
+        {
+          id: "failed-id",
+          content: "Try again",
+          ts: new Date(200).toISOString(),
+          truncated: false,
+          resendable: true,
+        },
+      ],
+      isCloud: true,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(["failed-id"]);
+    expect(result[0]).toMatchObject({ deliveryFailed: true });
+  });
+
   it("local: appends optimistic at the chronological end", () => {
     const result = mergeConversationItems({
       conversationItems: [userMessage("a", "first")],

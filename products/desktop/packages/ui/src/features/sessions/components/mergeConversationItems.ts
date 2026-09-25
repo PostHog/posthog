@@ -54,6 +54,59 @@ function reconcileInitialPromptEcho(
   return items;
 }
 
+function mergeFailedMessages(
+  items: ConversationItem[],
+  failedMessages: FailedFollowupMessage[],
+): ConversationItem[] {
+  if (failedMessages.length === 0) return items;
+
+  const failedIds = new Set(failedMessages.map((message) => message.id));
+  const merged = items.filter((item) => {
+    const group =
+      item.type === "session_update" &&
+      item.update.sessionUpdate === "progress_group"
+        ? item.progressGroup
+        : undefined;
+    if (!group) {
+      return true;
+    }
+    return !Array.from(failedIds).some(
+      (id) =>
+        group === `followup-delivery:${id}` ||
+        group.startsWith(`followup-delivery:${id}:`),
+    );
+  });
+
+  for (const message of failedMessages) {
+    const timestamp = Date.parse(message.ts);
+    if (!Number.isFinite(timestamp)) continue;
+    const failedItem: UserMessageItem = {
+      type: "user_message",
+      id: message.id,
+      content: message.content,
+      timestamp,
+      deliveryFailed: true,
+      deliveryTruncated: message.truncated,
+      deliveryResendable: message.resendable,
+    };
+    const existingIndex = merged.findIndex((item) => item.id === message.id);
+    if (existingIndex >= 0) {
+      if (merged[existingIndex].type === "user_message") {
+        merged[existingIndex] = failedItem;
+      }
+      continue;
+    }
+    const nextIndex = merged.findIndex(
+      (item) =>
+        "timestamp" in item &&
+        typeof item.timestamp === "number" &&
+        item.timestamp > timestamp,
+    );
+    merged.splice(nextIndex === -1 ? merged.length : nextIndex, 0, failedItem);
+  }
+  return merged;
+}
+
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
@@ -73,35 +126,11 @@ export function mergeConversationItems({
   if (failedMessages.length > 0 && isCloud) {
     const failedIds = new Set(failedMessages.map((message) => message.id));
     optimisticItems = optimisticItems.filter((item) => !failedIds.has(item.id));
-    conversationItems = [...conversationItems];
-    for (const message of failedMessages) {
-      if (conversationItems.some((item) => item.id === message.id)) continue;
-      const timestamp = Date.parse(message.ts);
-      if (!Number.isFinite(timestamp)) continue;
-      const failedItem: UserMessageItem = {
-        type: "user_message",
-        id: message.id,
-        content: message.content,
-        timestamp,
-        deliveryFailed: true,
-        deliveryTruncated: message.truncated,
-        deliveryResendable: message.resendable,
-      };
-      const nextIndex = conversationItems.findIndex(
-        (item) =>
-          "timestamp" in item &&
-          typeof item.timestamp === "number" &&
-          item.timestamp > timestamp,
-      );
-      conversationItems.splice(
-        nextIndex === -1 ? conversationItems.length : nextIndex,
-        0,
-        failedItem,
-      );
-    }
   }
   if (optimisticItems.length === 0) {
-    return conversationItems;
+    return isCloud
+      ? mergeFailedMessages(conversationItems, failedMessages)
+      : conversationItems;
   }
 
   if (!isCloud) {
@@ -192,10 +221,11 @@ export function mergeConversationItems({
     }
   }
 
-  return [
+  const merged = [
     ...resolvedPinnedItems,
     ...dedupedConversation.slice(0, tailInsertionIndex),
     ...tailOptimisticItems,
     ...dedupedConversation.slice(tailInsertionIndex),
   ];
+  return mergeFailedMessages(merged, failedMessages);
 }

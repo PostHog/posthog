@@ -1,5 +1,6 @@
 import os
 import re
+import copy
 import json
 import uuid
 from collections.abc import Callable, Iterable
@@ -111,8 +112,6 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
 
 
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
-FAILED_FOLLOWUP_MESSAGES_STATE_KEY = "failed_followup_messages"
-DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY = "delivered_followup_message_ids"
 MAX_PENDING_FOLLOWUP_MESSAGES = 20
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
@@ -135,8 +134,8 @@ def _is_hidden_prompt_block(block: dict[str, Any]) -> bool:
     return bool(ui.get("hidden")) if isinstance(ui, dict) else False
 
 
-def _session_prompt_texts(entries: list[dict]) -> list[tuple[str | None, str]]:
-    texts: list[tuple[str | None, str]] = []
+def _session_prompt_texts(entries: list[dict]) -> list[str]:
+    texts: list[str] = []
     for entry in entries:
         notification = entry.get("notification")
         if not isinstance(notification, dict) or notification.get("method") != "session/prompt":
@@ -154,9 +153,7 @@ def _session_prompt_texts(entries: list[dict]) -> list[tuple[str | None, str]]:
             and not _is_hidden_prompt_block(block)
         ).strip()
         if visible:
-            meta = params.get("_meta") if isinstance(params, dict) else None
-            message_id = meta.get("messageId") if isinstance(meta, dict) else None
-            texts.append((message_id if isinstance(message_id, str) else None, visible))
+            texts.append(visible)
     return texts
 
 
@@ -322,6 +319,7 @@ def clear_channel_repositories_on_github_integration_delete(
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY = "slack_notified_pr_outcomes"
 PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
 PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
 PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
@@ -902,16 +900,61 @@ class Task(DeletedMetaFields, models.Model):
         """PR URL last announced to this task's Slack thread, if any."""
         return (self.state or {}).get(SLACK_NOTIFIED_PR_URL_STATE_KEY)
 
+    @classmethod
+    def mutate_state_atomic(
+        cls,
+        task_id: str | uuid.UUID,
+        mutator: Callable[[dict[str, Any]], None],
+        *,
+        team_id: int | None = None,
+    ) -> dict[str, Any]:
+        """Apply a state mutation while holding a row lock on the task.
+
+        Several writers share the task's state bag, so a locked read keeps one writer from
+        clobbering the keys of another. Skips the save when the mutator changes nothing. Raises
+        ``Task.DoesNotExist`` when the task is missing.
+        """
+        with transaction.atomic():
+            # NO KEY UPDATE does not wait on the KEY SHARE lock that every task run write takes on this row.
+            tasks = cls.objects.select_for_update(no_key=True).only("id", "state")
+            locked_task = (tasks.filter(team_id=team_id) if team_id is not None else tasks).get(id=task_id)
+            current = locked_task.state or {}
+            # A deep copy, so a mutator that edits a nested value in place still differs from ``current``.
+            state = copy.deepcopy(current)
+            mutator(state)
+            if state != current:
+                locked_task.state = state
+                locked_task.save(update_fields=["state", "updated_at"])
+            return state
+
     def mark_slack_pr_notified(self, pr_url: str) -> None:
-        """Record ``pr_url`` as the PR announced to the task's Slack thread. Row-locked
-        merge so it doesn't clobber other keys in the shared state bag."""
+        """Record ``pr_url`` as the PR announced to the task's Slack thread."""
+
+        def _mutate(state: dict[str, Any]) -> None:
+            state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+
+        self.state = Task.mutate_state_atomic(self.id, _mutate)
+
+    def claim_slack_pr_closed_notification(self, pr_url: str, *, merged: bool) -> bool:
+        """Record that the task's Slack thread is told ``pr_url`` merged or closed, and say whether to post.
+
+        Each outcome posts once per PR, so a PR closed, reopened, and then merged still gets its
+        merged card. Returns False when the thread never announced ``pr_url``, a newer PR replaced
+        it, or this outcome is already announced. Row-locked so a redelivered webhook cannot post twice.
+        """
+        outcome = f"{'merged' if merged else 'closed'}:{pr_url}"
         with transaction.atomic():
             task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
             state = dict(task.state or {})
-            state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            notified = state.get(SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY)
+            notified = notified if isinstance(notified, list) else []
+            if state.get(SLACK_NOTIFIED_PR_URL_STATE_KEY) != pr_url or outcome in notified:
+                return False
+            state[SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY] = [*notified, outcome]
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state
+        return True
 
     @property
     def pr_ready_email_sent_at(self) -> str | None:
@@ -919,29 +962,27 @@ class Task(DeletedMetaFields, models.Model):
 
     def mark_pr_ready_email_queued(self, pr_url: str, *, queued_at: datetime | None = None) -> bool:
         """Record that this task's PR-ready email task was queued, preserving other state keys."""
-        with transaction.atomic():
-            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
-            state = dict(task.state or {})
+        queued = False
+
+        def _mutate(state: dict[str, Any]) -> None:
+            nonlocal queued
             if state.get(PR_READY_EMAIL_QUEUED_AT_STATE_KEY) or state.get(PR_READY_EMAIL_SENT_AT_STATE_KEY):
-                self.state = state
-                return False
+                return
             state[PR_READY_EMAIL_QUEUED_AT_STATE_KEY] = (queued_at or django_timezone.now()).isoformat()
             state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
-            task.state = state
-            task.save(update_fields=["state", "updated_at"])
-        self.state = state
-        return True
+            queued = True
+
+        self.state = Task.mutate_state_atomic(self.id, _mutate)
+        return queued
 
     def mark_pr_ready_email_sent(self, pr_url: str, *, sent_at: datetime | None = None) -> None:
         """Record confirmed PR-ready email delivery, preserving other state keys."""
-        with transaction.atomic():
-            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
-            state = dict(task.state or {})
+
+        def _mutate(state: dict[str, Any]) -> None:
             state[PR_READY_EMAIL_SENT_AT_STATE_KEY] = (sent_at or django_timezone.now()).isoformat()
             state[PR_READY_EMAIL_PR_URL_STATE_KEY] = pr_url
-            task.state = state
-            task.save(update_fields=["state", "updated_at"])
-        self.state = state
+
+        self.state = Task.mutate_state_atomic(self.id, _mutate)
 
     def soft_delete(self, capture_fn: Callable[..., None] | None = None):
         deleted_at = django_timezone.now()
@@ -2861,57 +2902,17 @@ class TaskRun(models.Model):
         """
         return bool(_read_pending_followup_messages(self.state))
 
-    def record_pending_followup_message(
-        self, message_id: str, content: str, *, accepted_at: datetime, resendable: bool = True
-    ) -> None:
+    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
         record = {
             "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
             "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
             "ts": accepted_at.isoformat(),
-            "truncated": len(content) > MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
-            "resendable": resendable,
         }
 
         def _mutator(state: dict[str, Any]) -> None:
-            if record["id"] in state.get(DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY, []):
-                return
-            if any(
-                isinstance(entry, dict) and entry.get("id") == record["id"]
-                for entry in state.get(FAILED_FOLLOWUP_MESSAGES_STATE_KEY, [])
-            ):
-                return
             entries = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != record["id"]]
             entries.append(record)
             state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = entries[-MAX_PENDING_FOLLOWUP_MESSAGES:]
-
-        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
-
-    def remove_pending_followup_message(self, message_id: str) -> None:
-        def _mutator(state: dict[str, Any]) -> None:
-            remaining = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != message_id]
-            if remaining:
-                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
-            else:
-                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
-
-        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
-
-    def fail_pending_followup_message(self, message_id: str) -> None:
-        def _mutator(state: dict[str, Any]) -> None:
-            matches = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") == message_id]
-            if not matches:
-                return
-            remaining = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != message_id]
-            if remaining:
-                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
-            else:
-                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
-            failed = state.get(FAILED_FOLLOWUP_MESSAGES_STATE_KEY)
-            existing = failed if isinstance(failed, list) else []
-            state[FAILED_FOLLOWUP_MESSAGES_STATE_KEY] = [
-                *[entry for entry in existing if isinstance(entry, dict) and entry.get("id") != message_id],
-                matches[0],
-            ][-MAX_PENDING_FOLLOWUP_MESSAGES:]
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
 
@@ -2925,33 +2926,20 @@ class TaskRun(models.Model):
         def _mutator(state: dict[str, Any]) -> None:
             unclaimed = list(echoed)
             remaining = []
-            delivered_ids: list[str] = []
             for entry in _read_pending_followup_messages(state):
                 content = entry["content"].strip()
                 claimed = next(
-                    (
-                        index
-                        for index, (message_id, text) in enumerate(unclaimed)
-                        if (entry.get("id") == message_id if message_id else _followup_matches_prompt(content, text))
-                    ),
+                    (index for index, text in enumerate(unclaimed) if _followup_matches_prompt(content, text)),
                     None,
                 )
                 if claimed is None:
                     remaining.append(entry)
                 else:
                     unclaimed.pop(claimed)
-                    if isinstance(entry.get("id"), str):
-                        delivered_ids.append(entry["id"])
             if remaining:
                 state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
             else:
                 state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
-            if delivered_ids:
-                previous_ids = state.get(DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY, [])
-                state[DELIVERED_FOLLOWUP_MESSAGE_IDS_STATE_KEY] = [
-                    *[message_id for message_id in previous_ids if isinstance(message_id, str)],
-                    *delivered_ids,
-                ][-100:]
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
 
@@ -3117,6 +3105,17 @@ class TaskRun(models.Model):
             return False
         return True
 
+    def failure_sandbox_backend_properties(self) -> dict[str, str]:
+        state = self.state if isinstance(self.state, dict) else {}
+        if not state.get("sandbox_id"):
+            return {}
+        backend = state.get("sandbox_backend")
+        if backend in ("modal", "hogland"):
+            return {"sandbox_backend": backend}
+        if backend is None:
+            return {"sandbox_backend": "modal"}
+        return {}
+
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
             return round((self.completed_at - self.created_at).total_seconds(), 1)
@@ -3171,6 +3170,7 @@ class TaskRun(models.Model):
                 "error_message": truncate_error_message(error),
                 "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
+                **self.failure_sandbox_backend_properties(),
             },
         )
         from products.tasks.backend.push_dispatcher import notify_task_run_failed
@@ -3194,8 +3194,9 @@ class TaskRun(models.Model):
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
         }
 
-    def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(
+    def publish_stream_event(self, event: dict[str, Any]) -> str | None:
+        """The stream id of the live write, or ``None`` when it was skipped or failed."""
+        return publish_task_run_stream_event(
             str(self.id),
             event,
             run_uses_dedicated_stream(self.state),
@@ -3205,6 +3206,14 @@ class TaskRun(models.Model):
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
+
+    def build_notification_event(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        """A server-originated notification in the ACP envelope agent-server frames use."""
+        return {
+            "type": "notification",
+            "timestamp": django_timezone.now().isoformat(),
+            "notification": {"jsonrpc": "2.0", "method": method, "params": params},
+        }
 
     def emit_console_event(self, level: LogLevel, message: str) -> None:
         """Emit a console-style log event in ACP notification format."""
