@@ -61,15 +61,11 @@ export interface SignInOptions {
   // Open account creation first; the browser lands on the authorize page
   // afterwards, so a new user ends up signed in to the app.
   signup?: boolean;
-  // Run in a private browser session with no shared Safari cookies. The web
-  // login form always shows, so a person can pick a different account instead
-  // of being auto-signed into the existing web session.
-  switchAccount?: boolean;
 }
 
 export async function signInWithOAuth(
   region: CloudRegion,
-  { signup = false, switchAccount = false }: SignInOptions = {},
+  { signup = false }: SignInOptions = {},
 ): Promise<OAuthTokens> {
   const host = CLOUD_HOSTS[region];
   const request = new AuthSession.AuthRequest({
@@ -84,7 +80,8 @@ export async function signInWithOAuth(
   const next = encodeURIComponent(authUrl.slice(host.length));
   const result = await request.promptAsync(discovery, {
     url: signup ? `${host}/signup?next=${next}` : authUrl,
-    preferEphemeralSession: switchAccount,
+    // Let users choose an account without reusing Safari's signed-in account.
+    preferEphemeralSession: true,
   });
   if (result.type !== "success" || !result.params.code) {
     throw new Error(

@@ -18,6 +18,8 @@ Do not reuse the older mobile app's project ID.
 
 ## Account changes
 
+On iOS, Get started opens a fresh browser sign-in so users can choose a PostHog account.
+The app saves the selected account's session in secure device storage and restores it on restart.
 Each signed-in account has a separate query client.
 Logout clears queries, task transcripts, run watchers, and composer state.
 Repository selection and seen reports use storage keys scoped to the host, project, and user.
@@ -31,6 +33,9 @@ Cloud sign-in lists only projects included in the OAuth grant.
 
 Before sharing a build:
 
+- Sign in to one account in Safari, then tap Get started in the app and sign in to another account.
+  Confirm that the app uses the selected account and keeps it after a restart.
+  Check saved-password autofill on a device with saved PostHog credentials.
 - Sign in with access to multiple projects. Open Settings > Project, search, and select another project.
   Confirm that tasks, spaces, reports, and repository choices belong to the selected project.
   Restart the app and confirm that it keeps the selected project.
