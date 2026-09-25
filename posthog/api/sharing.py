@@ -1429,9 +1429,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 insight_context = {**context, "hide_extra_details": state.get("hideExtraDetails", False)}
                 serialized_insights = InsightSerializer(referenced_insights, many=True, context=insight_context).data
                 insights_by_short_id = {item["short_id"]: item for item in serialized_insights if item.get("short_id")}
-                # Track the view exactly like the dashboard / single-insight branches do.
+                # Saved notebook insights consume the standalone query without dashboard overrides.
                 for insight in referenced_insights:
-                    record_insight_view(insight_id=insight.pk)
+                    record_insight_view(insight_id=insight.pk, is_standalone=True)
             exported_data.update({"insights": insights_by_short_id})
             # Pre-compute every inline (non-saved-insight) `ph-query` node so the shared viewer
             # can seed `cachedResults` on them too — same reason as above (no `/query/` POST).

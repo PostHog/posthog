@@ -85,11 +85,7 @@ class TestWarming(APIBaseTest):
     @patch("posthog.caching.warming.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.caching.warming.get_stale_insights", return_value=["3456:"])
     def test_unattributed_history_does_not_imply_standalone_demand(self, _stale, _flag):
-        from products.product_analytics.backend.models.insight import InsightViewed
-
-        InsightViewed.objects.create(
-            team=self.team, user=self.user, insight=self.insight3, last_viewed_at=datetime.now(UTC)
-        )
+        self.insight3.insightviewed_set.create(team=self.team, user=self.user, last_viewed_at=datetime.now(UTC))
         assert list(insights_to_keep_fresh(self.team)) == []
 
     @patch("posthog.caching.warming.get_stale_insights")

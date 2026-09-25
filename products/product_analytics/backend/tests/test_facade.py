@@ -59,11 +59,12 @@ class TestRecordInsightView(BaseTest):
 
     @parameterized.expand([("anonymous", False), ("identified", True)])
     def test_viewing_twice_moves_the_timestamp_instead_of_adding_a_row(self, _name: str, identified: bool) -> None:
-        viewer = {"team_id": self.team.pk, "user_id": self.user.pk} if identified else {}
+        team_id = self.team.pk if identified else None
+        user_id = self.user.pk if identified else None
 
-        record_insight_view(insight_id=self.insight.pk, **viewer)
+        record_insight_view(insight_id=self.insight.pk, team_id=team_id, user_id=user_id)
         first = InsightViewed.objects.get(insight_id=self.insight.pk)
-        record_insight_view(insight_id=self.insight.pk, **viewer)
+        record_insight_view(insight_id=self.insight.pk, team_id=team_id, user_id=user_id)
 
         assert InsightViewed.objects.filter(insight_id=self.insight.pk).count() == 1
         assert InsightViewed.objects.get(insight_id=self.insight.pk).last_viewed_at >= first.last_viewed_at

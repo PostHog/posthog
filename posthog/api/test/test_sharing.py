@@ -1781,8 +1781,6 @@ class TestSharedViewDemand(APIBaseTest):
     @parameterized.expand([("standalone", False), ("dashboard", True)])
     @mock_exporter_template
     def test_shared_view_records_its_context(self, _name, dashboard_context):
-        from products.product_analytics.backend.models.insight import InsightViewed
-
         insight = Insight.objects.create(
             team=self.team,
             name="Shared view",
@@ -1797,8 +1795,33 @@ class TestSharedViewDemand(APIBaseTest):
         )
         response = self.client.get(f"/shared/{config.access_token}")
         assert response.status_code == 200
-        view = InsightViewed.objects.get(insight=insight)
+        view = insight.insightviewed_set.get()
         assert view.last_standalone_viewed_at == (None if dashboard_context else view.last_viewed_at)
+
+    @mock_exporter_template
+    def test_shared_notebook_consumes_standalone_insight_context(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Notebook insight",
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
+        )
+        notebook = Notebook.objects.create(
+            team=self.team,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-query",
+                        "attrs": {"query": {"kind": "SavedInsightNode", "shortId": insight.short_id}},
+                    }
+                ],
+            },
+        )
+        config = SharingConfiguration.objects.create(team=self.team, notebook=notebook, enabled=True)
+        response = self.client.get(f"/shared/{config.access_token}")
+        assert response.status_code == 200
+        view = insight.insightviewed_set.get()
+        assert view.last_standalone_viewed_at == view.last_viewed_at
 
 
 class TestSharedCohortInlining(APIBaseTest):
