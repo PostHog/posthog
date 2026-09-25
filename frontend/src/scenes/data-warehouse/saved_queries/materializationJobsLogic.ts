@@ -18,8 +18,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import type { DataWarehouseSavedQuery } from '~/types'
@@ -685,9 +683,6 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
         },
         loadSavedQuerySuccess: ({ savedQuery }) => {
             if (!savedQuery || props.kind === 'endpoint') {
-                return
-            }
-            if (!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
                 return
             }
             // Reflect the saved config so a materialized view's editor starts from what is

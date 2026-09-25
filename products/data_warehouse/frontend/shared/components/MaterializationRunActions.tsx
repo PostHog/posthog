@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
@@ -59,7 +57,6 @@ export function MaterializationRunActions({
         updateDataWarehouseSavedQuery,
         revertMaterialization,
     } = useActions(dataWarehouseViewsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!savedQuery) {
         return null
@@ -149,9 +146,7 @@ export function MaterializationRunActions({
                         materializeDataWarehouseSavedQuery(
                             viewId,
                             defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
-                            !incrementalDraftTouched ||
-                                kind === 'endpoint' ||
-                                !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+                            !incrementalDraftTouched || kind === 'endpoint'
                                 ? undefined
                                 : incrementalDraft.enabled && incrementalDraft.incrementalKey
                                   ? {
@@ -290,8 +285,7 @@ export function MaterializationRunActions({
                             : []),
                         ...(kind !== 'endpoint'
                             ? [
-                                  ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] &&
-                                  savedQuery.incremental?.enabled
+                                  ...(savedQuery.incremental?.enabled
                                       ? [
                                             {
                                                 label: 'Run full refresh',

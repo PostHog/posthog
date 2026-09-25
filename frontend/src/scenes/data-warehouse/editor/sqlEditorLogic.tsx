@@ -2228,14 +2228,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // on the SQL being saved, which cannot change while the dialog is up. A failure
                 // leaves the incremental fields hidden, so the view saves as a normal full refresh.
                 let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
-                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
-                    try {
-                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
-                            query: selectedRef.current ?? values.queryInput ?? '',
-                        })
-                    } catch {
-                        incrementalCheck = null
-                    }
+                try {
+                    incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
+                        query: selectedRef.current ?? values.queryInput ?? '',
+                    })
+                } catch {
+                    incrementalCheck = null
                 }
 
                 const folderOptions: { value: string | null; label: string }[] = [
