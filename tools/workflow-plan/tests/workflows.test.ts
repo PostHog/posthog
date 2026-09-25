@@ -495,6 +495,20 @@ describe('.github/workflows run plans', () => {
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
     })
 
+    it('Backend CI runs once every hour and keeps the events_json leg on one of its crons', () => {
+        const backend = workflow('ci-backend.yml')
+        const crons = (backend.on as { schedule: { cron: string }[] }).schedule.map((entry) => entry.cron)
+        const cronHours = (field: string): number[] =>
+            field.startsWith('*/')
+                ? [...Array(24).keys()].filter((hour) => hour % Number(field.slice(2)) === 0)
+                : field.split(',').map(Number)
+
+        expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
+        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
+            ...Array(24).keys(),
+        ])
+    })
+
     it.each([
         ['master schedule', schedule(), 'success', true],
         ['same-repo PR', pullRequest(), 'success', false],
