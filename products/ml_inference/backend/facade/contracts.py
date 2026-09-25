@@ -65,6 +65,8 @@ class DecisionRequest:
     questions: dict[str, DecisionQuestion]
     model: str = DEFAULT_DECISION_MODEL
     ai_product: str = "ml_inference"
+    trace_id: str | None = None
+    properties: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:

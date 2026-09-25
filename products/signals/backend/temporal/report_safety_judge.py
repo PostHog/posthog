@@ -148,7 +148,7 @@ async def judge_report_safety(
             data = json.loads(text)
             return SafetyJudgeResponse.model_validate(data)
 
-        async def sonnet_verdict() -> SafetyJudgeResponse:
+        async def sonnet_verdict(trace_id: str | None) -> SafetyJudgeResponse:
             return await call_llm(
                 team_id=team_id,
                 system_prompt=REPORT_SAFETY_JUDGE_SYSTEM_PROMPT,
@@ -158,6 +158,16 @@ async def judge_report_safety(
                 stage="report_safety_judge",
                 ai_product="signals_safety",
                 model=SAFETY_MODEL,
+                trace_id=trace_id,
+                properties={
+                    key: value
+                    for key, value in {
+                        "signals_decision_id": trace_id,
+                        "source_id": report_id,
+                        "source_product": "report",
+                    }.items()
+                    if value is not None
+                },
             )
 
         return await run_model_decision(

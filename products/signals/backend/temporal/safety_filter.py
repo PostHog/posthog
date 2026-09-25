@@ -156,7 +156,7 @@ async def safety_filter(
 
     signal_prompt = _build_safety_user_prompt(description, source_product, source_type)
 
-    async def sonnet_verdict() -> SafetyFilterJudgeResponse:
+    async def sonnet_verdict(trace_id: str | None) -> SafetyFilterJudgeResponse:
         try:
             return await call_llm(
                 team_id=team_id,
@@ -167,6 +167,16 @@ async def safety_filter(
                 ai_product="signals_safety",
                 model=SAFETY_MODEL,
                 cache_system_prompt=True,
+                trace_id=trace_id,
+                properties={
+                    key: value
+                    for key, value in {
+                        "signals_decision_id": trace_id,
+                        "source_id": source_id,
+                        "source_product": source_product,
+                    }.items()
+                    if value is not None
+                },
             )
         except EmptyLLMResponseError:
             return SafetyFilterJudgeResponse(

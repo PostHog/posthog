@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -50,7 +51,7 @@ def _safety_result(probability: float = 0.2) -> DecisionResult:
 
 async def _run_actionability(
     *,
-    traditional: Callable[[], Awaitable[bool]] | None = None,
+    traditional: Callable[[str | None], Awaitable[bool]] | None = None,
     typesafe_result: Callable[[bool, str | None], bool] | None = None,
 ) -> bool:
     return await run_model_decision(
@@ -75,13 +76,28 @@ async def test_safety_requests_category_through_the_shared_gateway_client() -> N
         "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
         return_value=_safety_result(),
     ) as decide:
-        result = await _query(7, "signal_safety", state, "Is it safe?")
+        result = await _query(
+            7,
+            "signal_safety",
+            state,
+            "Is it safe?",
+            "decision-1",
+            "issue-1",
+            "linear",
+        )
 
     decide.assert_called_once()
     request = decide.call_args.args[0]
     assert request.team_id == 7
     assert request.model == JEV_MODEL
     assert request.ai_product == "signals"
+    assert request.trace_id == "decision-1"
+    assert request.properties == {
+        "signals_decision_id": "decision-1",
+        "ai_stage": "signal_safety",
+        "source_id": "issue-1",
+        "source_product": "linear",
+    }
     assert request.state == state
     assert set(request.questions) == {"safe", "category"}
     assert request.questions["safe"].type == DecisionQuestionType.NOUL
@@ -102,12 +118,12 @@ async def test_typesafe_primary_safety_rejects_a_blocked_category_even_with_a_sa
         patch(
             "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             return_value=_safety_result(probability=0.99),
-        ),
+        ) as decide,
         patch(
             "products.signals.backend.temporal.safety_filter.call_llm",
             new_callable=AsyncMock,
             return_value=SafetyFilterJudgeResponse(safe=True),
-        ),
+        ) as traditional,
     ):
         result = await safety_filter(7, "a finding", source_product="linear", source_id="issue-1")
 
@@ -116,6 +132,10 @@ async def test_typesafe_primary_safety_rejects_a_blocked_category_even_with_a_sa
     properties = capture.call_args.kwargs["properties"]
     assert properties["category_disagreement"] is True
     assert properties["typesafe_category_confidence"] == 0.88
+    trace_id = properties["signals_decision_id"]
+    assert traditional.await_args is not None
+    assert traditional.await_args.kwargs["trace_id"] == trace_id
+    assert decide.call_args.args[0].trace_id == trace_id
 
 
 @pytest.mark.asyncio
@@ -130,7 +150,7 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
         patch(
             "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             return_value=_actionability_result(),
-        ),
+        ) as decide,
     ):
         result = await _run_actionability(traditional=primary)
 
@@ -142,6 +162,12 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
     assert properties["deciding_provider"] == "traditional"
     assert properties["typesafe_input_tokens"] == 1000
     assert properties["typesafe_estimated_cost_usd"] == pytest.approx(0.000042)
+    trace_id = properties["signals_decision_id"]
+    assert UUID(trace_id).version == 4
+    assert properties["$ai_trace_id"] == trace_id
+    assert primary.await_args is not None
+    assert primary.await_args.args == (trace_id,)
+    assert decide.call_args.args[0].trace_id == trace_id
 
 
 @pytest.mark.asyncio
@@ -191,21 +217,18 @@ async def test_typesafe_primary_modes(mode: str, expected_traditional_calls: int
 
 
 @pytest.mark.asyncio
-async def test_traditional_shadow_returns_without_waiting_for_traditional() -> None:
+async def test_traditional_shadow_records_the_traditional_comparison() -> None:
     traditional_started = asyncio.Event()
-    traditional_cancelled = asyncio.Event()
+    release_traditional = asyncio.Event()
 
-    async def slow_traditional() -> bool:
+    async def slow_traditional(_trace_id: str | None) -> bool:
         traditional_started.set()
-        try:
-            await asyncio.Event().wait()
-        except asyncio.CancelledError:
-            traditional_cancelled.set()
-            raise
+        await release_traditional.wait()
         return False
 
     async def typesafe_result(*_args: object) -> SignalsDecision:
         await traditional_started.wait()
+        release_traditional.set()
         return SignalsDecision(
             probability=0.98,
             model="jevk5-fp8-0.2",
@@ -222,14 +245,13 @@ async def test_traditional_shadow_returns_without_waiting_for_traditional() -> N
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch("products.signals.backend.typesafe_decision._query", new_callable=AsyncMock, side_effect=typesafe_result),
     ):
-        result = await asyncio.wait_for(
-            _run_actionability(traditional=slow_traditional),
-            timeout=0.1,
-        )
+        result = await asyncio.wait_for(_run_actionability(traditional=slow_traditional), timeout=0.1)
 
     assert result is True
-    assert traditional_cancelled.is_set()
-    assert capture.call_args.kwargs["properties"]["traditional_status"] == "cancelled"
+    properties = capture.call_args.kwargs["properties"]
+    assert properties["traditional_status"] == "ok"
+    assert properties["traditional_verdict"] is False
+    assert properties["disagreement"] is True
 
 
 @pytest.mark.asyncio
@@ -237,7 +259,7 @@ async def test_traditional_shadow_cancels_traditional_when_the_caller_is_cancell
     traditional_started = asyncio.Event()
     traditional_cancelled = asyncio.Event()
 
-    async def slow_traditional() -> bool:
+    async def slow_traditional(_trace_id: str | None) -> bool:
         traditional_started.set()
         try:
             await asyncio.Event().wait()

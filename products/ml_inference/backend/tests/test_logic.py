@@ -49,8 +49,21 @@ QUESTIONS = {
 }
 
 
-def _request(*, state: JsonValue = "ticket text", ai_product: str = "ml_inference") -> DecisionRequest:
-    return DecisionRequest(team_id=42, state=state, questions=QUESTIONS, ai_product=ai_product)
+def _request(
+    *,
+    state: JsonValue = "ticket text",
+    ai_product: str = "ml_inference",
+    trace_id: str | None = None,
+    properties: dict[str, str] | None = None,
+) -> DecisionRequest:
+    return DecisionRequest(
+        team_id=42,
+        state=state,
+        questions=QUESTIONS,
+        ai_product=ai_product,
+        trace_id=trace_id,
+        properties=properties,
+    )
 
 
 def test_a_request_refuses_more_questions_than_the_cap() -> None:
@@ -95,13 +108,24 @@ class TestDecide:
 
         with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
             result = decisions.decide(
-                _request(state=state, ai_product=ai_product), transport=httpx.MockTransport(handler)
+                _request(
+                    state=state,
+                    ai_product=ai_product,
+                    trace_id="decision-1",
+                    properties={"signals_decision_id": "decision-1", "ai_stage": "signal_safety"},
+                ),
+                transport=httpx.MockTransport(handler),
             )
 
         assert [str(request.url) for request in seen] == ["https://gateway.example.com/v1/systemone"]
         request = seen[0]
         assert request.headers["Authorization"] == "Bearer phs_test"
-        assert json.loads(request.headers["X-PostHog-Properties"]) == {"ai_product": ai_product}
+        assert json.loads(request.headers["X-PostHog-Properties"]) == {
+            "ai_product": ai_product,
+            "signals_decision_id": "decision-1",
+            "ai_stage": "signal_safety",
+        }
+        assert request.headers["X-PostHog-Trace-Id"] == "decision-1"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
         body = json.loads(request.content)
         assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"

@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
 from typing import Generic, Literal, TypeVar
+from uuid import uuid4
 
 import structlog
 import posthoganalytics
@@ -115,7 +116,15 @@ async def model_mode(team_id: int) -> ModelMode:
     return "traditional-only"
 
 
-async def _query(team_id: int, stage: str, state: dict[str, JsonValue], instructions: str) -> SignalsDecision:
+async def _query(
+    team_id: int,
+    stage: str,
+    state: dict[str, JsonValue],
+    instructions: str,
+    trace_id: str,
+    source_id: str | None,
+    source_product: str | None,
+) -> SignalsDecision:
     question_name = "actionable" if stage == "actionability" else "safe"
     questions = {
         question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=instructions),
@@ -134,6 +143,17 @@ async def _query(team_id: int, stage: str, state: dict[str, JsonValue], instruct
             questions=questions,
             model=JEV_MODEL,
             ai_product="signals",
+            trace_id=trace_id,
+            properties={
+                key: value
+                for key, value in {
+                    "signals_decision_id": trace_id,
+                    "ai_stage": stage,
+                    "source_id": source_id,
+                    "source_product": source_product,
+                }.items()
+                if value is not None
+            },
         ),
         timeout_seconds=JEV_TIMEOUT_SECONDS,
     )
@@ -175,23 +195,25 @@ async def run_model_decision(
     state: dict[str, JsonValue],
     instructions: str,
     threshold: float,
-    traditional: Callable[[], Awaitable[T]],
+    traditional: Callable[[str | None], Awaitable[T]],
     verdict: Callable[[T], bool],
     typesafe_result: Callable[[bool, str | None], T],
     traditional_category: Callable[[T], str | None] | None = None,
     mode_override: ModelMode | None = None,
 ) -> T:
     if team_id is None:
-        return await traditional()
+        return await traditional(None)
     mode = mode_override or await model_mode(team_id)
     if mode == "traditional-only":
-        return await traditional()
+        return await traditional(None)
+
+    trace_id = str(uuid4())
 
     async def run_traditional() -> _SignalsModelCallResult[T]:
         started = perf_counter()
         try:
             return _SignalsModelCallResult(
-                value=await traditional(),
+                value=await traditional(trace_id),
                 error=None,
                 latency_seconds=perf_counter() - started,
             )
@@ -201,7 +223,7 @@ async def run_model_decision(
     async def run_typesafe() -> _SignalsModelCallResult[SignalsDecision]:
         started = perf_counter()
         try:
-            result = await _query(team_id, stage, state, instructions)
+            result = await _query(team_id, stage, state, instructions, trace_id, source_id, source_product)
             return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except Exception as error:
             logger.warning("TypeSafe call failed", stage=stage, error_type=type(error).__name__)
@@ -210,20 +232,11 @@ async def run_model_decision(
     traditional_task = asyncio.create_task(run_traditional()) if mode != "typesafe-only" else None
     typesafe_task = asyncio.create_task(run_typesafe())
     traditional_call = None
-    traditional_cancelled = False
-    if mode == "typesafe-shadow":
+    if traditional_task is not None:
         assert traditional_task is not None
         traditional_call, typesafe_call = await asyncio.gather(traditional_task, typesafe_task)
     else:
-        try:
-            typesafe_call = await typesafe_task
-        except asyncio.CancelledError:
-            # Awaiting typesafe_task cancels only that task, so the traditional call would outlive its caller.
-            if traditional_task is not None:
-                traditional_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await traditional_task
-            raise
+        typesafe_call = await typesafe_task
 
     typesafe = typesafe_call.value
     typesafe_verdict = (
@@ -237,17 +250,6 @@ async def run_model_decision(
         except Exception as error:
             conversion_error = error
             logger.warning("TypeSafe result conversion failed", stage=stage, error_type=type(error).__name__)
-
-    if mode == "traditional-shadow":
-        assert traditional_task is not None
-        if typesafe_decision is None or traditional_task.done():
-            traditional_call = await traditional_task
-        else:
-            traditional_task.cancel()
-            try:
-                await traditional_task
-            except asyncio.CancelledError:
-                traditional_cancelled = True
 
     traditional_result = traditional_call.value if traditional_call is not None else None
     traditional_error = traditional_call.error if traditional_call is not None else None
@@ -283,6 +285,8 @@ async def run_model_decision(
         )
         _CALLS.labels(stage, typesafe_status).inc()
         properties: dict[str, object] = {
+            "$ai_trace_id": trace_id,
+            "signals_decision_id": trace_id,
             "stage": stage,
             "source_id": source_id,
             "source_product": source_product,
@@ -291,9 +295,7 @@ async def run_model_decision(
             "traditional_model": primary_model,
             "traditional_verdict": traditional_verdict,
             "traditional_category": traditional_category_value,
-            "traditional_status": "cancelled"
-            if traditional_cancelled
-            else "ok"
+            "traditional_status": "ok"
             if traditional_result is not None
             else type(traditional_error).__name__
             if traditional_error

@@ -91,7 +91,13 @@ def decide(
         raise GatewayNotConfiguredError("AI_GATEWAY_URL must use https unless it points at this machine")
     headers = {"Authorization": f"Bearer {config.api_key}"}
     headers.update(
-        ai_gateway_headers(ai_product=request.ai_product, distinct_id=team_distinct_id(request.team_id)) or {}
+        ai_gateway_headers(
+            ai_product=request.ai_product,
+            trace_id=request.trace_id,
+            properties=request.properties,
+            distinct_id=team_distinct_id(request.team_id),
+        )
+        or {}
     )
     try:
         with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
