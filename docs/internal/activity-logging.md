@@ -175,32 +175,42 @@ See `posthog/models/scoping/README.md`.
 
 A row written during a request also records the credential that authenticated the request, in `credential_type`, `credential_id` and `impersonated_by_id`.
 `ActivityLoggingMiddleware` records the session, resolved again for each row.
-The session applies only while `request.user` is still the session's user: DRF writes the principal of the authentication class that succeeded back onto the request, so a class that authenticates someone else and records nothing leaves the row `unattributed`.
-A bearer authentication class that succeeds replaces the session with its own credential through `record_activity_actor` in `posthog/models/activity_logging/utils.py`.
+Every other authentication class that succeeds replaces the session with its own credential through `record_activity_actor` from `ActivityCredentialMixin` in `posthog/models/activity_logging/utils.py`.
+The session also applies only while `request.user` is still the session's user: DRF writes the principal of the authentication class that succeeded back onto the request, so a class that authenticates someone else and records nothing leaves the row `unattributed`.
 The values come from the authenticated object, never from a request header, so a caller cannot choose them.
 Unlike `client`, they are evidence of which credential made a change.
 
-| `credential_type`     | `credential_id`                                                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `session`             | the session's public id, from `session_public_id`                                                                        |
-| `personal_api_key`    | the key id                                                                                                               |
-| `oauth`               | the OAuth application UUID                                                                                               |
-| `project_secret_key`  | the key id                                                                                                               |
-| `team_secret_token`   | none                                                                                                                     |
-| `id_jag`              | the `client_id` claim                                                                                                    |
-| `internal_jwt`        | none                                                                                                                     |
-| `service_jwt`         | the audience of the scoped service JWT                                                                                   |
-| `internal_api_secret` | none                                                                                                                     |
-| `scim`                | the SCIM identity provider config id                                                                                     |
-| `vercel`              | the Vercel installation id                                                                                               |
-| `partner`             | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
-| `unattributed`        | none                                                                                                                     |
+| `credential_type`        | user                     | `credential_id`                                                                                                          |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `session`                | the session user         | the session's public id, from `session_public_id`                                                                        |
+| `personal_api_key`       | the key owner            | the key id                                                                                                               |
+| `oauth`                  | the token user           | the OAuth application UUID                                                                                               |
+| `project_secret_key`     | none                     | the key id                                                                                                               |
+| `team_secret_token`      | none                     | none                                                                                                                     |
+| `id_jag`                 | the token user           | the `client_id` claim                                                                                                    |
+| `internal_jwt`           | the token user           | none                                                                                                                     |
+| `service_jwt`            | none                     | the audience of the scoped service JWT                                                                                   |
+| `internal_api_secret`    | none                     | none                                                                                                                     |
+| `scim`                   | none                     | the SCIM identity provider config id                                                                                     |
+| `vercel`                 | none                     | the Vercel installation id                                                                                               |
+| `partner`                | none                     | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
+| `sharing_access_token`   | none                     | the sharing configuration id                                                                                             |
+| `sharing_password`       | none                     | the share password id                                                                                                    |
+| `widget_token`           | none                     | none                                                                                                                     |
+| `billing_service`        | none                     | none                                                                                                                     |
+| `gateway_agent`          | none                     | the gateway agent's service account id                                                                                   |
+| `export_renderer`        | the export's creator     | the exported asset id                                                                                                    |
+| `webhook`                | none                     | none                                                                                                                     |
+| `cross_region_signature` | none                     | none                                                                                                                     |
+| `unattributed`           | the session user, if any | none                                                                                                                     |
 
-- A credential without a user (a project secret key, the legacy team secret token, a service JWT, the internal API secret or a SCIM token) clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
+- A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
 - `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
 - The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
 - The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
-- A new authentication class that writes activity rows must call `record_activity_actor` when it succeeds. Otherwise its rows read `unattributed`. A partner OAuth class passes `oauth_activity_credential(access_token)`, so its rows read the same as the main OAuth path.
+- Every authentication class inherits `ActivityCredentialMixin` and sets `activity_credential_type`. A class that defines its own `authenticate` sets it again, even when the parent's value is correct. `posthog/test/repo_invariants/test_authentication_credential_types.py` enforces both rules.
+- The class calls `self.record_activity_actor(user, credential_id)` after every check of the credential passed, and the type comes from the declaration. `SessionAuthentication` is the exception, because the middleware records the session. A class that declares a type but never calls the recorder writes `unattributed` rows.
+- A partner OAuth class declares `oauth` and passes the OAuth application UUID, so its rows read the same as the main OAuth path.
 
 To match a row to a session, compare `credential_id` with `session_public_id(session_key)` from `posthog/session/activity.py`.
 The login sessions API (`/api/users/@me/login_sessions/`) returns the same id and revokes a session by it.

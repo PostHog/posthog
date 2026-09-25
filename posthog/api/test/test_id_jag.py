@@ -37,6 +37,7 @@ from posthog.api.id_jag import (
 from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
@@ -843,6 +844,11 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         [
             ("plain client id", _RESOURCE_CLIENT_ID, _RESOURCE_CLIENT_ID),
             ("client id with a NUL", "mcp\x00erase", "mcperase"),
+            (
+                "client id longer than the column",
+                "c" * (ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH + 1),
+                "c" * ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+            ),
         ]
     )
     def test_write_is_attributed_to_the_resolved_user(

@@ -1268,8 +1268,9 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     the request.
 
     DRF writes the principal of the authentication class that succeeded back onto `request.user`.
-    Another principal there means that a class which records no credential of its own (a sharing
-    link, a widget token) authenticated the request, so the row must not name the session cookie.
+    An authentication class that records its own credential replaces this resolver. Another
+    principal here means that a class authenticated the request without recording a credential,
+    so the row must not name the session cookie.
     The check compares primary keys, not objects, because later middleware such as django-otp's
     wraps the same user in a new object.
     """
