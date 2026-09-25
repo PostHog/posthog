@@ -28,7 +28,7 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
 
 logger = structlog.get_logger(__name__)
 
-DRAFT_MODEL = "gpt-5.6-luna"
+DRAFT_MODEL = "gpt-6-luna"
 
 # PostHog pays for drafts, not the customer's AI credits. The Go gateway bills the wallet of the team
 # that owns its key, and the Python fallback route is one that bills no credit bucket.
