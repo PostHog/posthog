@@ -25,9 +25,9 @@
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 {% if not opt_out_capture and js_posthog_api_key %}
-    {{ posthog_bootstrap|json_script:"posthog-user-identity-with-flags" }}
+    {{ posthog_bootstrap|page_json_script:"posthog-user-identity-with-flags" }}
     {% if js_posthog_identity_distinct_id and js_posthog_identity_claims %}
-        {{ js_posthog_identity_claims|json_script:"posthog-identity-claims" }}
+        {{ js_posthog_identity_claims|page_json_script:"posthog-identity-claims" }}
     {% endif %}
     <script nonce="{{ request.csp_nonce }}">
         window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
@@ -52,7 +52,7 @@
 {% if stripe_public_key %}
     <script nonce="{{ request.csp_nonce }}">window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';</script>
 {% endif %}
-{{ posthog_app_context|json_script:"posthog-app-context" }}
+{{ posthog_app_context|page_json_script:"posthog-app-context" }}
 <script nonce="{{ request.csp_nonce }}" id='posthog-app-user-preload'>
     window.POSTHOG_APP_CONTEXT = JSON.parse(document.getElementById('posthog-app-context').textContent);
     {# Inject the expected location of JS bundle, #}
