@@ -285,7 +285,11 @@ export interface runInteractionLogicActions {
     pushConversationCleared: () => {
         value: true
     } // runStreamLogic
-    pushHumanMessage: (content: string) => {
+    pushHumanMessage: (
+        content: string,
+        attachmentNames?: string[] | undefined
+    ) => {
+        attachmentNames: string[] | undefined
         content: string
     } // runStreamLogic
     resetStream: () => {
@@ -308,7 +312,11 @@ export interface runInteractionLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
-    startOptimisticResume: (message: string) => {
+    startOptimisticResume: (
+        message: string,
+        attachmentNames?: string[] | undefined
+    ) => {
+        attachmentNames: string[] | undefined
         message: string
     } // runStreamLogic
     claimApplyBackTargets: (streamKey: string) => {
@@ -1373,7 +1381,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         throw new Error('The agent did not confirm this message')
                     }
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
-                    actions.pushHumanMessage(content)
+                    // The names ride along so the chips show on send, not when the turn echoes back.
+                    actions.pushHumanMessage(
+                        content,
+                        attachedFiles.map((file) => file.name)
+                    )
                     markPendingContextSent(pendingContext)
                     // A failed send leaves them staged, since the content it restored is going to be resent.
                     actions.clearAttachments()
@@ -1504,7 +1516,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     getWarmLogic()?.actions.prepareSubmit(warmSubmission)
                     actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
-                    actions.startOptimisticResume(content)
+                    actions.startOptimisticResume(
+                        content,
+                        attachedFiles.map((file) => file.name)
+                    )
                     optimisticStarted = true
                     const result = await submitWithWarmRunRetry(
                         (options) =>

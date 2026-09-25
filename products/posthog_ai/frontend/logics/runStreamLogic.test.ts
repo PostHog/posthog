@@ -1268,10 +1268,12 @@ describe('runStreamLogic', () => {
         })
 
         describe('attachments the send carried', () => {
+            const SANDBOX_URI = 'file:///tmp/workspace/.posthog/attachments/run-7/art-9/report.csv'
+
             const foldReplay = (frames: StoredLogEntry[]): ThreadItem[] =>
                 foldLogToThread(
                     frames.map((entry) => ({ source: 'replay' as const, entry })),
-                    { isResumeRun: false }
+                    { isResumeRun: false, taskId: 'task-3' }
                 ).threadItems
 
             it('names a resource link on the message it arrived with', () => {
@@ -1287,7 +1289,10 @@ describe('runStreamLogic', () => {
                 ])
 
                 expect(items.filter((item) => item.type === 'human_message')).toEqual([
-                    expect.objectContaining({ text: 'Look here', attachments: ['report.csv'] }),
+                    expect.objectContaining({
+                        text: 'Look here',
+                        attachments: [{ name: 'report.csv' }],
+                    }),
                 ])
             })
 
@@ -1300,7 +1305,9 @@ describe('runStreamLogic', () => {
                     }),
                 ])
 
-                expect(items[0].attachments).toEqual(['my shot.png'])
+                expect(items[0].attachments).toEqual([
+                    { name: 'my shot.png', taskId: 'task-3', runId: 'run', artifactId: 'art' },
+                ])
             })
 
             it('keeps two files on one message and does not repeat a name', () => {
@@ -1315,7 +1322,7 @@ describe('runStreamLogic', () => {
                     }),
                 ])
 
-                expect(items[0].attachments).toEqual(['a.csv', 'b.csv'])
+                expect(items[0].attachments).toEqual([{ name: 'a.csv' }, { name: 'b.csv' }])
             })
 
             // The echo carrying the names is the one the text dedupe drops, so the names must survive it.
@@ -1333,12 +1340,12 @@ describe('runStreamLogic', () => {
                 ]
                 const items = foldLogToThread(
                     frames.map((entry) => ({ source: 'live' as const, entry })),
-                    { isResumeRun: false }
+                    { isResumeRun: false, taskId: 'task-3' }
                 ).threadItems
 
                 const humanMessages = items.filter((item) => item.type === 'human_message')
                 expect(humanMessages).toHaveLength(1)
-                expect(humanMessages[0].attachments).toEqual(['a.csv'])
+                expect(humanMessages[0].attachments).toEqual([{ name: 'a.csv' }])
             })
 
             it('leaves a message with no files without an attachments field', () => {
@@ -1350,6 +1357,70 @@ describe('runStreamLogic', () => {
                 ])
 
                 expect(items[0].attachments).toBeUndefined()
+            })
+
+            it('recovers the run and artifact from the sandbox attachment path', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: SANDBOX_URI, name: 'report.csv' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-9' },
+                ])
+            })
+
+            it('leaves a path outside the attachments layout without ids', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/elsewhere/report.csv' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'report.csv' }])
+            })
+
+            it('shows the names an optimistic send staged, before any artifact exists', () => {
+                const items = foldReplay([
+                    notification('_client/human_message', {
+                        content: 'Look here',
+                        attachments: ['report.csv'],
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'report.csv' }])
+            })
+
+            it('fills the ids onto that optimistic name rather than adding a second chip', () => {
+                const frames: StoredLogEntry[] = [
+                    notification('_client/human_message', {
+                        content: 'Look here',
+                        attachments: ['report.csv'],
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: SANDBOX_URI, name: 'report.csv' },
+                    }),
+                ]
+                const items = foldLogToThread(
+                    frames.map((entry) => ({ source: 'live' as const, entry })),
+                    { isResumeRun: false, taskId: 'task-3' }
+                ).threadItems
+
+                expect(items[0].attachments).toEqual([
+                    { name: 'report.csv', taskId: 'task-3', runId: 'run-7', artifactId: 'art-9' },
+                ])
             })
         })
 

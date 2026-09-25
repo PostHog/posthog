@@ -732,7 +732,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
             cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
-            stream.actions.startOptimisticRun(description)
+            stream.actions.startOptimisticRun(
+                description,
+                values.attachedFiles.map((file) => file.name)
+            )
 
             try {
                 // Files can only be uploaded against something that already exists. A warm lease names a task

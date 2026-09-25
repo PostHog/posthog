@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ClipboardEvent, type RefObject, useCallback } from 'react'
+import { type ClipboardEvent, type RefObject, useCallback, useEffect, useState } from 'react'
 
 import { IconDocument, IconImage, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -13,6 +13,21 @@ import { MAX_ATTACHMENTS_PER_MESSAGE, formatFileSize, isImageAttachment } from '
  * would reset that mirror every render and spin.
  */
 const NO_FILES: File[] = []
+
+/** The bytes are already in the browser, so this preview costs an object URL and no request. */
+function AttachmentThumbnail({ file }: { file: File }): JSX.Element {
+    const [src, setSrc] = useState<string | null>(null)
+    useEffect(() => {
+        const objectUrl = URL.createObjectURL(file)
+        setSrc(objectUrl)
+        return () => URL.revokeObjectURL(objectUrl)
+    }, [file])
+
+    if (!src) {
+        return <IconImage />
+    }
+    return <img src={src} alt="" className="size-4 rounded-sm object-cover" />
+}
 
 export interface ComposerAttachmentsProps {
     attachmentsKey: string
@@ -61,7 +76,15 @@ export function ComposerAttachments({
             {attachments.map(({ id, file }) => (
                 <Tooltip key={id} title={`${file.name} (${formatFileSize(file.size)})`}>
                     <LemonTag
-                        icon={uploading ? <Spinner /> : isImageAttachment(file.name) ? <IconImage /> : <IconDocument />}
+                        icon={
+                            uploading ? (
+                                <Spinner />
+                            ) : isImageAttachment(file.name) ? (
+                                <AttachmentThumbnail file={file} />
+                            ) : (
+                                <IconDocument />
+                            )
+                        }
                         onClose={() => removeAttachment(id)}
                         closable={!uploading}
                         closeOnClick={!uploading}

@@ -118,6 +118,17 @@ export interface TurnCompleteEvent {
     streamKey: string
 }
 
+/**
+ * A file a send carried. The ids are what let the thread build a download URL, and are absent while the
+ * optimistic echo is the only source — the gap the renderer covers with a skeleton.
+ */
+export interface ThreadAttachment {
+    name: string
+    taskId?: string
+    runId?: string
+    artifactId?: string
+}
+
 export type ThreadItemType =
     | 'human_message'
     | 'assistant_message'
@@ -147,8 +158,8 @@ export interface ThreadItem {
     endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
-    /** For `human_message` items — names of the files the send carried; the bytes live in the run's artifacts. */
-    attachments?: string[]
+    /** For `human_message` items — the files the send carried. */
+    attachments?: ThreadAttachment[]
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */

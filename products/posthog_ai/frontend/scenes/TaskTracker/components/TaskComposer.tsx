@@ -119,7 +119,7 @@ export function TaskComposer(): JSX.Element {
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame ref={frameRef}>
-                                <Composer.Header className="flex flex-col gap-1">
+                                <Composer.Header className="flex flex-wrap items-center gap-1">
                                     <AttachedContextBar />
                                     <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
                                 </Composer.Header>

@@ -354,7 +354,11 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        attachmentNames?: string[] | undefined
+    ) => {
+        attachmentNames: string[] | undefined
         content: string
     } // runStreamLogic
     resetSandboxStream: () => {
