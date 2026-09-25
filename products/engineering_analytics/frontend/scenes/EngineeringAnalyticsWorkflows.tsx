@@ -11,7 +11,7 @@ import { SourceScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
-import { WORKFLOW_HEALTH_LIMIT, WorkflowStatusFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { WorkflowStatusFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const {
@@ -93,14 +93,6 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                         )
                     }
                 />
-
-                <div className="text-xs text-tertiary">
-                    Pass rate compares successful runs with runs that failed, timed out, failed to start, or became
-                    stale. Skipped, canceled, neutral, and action-required runs are excluded. Durations cover successful
-                    runs only. Health is workflow-level, not per-job. Workflows that run in the merge queue sort first;
-                    the rest are muted.
-                    {fleetTruncated && ` Showing the top ${WORKFLOW_HEALTH_LIMIT} workflows by run count.`}
-                </div>
             </ScopePanel>
         </div>
     )

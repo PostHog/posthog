@@ -4,7 +4,9 @@ import {
 } from "@agentclientprotocol/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS } from "../../acp-extensions";
+import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
+import { DEFAULT_MODEL_PRICES, RunBudgetGuard } from "./session/budget-guard";
 import { FALLBACK_MODEL } from "./session/models";
 
 type InitResult = {
@@ -564,6 +566,28 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
     // Preserves session-level state (usage, notification history)
     expect(updated.accumulatedUsage.inputTokens).toBe(42);
     expect(updated.notificationHistory).toEqual([{ foo: "bar" }]);
+  });
+
+  it("keeps one cumulative SDK total across a refresh", async () => {
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-budget");
+    const guard = new RunBudgetGuard(
+      10,
+      DEFAULT_MODEL_PRICES,
+      new Logger({ debug: false }),
+    );
+    guard.calibrate(4.0);
+    (session as unknown as { budgetGuard: RunBudgetGuard }).budgetGuard = guard;
+
+    await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    expect(createdQueries).toHaveLength(1);
+
+    // The refresh resumes the same transcript, so the next result carries the
+    // 4.0 again. Counting it a second time would report 8.5.
+    guard.calibrate(4.5);
+    expect(guard.spentUsd).toBeCloseTo(4.5, 6);
   });
 
   it("aborts the old controller and allocates a fresh one for the new query", async () => {

@@ -10,8 +10,10 @@ export type AgentActivityIconKind = "chat" | "check" | "question";
 
 export interface ActivityPresentation {
   agentIcon: AgentActivityIconKind | null;
+  action: string;
   metadata: string;
   spaceLabel: string | null;
+  time: string;
 }
 
 interface ActivityEventPresentation {
@@ -112,9 +114,12 @@ export function activityPresentation(
   const event = activityEventPresentation(item, currentUserEmail);
   const spaceLabel = activitySpace(item.channelName);
   const action = spaceLabel ? event.actionInSpace : event.action;
+  const time = formatRelativeAge(item.activityAt);
   return {
     agentIcon: event.agentIcon,
-    metadata: [formatRelativeAge(item.activityAt), action].join(" · "),
+    action,
+    metadata: [time, action].join(" · "),
     spaceLabel,
+    time,
   };
 }

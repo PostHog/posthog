@@ -622,6 +622,18 @@ class TestGetRetryableErrors(SimpleTestCase):
         assert "Topology Description" not in message
         assert expected_phrase in message.lower()
 
+    def test_connection_reset_is_classified_retryable(self):
+        # AutoReconnect wrapping a bare ConnectionResetError mid-cursor-read (an RST, not a
+        # timeout) — the next connection attempt succeeds once the network recovers, so this must
+        # not flood error tracking as an unclassified exception on every retry.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: [Errno 104] Connection reset by peer "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection reset should be classified retryable: {error_msg}"
+        )
+
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
         # primary shutting down or stepping down); the next retry hits the new primary.
@@ -631,6 +643,22 @@ class TestGetRetryableErrors(SimpleTestCase):
         )
         assert any(pattern in error_msg for pattern in self.retryable), (
             f"MongoDB shutdown failover should be classified retryable: {error_msg}"
+        )
+
+    def test_execution_timeout_is_classified_retryable(self):
+        # mongo.py re-raises OperationFailure code 50 (MaxTimeMSExpired) unchanged when a getMore
+        # is killed before yielding anything (see TestMongoSourceCursorLifecycle's
+        # test_execution_timeout_without_progress_is_not_retried_forever). A fresh Temporal retry
+        # isn't bound by the same in-flight execution-time cap, so this must not flood error
+        # tracking on every occurrence.
+        error_msg = (
+            "operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3 "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms), full error: {'ok': 0, 'errmsg': "
+            "'operation exceeded time limit, correlationID = 18d582877a9d2284f38efbb3', "
+            "'code': 50, 'codeName': 'MaxTimeMSExpired'}"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB execution timeout with no progress should be classified retryable: {error_msg}"
         )
 
 

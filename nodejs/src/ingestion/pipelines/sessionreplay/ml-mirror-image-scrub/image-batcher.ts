@@ -74,6 +74,7 @@ const REVOKED_PARTITION_CODES = new Set([
 /** The batch index is what lets offsets advance across the messages planning skipped. */
 interface PlannedScrub {
     sessionMonth?: string
+    datasetVersion?: 2 | 3
     encryptedValue?: Buffer
     index: number
     ref: string
@@ -630,6 +631,7 @@ export class ImageBatcher {
                 ref,
                 teamId: parsed.teamId,
                 sessionMonth: parsed.sessionMonth,
+                datasetVersion: parsed.version,
                 pseudoTeam: parsed.pseudoTeam,
                 hash: parsed.hash,
                 source: parsed.source,
@@ -759,6 +761,7 @@ export class ImageBatcher {
             return {
                 teamId: planned.teamId,
                 sessionMonth: planned.sessionMonth,
+                datasetVersion: planned.datasetVersion,
                 hash: planned.hash,
                 bytes,
                 sourcePartition: planned.sourcePartition,
@@ -767,6 +770,7 @@ export class ImageBatcher {
         }
         return {
             sessionMonth: planned.sessionMonth,
+            datasetVersion: planned.datasetVersion,
             teamId: planned.teamId,
             pseudoTeam: planned.pseudoTeam,
             hash: planned.hash,
@@ -901,7 +905,7 @@ export class ImageBatcher {
                 const groupId =
                     item.image.sessionMonth === undefined
                         ? String(item.image.teamId !== undefined)
-                        : `${item.image.teamId}:${item.image.sessionMonth}`
+                        : `v${item.image.datasetVersion}:${item.image.teamId}:${item.image.sessionMonth}`
                 const group = groups.get(groupId) ?? []
                 group.push(item)
                 groups.set(groupId, group)

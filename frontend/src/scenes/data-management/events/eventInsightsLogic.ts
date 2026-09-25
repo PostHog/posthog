@@ -114,7 +114,8 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
 
                 params.events = [props.event]
 
-                const response = await api.get(`api/environments/${values.currentTeamId}/insights/?${toParams(params)}`)
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
+                const response = await api.get(`api/projects/${values.currentTeamId}/insights/?${toParams(params)}`)
 
                 return {
                     ...response,

@@ -616,7 +616,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=user.team, name="A batch export", destination=batch_export_destination
@@ -638,7 +638,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_does_not_send_batch_export_run_failure_for_on_demand_export(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         with team_scope(team_id=self.team.pk, canonical=True):
             on_demand_export = BatchExportOnDemand.objects.create(team=self.team, destination=destination)
@@ -657,7 +657,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_with_settings(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
@@ -690,7 +690,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_with_threshold(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
@@ -740,7 +740,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_with_threshold_disabled(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination
@@ -1167,6 +1167,24 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         ):
             assert fragment in html
 
+    def test_send_hog_function_filters_uncompilable_skips_a_destination_still_on_its_last_bytecode(
+        self, MockEmailMessage: MagicMock
+    ) -> None:
+        # A save whose recompile fails keeps the previous bytecode beside the error, so this
+        # destination still delivers. The email says the listed destinations dropped events, which
+        # would be wrong for this one.
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        hog_function = HogFunction.objects.create(team=self.team, name="Still delivering", enabled=True)
+        HogFunction.objects.filter(id=hog_function.id).update(
+            filters={"bytecode": ["_H", 1, 29], "bytecode_error": "Cohort membership can't be evaluated"}
+        )
+
+        send_hog_function_filters_uncompilable(self.team.id, [str(hog_function.id)])
+
+        assert mocked_email_messages == []
+
     def test_send_hog_function_filters_uncompilable_skips_a_creator_who_left(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1335,7 +1353,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_batch_export_run_failure_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         batch_export_destination = BatchExportDestination.objects.create(
-            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+            type=BatchExportDestination.Destination.AWS_S3, config={"bucket_name": "my_production_s3_bucket"}
         )
         batch_export = BatchExport.objects.create(  # type: ignore
             team=self.user.team, name="A batch export", destination=batch_export_destination

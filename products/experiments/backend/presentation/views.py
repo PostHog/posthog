@@ -18,6 +18,7 @@ from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, 
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -36,12 +37,13 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
 )
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -66,6 +68,10 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.legacy_migration import (
+    LegacyMigrationError,
+    migrate_experiment as migrate_legacy_experiment,
+)
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -74,6 +80,7 @@ from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
+    ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
@@ -98,6 +105,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionContextsResponseSerializer,
     ExperimentSessionEventDeltaRequestSerializer,
     ExperimentSessionEventDeltaResponseSerializer,
+    ExperimentSetupContextInputSerializer,
+    ExperimentSetupContextResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -134,6 +143,11 @@ from products.experiments.backend.session_event_deltas import (
     all_card_session_ids,
     finalize_watch_cards,
     get_experiment_session_event_deltas,
+)
+from products.experiments.backend.setup_context import (
+    EXPERIMENT_SETUP_CONTEXT_FLAG,
+    SetupContextInputs,
+    build_setup_context,
 )
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
@@ -595,6 +609,30 @@ class EnterpriseExperimentsViewSet(
         if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
 
+    def _check_copy_target_access(self, request: Request, target_team: Team) -> None:
+        """Authorize the target project of a cross-project copy.
+
+        Every class in the permission stack resolves against `view.team`, which is the source
+        project in the URL, so the target project is not checked at all by the time the action
+        body runs. This applies the same gates the target project's own `POST /experiments/`
+        would apply: the credential's project scope, project membership, and experiment editor
+        access in the target.
+        """
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams is not None and target_team.id not in scoped_teams:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {target_team.id}.")
+
+        user = cast(User, request.user)
+        effective_level = UserPermissions(user=user).team(target_team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            raise PermissionDenied("You do not have write access to the target project.")
+
+        target_access_control = UserAccessControl(user=user, team=target_team)
+        if not target_access_control.check_access_level_for_object(
+            target_team, required_level="member"
+        ) or not target_access_control.check_access_level_for_resource("experiment", required_level="editor"):
+            raise PermissionDenied("You do not have permission to create experiments in the target project.")
+
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
 
@@ -1030,6 +1068,43 @@ class EnterpriseExperimentsViewSet(
         )
 
     @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def migrate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Move a legacy experiment onto the new experiments engine.
+
+        Creates a new experiment with the same configuration and its metrics converted
+        to the new format, and returns it. The legacy experiment is left untouched and
+        keeps its results, so the project ends up with two experiments. Both point at
+        the same feature flag, so no new rollout is needed and users keep the variant
+        they already have.
+
+        Legacy shared metrics used by the experiment are converted as part of the same
+        call. Each one gets a new shared metric, and the new experiment links to that.
+
+        Calling this again returns the experiment created the first time instead of
+        making another copy.
+
+        Returns 400 if the experiment already uses the new engine.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not experiment_has_legacy_metrics(experiment):
+            raise ValidationError(
+                "This experiment already uses the new experiments engine, so there is nothing to migrate."
+            )
+
+        try:
+            migration = migrate_legacy_experiment(experiment.id, self.team.id, migrate_shared_metrics=True)
+        except (LegacyMigrationError, ValueError) as e:
+            raise ValidationError(f"Couldn't migrate this experiment: {e}. Contact support if it keeps happening.")
+
+        return Response(ExperimentSerializer(migration.experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
         request=CreateFromPromptInputSerializer,
         responses=ExperimentSerializer,
     )
@@ -1164,11 +1239,7 @@ class EnterpriseExperimentsViewSet(
         if target_team is None:
             return Response({"detail": "Target team not found."}, status=404)
 
-        user_permissions = UserPermissions(user=cast(User, request.user))
-        target_team_permissions = user_permissions.team(target_team)
-        effective_level = target_team_permissions.effective_membership_level
-        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
-            return Response({"detail": "You do not have write access to the target project."}, status=403)
+        self._check_copy_target_access(request, target_team)
 
         feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
         name = request_serializer.validated_data.get("name")
@@ -1494,6 +1565,73 @@ class EnterpriseExperimentsViewSet(
                 "recommended_running_time_days": calculate_running_time_days(recommended_sample_size, exposure_rate),
             }
         )
+
+    @validated_request(
+        request_serializer=ExperimentSetupContextInputSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSetupContextResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="setup_context",
+        # The response carries saved-metric definitions and reuse counts, which the saved-metric
+        # API gates behind its own scope. Object-level filtering does not check token scopes.
+        # It also counts arbitrary events across the project, which /query/ gates behind query:read.
+        required_scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def setup_context(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Facts about this project that decide how to configure a new experiment.
+
+        Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+        surface, the baseline of a candidate metric, how recent experiments were set up, and the
+        most reused shared metrics. Each section has its own status, so a slow or failed read
+        leaves the others valid. POST because the inputs describe a plan rather than a resource;
+        the endpoint only reads.
+        """
+        if not self._setup_context_enabled():
+            raise NotFound()
+
+        data = request.validated_data
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here: the
+        # response names experiments and shared metrics, which must respect object-level access.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        saved_metrics = self.user_access_control.filter_queryset_by_access_level(
+            ExperimentSavedMetric.objects.filter(team_id=self.team.pk), resource="experiment_saved_metric"
+        )
+        context = build_setup_context(
+            team=self.team,
+            inputs=SetupContextInputs(
+                target_event=data.get("target_event") or None,
+                target_url_contains=data.get("target_url_contains") or None,
+                target_properties=tuple(data.get("target_properties") or ()),
+                metric_event=data.get("metric_event") or None,
+                metric_properties=tuple(data.get("metric_properties") or ()),
+                previous_experiments_limit=data["previous_experiments_limit"],
+                shared_metrics_limit=data["shared_metrics_limit"],
+            ),
+            experiments=experiments,
+            saved_metrics=saved_metrics,
+        )
+        return Response(ExperimentSetupContextResponseSerializer(context).data)
+
+    def _setup_context_enabled(self) -> bool:
+        # In a loginas impersonation session request.user is the customer. The flag is evaluated for the staff
+        # user, so support can read a customer's setup context without the flag being on for that customer.
+        # OAuth impersonation (MCP) has no session, so it keeps the customer's flag, which also gates the tool.
+        flag_user = get_original_user_from_session(self.request) if is_impersonated_session(self.request) else None
+        try:
+            return posthog_feature_flag_enabled(
+                EXPERIMENT_SETUP_CONTEXT_FLAG,
+                str((flag_user or cast(User, self.request.user)).distinct_id),
+                organization_id=self.organization_id,
+                team_id=self.team.id,
+            )
+        except Exception:
+            logger.warning("Failed to evaluate the experiment setup context flag", exc_info=True)
+            return False
 
     @extend_schema(
         description=(

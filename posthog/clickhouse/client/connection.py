@@ -1,4 +1,7 @@
 import os
+import json
+import time
+import base64
 import logging
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -12,6 +15,7 @@ from django.conf import settings
 
 from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
+from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 
@@ -21,6 +25,11 @@ if TYPE_CHECKING:
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
+
+# max_query_size sizes the buffer that parses the query text, so it cannot be raised inside a query. Every property
+# read on the native-JSON events table expands to a few hundred bytes of SQL, so a query that reads many properties
+# (the bot-traffic classifier is ~2 MB) needs more room than the 1 MB default.
+MAX_QUERY_SIZE_BYTES = 8 * 1024 * 1024
 
 
 class NodeRole(StrEnum):
@@ -40,6 +49,7 @@ class NodeRole(StrEnum):
     LOGS = "logs"
 
     # Below nodes are part of separate clusters.
+    APM = "apm"
     AI_EVENTS = "ai_events"
     AUX = "aux"
     BATCH_EXPORTS = "batch_exports"
@@ -113,6 +123,40 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
+EXPIRED_TOKEN_PASSWORD_FALLBACK_COUNTER = Counter(
+    "posthog_clickhouse_expired_token_password_fallback",
+    "Times a ClickHouse user with a static password used it because its token file had expired.",
+    labelnames=["user"],
+)
+
+_TOKEN_EXPIRY_LEEWAY_SECONDS = 10
+
+
+def _token_expiry(token: str) -> float | None:
+    """Return the exp claim of a JWT, or None when it cannot be read.
+
+    The token is a projected ServiceAccount JWT. Decode the exp without verifying the signature. The
+    ch-podauth bridge still validates the token, so this only decides whether the token is worth sending.
+    """
+    parts = token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        padding = "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+        if not isinstance(claims, dict):
+            return None
+        exp = claims.get("exp")
+        return float(exp) if isinstance(exp, int | float) and not isinstance(exp, bool) else None
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
+def _token_is_expired(token: str) -> bool:
+    exp = _token_expiry(token)
+    return exp is not None and time.time() >= exp - _TOKEN_EXPIRY_LEEWAY_SECONDS
+
+
 @frozen
 class ClickHouseCredentials:
     user: str
@@ -131,6 +175,12 @@ class ClickHouseCredentials:
                 logging.warning("clickhouse: %s is not readable, using the static fallback", path)
                 return self._validated_password(self.password)
             if token:
+                # The kubelet stops refreshing a terminating pod's token, so a long drain can present
+                # an expired token the bridge rejects. The static password recovers it when the user keeps one.
+                if self.password and _token_is_expired(token):
+                    logging.warning("clickhouse: %s has expired, using the static fallback", path)
+                    EXPIRED_TOKEN_PASSWORD_FALLBACK_COUNTER.labels(user=self.user).inc()
+                    return self._validated_password(self.password)
                 return token
             logging.warning("clickhouse: %s is empty, using the static fallback", path)
         return self._validated_password(self.password)
@@ -365,7 +415,7 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
-def _is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+def is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
     # True when the resolved connection authenticates as a user whose credential comes from a
     # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
     # they are excluded and keep the static password.
@@ -386,7 +436,7 @@ def get_http_kwargs(
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
     creds = get_clickhouse_creds(ch_user)
-    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+    if is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs["password"] = creds.read_password()
     return kwargs
 
@@ -426,7 +476,7 @@ def get_pool(
     creds = get_clickhouse_creds(ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
-    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+    if is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs.pop("password", None)
         return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)

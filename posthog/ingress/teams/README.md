@@ -62,6 +62,16 @@ The `InvalidPayload` message names the field and never either value, because it 
 
 What stays with the consumer is the host allowlist: the claim proves Microsoft signed that URL, not that the URL is one of Microsoft's Bot Framework endpoints, and the consumer is what sends the bot's token to it.
 
+**An unset app id answers 403, and a signing-key URI the getter could not discover answers 503.**
+403 is `unconfigured_status`, not the package default of 500, and is the status the hand-rolled view answered.
+It keeps an instance that never registered a bot from turning every anonymous probe of a public URL into a server error.
+`explains_rejections` is False with it, so neither that answer nor a rejected token names its reason. Bot Framework reads the status alone.
+
+The two cases have to stay apart, because `jwks_uri_getter` fetches Microsoft's OpenID metadata document and answers `None` when that fetch fails.
+`BearerJwt` reads the audience and the issuers first and answers `NOT_CONFIGURED` for those, then reads the URI and answers `UNAVAILABLE` when it is missing.
+Bot Framework retries a 5xx for about ten minutes and does not retry a 403, so folding the failed fetch into the 403 would lose every activity for the length of a Microsoft outage.
+Checking the audience first also means an instance with no bot registration buys no metadata fetch.
+
 **Two certification paths must run in this region and must never be forwarded.**
 The Teams Store certification requires a reply to a command message such as "help" even from a tenant that never finished OAuth, and a proactive welcome when the bot is added to a conversation.
 Neither needs a tenant that PostHog knows, so the consumer answers `UNDECIDED` for both and the delivery runs here exactly once.

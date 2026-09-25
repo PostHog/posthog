@@ -794,6 +794,54 @@ export interface PatchedInsightVariableApi {
     values_query_connection_id?: string | null
 }
 
+export interface DataWarehouseManagedViewApi {
+    /** Saved query the managed viewset owns. */
+    id: string
+    /** Name of the saved query. */
+    name: string
+    /** When the saved query was created. */
+    created_at: string
+    /**
+     * User who created the saved query, or null when the sync did.
+     * @nullable
+     */
+    created_by_id: number | null
+}
+
+export interface DataWarehouseManagedViewSetResponseApi {
+    /** Saved queries in the managed viewset. */
+    views: DataWarehouseManagedViewApi[]
+    /** Number of saved queries returned. */
+    count: number
+}
+
+export interface DataWarehouseManagedViewSetApi {
+    /** Whether the managed viewset should exist. */
+    enabled: boolean
+}
+
+/**
+ * * `revenue_analytics` - Revenue Analytics
+ * * `engineering_analytics` - Engineering Analytics
+ */
+export type DataWarehouseManagedViewSetKindEnumApi =
+    (typeof DataWarehouseManagedViewSetKindEnumApi)[keyof typeof DataWarehouseManagedViewSetKindEnumApi]
+
+export const DataWarehouseManagedViewSetKindEnumApi = {
+    RevenueAnalytics: 'revenue_analytics',
+    EngineeringAnalytics: 'engineering_analytics',
+} as const
+
+export interface DataWarehouseManagedViewSetUpdateResponseApi {
+    /** State the managed viewset is now in. */
+    enabled: boolean
+    /** Managed viewset that was toggled.
+     *
+     * * `revenue_analytics` - Revenue Analytics
+     * * `engineering_analytics` - Engineering Analytics */
+    kind: DataWarehouseManagedViewSetKindEnumApi
+}
+
 export interface QueryTabStateApi {
     readonly id: string
     /**
@@ -5124,6 +5172,13 @@ export type QueryTabStateListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type QueryTabStateUserRetrieveParams = {
+    /**
+     * UUID of the user whose query-tab state to return.
+     */
+    user_id: string
 }
 
 export type SavedQueryColumnAnnotationsListParams = {

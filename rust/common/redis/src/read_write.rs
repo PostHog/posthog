@@ -461,6 +461,13 @@ impl Client for ReadWriteClient {
         self.writer.batch_incr_by_expire(items, ttl_seconds).await
     }
 
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError> {
+        self.writer.batch_incr_by_expire_at(items).await
+    }
+
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         self.writer.del(k).await
     }

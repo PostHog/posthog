@@ -237,6 +237,8 @@ _PR_DESCRIPTION_FORM_RULES = (
     "- Cut what the diff shows, what the linked report already says, and all narration of how you "
     "investigated. The report is the long form. What you tried and rejected goes under 'Agent "
     "context', briefly.\n"
+    "- Do not write an 'Origin' section. PostHog adds one below Problem after the PR opens. When you "
+    "edit the description later, keep that section and its HTML comment markers exactly as they are.\n"
     "- Before opening the PR, reread it: could a reviewer get the why, the what and the risk by "
     "scanning it for about thirty seconds? If not, turn paragraphs into bullets and comparisons into "
     "tables. Scannability is the target, not brevity, so a long body dense with tables and diagrams "

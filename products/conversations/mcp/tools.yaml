@@ -18,6 +18,9 @@ tools:
     conversations-tickets-ai-feedback-create:
         operation: conversations_tickets_ai_feedback_create
         enabled: false
+    conversations-tickets-ai-human-outcome-create:
+        operation: conversations_tickets_ai_human_outcome_create
+        enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
         enabled: false

@@ -99,9 +99,10 @@ describe('ML payload encryption', () => {
                 sessionId: `${timestamp.slice(0, 8)}-${timestamp.slice(8)}-7000-8000-000000000007`,
             },
         }
-        const ref = `imageurl:v2:${key.identity.teamId}:2026-09:aaaaaaaaaaaaaaaaaaaaaa`
+        const ref = `imageurl:v3:${key.identity.teamId}:2026-09:aaaaaaaaaaaaaaaaaaaaaa`
         expect(() => validateImageOwner(ref, sessionKey)).not.toThrow()
         expect(() => validateImageOwner(ref.replace('2026-09', '2026-10'), sessionKey)).toThrow('ownership mismatch')
+        expect(() => validateImageOwner(ref.replace(':v3:', ':v2:'), sessionKey)).toThrow('ownership mismatch')
     })
 
     it('decrypts the shared encryption vector', () => {

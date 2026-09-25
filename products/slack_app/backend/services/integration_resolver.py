@@ -1,18 +1,22 @@
-from dataclasses import dataclass, field
+from collections.abc import Iterable
+from dataclasses import field
 from typing import Literal
 
 from django.db.models import Q
 
 import structlog
 
-from posthog.comment.formatting import escape_slack_mrkdwn
-from posthog.helpers.slack_scopes import bot_is_ready
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
+from products.signals.backend.facade import api as signals_facade
 from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+from products.slack_app.backend.services.slack_fork_context import get_pending_fork
+from products.slack_app.backend.services.slack_scopes import bot_is_ready
 
 logger = structlog.get_logger(__name__)
 
@@ -58,24 +62,29 @@ def user_resolution_failure_reply(
     return None
 
 
-@dataclass
+def _resolved_or_oldest(integration: Integration | None, candidates: list[Integration]) -> Integration | None:
+    """The resolved integration, falling back to the oldest install in `candidates`.
+
+    Surfaces that must act on *some* integration rather than prompt for one share this
+    tie-break, so a workspace with no saved pick is answered for the same project
+    whichever surface handles it. Ordered by id rather than taken off the front of
+    `candidates`: the auth filter sorts that list freshest-verdict-first, which
+    reshuffles as cache entries expire and would make the fallback drift.
+    """
+    if integration is not None and integration in candidates:
+        return integration
+    return min(candidates, key=lambda candidate: candidate.id, default=None)
+
+
+@frozen
 class ResolutionResult:
     integration: Integration | None
     source: ResolutionSource
     candidates: list[Integration] = field(default_factory=list)
 
     def resolved_or_first(self) -> Integration | None:
-        """The resolved integration, falling back to the workspace's oldest install.
-
-        Surfaces that must act on *some* integration rather than prompt for one share this
-        tie-break, so a workspace with no saved pick is answered for the same project
-        whichever surface handles it. Ordered by id rather than taken off the front of
-        `candidates`: the auth filter sorts that list freshest-verdict-first, which
-        reshuffles as cache entries expire and would make the fallback drift.
-        """
-        if self.integration is not None and self.integration in self.candidates:
-            return self.integration
-        return min(self.candidates, key=lambda candidate: candidate.id, default=None)
+        """The resolved integration, falling back to the workspace's oldest install."""
+        return _resolved_or_oldest(self.integration, self.candidates)
 
 
 def project_label(integration: Integration) -> str:
@@ -87,7 +96,22 @@ def project_label(integration: Integration) -> str:
     return f"{integration.team.organization.name} · {integration.team.name}"
 
 
-def format_project_candidate_list(candidates: list[Integration]) -> str:
+def format_project_candidate_list(candidates: list[Integration], *, first: Integration | None = None) -> str:
+    """One line per project, ``first`` at the head of the list.
+
+    The order is otherwise ``check_integrations_auth_and_filter``'s, which sorts by
+    freshest auth verdict and so reshuffles as cache entries expire. Leading with the
+    project a caller is already on gives the list its one stable landmark.
+
+    Every line carries the project's own name and nothing else. A caller marking one of
+    them says so around the list, by id, because a team may be called anything at all —
+    including whatever that marker would have been.
+
+    ``first`` outside ``candidates`` is ignored rather than prepended: for the classifier
+    this list and the reply schema's enum have to offer the same projects.
+    """
+    if first is not None and any(c.id == first.id for c in candidates):
+        candidates = [first, *(c for c in candidates if c.id != first.id)]
     return "\n".join(f"• `{c.team_id}` — {project_label(c)}" for c in candidates)
 
 
@@ -142,17 +166,11 @@ def resolve_from_candidates(
     ``slack_user_id=""``; the SlackSettings lookup is skipped and the result
     falls through to ``sole_candidate`` / ``needs_picker``.
     """
-    # ``user.teams`` keys its access-control filter off a single arbitrary
-    # ``Organization.first()`` row's feature flags, so a user whose AC-enabled
-    # org isn't the one picked sees private projects from that org. Per-team
-    # ``effective_membership_level`` is the right check — it consults each
-    # team's own organization's feature flags.
     if user is None:
         accessible_team_ids: set[int] | None = None
         accessible = candidates
     else:
-        permissions = UserPermissions(user=user)
-        accessible = [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
+        accessible = accessible_candidates(candidates, user=user)
         accessible_team_ids = {c.team_id for c in accessible}
     candidate_ids = {c.id for c in candidates}
     candidates_by_team_id = {c.team_id: c for c in candidates}
@@ -178,6 +196,21 @@ def resolve_from_candidates(
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
                 return ResolutionResult(integration=target, source="thread", candidates=accessible)
 
+        for candidate in accessible:
+            if get_pending_fork(candidate.id, channel, thread_ts) is not None:
+                return ResolutionResult(integration=candidate, source="thread", candidates=accessible)
+
+        report_team_id = signals_facade.report_team_id_for_slack_thread(
+            team_ids=[candidate.team_id for candidate in accessible],
+            slack_workspace_id=slack_team_id,
+            channel=channel,
+            thread_ts=thread_ts,
+        )
+        if report_team_id is not None:
+            return ResolutionResult(
+                integration=candidates_by_team_id[report_team_id], source="thread", candidates=accessible
+            )
+
     if slack_user_id:
         # One query returns at most two rows: the per-user row and the
         # workspace-wide row. Sorting with NULL-last puts the per-user row first.
@@ -201,7 +234,7 @@ def resolve_from_candidates(
             # Refuse a stale default whose target is no longer in the candidate
             # set — e.g. the integration's kind was changed away from the one
             # we were asked to resolve, or it was deleted+recreated. The user
-            # can overwrite the row at any time with `@PostHog project <id>`.
+            # can overwrite the row at any time with `/posthog project <id>`.
             if target.id not in candidate_ids:
                 continue
             source: ResolutionSource = "user_default" if default.slack_user_id else "workspace_default"
@@ -243,6 +276,34 @@ def load_integrations(
     )
 
 
+def accessible_candidates(candidates: Iterable[Integration], *, user: User) -> list[Integration]:
+    """The candidates whose project this user is a member of.
+
+    Per-team ``effective_membership_level`` rather than ``user.teams``: the latter keys
+    its access-control filter off a single arbitrary ``Organization.first()`` row's
+    feature flags, so a user whose AC-enabled org isn't the one picked sees private
+    projects from that org.
+    """
+    permissions = UserPermissions(user=user)
+    return [c for c in candidates if permissions.team(c.team).effective_membership_level is not None]
+
+
+def multiple_accessible_projects(*, slack_team_id: str, user: User) -> bool:
+    """Whether this user can open more than one of the workspace's projects.
+
+    Membership alone, with no scope or reachability check: a caller asking only whether
+    there is anything to tell apart should not pay an ``auth.test`` per candidate.
+    ``routable_projects`` asks the stricter question of where a run may actually be sent.
+    """
+    installs = Integration.objects.filter(kind="slack", integration_id=slack_team_id)
+    # Accessible is a subset of installed, so one install settles it without the
+    # membership scan — on a count, which reads an index rather than hydrating and
+    # decrypting every row.
+    if installs.count() < 2:
+        return False
+    return len(accessible_candidates(installs.select_related("team"), user=user)) > 1
+
+
 def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> list[Integration]:
     """The projects a message from this user may route itself to, in this workspace.
 
@@ -265,7 +326,7 @@ def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> 
     return reachable if len(reachable) > 1 else []
 
 
-@dataclass
+@frozen
 class UserAndIntegrationsResolution:
     """Outcome of the user identification + access-filter step.
 
@@ -284,6 +345,10 @@ class UserAndIntegrationsResolution:
     source: ResolutionSource = "needs_picker"
     failure_reason: UserResolutionFailure | None = None
     slack_email: str | None = None
+
+    def resolved_or_first(self) -> Integration | None:
+        """The integration this resolution picked, falling back to the oldest one the user can reach."""
+        return _resolved_or_oldest(self.integration, self.candidates)
 
 
 def resolve_user_for_workspace(
@@ -342,20 +407,12 @@ def resolve_user_for_workspace(
         )
         return UserAndIntegrationsResolution(failure_reason="user_not_found", slack_email=slack_email)
 
-    # Filter to integrations the user can access. A resolved target the user can't
-    # reach is dropped so the caller falls through to the picker / sole-candidate
-    # path rather than auto-redirecting to a default the thread didn't imply.
-    # Use per-team ``effective_membership_level`` rather than ``user.teams``: the
-    # latter gates its access-control filter on an arbitrary ``Organization.first()``
-    # row's feature flags, so a Slack user spanning multiple orgs can otherwise
-    # be treated as having access to a private project in a different org than
-    # the one that drove the AC check.
-    permissions = UserPermissions(user=posthog_user)
-    accessible_candidates = [
-        c for c in workspace_result.candidates if permissions.team(c.team).effective_membership_level is not None
-    ]
-    accessible_team_ids = {c.team_id for c in accessible_candidates}
-    if not accessible_candidates:
+    # A resolved target the user can't reach is dropped so the caller falls through to
+    # the picker / sole-candidate path rather than auto-redirecting to a default the
+    # thread didn't imply.
+    reachable_candidates = accessible_candidates(workspace_result.candidates, user=posthog_user)
+    accessible_team_ids = {c.team_id for c in reachable_candidates}
+    if not reachable_candidates:
         # Fetch slack_email lazily for the failure reply (cached after the
         # earlier resolve_posthog_user_from_event call, so this is free).
         slack_email = get_slack_email_for_user(probe, slack_user_id)
@@ -377,6 +434,6 @@ def resolve_user_for_workspace(
     return UserAndIntegrationsResolution(
         user=posthog_user,
         integration=target,
-        candidates=accessible_candidates,
+        candidates=reachable_candidates,
         source=workspace_result.source if target is not None else "needs_picker",
     )

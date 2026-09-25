@@ -17,13 +17,19 @@ export const HogFlowsListParams = () => zod.object({
 })
 
 export const HogFlowsListQueryParams = () => zod.object({
+    broadcast_eligible: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.'
+        ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     origin_product: zod
-        .enum(['loops'])
+        .enum(['broadcasts', 'loops'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -43,10 +49,10 @@ export const HogFlowsListQueryParams = () => zod.object({
             'Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.'
         ),
     type: zod
-        .enum(['automation', 'loop', 'messaging'])
+        .string()
         .optional()
         .describe(
-            'Filter by workflow type. `loop` returns workflows owned by a Desktop loop; `messaging` returns the remaining workflows with an email, SMS, or push action; `automation` returns the rest.'
+            'Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.'
         ),
     updated_at: zod.iso.datetime({ offset: true }).optional(),
 })
@@ -92,10 +98,13 @@ export const HogFlowsCreateBody = () => zod
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
             ),
         origin_product: zod
-            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .union([
+                zod.enum(['loops', 'broadcasts']).describe('\* `loops` - Loops\n\* `broadcasts` - Broadcasts'),
+                zod.null(),
+            ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts'
             ),
         trigger_masking: zod
             .union([
@@ -175,13 +184,13 @@ export const HogFlowsCreateBody = () => zod
                         .regex(hogFlowsCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                         ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()
@@ -441,7 +450,7 @@ export const HogFlowsCreateBody = () => zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person\/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
@@ -578,13 +587,13 @@ export const HogFlowsPartialUpdateBody = () => zod
                         .regex(hogFlowsPartialUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
-                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both."
+                            "How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both."
                         ),
                     window_minutes: zod
                         .number()
                         .nullish()
                         .describe(
-                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window. Set this or 'window', not both."
+                            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both."
                         ),
                     bytecode: zod
                         .unknown()

@@ -55,10 +55,10 @@ describe('ImageShardStore', () => {
         }
     })
 
-    it('writes an image of a v3 month to the v3 bucket under the v3 prefix', async () => {
+    it('writes an image whose reference names the v3 dataset to the v3 bucket under the v3 prefix', async () => {
         await sodium.ready
         const key: MlDataKey = {
-            identity: { teamId: 7, organizationId: 'test-org', sessionMonth: '2026-10' },
+            identity: { teamId: 7, organizationId: 'test-org', sessionMonth: '2026-09' },
             plaintext: Buffer.alloc(32, 7),
             wrapped: Buffer.alloc(32, 8),
         }
@@ -70,17 +70,24 @@ describe('ImageShardStore', () => {
             1_000,
             'node'
         )
-        await store.writeShard(
-            [{ teamId: '7', sessionMonth: '2026-10', hash: inlineImage.hash, bytes: inlineImage.bytes }],
-            key
-        )
-        await store.writeUrlImage({ ...urlImage, teamId: '7', sessionMonth: '2026-10' }, key)
+        const image = { teamId: '7', sessionMonth: '2026-09', hash: inlineImage.hash, bytes: inlineImage.bytes }
+        await store.writeShard([{ ...image, datasetVersion: 3 }], key)
+        await store.writeUrlImage({ ...urlImage, teamId: '7', sessionMonth: '2026-09', datasetVersion: 3 }, key)
         const writes = send.mock.calls.map(([command]) => [command.input.Bucket, command.input.Key])
         expect(writes).toHaveLength(4)
         for (const [bucket, objectKey] of writes) {
             expect(bucket).toBe('bucket-v3')
-            expect(objectKey).toMatch(/^images\/v3\/2026-10\/7\//)
+            expect(objectKey).toMatch(/^images\/v3\/2026-09\/7\//)
         }
+        await expect(
+            store.writeShard(
+                [
+                    { ...image, datasetVersion: 3 },
+                    { ...image, hash: 'b'.repeat(22), datasetVersion: 2 },
+                ],
+                key
+            )
+        ).rejects.toThrow('one dataset version')
     })
 
     it.each([false, true])(

@@ -29,7 +29,7 @@ This document compares the `/i/v0/ai` endpoint with the `/i/v0/e` (events) endpo
 |---------|-------------|-------|
 | Multipart form-data parsing | Parse and validate multipart requests with an event part and an optional properties part | AI-specific |
 | Authorization header requirement | Require `Bearer <token>` in Authorization header | AI-specific |
-| AI event type validation | Validate against 6 allowed AI event types: `$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, `$ai_feedback` | AI-specific |
+| AI event name validation | `CAPTURE_AI_LANE_PREDICATE=allowlist`: 6 allowed names (`$ai_generation`, `$ai_trace`, `$ai_span`, `$ai_embedding`, `$ai_metric`, `$ai_feedback`); `prefix`: any `$ai_*` name | AI-specific |
 | `$ai_model` property validation | Ensure `$ai_model` is present and non-empty | AI-specific |
 | Strict size limits per part type | 32KB event, 960KB properties + event | AI-specific |
 
@@ -103,6 +103,6 @@ flag.
 
 - The AI endpoint's unique features (multipart parsing, AI event validation, etc.) are intentional and should be preserved
 - Some differences are by design rather than gaps:
-  - **Event type filtering**: `/e` uses denylist (blocks `$performance_event`), AI uses allowlist (only accepts 6 `$ai_*` events)
+  - **Event type filtering**: `/e` uses denylist (blocks `$performance_event`), AI accepts only AI-lane names (6-name allowlist or the `$ai_` prefix, per `CAPTURE_AI_LANE_PREDICATE`)
   - **Single event vs batch**: AI processes single events, `/e` supports batches
 - Focus parity efforts on security, billing, and abuse prevention features

@@ -1,7 +1,13 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.canonical_descriptions import (
+    CANONICAL_DESCRIPTIONS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.settings import (
+    COMMERCETOOLS_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.commercetools.source import CommercetoolsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.commercetools import (
     CommercetoolsSourceConfig,
@@ -46,6 +52,14 @@ class TestCommercetoolsSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_canonical_descriptions_cover_every_endpoint(self, endpoint):
+        # A missing entry silently falls back to LLM enrichment for the whole table.
+        entry = CANONICAL_DESCRIPTIONS[endpoint]
+
+        assert entry["description"]
+        assert COMMERCETOOLS_ENDPOINTS[endpoint].primary_key in entry["columns"]
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

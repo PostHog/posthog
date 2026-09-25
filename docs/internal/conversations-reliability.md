@@ -107,8 +107,9 @@ Cleanup nulls payload and route on accepted or delivered parts only.
 Failed parts keep their snapshots so manual redrive can still post.
 
 Workers claim the part, not the parent delivery, with a fencing token and a 5-minute lease.
-The claim transaction releases before `chat.postMessage`.
-Accept and fail update the part and parent in one transaction.
+The claim transaction releases before `chat.postMessage` or the Slack file-upload HTTP calls.
+Accept and fail update the part in one transaction.
+Body accept also rolls the parent up and, in that same transaction, enqueues one pending part per image.
 A 2xx (or a Slack error that still returns the original `ts`) marks the body `accepted`.
 That is provider acceptance, not customer delivery.
 Timeouts after a possible accept retry with the same `client_msg_id`.
@@ -117,10 +118,20 @@ Permanent Slack application errors (revoked token, missing channel, invalid bloc
 Keep `post_reply_to_slack` registered for in-flight Celery messages.
 New work uses `process_slack_delivery_part`.
 
-Image uploads after an accepted body stay best-effort in this layer.
-A failed image must not retry or fail the accepted body.
+Each image is its own part, keyed `image:<uploaded-media-uuid>` (or a hash of the URL when the path is not a UUID).
+The payload stores resumable `get_upload` / `byte_upload` / `complete_upload` substates, plus Slack `file_id` / `upload_url` after get-upload succeeds.
+Attachment bytes stay in object storage; the part never holds them.
+A crash between Slack calls resumes at the persisted step and does not post the body again.
+An expired upload URL resets the part to `get_upload` and retries.
+Image and fallback failures do not change the parent's `accepted_at` or `provider_message_id`.
+When every image part is terminal and at least one failed, enqueue a single `fallback` part with its own `client_msg_id` and the failed image URLs.
+A second permanent image failure must not create a second fallback.
+Posting the fallback waits if any image part is open again, then includes only currently failed URLs, so a redriven image that later succeeds is not linked.
+The URL set is read under a lock on the image parts and written to the fallback part before the post, so a concurrent redrive either forces another wait or lands after the posted set is recorded.
+A wait refunds the attempt the claim charged, and the last image to settle re-arms the waiting fallback, so a long redrive cannot exhaust the fallback's retry budget.
 Manual redrive is allowed only for `failed` parts, and only after route and Slack workspace config still match the delivery's canonical team.
-Redrive keeps `client_msg_id` and stamps `redriven_at`, which restarts the max-age window so an operator can still recover a failure older than 24 hours.
+Redrive keeps `client_msg_id` (and image upload substate) and stamps `redriven_at`, which restarts the max-age window so an operator can still recover a failure older than 24 hours.
+Redriving an image does not clear the parent's body acceptance.
 
 ## Outbound email (already in Postgres)
 

@@ -37,6 +37,7 @@ from products.review_hog.backend.reviewer.constants import (
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
 from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
@@ -90,9 +91,7 @@ _THRESHOLD_ATTRIBUTIONS = {
 # Only personal thresholds live in someone's PostHog Review settings; the default variant has no page to point at.
 _PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
 
-# A clean review deserves a reward, not a bare "nothing here". We still post the comment (so "no
-# comment" can never be mistaken for "the run broke"), but swap the flat sign-off for calming media.
-# Assets are optimized and self-hosted on pr-assets (SHA-pinned, permanent) rather than hotlinked.
+# A clean review still posts a comment so silence never looks like a failed run.
 _NO_ISSUES_MEDIA = (
     (
         "https://raw.githubusercontent.com/PostHog/pr-assets/"
@@ -108,6 +107,18 @@ _NO_ISSUES_MEDIA = (
         "https://raw.githubusercontent.com/PostHog/pr-assets/"
         "3cf9366a6d40bc591284b00304cb6ecd84164343/2026/07/c755cc49-ef33-4435-87e0-51074f110b19.gif",
         "A panda relaxing and waving",
+    ),
+    (
+        "https://media.tenor.com/v-9wvFB5nBEAAAAC/twin-peaks-dance.gif",
+        "The dancing man in the red room from Twin Peaks",
+    ),
+    (
+        "https://media.tenor.com/6QRLKh0iM1wAAAAC/spoons-salad-fingers.gif",
+        "Salad Fingers holds a rusty spoon",
+    ),
+    (
+        "https://media.tenor.com/C4ta65SucIkAAAAC/dvd.gif",
+        "The DVD logo bounces into a corner of an empty screen",
     ),
 )
 
@@ -202,7 +213,7 @@ def render_final_body(
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
             [
-                "Nothing worth raising this time, so here's a calming picture instead:",
+                "Nothing worth raising this time. Enjoy the moment:",
                 "",
                 f"![{media_alt}]({media_url})",
             ]
@@ -272,6 +283,28 @@ def render_resolution_failed_section(*, done: int, total: int) -> str:
             "<sub>The remaining threads were not touched. The next review or resolution run picks them up.</sub>",
         ]
     )
+
+
+def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: int = 0) -> str:
+    """Why the stage did not commit fixes, so the author knows the open threads are theirs.
+
+    `total` is set only when the run stopped part way.
+    """
+    if hold == CommitHold.STACKED:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: another pull request is now stacked on this branch"
+            if total
+            else "Not resolving comments: other pull requests are stacked on this branch"
+        )
+        why = "A fix commit here would leave the stacked pull requests out of date"
+    else:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
+            if total
+            else "Not resolving comments: this pull request is submitted to the merge queue"
+        )
+        why = "A fix commit would change what was submitted, or remove it from the queue"
+    return "\n".join([f"**{line}**", "", f"<sub>{why}, so the open threads stay with you.</sub>"])
 
 
 def _splice_resolution_section(body: str, section: str) -> str:

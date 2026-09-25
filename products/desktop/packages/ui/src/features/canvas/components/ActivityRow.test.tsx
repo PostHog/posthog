@@ -109,11 +109,16 @@ describe("ActivityRow", () => {
     );
 
     const title = screen.getByText("Tell me a joke");
-    const metadata = screen.getByText("just now · Agent finished in");
-    const spaceBadge = screen.getByText("Personal").closest(".quill-badge");
-    expect(title.compareDocumentPosition(metadata)).toBe(
+    const time = screen.getByText("just now");
+    const status = screen.getByText("Agent finished in");
+    const spaceBadge = screen
+      .getByText("Personal")
+      .closest<HTMLElement>(".quill-badge");
+    expect(title.compareDocumentPosition(time)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+    expect(status.parentElement).toHaveClass("ml-auto");
+    expect(status.parentElement).toContainElement(spaceBadge);
     expect(spaceBadge).toHaveClass("quill-badge--variant-default");
     const row = title.closest("button");
     expect(row).toHaveAccessibleName(
@@ -234,7 +239,7 @@ describe("ActivityRow", () => {
       />,
     );
     const activityButton = screen
-      .getByText("just now · Ann mentioned you")
+      .getByText("Ann mentioned you")
       .closest("button");
     if (!activityButton) throw new Error("Expected activity row button");
     fireEvent.click(activityButton);

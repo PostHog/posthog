@@ -59,7 +59,7 @@ POSTHOG_MANAGED_TRINO_HOSTS = frozenset(
 TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE = 100
 
 
-def _is_posthog_managed_trino_host(host: str) -> bool:
+def is_posthog_managed_trino_host(host: str) -> bool:
     return host.lower().rstrip(".") in POSTHOG_MANAGED_TRINO_HOSTS
 
 
@@ -160,7 +160,7 @@ def connect_trino(config: TrinoSourceConfig) -> Iterator[Connection]:
         value for value in (config.auth_type.password, config.auth_type.token) if isinstance(value, str) and value
     )
     session = make_tracked_session(redact_values=redacted, allow_redirects=False)
-    if _is_posthog_managed_trino_host(config.host) and config.port == 443 and config.use_ssl and config.verify_ssl:
+    if is_posthog_managed_trino_host(config.host) and config.port == 443 and config.use_ssl and config.verify_ssl:
         session.trust_env = False
     session.verify = config.verify_ssl
     log_connection_open(db_host=config.host, via="trino_https" if config.use_ssl else "trino_http")

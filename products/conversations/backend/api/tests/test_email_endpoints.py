@@ -15,6 +15,7 @@ from PIL import Image
 from posthog.models.comment import Comment
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 
 from products.conversations.backend.api.tests.mailgun_signing import MailgunWebhookTestMixin, post_mailgun
@@ -41,6 +42,12 @@ def _make_png_bytes() -> bytes:
     """Generate a minimal valid 1x1 PNG."""
     buf = BytesIO()
     Image.new("RGB", (1, 1), color="red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _make_image_bytes(image_format: str) -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buf, format=image_format)
     return buf.getvalue()
 
 
@@ -2686,9 +2693,17 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
             "stripped-text": "See attached",
         }
 
+    @parameterized.expand(
+        [
+            ("png", _make_png_bytes(), "image/png"),
+            ("jpeg_labelled_png", _make_image_bytes("JPEG"), "image/jpeg"),
+        ]
+    )
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    def test_inbound_with_image_attachment(self, mock_storage: MagicMock):
-        attachment = SimpleUploadedFile("photo.png", _make_png_bytes(), content_type="image/png")
+    def test_inbound_with_image_attachment(
+        self, _name: str, content: bytes, expected_content_type: str, mock_storage: MagicMock
+    ):
+        attachment = SimpleUploadedFile("photo.png", content, content_type="image/png")
 
         data = self._base_post_data("<img@test.com>")
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -2708,7 +2723,8 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
         assert image_nodes[0]["attrs"]["alt"] == "photo.png"
         assert comment.item_context["email_attachments"] is not None
         assert len(comment.item_context["email_attachments"]) == 1
-        assert comment.item_context["email_attachments"][0]["content_type"] == "image/png"
+        assert comment.item_context["email_attachments"][0]["content_type"] == expected_content_type
+        assert UploadedMedia.objects.get(team=self.team).content_type == expected_content_type
 
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
     def test_inbound_with_non_image_attachment(self, mock_storage: MagicMock):
@@ -2789,9 +2805,15 @@ class TestEmailInboundAttachments(MailgunWebhookTestMixin, BaseTest):
         assert comment.content == "See attached"
         assert comment.rich_content is None
 
+    @parameterized.expand(
+        [
+            ("html", b"<html>not an image</html>"),
+            ("tiff", _make_image_bytes("TIFF")),
+        ]
+    )
     @patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
-    def test_inbound_invalid_image_is_rejected(self, mock_storage: MagicMock):
-        fake_image = SimpleUploadedFile("evil.png", b"<html>not an image</html>", content_type="image/png")
+    def test_inbound_invalid_image_is_rejected(self, _name: str, content: bytes, mock_storage: MagicMock):
+        fake_image = SimpleUploadedFile("evil.png", content, content_type="image/png")
 
         data = self._base_post_data("<evil@test.com>")
         with self.settings(OBJECT_STORAGE_ENABLED=True):

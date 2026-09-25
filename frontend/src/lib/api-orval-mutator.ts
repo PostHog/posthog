@@ -4,7 +4,7 @@
  *
  * Orval calls: apiMutator(url, { method, body, signal, ... })
  */
-import api from 'lib/api'
+import api, { getJSONFromSuccessResponse } from 'lib/api'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
 
@@ -33,8 +33,13 @@ export const apiMutator = async <T>(url: string, options: RequestInit & { method
             return api.put(url, data, apiOptions)
         case 'PATCH':
             return api.update(url, data, apiOptions)
-        case 'DELETE':
-            return api.delete(url)
+        case 'DELETE': {
+            // `api.delete` resolves the raw Response. A generated destroy call can still be typed
+            // with a body, because a delete endpoint may answer with a status envelope, so parse it
+            // the way every other verb does rather than handing the Response to the caller.
+            const response = await api.delete(url)
+            return await getJSONFromSuccessResponse(response, 'DELETE', url)
+        }
         default:
             throw new Error(`Unsupported HTTP method: ${method}`)
     }

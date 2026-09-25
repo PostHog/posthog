@@ -1,4 +1,4 @@
-import { mlSessionIdDropReason, usesV3Dataset, usesV3ImageDataset } from './session-identifier-format'
+import { mlSessionIdDropReason, usesV3Dataset } from './session-identifier-format'
 
 describe('mlSessionIdDropReason', () => {
     const startedAt = Date.UTC(2026, 8, 15, 12)
@@ -27,10 +27,5 @@ describe('usesV3Dataset', () => {
     ])('%s', (_, date, v3) => {
         const hex = Date.parse(date).toString(16).padStart(12, '0')
         expect(usesV3Dataset(`${hex.slice(0, 8)}-${hex.slice(8)}-7000-8000-000000000001`)).toBe(v3)
-    })
-
-    it('keeps the month of the cutoff in v2 for images and moves the next month to v3', () => {
-        expect(usesV3ImageDataset('2026-09')).toBe(false)
-        expect(usesV3ImageDataset('2026-10')).toBe(true)
     })
 })

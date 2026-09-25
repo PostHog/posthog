@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { annotationsModel, deserializeAnnotation } from '~/models/annotationsModel'
-import { AnnotationScope, AnnotationType, DashboardBasicType, QueryBasedInsightModel } from '~/types'
+import { AnnotationScope, AnnotationType, DashboardBasicType, InsightModel } from '~/types'
 
 import type { UserType } from '../../../../frontend/src/types'
 import type { RawAnnotationType } from '../../../../frontend/src/types'
@@ -91,7 +91,7 @@ export interface annotationModalLogicActions {
     }
     openModalToCreateAnnotation: (
         initialDate?: Dayjs | null,
-        insightId?: QueryBasedInsightModel['id'] | null,
+        insightId?: InsightModel['id'] | null,
         dashboardId?: DashboardBasicType['id'] | null
     ) => {
         dashboardId: number | null | undefined
@@ -100,7 +100,7 @@ export interface annotationModalLogicActions {
     }
     openModalToEditAnnotation: (
         annotation: AnnotationType,
-        insightId?: QueryBasedInsightModel['id'] | null,
+        insightId?: InsightModel['id'] | null,
         dashboardId?: DashboardBasicType['id'] | null
     ) => {
         annotation: AnnotationType
@@ -173,7 +173,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
     actions({
         openModalToCreateAnnotation: (
             initialDate?: Dayjs | null,
-            insightId?: QueryBasedInsightModel['id'] | null,
+            insightId?: InsightModel['id'] | null,
             dashboardId?: DashboardBasicType['id'] | null
         ) => ({
             initialDate,
@@ -182,7 +182,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         }),
         openModalToEditAnnotation: (
             annotation: AnnotationType,
-            insightId?: QueryBasedInsightModel['id'] | null,
+            insightId?: InsightModel['id'] | null,
             dashboardId?: DashboardBasicType['id'] | null
         ) => ({
             annotation,

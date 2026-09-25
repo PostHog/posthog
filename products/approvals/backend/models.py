@@ -88,6 +88,9 @@ class ChangeRequest(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         """Get the matching approval policy for this change request."""
         from products.approvals.backend.policies import PolicyEngine
 
+        action_class = self.get_action_class()
+        if action_class is not None:
+            return PolicyEngine().get_policy_for_action(action_class, self.team, self.organization)
         return PolicyEngine().get_policy(self.action_key, self.team, self.organization)
 
     def can_be_canceled_by(self, user_id: int) -> bool:

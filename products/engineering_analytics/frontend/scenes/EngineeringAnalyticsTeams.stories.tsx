@@ -125,3 +125,16 @@ export const TeamCIHealthRoster: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalyticsTeams() },
 }
+
+export const TeamCIHealthLoadError: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.engineeringAnalyticsTeams(),
+        testOptions: { waitForSelector: '.text-danger' },
+    },
+    decorators: [
+        mswDecorator({
+            get: { 'api/projects/:team_id/engineering_analytics/team_ci_health/': () => [500, null] },
+        }),
+    ],
+}

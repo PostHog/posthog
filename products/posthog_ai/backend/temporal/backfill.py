@@ -42,6 +42,7 @@ FLAG_OFF_REASON = "flag"
 @frozen
 class ConversationBackfillInputs:
     start_after: str | None = None
+    end_before: str | None = None
     batch_size: int = 500
     concurrency: int = 16
     dry_run: bool = False
@@ -63,6 +64,7 @@ class BackfillCandidate:
 class ListCandidatesInputs:
     start_after: str | None
     limit: int
+    end_before: str | None = None
 
 
 @frozen
@@ -94,6 +96,8 @@ def list_candidates(inputs: ListCandidatesInputs) -> ListCandidatesOutput:
     )
     if inputs.start_after is not None:
         queryset = queryset.filter(id__gt=inputs.start_after)
+    if inputs.end_before is not None:
+        queryset = queryset.filter(id__lt=inputs.end_before)
     # The primary key index already orders the walk; ordering by anything else sorts every
     # remaining row on each page.
     rows = list(queryset.order_by("id").values_list("id", "team_id", "user_id")[: inputs.limit])
@@ -121,7 +125,7 @@ class ConversationBackfillWorkflow(PostHogWorkflow):
 
         page = await workflow.execute_activity(
             list_conversations_to_backfill_activity,
-            ListCandidatesInputs(start_after=inputs.start_after, limit=batch_size),
+            ListCandidatesInputs(start_after=inputs.start_after, limit=batch_size, end_before=inputs.end_before),
             start_to_close_timeout=LIST_ACTIVITY_TIMEOUT,
             retry_policy=ACTIVITY_RETRY_POLICY,
         )

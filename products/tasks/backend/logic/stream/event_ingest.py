@@ -5,6 +5,7 @@ import json
 import math
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
@@ -15,7 +16,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from jwt import PyJWTError
 
-from posthog.ph_client import ph_background_capture, ph_scoped_capture
+from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade.api import signal_workflow_completion
 from products.tasks.backend.logic.services.connection_token import (
@@ -23,6 +24,7 @@ from products.tasks.backend.logic.services.connection_token import (
     validate_sandbox_event_ingest_token,
 )
 from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
+from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
@@ -34,7 +36,13 @@ from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
 
-from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, is_idle_resume_turn_complete, is_turn_complete, pi_turn_error
+from ee.hogai.sandbox import (
+    PI_RUNTIME_ERROR_MESSAGE,
+    is_idle_resume_turn_complete,
+    is_turn_complete,
+    pi_turn_error,
+    turn_completed_successfully,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -215,7 +223,9 @@ async def _ingest_event_lines(
                 event, sequence, pending_side_effect=pending_side_effect
             )
             await _capture_rtk_savings_if_needed(redis_stream, claims, sequence, rtk_savings_properties)
-            await _capture_budget_steer_if_needed(redis_stream, claims, sequence, budget_steer_properties)
+            await _capture_budget_steer_if_needed(
+                redis_stream, claims, sequence, budget_steer_properties, event.get("timestamp")
+            )
             if not write.accepted:
                 result.duplicate += 1
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
@@ -278,6 +288,7 @@ async def _capture_budget_steer_if_needed(
     claims: SandboxEventIngestTokenPayload,
     sequence: int,
     properties: dict[str, str | int | float | bool] | None,
+    event_timestamp: object = None,
 ) -> None:
     if properties is None:
         return
@@ -287,22 +298,14 @@ async def _capture_budget_steer_if_needed(
     if not capture_claim:
         return
     try:
-        event_uuid = str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{claims.run_id}:{sequence}"))
-        _capture_budget_steer(claims.team_id, event_uuid, properties)
+        await sync_to_async(BudgetSteerCapture.enqueue, thread_sensitive=False)(
+            claims.team_id, claims.run_id, sequence, properties, event_timestamp
+        )
     except Exception:
         await redis_stream.release_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
         logger.warning("task_run_budget_steer_capture_failed", run_id=claims.run_id, exc_info=True)
         return
     await redis_stream.complete_pending_side_effect(BUDGET_STEER_SIDE_EFFECT, sequence)
-
-
-def _capture_budget_steer(team_id: int, event_uuid: str, properties: dict[str, str | int | float | bool]) -> None:
-    ph_background_capture()(
-        distinct_id=f"team_{team_id}",
-        event="task run budget steer",
-        properties=properties,
-        uuid=event_uuid,
-    )
 
 
 def _parse_budget_steer_properties(
@@ -327,6 +330,19 @@ def _parse_budget_steer_properties(
         if amount is None:
             return None
         amounts[key] = amount
+    threshold = _parse_usd_amount(params.get("threshold_spent_usd"))
+    if threshold is not None:
+        amounts["threshold_spent_usd"] = threshold
+    timestamps: dict[str, str] = {}
+    for key in ("threshold_at", "delivered_at"):
+        value = params.get(key)
+        if isinstance(value, str) and len(value) <= 40:
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                continue
+            if parsed.tzinfo is not None:
+                timestamps[key] = value
     return {
         "team_id": claims.team_id,
         "task_id": claims.task_id,
@@ -335,6 +351,7 @@ def _parse_budget_steer_properties(
         "mode": mode,
         "delivered": delivered,
         **amounts,
+        **timestamps,
     }
 
 
@@ -483,7 +500,11 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         if pi_turn_error(event):
             await _dispatch_turn_failed(run_id)
         else:
-            await _dispatch_turn_completed(run_id, turn_completed=not is_idle_resume_turn_complete(event))
+            await _dispatch_turn_completed(
+                run_id,
+                succeeded=turn_completed_successfully(event),
+                turn_completed=not is_idle_resume_turn_complete(event),
+            )
         return
 
     if _is_session_update(event):
@@ -534,11 +555,13 @@ def _signal_agent_boot_milestone(
     return task_run.signal_agent_boot_milestone(milestone)
 
 
-async def _dispatch_turn_completed(run_id: str, *, turn_completed: bool = True) -> None:
-    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(run_id, turn_completed=turn_completed)
+async def _dispatch_turn_completed(run_id: str, *, succeeded: bool = False, turn_completed: bool = True) -> None:
+    await sync_to_async(_dispatch_turn_completed_sync, thread_sensitive=True)(
+        run_id, succeeded=succeeded, turn_completed=turn_completed
+    )
 
 
-def _dispatch_turn_completed_sync(run_id: str, *, turn_completed: bool = True) -> None:
+def _dispatch_turn_completed_sync(run_id: str, *, succeeded: bool = False, turn_completed: bool = True) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -548,7 +571,7 @@ def _dispatch_turn_completed_sync(run_id: str, *, turn_completed: bool = True) -
         logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
-    task_run.signal_agent_turn_completed()
+    task_run.signal_agent_turn_completed(succeeded=succeeded)
     dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
 
 

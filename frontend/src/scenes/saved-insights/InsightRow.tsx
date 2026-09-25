@@ -10,12 +10,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { InsightIcon } from './SavedInsights'
 
 interface InsightRowProps {
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     isExpanded: boolean
     onToggle: () => void
     dataAttr?: string

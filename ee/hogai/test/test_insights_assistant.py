@@ -117,9 +117,7 @@ class TestChatAgent(BaseAssistantTest):
             ]
         )
         query = AssistantTrendsQuery(series=[])
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -179,9 +177,7 @@ class TestChatAgent(BaseAssistantTest):
                 AssistantFunnelsEventsNode(event="$pageleave"),
             ]
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: FunnelsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: FunnelsSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -243,9 +239,7 @@ class TestChatAgent(BaseAssistantTest):
                 returningEntity=AssistantRetentionActionsNode(name=action.name, id=action.id),
             )
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: RetentionSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: RetentionSchemaGeneratorOutput(query=query))
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
@@ -343,9 +337,7 @@ class TestChatAgent(BaseAssistantTest):
                 )
             ]
         )
-        generator_mock.return_value = RunnableLambda(
-            lambda _: TrendsSchemaGeneratorOutput(query=query, name="Test Insight", description="Test Description")
-        )
+        generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
         # Run in insights tool mode
         output, _ = await self._run_assistant_graph(
