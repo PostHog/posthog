@@ -10121,9 +10121,9 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-globally-mapped--light:
         hash: v1.k794b7964.61e09c9e87341bff85e48a5a849c60271b9343f68156fdbd8254d867efcbe362.8mesQHKUwOThl6lkM5fvaR5z5Iwc2JSF4pZ0iB0Ho34
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-unmapped--dark:
-        hash: v1.k794b7964.8e4c8745ddfeb9e39c12c1de6440ffefbab10c6fdfcbaf2917ec6eeb30c21a3c.bJYM40EyMJDb-CNlZ6VS6F0_q7RzB27y88wyo_vS_pk
+        hash: v1.k794b7964.f5266399f092411bbe18d8b35f72dee1a8bfbe3df16728f5b20e23a8b2fac41a.MIsGe8h0CayTSbg-lsCoTeDRZRVNU-fGrmTzksvi9io
     scenes-app-marketing-analytics-cell-actions--campaign-cell-action-unmapped--light:
-        hash: v1.k794b7964.0e25052e261eb633f06f625f042febd96eb40e52650c5b22d41f2594f04d466f.gWGwrfXDOGghOGomTQr7hL7f0slkZGUwWbI2NcbjrrE
+        hash: v1.k794b7964.3d75928c8d9413c248f3ae2341ca2775ba62b62e093d6d6bf84f7e15a731905d.KYdvSw7hLTVNJSf0NjYoh2k1xJFearMFckiokWOoqbc
     scenes-app-marketing-analytics-cell-actions--source-cell-action-custom-mapped--dark:
         hash: v1.k794b7964.b54f7b4f93126a339b8d1f2c3052e33195ece30a69558784cf5e3500d1fdff2d.z26YCBpYH_GJ8cTy_m2zptpKY3Y7-ExoHfa-vjsJXuU
     scenes-app-marketing-analytics-cell-actions--source-cell-action-custom-mapped--light:
@@ -10137,9 +10137,9 @@ snapshots:
     scenes-app-marketing-analytics-cell-actions--source-cell-action-integration-disabled--light:
         hash: v1.k794b7964.a47387317b5359abf524ddee66c0191f13aa20068299426fd2ba02a2a2b484de.8vAAZrir9sb1KgnInnG0LSGU1ejxmdo9L27tV9HuLPM
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--dark:
-        hash: v1.k794b7964.cf10adeda245ccff69e13bd0549d2b1579f5173b93a0b6090dce2b51db242384.oM_0pR3iPTmwIT5GCc7rRMRcHVCZVVRL1_LIjQFT3Ag
+        hash: v1.k794b7964.6b2d3d0ea747d89cd5d8003ad5652110defff20c6d72b2281cc379e2c6fddff1.j1PVCswW5wNUlN4r73b1E763-Y_1x3in29kKrVPHeGs
     scenes-app-marketing-analytics-cell-actions--source-cell-action-unmapped--light:
-        hash: v1.k794b7964.82fdca17171ef49bdce7d6a769c88cde001e17f402f1b19e2a3778f0aa274b82.YW7pM5jU-MhVYp1FgIC0MA7wJEWz4eaooeYj6WFpucM
+        hash: v1.k794b7964.5370c38c333a9ed59c62f0a38f5289e1b184db5528ab590fd5188bf4a49e3554.eRp0bm6akYSB-PVs0946LcXqze_inC4rRfq_OpRdkww
     scenes-app-marketing-analytics-dashboard-change-value-cell--bounce-rate--dark:
         hash: v1.k794b7964.077ba380688f01ece0aa53fbdd827aa0b79a58e6f952315fe51af26bc835b64a.PRdHzGD2h3pbMEhUAGi2JC6w2vr8_XebNg_iPCpM9bg
     scenes-app-marketing-analytics-dashboard-change-value-cell--bounce-rate--light:
