@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     BUFFER_LANE,
+    cancel_sync_that_could_hand_over,
     resnapshot_stays_in_buffer,
 )
 
@@ -50,6 +51,10 @@ class SchedulePauseError(Exception):
 
 class WorkflowStartError(Exception):
     """The workflow failed to start. Any pause taken by this call has been rolled back."""
+
+
+class SyncStillRunningError(Exception):
+    """A CDC table's running sync could still hand over, so nothing was staged. Its cancel was requested."""
 
 
 @async_to_sync
@@ -92,6 +97,11 @@ def trigger_ad_hoc_sync(
     schedule plus an ad-hoc workflow, so without it the scheduled run can race this one. A schedule
     the caller already paused by hand is left alone, so this does not undo their action.
     """
+    # A sync that hands over after a CDC reset leaves the reset pending on a streaming table, whose next
+    # run wipes it. This call starts its own run, so it cannot leave the reset to capture.
+    if reset_pipeline and schema.is_cdc and cancel_sync_that_could_hand_over(schema):
+        raise SyncStillRunningError("A sync of this table is still stopping. Retry in a minute.")
+
     was_paused = is_schedule_paused(client, str(schema.id))
     paused_now = False
     if not was_paused:

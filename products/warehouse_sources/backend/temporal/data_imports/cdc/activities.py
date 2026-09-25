@@ -26,6 +26,7 @@ import structlog
 import pyarrow.compute as pc
 import posthoganalytics
 from temporalio import activity
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
@@ -83,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
     BUFFER_LANE,
+    CDC_RESET_PENDING_KEY,
     cancel_running_sync,
     is_buffered_snapshot_enabled,
     snapshot_in_buffer,
@@ -117,9 +119,23 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
     "once the re-sync completes."
 )
 
-# Marks a table whose reset waits for its running sync to stop. The slot moves past the TRUNCATE
-# meanwhile, so this key is what makes a later capture run finish the reset.
-CDC_RESET_PENDING_KEY = "cdc_reset_pending"
+
+def _merge_pending_reset(
+    config: dict[str, typing.Any], *, clear_deferred_runs: bool, awaiting_slot: bool
+) -> dict[str, typing.Any]:
+    """Merge a reset into the table's pending one. Read under the row lock, so a request's fields survive.
+
+    `clear_deferred_runs` accumulates: a reset that owes the drop keeps owing it until one happens.
+    `awaiting_slot` is this reset's own answer, because only the reset that is waiting for a slot
+    holds the table back, and slot recovery clears the wait.
+    """
+    current = config.get(CDC_RESET_PENDING_KEY)
+    fields = dict(current) if isinstance(current, dict) else {}
+    fields["clear_deferred_runs"] = clear_deferred_runs or bool(fields.get("clear_deferred_runs"))
+    fields["awaiting_slot"] = awaiting_slot
+    config[CDC_RESET_PENDING_KEY] = fields
+    return fields
+
 
 # The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
 # engine invalidates the slot first and we lose the chance to act cleanly.
@@ -1531,10 +1547,8 @@ class CDCExtractActivity:
         # A sync that hands over after the reset flips the table to streaming with reset_pipeline still
         # set, so its next run wipes the table. A cancel only asks the workflow to stop, and the loader
         # still applies its queued batches, so the reset waits until neither can happen. A failed pause
-        # or cancel fails the run while the slot still holds the TRUNCATE.
-        pending = self._pending_reset(schema)
-        if pending is not None and pending.get("clear_deferred_runs"):
-            clear_deferred_runs = True
+        # or cancel fails the run while the slot still holds the TRUNCATE. A reset already pending
+        # is merged into, under the row lock, so its own fields survive this one.
         self._pause_schema_schedule(schema)
         stopping = cancel_running_sync(schema)
         # The queue alone, because deferred runs flush only after a hand-over, which the pause prevents.
@@ -1555,14 +1569,14 @@ class CDCExtractActivity:
         # fails the run while the slot still holds the TRUNCATE, and the next run repeats the reset.
         purge_buffer_prefix(schema.team_id, str(schema.id), self._schema_log(schema), strict=self._source_buffered)
         removes = ["cdc_last_log_position"]
-        if clear_deferred_runs:
-            removes.append("cdc_deferred_runs")
+        updates: dict[str, typing.Any] = {"cdc_mode": "snapshot", "reset_pipeline": True}
+
         # Pending until the schedule is unpaused, so a failed unpause repeats on the next run.
-        updates: dict[str, typing.Any] = {
-            "cdc_mode": "snapshot",
-            "reset_pipeline": True,
-            CDC_RESET_PENDING_KEY: {"clear_deferred_runs": clear_deferred_runs, "awaiting_slot": awaiting_slot},
-        }
+        def _merge_pending(config: dict[str, typing.Any]) -> None:
+            merged = _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
+            if merged["clear_deferred_runs"]:
+                config.pop("cdc_deferred_runs", None)
+
         # Later runs write the table's changes to the emptied buffer as an unbroken run, so the next
         # snapshot stays in the buffer with them.
         if schema.name in self._buffered_table_names and (
@@ -1580,10 +1594,11 @@ class CDCExtractActivity:
             schema,
             updates=updates,
             removes=removes,
+            mutate=_merge_pending,
             extra_model_fields={"initial_sync_complete": False},
         )
         self._tables_awaiting_reset.discard(schema.name)
-        if clear_deferred_runs:
+        if schema.sync_type_config[CDC_RESET_PENDING_KEY]["clear_deferred_runs"]:
             self._emit_deferred_runs_depth()
         return True
 
@@ -1599,12 +1614,11 @@ class CDCExtractActivity:
         if self.batcher is not None:
             self.batcher.discard(schema.name)
         self._tables_awaiting_reset.add(schema.name)
-        self._update_schema_sync_type_config(
-            schema,
-            updates={
-                CDC_RESET_PENDING_KEY: {"clear_deferred_runs": clear_deferred_runs, "awaiting_slot": awaiting_slot}
-            },
-        )
+
+        def _merge_pending(config: dict[str, typing.Any]) -> None:
+            _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
+
+        self._update_schema_sync_type_config(schema, mutate=_merge_pending)
         self._schema_log(schema).info("cdc_reset_waits_for_running_sync", stopping_workflow_id=stopping_workflow_id)
 
     def _release_reset_awaiting_slot(self, schema: ExternalDataSchema) -> None:
@@ -1629,8 +1643,10 @@ class CDCExtractActivity:
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         """Let a reset table's schedule start its snapshot. A failure leaves the reset pending for the next run."""
         schema_log = self._schema_log(schema)
+        pending = (schema.sync_type_config or {}).get(CDC_RESET_PENDING_KEY)
         try:
-            from products.data_warehouse.backend.facade.api import unpause_external_data_schedule
+            # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+            from products.data_warehouse.backend.facade.api import unpause_external_data_schedule  # noqa: PLC0415
 
             unpause_external_data_schedule(str(schema.id))
             schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
@@ -1638,6 +1654,41 @@ class CDCExtractActivity:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
             return
         self._update_schema_sync_type_config(schema, removes=[CDC_RESET_PENDING_KEY])
+        # A reset handed over by a request starts its snapshot now, as the request would have.
+        if isinstance(pending, dict) and pending.get("trigger"):
+            self._trigger_resnapshot(schema)
+
+    def _trigger_resnapshot(self, schema: ExternalDataSchema) -> None:
+        """Start the snapshot for a reset a request handed over, recovering a missing schedule first.
+
+        Unpausing a schedule that is gone succeeds silently, so without the recovery the table would
+        keep a reset nothing runs. The request recovers the same way when it triggers the sync itself.
+        """
+        # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+        from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+            sync_external_data_job_workflow,
+            trigger_external_data_workflow,
+        )
+
+        schema_log = self._schema_log(schema)
+        try:
+            trigger_external_data_workflow(schema)
+            return
+        except RPCError as e:
+            # Recovery builds the schedule from the table's own cadence, so one without it has
+            # nothing to build from, and a table whose sync is off must not get one that fires a run.
+            if e.status != RPCStatusCode.NOT_FOUND or not schema.should_sync or schema.sync_frequency_interval is None:
+                schema_log.warning("failed_to_trigger_resnapshot", schema_id=str(schema.id), exc_info=True)
+                return
+        except Exception:
+            # The schedule runs again, so the snapshot still starts at its next interval.
+            schema_log.warning("failed_to_trigger_resnapshot", schema_id=str(schema.id), exc_info=True)
+            return
+        try:
+            # Creating the schedule fires its first run, which is the snapshot this reset owes.
+            sync_external_data_job_workflow(schema, create=True, should_sync=True)
+        except Exception:
+            schema_log.warning("failed_to_recover_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
     def _pause_cdc_extraction_schedule(self) -> None:
         """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""

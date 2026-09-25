@@ -8,7 +8,12 @@ from temporalio.client import Client
 
 from posthog.temporal.common.client import sync_connect
 
-from products.warehouse_sources.backend.ad_hoc_sync import SchedulePauseError, WorkflowStartError, trigger_ad_hoc_sync
+from products.warehouse_sources.backend.ad_hoc_sync import (
+    SchedulePauseError,
+    SyncStillRunningError,
+    WorkflowStartError,
+    trigger_ad_hoc_sync,
+)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
@@ -159,6 +164,9 @@ class Command(BaseCommand):
             return False
         except WorkflowStartError:
             logger.exception("Failed to trigger sync", schema_id=str(schema.id), team_id=schema.team_id)
+            return False
+        except SyncStillRunningError:
+            logger.warning("Sync still stopping, skipping", schema_id=str(schema.id), team_id=schema.team_id)
             return False
 
         self.stdout.write(f"  triggered {schema.id} workflow_id={trigger.workflow_id}")

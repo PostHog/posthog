@@ -4003,18 +4003,19 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", "users-snapshot", True),
-            ("sync_stopped", None, False),
+            ("sync_still_stopping", "users-snapshot", {"clear_deferred_runs": False}, True),
+            ("sync_stopped", None, {"clear_deferred_runs": False}, False),
+            ("sync_stopped_after_a_request_reset", None, {"clear_deferred_runs": True, "trigger": True}, False),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(
-        self, _name, stopping_workflow_id, waits, MockBufferWriter, mock_purge
+        self, _name, stopping_workflow_id, pending, waits, MockBufferWriter, mock_purge
     ):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": False}
+        schema.sync_type_config["cdc_reset_pending"] = pending
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -4023,15 +4024,45 @@ class TestBufferedIngressCapture:
                 return_value=stopping_workflow_id,
             ),
             patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule") as unpause,
+            patch("products.data_warehouse.backend.facade.api.trigger_external_data_workflow") as trigger,
         ):
             reader, _s3, _producer = self._run(MockBufferWriter, events, [schema], source)
 
         assert mock_purge.called is not waits
         assert unpause.called is not waits
+        assert trigger.called is (not waits and bool(pending.get("trigger")))
         assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
         assert ("cdc_reset_pending" in schema.sync_type_config) is waits
         assert MockBufferWriter.return_value.write_batch.called is not waits
         reader.confirm_position.assert_called_once_with("0/100")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_handed_over_reset_recreates_a_schedule_that_is_gone(self, MockBufferWriter, _mock_purge):
+        # Unpausing a schedule that is gone succeeds silently, so the trigger is the first call to
+        # see it missing. Left there, the table would carry a reset with nothing to run it, while
+        # the request that handed the reset over would have recreated the schedule itself.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "trigger": True}
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                return_value=None,
+            ),
+            patch("products.data_warehouse.backend.facade.api.unpause_external_data_schedule"),
+            patch(
+                "products.data_warehouse.backend.facade.api.trigger_external_data_workflow",
+                side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b""),
+            ),
+            patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as create_schedule,
+        ):
+            self._run(MockBufferWriter, events, [schema], source)
+
+        create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
+        assert "cdc_reset_pending" not in schema.sync_type_config
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")

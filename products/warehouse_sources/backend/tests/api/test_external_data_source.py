@@ -11539,6 +11539,17 @@ BROKEN_MARKER = {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}
 
 
 class TestRepairCDC(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The load queue lives in the warehouse-sources database, which these tests do not create.
+        # Left real, the probe raises and repair hands every reset to capture instead of doing it.
+        queue_probe = patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches",
+            return_value=False,
+        )
+        queue_probe.start()
+        self.addCleanup(queue_probe.stop)
+
     def _repair(self, source: ExternalDataSource):
         return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/repair_cdc/",
@@ -11816,6 +11827,7 @@ class TestRepairCDC(APIBaseTest):
         assert "cdc_broken" not in schema.sync_type_config
         assert mock_recreate.call_count == 2
 
+    @patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule")
     @patch("products.data_warehouse.backend.logic.data_load.service.cancel_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
@@ -11826,7 +11838,14 @@ class TestRepairCDC(APIBaseTest):
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     def test_repair_cdc_cancels_running_cdc_jobs(
-        self, _mock_recreate, _unpause, _trigger, _unpause_ext, _sync_ext, mock_cancel
+        self,
+        _mock_recreate,
+        mock_unpause_schedule,
+        mock_trigger,
+        mock_unpause_extraction,
+        _sync_extraction,
+        mock_cancel,
+        mock_pause_schedule,
     ) -> None:
         # A run still holding the slot fails pg_drop_replication_slot, and a wedged Running
         # workflow would block the resumed SKIP-overlap schedules — repair must cancel them.
@@ -11866,7 +11885,14 @@ class TestRepairCDC(APIBaseTest):
         response = self._repair(source)
         assert response.status_code == 200, response.content
         # Only the CDC schema's run is cancelled — unrelated incremental syncs keep running.
-        mock_cancel.assert_called_once_with("cdc-workflow-1")
+        assert {c.args[0] for c in mock_cancel.call_args_list} == {"cdc-workflow-1"}
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "trigger": True}
+        assert "reset_pipeline" not in cdc_schema.sync_type_config
+        mock_pause_schedule.assert_called_once_with(str(cdc_schema.id))
+        mock_unpause_schedule.assert_not_called()
+        mock_trigger.assert_not_called()
+        mock_unpause_extraction.assert_called_once_with(str(source.id))
 
     def test_repair_cdc_conflicts_while_another_repair_holds_the_lock(self) -> None:
         from posthog.redis import get_client

@@ -14,6 +14,8 @@ from unittest import mock
 
 from django.test.client import Client as HttpClient
 
+from temporalio.service import RPCError, RPCStatusCode
+
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
@@ -41,8 +43,12 @@ _PATCH_TARGETS = {
     "sync_cdc_extraction_schedule": (
         "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
     ),
-    "cancel_external_data_workflow": (
-        "products.warehouse_sources.backend.presentation.views.external_data_schema.cancel_external_data_workflow"
+    "cancel_external_data_workflow": "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
+    "pause_external_data_schedule": "products.data_warehouse.backend.facade.api.pause_external_data_schedule",
+    # The load queue lives in the warehouse-sources database, which these tests do not create. Left
+    # real, the probe raises and a reset is handed to capture instead of being applied here.
+    "has_queued_batches": (
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches"
     ),
     "trigger_external_data_workflow": (
         "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
@@ -157,7 +163,11 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
         mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
-        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]) as mock_cancel,
+        mock.patch(
+            _PATCH_TARGETS["cancel_external_data_workflow"],
+            side_effect=RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
+        ) as mock_cancel,
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=False),
         mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
         mock.patch(_PATCH_TARGETS["is_buffered_snapshot_enabled"], return_value=True),
     ):
@@ -180,6 +190,52 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
     assert schema.sync_type_config.get("reset_pipeline") is True
     mock_cancel.assert_called_once_with(running_job.workflow_id)
     mock_trigger.assert_called_once()
+
+
+@pytest.mark.parametrize("action", ["resync", "cdc_table_mode_switch", "re_enable"])
+def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(team, user, client: HttpClient, action):
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode="buffered")
+    if action == "re_enable":
+        ExternalDataSchema.objects.filter(id=schema.id).update(should_sync=False)
+    running_job = ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        schema=schema,
+        status=ExternalDataJob.Status.RUNNING,
+        workflow_id="running-workflow-id",
+    )
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]) as mock_cancel,
+        mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]) as mock_pause,
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
+        mock.patch(f"{_VIEW}.pause_external_data_schedule"),
+        mock.patch(f"{_VIEW}.unpause_external_data_schedule") as mock_view_unpause,
+    ):
+        url = f"/api/environments/{team.pk}/external_data_schemas/{schema.id}"
+        if action == "resync":
+            response = client.post(f"{url}/resync")
+        else:
+            payload = {"cdc_table_mode": "both"} if action == "cdc_table_mode_switch" else {"should_sync": True}
+            response = client.patch(url, data=payload, content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "trigger": True}
+    assert "reset_pipeline" not in schema.sync_type_config
+    assert schema.sync_type_config["cdc_mode"] == "streaming"
+    assert schema.initial_sync_complete is True
+    mock_cancel.assert_called_once_with(running_job.workflow_id)
+    mock_pause.assert_called_once_with(str(schema.id))
+    mock_view_unpause.assert_not_called()
+    mock_trigger.assert_not_called()
 
 
 @pytest.mark.parametrize(("should_sync_before", "should_sync_after"), [(True, False), (False, True)])
@@ -220,6 +276,7 @@ def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team,
     client.force_login(user)
     with (
         mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=False),
         mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
         mock.patch(_PATCH_TARGETS["is_buffered_snapshot_enabled"], return_value=True),
     ):

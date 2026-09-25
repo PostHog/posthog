@@ -19,6 +19,7 @@ from products.data_warehouse.backend.facade.api import (
 )
 from products.warehouse_sources.backend.ad_hoc_sync import (
     SchedulePauseError,
+    SyncStillRunningError,
     WorkflowStartError,
     is_schedule_paused as _is_schedule_paused,
     start_external_data_workflow as _start_external_data_workflow,
@@ -400,6 +401,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             return redirect(_change_url(schema_id))
         except WorkflowStartError as e:
             messages.error(request, f"Failed to trigger sync: {e}")
+            return redirect(_change_url(schema_id))
+        except SyncStillRunningError as e:
+            messages.error(request, str(e))
             return redirect(_change_url(schema_id))
 
         workflow_id = trigger.workflow_id
