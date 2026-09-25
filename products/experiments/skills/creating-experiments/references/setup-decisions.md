@@ -24,7 +24,7 @@ Read these facts:
 Report the mix and leave the choice to the user. Tier: **not decided**.
 These facts give the identity mix on the surface, not whether the same individuals cross identification on it, so they cannot decide bucketing.
 A surface with an even mix may be two separate populations that never cross, and a surface that is almost all identified may still route every one of those people through an anonymous first pageview.
-Say what the mix is, name the options the surface can support, and say what each one would need.
+Say what the mix is, name the options the surface can support under the caveats below, and say what each one would need.
 Ask before you call `experiment-create`. Device-id bucketing needs the flag to exist first, so the choice cannot wait until the draft is made.
 
 Say it plainly when the project has used neither persistence nor device-id bucketing (`previous_experiments.summary.using_persistence` and `previous_experiments.summary.using_device_id_bucketing` both 0), because that is the case where the user has no in-house precedent to reason from. Report it as context, not as a fault.
@@ -41,10 +41,9 @@ A `target_surface.libs[]` row with no `sdk_profile.libs` row of the same `lib` i
 In each of those cases say the option is unchecked, and name the SDK or the cap you could not read.
 An unread server SDK is the one that breaks both options, because it may send flag calls without a device ID and may evaluate them locally.
 
-A mobile SDK puts no `$device_id` on its events, flag calls included, so a `target_surface.libs[]` row with `category: "mobile"` reads near 0 on `device_id_share`.
-When every row on the surface reads that way and `target_surface.libs_truncated` is false, say device-id bucketing is unavailable rather than offering it.
-When `sdk_profile.libs` is empty, `sdk_profile.libs_on_any_event[]` names the platforms the project sends from at all, which settles the same question for a project that sends only from mobile SDKs.
-Trust that read only when `sdk_profile.libs_on_any_event_truncated` is false, because the cap drops the SDKs that sent the fewest events.
+Read the shares rather than the platform. A row near 0 on `device_id_share` cannot carry device-id bucketing whatever its `category`, and the flag service takes a device ID from any SDK that sends one.
+When every row on the surface reads near 0 and `target_surface.libs_truncated` is false, say device-id bucketing is unavailable rather than offering it.
+`sdk_profile.libs_on_any_event[]` names the platforms the project sends from, and that is all it does. It reads no flag call, so it cannot say whether a device ID reaches one or whether an SDK evaluates locally. Do not decide bucketing from it.
 
 `target_surface.device_id_share` and a `sdk_profile.libs` row's `device_id_share` are read from target events and flag-call events, never from the flag requests themselves, so neither proves that a request carried a device ID.
 

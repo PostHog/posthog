@@ -12,6 +12,7 @@ This skill walks through creating a new A/B test experiment: read the project, t
 Create the experiment as a draft quickly, then iterate on metrics and configuration.
 The user gets a tangible draft immediately and can refine it.
 Choose settings from the project's facts rather than asking, and say which choices are guesses.
+Bucketing is the exception: the facts cannot decide it, so ask before you create the experiment.
 
 ## Step 0: Read the project
 
