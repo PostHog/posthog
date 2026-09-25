@@ -31,14 +31,12 @@
  * the only words whose miss leaks anything.
  *
  * Operating points:
- *   prod           the canvas src/scale-plan.ts gives the text detector
- *   fitted-global  the smallest canvas that keeps the plan's rule, where every detector sees its
- *                  subject at least the binding ratio (faces) times the safety factor larger than the
- *                  stored image keeps it, for the stored size the plan chose; never above prod
+ *   prod           the canvas src/scale-plan.ts gives the text detector: the binding ratio times the
+ *                  safety factor over the stored image, within the canvas budget
  *   fitted         the same, with text held only to its own floor ratio (TEXT_FLOOR)
  *   tN             the frame scaled by N, for the recall-against-size sweep
  *
- * --latency repeats the prod and both fitted points per image and reports medians, once with ORT's
+ * --latency repeats the prod and fitted points per image and reports medians, once with ORT's
  * KleidiAI kernels and once without. On an SME-capable Mac those kernels run fp32 convolutions on the
  * matrix unit, which Graviton does not have, so the numbers without them are the closer proxy.
  */
@@ -49,9 +47,9 @@ import * as ort from 'onnxruntime-node'
 
 import { detectTextDbnet, loadDbnet } from '../src/dbnet.ts'
 import { numFromEnv } from '../src/env.ts'
-import { TEXT_FLOOR, bindingRatio, requiredRatio } from '../src/floors.ts'
+import { TEXT_FLOOR, requiredRatio } from '../src/floors.ts'
 import { type Box } from '../src/geometry.ts'
-import { type Dims, fitToCanvas, limitsFromEnv, planScales } from '../src/scale-plan.ts'
+import { type Dims, fitTextToStored, fitToCanvas, limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc, probeDims, srcSharp } from '../src/src-image.ts'
 import { type GtImage } from './text-det-setup.ts'
 
@@ -458,16 +456,6 @@ async function planImage(set: string, gt: GtImage, wanted: string[]): Promise<Im
     const src = await decodeSrc(buf, plan.frame)
     const frame = plan.frame
     const framePixels = frame.width * frame.height
-    // The ratio rule is per axis in pixels: text h px tall in the frame is h * content/frame at the model
-    // and h * stored/frame in the artifact, so the content needs ratio * stored on each axis and no more.
-    const fittedTo = (ratio: number): TextCanvas => {
-        const width = Math.min(plan.text.content.width, Math.ceil(ratio * plan.stored.width))
-        const height = Math.min(plan.text.content.height, Math.ceil(ratio * plan.stored.height))
-        return {
-            content: { width, height },
-            canvas: { width: upToStride(width, limits.stride), height: upToStride(height, limits.stride) },
-        }
-    }
     const points = new Map<string, TextCanvas>()
     const add = (name: string, text: TextCanvas): void => {
         if (wanted.includes(name) || wanted.includes(name.replace(/\d.*$/, 'N'))) {
@@ -475,8 +463,10 @@ async function planImage(set: string, gt: GtImage, wanted: string[]): Promise<Im
         }
     }
     add('prod', plan.text)
-    add('fitted-global', fittedTo(bindingRatio() * limits.safetyFactor))
-    add('fitted', fittedTo(requiredRatio(TEXT_FLOOR) * limits.safetyFactor))
+    add(
+        'fitted',
+        fitTextToStored(plan.text, plan.stored, requiredRatio(TEXT_FLOOR) * limits.safetyFactor, limits.stride)
+    )
     for (const s of SWEEP_SCALES) {
         add(`t${s}`, fitToCanvas(frame, Math.max(1, s ** 2 * framePixels), limits.stride))
     }
@@ -491,8 +481,6 @@ async function planImage(set: string, gt: GtImage, wanted: string[]): Promise<Im
         prodText: plan.text,
     }
 }
-
-const upToStride = (n: number, stride: number): number => Math.max(stride, Math.ceil(n / stride) * stride)
 
 function scoreWords(
     image: ImagePlan,
@@ -571,13 +559,18 @@ function availableDetectors(names: string[] | undefined): DetectorSpec[] {
 async function quality(): Promise<void> {
     const specs = availableDetectors(arg('detectors')?.split(','))
     const sets = arg('sets')?.split(',') ?? SETS
-    const points = arg('points')?.split(',') ?? ['prod', 'fitted-global', 'fitted', 'tN']
+    const points = arg('points')?.split(',') ?? ['prod', 'fitted', 'tN']
     const limit = Number(arg('limit') ?? 1e9)
     const images = await loadSets(sets, limit)
     const detectors = await Promise.all(specs.map((s) => loadDetector(s, !process.argv.includes('--no-kleidiai'))))
-    const baselineDetector = detectors.find((d) => d.spec.name === PROD_DETECTOR)
-    const baseline = baselineDetector
-        ? { detector: baselineDetector, prodModel: await loadDbnet(join(ROOT, baselineDetector.spec.file)) }
+    const baselineSpec = specs.find((s) => s.name === PROD_DETECTOR)
+    // The check compares logic, so its session keeps production's kernels when --no-kleidiai times the rest without
+    // them. Otherwise the kernels' rounding flips a borderline box and reports a drift that is not there.
+    const baseline = baselineSpec
+        ? {
+              detector: await loadDetector(baselineSpec, true),
+              prodModel: await loadDbnet(join(ROOT, baselineSpec.file)),
+          }
         : null
     console.log(`${images.length} images, detectors: ${specs.map((s) => s.name).join(', ')}\n`)
 
@@ -725,7 +718,7 @@ async function latency(): Promise<void> {
     const specs = availableDetectors(arg('detectors')?.split(','))
     const reps = Number(arg('reps') ?? 5)
     const limit = Number(arg('limit') ?? 12)
-    const points = ['prod', 'fitted-global', 'fitted']
+    const points = ['prod', 'fitted']
     const images = await loadSets(arg('sets')?.split(',') ?? SETS, limit)
     const plans = await Promise.all(images.map(({ set, gt }) => planImage(set, gt, points)))
     console.log(`${plans.length} images x ${reps} reps, medians per image, then mean over images (ms: infer / total)\n`)
