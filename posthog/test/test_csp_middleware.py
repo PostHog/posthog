@@ -365,6 +365,16 @@ class TestAppCspHeaderName(SimpleTestCase):
     def test_other_signed_out_page_stays_report_only_without_the_flag(self, _name: str, path: str, _mock_flag) -> None:
         assert app_csp_header_name(self._request(path, distinct_id=None)) == "Content-Security-Policy-Report-Only"
 
+    @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=False)
+    def test_a_request_without_a_user_follows_the_signed_out_rules(self, _mock_flag: MagicMock) -> None:
+        # CSPMiddleware runs before AuthenticationMiddleware, so a response from a middleware between
+        # the two carries no request.user.
+        assert app_csp_header_name(RequestFactory().get("/login")) == "Content-Security-Policy"
+        assert (
+            app_csp_header_name(RequestFactory().get("/messaging-preferences/abc"))
+            == "Content-Security-Policy-Report-Only"
+        )
+
     @patch("posthog.csp_middleware.posthoganalytics.feature_enabled", return_value=True)
     def test_each_signed_out_document_draws_its_own_bucket(self, mock_flag: MagicMock) -> None:
         app_csp_header_name(self._request("/messaging-preferences/abc", distinct_id=None))
