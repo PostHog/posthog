@@ -12803,11 +12803,7 @@ export const ExperimentsCopyToProjectCreateBody = () => zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const ExperimentsDuplicateCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -18809,11 +18805,7 @@ export const ExperimentsMetricsRecalculationCreateBody = () => zod
     .describe('Request body for triggering a metrics recalculation.')
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsMetricsRecalculationRetrievePathRecalculationIdRegExp = new RegExp(
     '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -18833,11 +18825,7 @@ export const ExperimentsMetricsRecalculationRetrieveParams = () => zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const ExperimentsMetricsRecalculationLatestRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -19036,11 +19024,7 @@ export const ExperimentsShipVariantCreateBody = () => zod.object({
 })
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const ExperimentsTimeseriesResultsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
@@ -19674,11 +19658,7 @@ export const ExperimentsSetupContextCreateBody = () => zod
     )
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const ExperimentsStatsRetrieveParams = () => zod.object({
     project_id: zod

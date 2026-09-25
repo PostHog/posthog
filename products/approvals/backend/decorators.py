@@ -22,6 +22,7 @@ from products.approvals.backend.actions.registry import get_action
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 from products.approvals.backend.notifications import send_approval_requested_notification
+from products.approvals.backend.permissions import can_read_change_requests
 from products.approvals.backend.policies import PolicyDecision, PolicyEngine
 from products.approvals.backend.serializers import ChangeRequestSerializer
 
@@ -420,7 +421,7 @@ def _result_to_exception(result: GateResult) -> None:
         )
 
 
-def _result_to_response(result: GateResult) -> Optional[Response]:
+def _result_to_response(result: GateResult, request) -> Optional[Response]:
     """Convert GateResult to Response for viewset context. Returns None for passthrough."""
     if result.action == "passthrough":
         return None
@@ -449,32 +450,30 @@ def _result_to_response(result: GateResult) -> Optional[Response]:
         )
 
     if result.action == "duplicate" and result.change_request:
-        return Response(
-            {
-                "code": "change_request_pending",
-                "error": "A pending approval request already exists for this action",
-                "resource_type": result.resource_type,
-                "resource_id": result.resource_id,
-                "change_request_id": str(result.change_request.id),
-                "existing_change_request": ChangeRequestSerializer(result.change_request).data,
-            },
-            status=status.HTTP_409_CONFLICT,
-        )
+        body = {
+            "code": "change_request_pending",
+            "error": "A pending approval request already exists for this action",
+            "resource_type": result.resource_type,
+            "resource_id": result.resource_id,
+            "change_request_id": str(result.change_request.id),
+        }
+        if can_read_change_requests(request):
+            body["existing_change_request"] = ChangeRequestSerializer(result.change_request).data
+        return Response(body, status=status.HTTP_409_CONFLICT)
 
     if result.action == "require_approval" and result.change_request:
-        return Response(
-            {
-                "code": "approval_required",
-                "status": "approval_required",
-                "message": result.decision.message if result.decision else "Approval required",
-                "resource_type": result.resource_type,
-                "resource_id": result.resource_id,
-                "change_request_id": str(result.change_request.id),
-                "change_request": ChangeRequestSerializer(result.change_request).data,
-                "required_approvers": result.approvers,
-            },
-            status=status.HTTP_409_CONFLICT,
-        )
+        body = {
+            "code": "approval_required",
+            "status": "approval_required",
+            "message": result.decision.message if result.decision else "Approval required",
+            "resource_type": result.resource_type,
+            "resource_id": result.resource_id,
+            "change_request_id": str(result.change_request.id),
+        }
+        if can_read_change_requests(request):
+            body["change_request"] = ChangeRequestSerializer(result.change_request).data
+            body["required_approvers"] = result.approvers
+        return Response(body, status=status.HTTP_409_CONFLICT)
 
     return None
 
@@ -605,7 +604,7 @@ def approval_gate(action_refs: Union[type, str, list]):
                 _result_to_exception(result)
                 return method(self, *args, **kwargs)
             else:
-                response = _result_to_response(result)
+                response = _result_to_response(result, request)
                 if response is not None:
                     return response
                 return method(self, *args, **kwargs)

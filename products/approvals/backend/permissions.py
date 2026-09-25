@@ -1,6 +1,20 @@
 from rest_framework import permissions
 
+from posthog.permissions import get_authenticator_scopes
+
 from products.access_control.backend.models.role import RoleMembership
+
+
+def can_read_change_requests(request) -> bool:
+    """Whether the caller may see change request details, such as intent, policy and approvers.
+
+    A token needs `approvals:read` (or `approvals:write`). Session auth carries no scopes, and every
+    organization member can already read change requests through the change requests API.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is None:
+        return True
+    return any(scope in scopes for scope in ("*", "approvals:read", "approvals:write"))
 
 
 class CanApprove(permissions.BasePermission):

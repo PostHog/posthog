@@ -446,6 +446,10 @@ class EnterpriseExperimentsViewSet(
     TaggedItemViewSetMixin,
     viewsets.ModelViewSet,
 ):
+    """
+    Create, read and update experiments.
+    """
+
     scope_object: Literal["experiment"] = "experiment"
     # bulk_update_tags comes from TaggedItemViewSetMixin and must be opted into PAT access explicitly.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
