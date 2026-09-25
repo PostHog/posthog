@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any
 
 from products.posthog_ai.eval_harness.log_parser import LogParser
@@ -50,6 +51,16 @@ class CreatedMatchAlertWithWebhook(_McpToolScorer):
         )
 
 
+def _spans_about_a_week(call_input: dict[str, Any]) -> bool:
+    try:
+        start = datetime.fromisoformat(str(call_input["window_start"]).replace("Z", "+00:00"))
+        end = datetime.fromisoformat(str(call_input["window_end"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return False
+    # A day of slack either way, since the agent picks its own clock and rounding.
+    return timedelta(days=6) <= end - start <= timedelta(days=8)
+
+
 class EstimatedBeforeBackfill(_McpToolScorer):
     """A successful estimate and no backfill create.
 
@@ -61,10 +72,14 @@ class EstimatedBeforeBackfill(_McpToolScorer):
         return "estimated_before_backfill"
 
     def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
-        estimates = [c for c in parser.get_tool_calls("vision-scanners-backfills-estimate") if not c.is_error]
+        estimates = [
+            c
+            for c in parser.get_tool_calls("vision-scanners-backfills-estimate")
+            if not c.is_error and _spans_about_a_week(c.input)
+        ]
         creates = [c.call_id for c in parser.get_tool_calls("vision-scanners-backfills-create")]
         if not estimates:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "No successful estimate"})
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No successful estimate over the last week"})
         return Score(
             name=self._name(),
             score=0.0 if creates else 1.0,
