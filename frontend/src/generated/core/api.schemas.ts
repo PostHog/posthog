@@ -509,6 +509,7 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -523,6 +524,7 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
     ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -538,6 +540,7 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -579,6 +582,7 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -3719,6 +3723,151 @@ export interface SharingConfigurationApi {
 }
 
 /**
+ * * `draft` - Draft
+ * * `pending` - Pending
+ * * `approved` - Approved
+ * * `in_progress` - In Progress
+ * * `queued` - Queued
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type RequestStatusEnumApi = (typeof RequestStatusEnumApi)[keyof typeof RequestStatusEnumApi]
+
+export const RequestStatusEnumApi = {
+    Draft: 'draft',
+    Pending: 'pending',
+    Approved: 'approved',
+    InProgress: 'in_progress',
+    Queued: 'queued',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * Submitted HogQL variable snapshot.
+ */
+export type DataDeletionRequestApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestApi {
+    /** Deletion request identifier. */
+    readonly id: string
+    /** Current deletion workflow status.
+     *
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: RequestStatusEnumApi
+    /** Submitted HogQL query snapshot. */
+    readonly query: string
+    /** Submitted HogQL variable snapshot. */
+    readonly variables: DataDeletionRequestApiVariables
+    /**
+     * Client-generated idempotency identifier.
+     * @nullable
+     */
+    readonly submission_id: string | null
+    /**
+     * Number of selected events, when calculated.
+     * @nullable
+     */
+    readonly count: number | null
+    /**
+     * Identifier of the user who submitted the request.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+    /**
+     * Whether the submitter was a PostHog staff user.
+     * @nullable
+     */
+    readonly created_by_staff: boolean | null
+    /** Time when the request was submitted. */
+    readonly created_at: string
+    /** Time when the request last changed. */
+    readonly updated_at: string
+    /**
+     * Time when the request was approved, if approved.
+     * @nullable
+     */
+    readonly approved_at: string | null
+    /**
+     * Time when selection statistics were calculated, if available.
+     * @nullable
+     */
+    readonly stats_calculated_at: string | null
+}
+
+export interface PaginatedDataDeletionRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataDeletionRequestApi[]
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestCreateApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestCreateApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestCreateApiVariables
+    /** Client-generated identifier that makes request submission idempotent. */
+    submission_id: string
+}
+
+export interface DataDeletionConflictApi {
+    /** Reason the deletion request could not be created in the current state. */
+    readonly detail: string
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestInputApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestInputApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestInputApiVariables
+}
+
+export interface DataDeletionPreviewApi {
+    /** Number of event UUIDs selected when the preview ran. */
+    readonly count: number
+}
+
+/**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
  * * `text/csv` - text/csv
@@ -5404,6 +5553,17 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ExportsListParams = {

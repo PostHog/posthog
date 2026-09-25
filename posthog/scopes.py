@@ -91,6 +91,7 @@ APIScopeObject = Literal[
     "mcp_registry",
     "metrics",
     "notebook",
+    "offline_evaluation_ingestion",
     "organization",
     "organization_integration",
     "organization_member",
@@ -136,6 +137,7 @@ APIScopeObject = Literal[
     "web_analytics",
     "webhook",
     "wizard_session",
+    "wizard_run",
 ]
 
 
@@ -210,6 +212,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "wizard_session",
+        "wizard_run",
         "query_performance",
         # Staff-only managed-migrations (batch import) support diagnostics, also gated by
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
@@ -236,6 +239,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    ("offline_evaluation_ingestion", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

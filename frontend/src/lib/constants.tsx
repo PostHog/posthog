@@ -221,6 +221,7 @@ export const FEATURE_FLAGS = {
     METRIC_INSIGHT: 'metric-insight', // owner: @sampennington #team-product-analytics
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
+    REPLAY_BROWSER_SCROLL_BUG: 'replay-browser-scroll-bug', // owner: #team-replay, temporary: gates the rendered-scroll diagnostic
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_PLAYER_PERSON_SESSIONS_TAB: 'replay-player-person-sessions-tab', // owner: @ksvat #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
@@ -390,6 +391,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_NEW_DASHBOARD: 'new-marketing-analytics-dashboard', // owner: @jabahamondes #team-web-analytics — gates the redesigned dashboard and all of its sections
+    MARKETING_ANALYTICS_OPENAI_ADS: 'marketing-analytics-openai-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_RETENTION: 'marketing-analytics-retention', // owner: @jabahamondes #team-web-analytics — gates the legacy Retention explorer tab; the new dashboard ignores it
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
     MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
@@ -427,7 +429,6 @@ export const FEATURE_FLAGS = {
     ONBOARDING_WIZARD_SIDEBAR: 'onboarding-wizard-sidebar', // owner: @fercgomes #team-growth multivariate=control,test — gates the installation status item in the sidebar footer
     ONBOARDING_WIZARD_SYNC: 'onboarding-wizard-sync', // owner: @fercgomes #team-growth multivariate=control,test — gates the live wizard sync progress panel
     ONBOARDING_WIZARD_SYNC_MODE: 'onboarding-wizard-sync-mode', // owner: @fercgomes #team-growth multivariate=sse,polling — how the wizard sync panel pulls run updates (SSE stream vs REST polling); payload carries polling_interval_secs
-    ORG_NOTIFICATION_GOVERNANCE: 'org-notification-governance', // owner: @yasen-posthog #team-platform-features, lets org admins set members' email notification settings
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
     PAGE_REPORTS_RANKED_URL_SEARCH: 'page-reports-ranked-url-search', // owner: @jordanm-posthog #team-web-analytics
@@ -445,7 +446,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
-    PRODUCT_ANALYTICS_CHART_ALTERNATIVES: 'product-analytics-chart-alternatives', // owner: #team-product-analytics
+    PRODUCT_ANALYTICS_CHART_ALTERNATIVES: 'product-analytics-chart-gallery', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_MODAL_SMART_DEFAULTS: 'product-analytics-dashboard-modal-smart-defaults', // owner: @sam #team-product-analytics
     PRODUCT_ANALYTICS_HOME_TAB: 'product-analytics-home-tab', // owner: #team-product-analytics
@@ -582,6 +583,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_TILE_SKELETONS: 'web-analytics-tile-skeletons', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_TOOLTIP_COMPARISON_LABELS: 'web-analytics-tooltip-comparison-labels', // owner: @lricoy #team-web-analytics
+    WIZARD_RUN_SYNC: 'wizard-run-sync', // owner: #team-growth multivariate=wizard-session,wizard-run — selects the Wizard sync widget
     WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface and its sidebar entry
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_RUN_SCOUT_ACTION: 'workflow-run-scout-action', // owner: #team-workflows
