@@ -61,6 +61,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
+    CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG,
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
@@ -82,6 +83,10 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountTrackRuleRunRequestSerializer,
     AccountTrackRuleRunSerializer,
     AccountTrackRulesConfigSerializer,
+    AccountViewCreateSerializer,
+    AccountViewDeleteQuerySerializer,
+    AccountViewSerializer,
+    AccountViewUpdateSerializer,
     CalendarSyncBackfillSerializer,
     CalendarSyncStatusSerializer,
     CalendarSyncTriggerResponseSerializer,
@@ -864,6 +869,106 @@ class FeatureRequestViewSet(
         if history is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(FeatureRequestStatusHistorySerializer(instance=history, many=True).data)
+
+
+class AccountViewTemplateViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    serializer_class = AccountViewSerializer
+    lookup_value_regex = r"[0-9a-f-]{36}"
+    queryset = None
+    pagination_class = None
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG
+
+    @extend_schema(responses={200: AccountViewSerializer(many=True)}, summary="List account views")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        views = api.list_account_views(team_id=self.team_id, user_id=cast(User, request.user).id)
+        return Response(AccountViewSerializer(instance=views, many=True).data)
+
+    @extend_schema(responses={200: AccountViewSerializer}, summary="Get an account view")
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        view = api.get_account_view(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            view_id=UUID(self.kwargs["pk"]),
+        )
+        if view is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountViewSerializer(instance=view).data)
+
+    @validated_request(
+        request_serializer=AccountViewCreateSerializer,
+        responses={201: AccountViewSerializer, 400: OpenApiResponse(description="The content is invalid.")},
+        summary="Create a private account view",
+    )
+    def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            view = api.create_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                name=request.validated_data["name"],
+                content=request.validated_data["content"],
+            )
+        except api.InvalidAccountViewContent as error:
+            raise ValidationError({"content": error.errors})
+        return Response(AccountViewSerializer(instance=view).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=AccountViewUpdateSerializer,
+        responses={
+            200: AccountViewSerializer,
+            400: OpenApiResponse(description="The request is invalid."),
+            404: OpenApiResponse(description="The view was not found."),
+            409: OpenApiResponse(description="The view changed since the supplied version."),
+        },
+        summary="Update an account view",
+    )
+    def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        try:
+            view = api.update_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                view_id=UUID(self.kwargs["pk"]),
+                expected_version=request.validated_data["version"],
+                name=request.validated_data.get("name"),
+                content=request.validated_data.get("content"),
+            )
+        except api.InvalidAccountViewContent as error:
+            raise ValidationError({"content": error.errors})
+        except api.AccountViewVersionConflict as error:
+            raise Conflict(str(error))
+        if view is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountViewSerializer(instance=view).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="version",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Version returned by the last read.",
+            )
+        ],
+        responses={204: None, 404: OpenApiResponse(), 409: OpenApiResponse()},
+        summary="Delete an account view",
+    )
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = AccountViewDeleteQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            deleted = api.delete_account_view(
+                team_id=self.team_id,
+                user_id=cast(User, request.user).id,
+                view_id=UUID(self.kwargs["pk"]),
+                expected_version=query.validated_data["version"],
+            )
+        except api.AccountViewVersionConflict as error:
+            raise Conflict(str(error))
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class UserConfigCanonicalTeamAccessPermission(BasePermission):

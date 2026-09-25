@@ -50,6 +50,7 @@ from products.customer_analytics.backend.facade.contracts import (
     TASK_DIGEST_SEND_TIME_FORMAT,
     AccountAssignment,
     AccountChannelSummaryView,
+    AccountDetails,
     AccountNotebookView,
     AccountNoteView,
     AccountPresence,
@@ -84,6 +85,7 @@ from products.customer_analytics.backend.facade.contracts import (
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
+    AccountViewVisibility,
     TaskDigestCadence,
 )
 
@@ -960,6 +962,104 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
         return value
 
 
+class AccountViewMarkdownAttributesSerializer(serializers.Serializer):
+    nodeId = serializers.CharField(help_text="Stable identifier for this document.")
+    markdown = serializers.CharField(help_text="Component-only Markdown stored by the account view editor.")
+
+
+class AccountViewMarkdownNodeSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["ph-markdown-notebook"],
+        help_text="Markdown notebook node type.",
+    )
+    attrs = AccountViewMarkdownAttributesSerializer(help_text="Markdown notebook attributes.")
+
+
+class AccountViewContentSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=["doc"], help_text="Document root type.")
+    content = serializers.ListField(
+        child=AccountViewMarkdownNodeSerializer(),
+        min_length=1,
+        max_length=1,
+        help_text="The single Markdown notebook node containing the account view components.",
+    )
+
+
+class AccountViewSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Stable account view identifier.")
+    name = serializers.CharField(read_only=True, help_text="Name shown in the account view.")
+    visibility = serializers.CharField(read_only=True, help_text="Account views created through this API are private.")
+    content = AccountViewContentSerializer(read_only=True, help_text="Validated Markdown notebook document.")
+    text_content = serializers.CharField(
+        read_only=True, help_text="Searchable component labels extracted from content."
+    )
+    version = serializers.IntegerField(read_only=True, help_text="Optimistic concurrency version.")
+    created_by = serializers.IntegerField(read_only=True, allow_null=True, help_text="Creator user ID.")
+    last_modified_by = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="User ID that last changed the view.",
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the view was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the view was last changed.")
+
+    class Meta:
+        dataclass = AccountView
+        ref_name = "AccountView"
+        fields = [
+            "id",
+            "name",
+            "visibility",
+            "content",
+            "text_content",
+            "version",
+            "created_by",
+            "last_modified_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class AccountViewCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=400, allow_blank=False, trim_whitespace=True, help_text="View name.")
+    content = AccountViewContentSerializer(help_text="Initial account view components.")
+
+
+class AccountViewUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=400,
+        allow_blank=False,
+        trim_whitespace=True,
+        required=False,
+        help_text="New view name. Omit to keep the current name.",
+    )
+    content = AccountViewContentSerializer(
+        required=False,
+        help_text="Replacement account view components. Omit to keep current content.",
+    )
+    visibility = serializers.ChoiceField(
+        choices=AccountViewVisibility.choices,
+        required=False,
+        write_only=True,
+        help_text="Views can only be private.",
+    )
+    version = serializers.IntegerField(min_value=1, help_text="Version returned by the last read.")
+
+    def validate_visibility(self, value: str) -> str:
+        if value != AccountViewVisibility.PRIVATE:
+            raise serializers.ValidationError("Views can only be private.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "version" not in attrs:
+            raise serializers.ValidationError({"version": "This field is required."})
+        return attrs
+
+
+class AccountViewDeleteQuerySerializer(serializers.Serializer):
+    version = serializers.IntegerField(min_value=1, help_text="Version returned by the last read.")
+
+
 class CustomerJourneySerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
     insight = serializers.IntegerField()
@@ -1052,7 +1152,7 @@ class AccountSerializer(DataclassSerializer):
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
-        dataclass = AccountView
+        dataclass = AccountDetails
         ref_name = "Account"
         fields = [
             "id",
