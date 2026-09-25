@@ -35,7 +35,11 @@ def _compilable_value(value: Any, item_type: str | None) -> Any:
 
 
 def _item_types(inputs_schema: Any) -> dict[str, str | None]:
-    return {entry.get("key"): entry.get("type") for entry in (inputs_schema or []) if isinstance(entry, dict)}
+    return {
+        entry["key"]: entry.get("type")
+        for entry in (inputs_schema or [])
+        if isinstance(entry, dict) and isinstance(entry.get("key"), str)
+    }
 
 
 def _mappings(hog_function: HogFunction) -> list[dict[str, Any]]:
