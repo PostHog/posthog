@@ -95,15 +95,41 @@ precomputes experiment results on a schedule (gated behind a minimum runtime —
 `data: null` placeholders that fill in on their own. Transient query load (e.g. rate-limiting at the
 moment you pulled the snapshot) produces the same shape.
 
-**Disambiguate transient from a real failure before reporting it:**
+**Disambiguate transient from a real failure before reporting it.** Every call below needs `id`, the
+experiment ID resolved in Step 1 of `SKILL.md`. `experiment-results-get` has no implicit current
+experiment.
 
-- **Re-pull** `experiment-results-get` (cached) a while later — if the previously-null rows now carry
-  data, they were transient, not failing.
-- **Force one recompute** with `experiment-results-get { refresh: true }` — this triggers an on-demand
-  compute of every metric. If it returns the rows populated (no `data: null`), the backend compute path
-  is healthy and the earlier nulls were transient. If a row stays `null` after a successful
-  force-refresh, that metric genuinely fails to compute — then inspect its definition (e.g. a `mean`
-  metric over a property that doesn't exist, a baseline of zero, or a malformed funnel).
+- **Re-pull** `experiment-results-get { id: <experiment_id> }` a while later — if the previously-null
+  rows now carry data, they were transient, not failing. **A row that stays `null` is unresolved, not
+  proven broken.** The tool fires every metric query at once, and it turns any single query failure
+  (an exhausted rate-limit retry, a network error) into `data: null` while the call as a whole still
+  reports success. So every pull produces nulls of its own under load. Pull again once the load
+  clears, and report a metric as failing to compute only after the row stays `null` across separate
+  pulls. Then inspect its definition (e.g. a `mean` metric over a property that doesn't exist, a
+  baseline of zero, or a malformed funnel).
+- **Don't add `refresh: true` as a second check.** The tool omits the field when `refresh` is false,
+  and the query endpoint reads an omitted value as the `blocking` execution mode — the same mode
+  `refresh: true` asks for. That mode computes a metric whose cache is missing or stale, and serves a
+  fresh cache otherwise. So the plain pull above is not cache-only, `refresh: true` is not a forced
+  recompute, and a populated row is no proof that the compute path ran. A second call carrying it
+  repeats the whole metric fan-out for the same result, and only adds rate-limit pressure. The tool's
+  own description still offers `refresh=true` as a way to force fresh computation. That line
+  overstates the mode, so don't read a populated row as a recompute on the strength of it.
+- **To force a real recompute**, call `experiment-metrics-recalculation-create { id: <experiment_id> }`
+  and keep the run `id` it returns. Poll that run with
+  `experiment-metrics-recalculation-retrieve { id: <experiment_id>, recalculation_id: <run_id> }` until
+  its `status` is `completed` or `failed`. **Bound that loop.** Wait two seconds between polls. Stop
+  after 30 minutes, or after five failed requests in a row. Then report the run `id` and call the
+  recalculation unresolved. Only a later `create` call force-fails a stalled run. A run whose workflow
+  stalls holds `pending` or `in_progress`, and never reaches a terminal status. Each poll of an
+  `in_progress` run also reads ClickHouse system tables for live progress, so a tight loop adds load
+  for nothing. The results page polls on the same three limits. **Don't poll
+  `experiment-metrics-recalculation-latest-retrieve` for a run you just started.** It answers with the
+  last run that already finished, and reports the new one only under `active_run`. So it says
+  `completed` on the first poll, and hands back the same stale rows you are trying to explain. No
+  `refresh` value on `experiment-results-get` recalculates a metric whose cache is already fresh.
+  Creating the run needs the `experiment:write` scope, and polling it needs `experiment:read`, so ask
+  for both.
 
 Two cautions:
 
@@ -113,7 +139,7 @@ Two cautions:
   reporting "many metrics failing"; jumping straight to "prune metrics / overloaded refresh" from one
   snapshot is a known false positive.
 - **Backend results health ≠ the user's in-app loading experience.** `experiment-results-get` computing
-  cleanly (even on force-refresh) does not prove the results _page_ loads for the user — a browser
+  cleanly does not prove the results _page_ loads for the user — a browser
   rendering many metrics on demand can still time out client-side. If the complaint is "results won't
   load" but the API computes fine, the issue is front-end / on-demand-render, not the metric queries;
   don't report it as a query failure.
