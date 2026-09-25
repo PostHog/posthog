@@ -11,11 +11,11 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr, get_property_type, property_to_expr
+from posthog.hogql.property import get_property_type, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_goals_actions import select_goal_actions
 from products.web_analytics.backend.hogql_queries.web_goals_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -43,10 +43,8 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("actions"):
-            actions = Action.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by(
-                "pinned_at", "-last_calculated_at"
-            )[:5]
-            if not actions:
+            goals = select_goal_actions(self.team)
+            if not goals:
                 raise NoActionsError("No actions found")
 
         with self.timings.measure("date_expr"):
@@ -56,11 +54,8 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
         with self.timings.measure("aliases"):
             inner_aliases: list[ast.Expr] = []
             outer_aliases: list[ast.Expr] = []
-            action_exprs: list[ast.Expr] = []
-            for n, action in enumerate(actions):
-                expr = action_to_expr(action)
-                action_exprs.append(expr)
-
+            action_exprs: list[ast.Expr] = [expr for _, expr in goals]
+            for n, (action, expr) in enumerate(goals):
                 # Current/previous count
                 inner_aliases.append(
                     ast.Alias(

@@ -22,6 +22,8 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql.errors import BaseHogQLError
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -235,6 +237,12 @@ def get_goals_for_team(
         runner = WebGoalsQueryRunner(team=team, query=query)
         response = _require_digest_response(runner.run(execution_mode=execution_mode, user=user))
     except NoActionsError:
+        return []
+    except BaseHogQLError as e:
+        # Section boundary: a goals query that cannot build or run costs the reader the
+        # goals section, not the whole digest.
+        logger.warning("WA digest could not build the goals section", team_id=team.id, error=str(e))
+        capture_exception(e, {"team_id": team.id})
         return []
 
     results = []
