@@ -27,6 +27,7 @@ export const colors = {
   sceneTint: dyn("rgba(238, 239, 233, 0.72)", "rgba(21, 21, 21, 0.72)"),
   accent: brand.tangerine.core,
   danger: brand.coral.core,
+  dangerText: dyn("#B42318", brand.coral.lighter),
   ok: brand.green.core,
   // High-contrast buttons: ink on tan, tan on ink.
   dark: dyn("#151515", "#EEEFE9"),
