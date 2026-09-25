@@ -1374,7 +1374,6 @@ class TestHogFlowAPI(APIBaseTest):
                     "operator": "exact",
                 }
             ],
-            "window_minutes": None,
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -1392,7 +1391,7 @@ class TestHogFlowAPI(APIBaseTest):
         flow = HogFlow.objects.get(pk=response.json()["id"])
         flow_conversion = flow.conversion
         assert flow_conversion is not None
-        assert flow_conversion["window_minutes"] is None
+        assert "window_minutes" not in flow_conversion
         assert flow_conversion["filters"][0] == {
             "key": "$browser",
             "type": "person",
@@ -1415,7 +1414,7 @@ class TestHogFlowAPI(APIBaseTest):
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
         hog_flow["status"] = "active"
-        hog_flow["conversion"] = {"filters": event_obj, "window_minutes": None}
+        hog_flow["conversion"] = {"filters": event_obj}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
@@ -1435,7 +1434,7 @@ class TestHogFlowAPI(APIBaseTest):
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
         hog_flow["status"] = "active"
-        hog_flow["conversion"] = {"filters": [], "window_minutes": 60, "bytecode": ["_H", 1, 32, "injected"]}
+        hog_flow["conversion"] = {"filters": [], "bytecode": ["_H", 1, 32, "injected"]}
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
@@ -1451,11 +1450,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("zero", {"window": "0d"}, 400),
             ("zero seconds", {"window": "0s"}, 400),
             ("not a duration", {"window": "7 days"}, 400),
-            ("legacy minutes", {"window_minutes": 60}, 201),
-            # 604800 is seven days in seconds, in a field that takes minutes. Rejecting it turns a
-            # silently shortened window into an error that names the unit.
-            ("legacy seconds mistaken for minutes", {"window_minutes": 604800}, 400),
-            ("both forms", {"window": "7d", "window_minutes": 60}, 400),
+            # The field is gone, so DRF drops it like any unknown key rather than rejecting the write.
+            ("removed legacy field", {"window_minutes": 60}, 201),
+            ("removed legacy field alongside a window", {"window": "7d", "window_minutes": 60}, 201),
             # A valid 7-day window padded past the length cap. Without max_length the regex accepts it and
             # it stores as 7 days; the cap rejects it, which is what keeps arbitrarily long input off the
             # regex and the float parse.
@@ -1476,18 +1473,9 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == expected_status, response.json()
 
-    def test_hog_flow_conversion_window_minutes_error_names_the_unit(self):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
-        )
-        hog_flow["conversion"] = {"filters": [], "window_minutes": 604800}
-
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert response.status_code == 400, response.json()
-        assert "minutes" in response.json()["detail"]
-        assert "420 days" in response.json()["detail"]
-
-    def test_hog_flow_conversion_window_minutes_grandfathers_stored_over_ceiling_value(self):
+    def test_hog_flow_conversion_reads_back_a_row_that_still_carries_the_removed_field(self):
+        # Rows written before the field was removed keep the key until the backfill strips it. Reading
+        # one must not fail, or every such workflow breaks between the deploy and that run.
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
@@ -1495,25 +1483,21 @@ class TestHogFlowAPI(APIBaseTest):
         assert create_response.status_code == 201, create_response.json()
         flow_id = create_response.json()["id"]
 
-        # Seed a row from before the ceiling existed, bypassing the serializer that now refuses this value.
         flow = HogFlow.objects.get(id=flow_id)
         flow.conversion = {"filters": [], "window_minutes": 604800}
         flow.save()
 
-        # An unrelated edit that resends the unchanged over-ceiling value must still succeed.
-        unrelated_edit = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"name": "Renamed", "conversion": {"filters": [], "window_minutes": 604800}},
-        )
-        assert unrelated_edit.status_code == 200, unrelated_edit.json()
-        assert unrelated_edit.json()["conversion"]["window_minutes"] == 604800
+        read_back = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+        assert read_back.status_code == 200, read_back.json()
+        assert read_back.json()["conversion"]["window_minutes"] == 604800
 
-        # Changing the stored value to a different over-ceiling value is still refused.
-        changed = self.client.patch(
+        # And an unrelated edit still succeeds; the key is simply not carried forward.
+        renamed = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"conversion": {"filters": [], "window_minutes": 700000}},
+            {"name": "Renamed", "conversion": {"filters": [], "window": "7d"}},
         )
-        assert changed.status_code == 400, changed.json()
+        assert renamed.status_code == 200, renamed.json()
+        assert "window_minutes" not in renamed.json()["conversion"]
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
@@ -1556,7 +1540,6 @@ class TestHogFlowAPI(APIBaseTest):
                             "operator": "exact",
                         }
                     ],
-                    "window_minutes": None,
                 }
             },
         )
@@ -1574,7 +1557,7 @@ class TestHogFlowAPI(APIBaseTest):
         flow = HogFlow.objects.get(pk=flow_id)
         flow_conversion = flow.conversion
         assert flow_conversion is not None
-        assert flow_conversion["window_minutes"] is None
+        assert "window_minutes" not in flow_conversion
         assert flow_conversion["filters"][0] == {
             "key": "$browser",
             "type": "person",
@@ -2067,7 +2050,6 @@ class TestHogFlowAPI(APIBaseTest):
             "status": "active",
             "actions": [trigger_action],
             "conversion": {
-                "window_minutes": 60,
                 "events": [
                     {
                         "filters": {
@@ -2123,7 +2105,6 @@ class TestHogFlowAPI(APIBaseTest):
             "status": "active",
             "actions": [trigger_action],
             "conversion": {
-                "window_minutes": 60,
                 "events": [
                     {"filters": {"events": []}},
                     {"filters": {"actions": [{"id": str(action.id), "type": "actions", "order": 0}], "events": []}},
@@ -2160,7 +2141,6 @@ class TestHogFlowAPI(APIBaseTest):
             # No status => draft, so invalid filters are tolerated rather than rejected.
             "actions": [trigger_action],
             "conversion": {
-                "window_minutes": 60,
                 "events": [
                     {
                         "filters": {
