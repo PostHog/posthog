@@ -165,12 +165,12 @@ export interface observationSearchLogicActions {
 export interface observationSearchLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        expiredSessionIds: (unavailableSessionIds: string[]) => Set<string>
         pageCount: (results: ObservationSearchResultApi[] | null) => number
         pageResults: (results: ObservationSearchResultApi[] | null, page: number) => ObservationSearchResultApi[]
         pageStartIndex: (page: number) => number
         pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
         topMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
-        expiredSessionIds: (unavailableSessionIds: string[]) => Set<string>
     }
 }
 
