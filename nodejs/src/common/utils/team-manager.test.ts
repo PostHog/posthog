@@ -116,16 +116,22 @@ describe('TeamManager()', () => {
         })
 
         it('efficiently loads multiple teams', async () => {
+            const otherTeamId = await createTeam(postgres, organizationId)
+            const otherTeam = (await getTeam(postgres, otherTeamId))!
+
             const promises = [
                 teamManager.getTeam(teamId),
                 teamManager.getTeamByToken(teamToken),
                 teamManager.getTeam(teamId),
                 teamManager.getTeamByToken(teamToken),
                 teamManager.getTeamByToken('missing'),
+                // Only a token names this team, so the batch resolves it only if the per-column
+                // reads are merged.
+                teamManager.getTeamByToken(otherTeam.api_token),
             ]
             const results = await Promise.all(promises)
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
-            expect(results.map((r) => r?.id)).toEqual([teamId, teamId, teamId, teamId, undefined])
+            expect(results.map((r) => r?.id)).toEqual([teamId, teamId, teamId, teamId, undefined, otherTeamId])
         })
 
         it('caches null results for non-existing tokens', async () => {

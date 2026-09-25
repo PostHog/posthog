@@ -110,26 +110,11 @@ export class TeamManager {
         }
     }
 
-    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
-        const [teamIds, tokens] = teamIdOrTokens.reduce(
-            ([teamIds, tokens], idOrToken) => {
-                // TRICKY: We are caching ids and tokens so we need to determine which is which
-                // Fix this to be a prefix based lookup. Added hack to limit to positive integer
-                // that shouldn't overflow 32-bit integer in DB column.
-                if (/^\d{1,10}$/.test(idOrToken)) {
-                    const parsed = parseInt(idOrToken)
-                    // TODO: stat if this happens
-                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
-                        teamIds.push(parsed)
-                    }
-                } else {
-                    tokens.push(idOrToken)
-                }
-                return [teamIds, tokens]
-            },
-            [[] as number[], [] as string[]]
-        )
-
+    private async fetchTeamRows(
+        column: 't.id' | 't.api_token',
+        keys: number[] | string[],
+        tag: string
+    ): Promise<RawTeam[]> {
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
             `SELECT
@@ -156,11 +141,41 @@ export class TeamManager {
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
-            WHERE t.id = ANY($1) OR t.api_token = ANY($2)
+            WHERE ${column} = ANY($1)
             `,
-            [teamIds, tokens],
-            'fetch-teams-with-features'
+            [keys],
+            tag
         )
+        return result.rows
+    }
+
+    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
+        const [teamIds, tokens] = teamIdOrTokens.reduce(
+            ([teamIds, tokens], idOrToken) => {
+                // TRICKY: We are caching ids and tokens so we need to determine which is which
+                // Fix this to be a prefix based lookup. Added hack to limit to positive integer
+                // that shouldn't overflow 32-bit integer in DB column.
+                if (/^\d{1,10}$/.test(idOrToken)) {
+                    const parsed = parseInt(idOrToken)
+                    // TODO: stat if this happens
+                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
+                        teamIds.push(parsed)
+                    }
+                } else {
+                    tokens.push(idOrToken)
+                }
+                return [teamIds, tokens]
+            },
+            [[] as number[], [] as string[]]
+        )
+
+        // One read per column, and none at all for a column the batch does not ask about. Matching
+        // both columns in one statement gives the planner an OR it can only serve by combining two
+        // index scans, and makes it do that even when one side is an empty array.
+        const rowsPerColumn = await Promise.all([
+            teamIds.length ? this.fetchTeamRows('t.id', teamIds, 'fetch-teams-with-features-by-id') : [],
+            tokens.length ? this.fetchTeamRows('t.api_token', tokens, 'fetch-teams-with-features-by-token') : [],
+        ])
 
         // Initialize result record with nulls for all requested IDs/tokens
         const resultRecord: Record<string, Team | null> = {}
@@ -169,7 +184,7 @@ export class TeamManager {
         }
 
         // Fill in actual teams where they exist
-        result.rows.forEach((row) => {
+        rowsPerColumn.flat().forEach((row) => {
             const { available_product_features, ...teamPartial } = row
             const team: Team = {
                 ...teamPartial,
