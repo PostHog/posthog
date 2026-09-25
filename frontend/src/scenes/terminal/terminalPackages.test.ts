@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import manifest from './terminal-packages.json'
 import { TerminalFilesystem } from './terminalFilesystem'
@@ -124,9 +124,12 @@ describe('optional terminal packages', () => {
                 for (const dependency of [...pkg.dependencies, id]) {
                     const stage = join(directory, dependency)
                     mkdirSync(join(stage, 'bin'), { recursive: true })
-                    writeFileSync(join(stage, 'bin', dependency), '#!/bin/sh\nprintf "launched:%s\\n" "$@"\n', {
-                        mode: 0o700,
-                    })
+                    const binaries = new Set(Object.values(packages[dependency].commands).map((path) => basename(path)))
+                    for (const binary of binaries) {
+                        writeFileSync(join(stage, 'bin', binary), '#!/bin/sh\nprintf "launched:%s\\n" "$@"\n', {
+                            mode: 0o700,
+                        })
+                    }
                     expect(
                         spawnSync('tar', ['-cf', join(mount, 'packages', `${dependency}.tar`), '-C', stage, '.']).status
                     ).toBe(0)
