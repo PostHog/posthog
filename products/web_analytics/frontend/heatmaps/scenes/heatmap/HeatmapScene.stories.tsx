@@ -49,6 +49,7 @@ const meta: Meta = {
                     has_secret: false,
                     cookie_delivery_enabled: true,
                 },
+                '/api/projects/:team_id/saved/': { results: [], count: 0, next: null, previous: null },
                 '/api/projects/:team_id/saved/hm_gen/': generatingSaved,
                 '/api/projects/:team_id/heatmap_screenshots/:id/content/': () => [202, generatingSaved],
             },
