@@ -1,6 +1,7 @@
 import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -14,6 +15,11 @@ export interface RunCancellationLogicProps {
 }
 
 export type CancellationState = 'waiting' | 'sending' | null
+
+// The sandbox can go away between the click and the request. The run is already stopped, so this is not a failure.
+function isGoneSandboxError(error: unknown): boolean {
+    return error instanceof ApiError && error.status === 400 && error.code === 'sandbox_not_ready'
+}
 
 function confirmsAgentReady(entry: StoredLogEntry, runId: string): boolean {
     const { method, params } = entry.notification
@@ -156,8 +162,10 @@ export const runCancellationLogic: LogicWrapper<runCancellationLogicType> = kea<
             } catch (error) {
                 if (!disposables.isDisposed && cache.cancelRequest === request && values.bootstrappedRunId === runId) {
                     actions.clearCancellation()
-                    lemonToast.error("Couldn't stop this run. Please try again.")
-                    posthog.captureException(error)
+                    if (!isGoneSandboxError(error)) {
+                        lemonToast.error("Couldn't stop this run. Please try again.")
+                        posthog.captureException(error)
+                    }
                 }
             }
         },
