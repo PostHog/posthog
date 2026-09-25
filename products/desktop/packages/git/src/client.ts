@@ -12,6 +12,19 @@ export const PERFORMANCE_CONFIG = [
   "core.preloadIndex=true",
 ];
 
+/**
+ * Forces the default `a/`/`b/` header shape on a patch read, which the user's
+ * own gitconfig decides otherwise: `diff.mnemonicPrefix`, `diff.noprefix` and
+ * `color.diff` all produce a header our parsers read no filename out of. The
+ * prefixes need flags, because the `diff.srcPrefix` key loses to those keys.
+ */
+export const DIFF_NORMALIZATION_ARGS = [
+  "--no-ext-diff",
+  "--no-color",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+];
+
 export function createGitClient(
   baseDir?: string,
   options?: CreateGitClientOptions,

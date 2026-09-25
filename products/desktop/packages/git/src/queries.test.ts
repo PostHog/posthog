@@ -1,4 +1,5 @@
 import {
+  appendFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -19,8 +20,11 @@ import {
   getAllBranches,
   getBranchDiffPatchesByPath,
   getChangedFilesDetailed,
+  getDiffHead,
   getGitBusyState,
   getLinkedWorktreeMainPath,
+  getStagedDiff,
+  getUnstagedDiff,
   listAllFiles,
   remoteBranchExists,
   splitUnifiedDiffByFile,
@@ -237,6 +241,28 @@ describe("getBranchDiffPatchesByPath", () => {
     }
   });
 
+  it("keys patches by path when the user's gitconfig sets diff.noprefix", async () => {
+    const { repoDir: workDir, remoteDir } = await setupBranchWithCommits();
+    repoDir = workDir;
+
+    try {
+      await appendFile(
+        path.join(workDir, ".git", "config"),
+        "[diff]\n\tnoprefix = true\n",
+      );
+
+      const patches = await getBranchDiffPatchesByPath(
+        workDir,
+        "main",
+        "feature",
+      );
+
+      expect(patches.get("file.txt")).toContain("+changed");
+    } finally {
+      await rm(remoteDir, { recursive: true, force: true });
+    }
+  });
+
   it("returns deletions keyed by their path", async () => {
     const { repoDir: workDir, remoteDir } = await setupBranchWithCommits();
     repoDir = workDir;
@@ -256,6 +282,52 @@ describe("getBranchDiffPatchesByPath", () => {
       expect(patches.get("file.txt")).toContain("deleted file mode");
     } finally {
       await rm(remoteDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Regression: a user's own gitconfig used to decide the diff header shape, and
+// the review pane then read no filename out of it.
+describe("diff reads normalize header prefixes", () => {
+  let repoDir: string | undefined;
+
+  afterEach(async () => {
+    if (repoDir) {
+      await rm(repoDir, { recursive: true, force: true });
+      repoDir = undefined;
+    }
+  });
+
+  it.each([
+    ["diff.mnemonicPrefix", "[diff]\n\tmnemonicPrefix = true\n"],
+    ["diff.noprefix", "[diff]\n\tnoprefix = true\n"],
+    ["diff.external", "[diff]\n\texternal = echo external\n"],
+    ["color.diff", "[color]\n\tdiff = always\n"],
+  ])("keeps a/ and b/ prefixes with %s set", async (_name, config) => {
+    repoDir = await setupRepo();
+    // Written as config text, because simple-git refuses to set `diff.external`
+    // while a user's own gitconfig can still carry it.
+    await appendFile(path.join(repoDir, ".git", "config"), config);
+
+    const git = createGitClient(repoDir);
+    await writeFile(path.join(repoDir, "file.txt"), "staged\n");
+    await git.add(["file.txt"]);
+    await writeFile(path.join(repoDir, "file.txt"), "staged\nunstaged\n");
+
+    const [staged, unstaged, head] = await Promise.all([
+      getStagedDiff(repoDir),
+      getUnstagedDiff(repoDir),
+      getDiffHead(repoDir),
+    ]);
+
+    for (const patch of [staged, unstaged, head]) {
+      expect(patch.split("\n")).toEqual(
+        expect.arrayContaining([
+          "diff --git a/file.txt b/file.txt",
+          "--- a/file.txt",
+          "+++ b/file.txt",
+        ]),
+      );
     }
   });
 });
