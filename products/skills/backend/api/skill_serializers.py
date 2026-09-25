@@ -856,9 +856,7 @@ class LLMSkillCreateSerializer(LLMSkillSerializer):
     )
 
     class Meta(LLMSkillSerializer.Meta):
-        read_only_fields = [
-            f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners", "tags")
-        ]
+        read_only_fields = [f for f in LLMSkillSerializer.Meta.read_only_fields if f not in ("files", "owners", "tags")]
         extra_kwargs = {
             **LLMSkillSerializer.Meta.extra_kwargs,
             "name": {

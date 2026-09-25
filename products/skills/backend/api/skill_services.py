@@ -243,6 +243,8 @@ def compute_spec_problems(name: str, description: str, file_paths: list[str]) ->
     tree real git can clone.
     """
     return [*_name_problems(name), *_description_problems(description), *compute_file_path_problems(file_paths)]
+
+
 def check_skill_tag_name(value: str) -> None:
     """Raise ValueError when a tag name can't survive the list endpoint's tag filter."""
     # The filter takes tags as one comma-separated param, so a comma in a name would split it into
@@ -1164,6 +1166,8 @@ def _backfill_digests(model: type[_DigestModel], queryset: QuerySet[_DigestModel
         model.objects.bulk_update(rows, list(model.DIGEST_FIELDS))
         stamped += len(rows)
         cursor = rows[-1].pk
+
+
 # --- Skill tags -----------------------------------------------------------------------------------
 # Tags are the team's own grouping, keyed on the *logical* skill `(team, skill_name)` exactly like
 # owners above, so publishing a version never regroups a skill. Reads and writes go through

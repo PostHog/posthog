@@ -2144,11 +2144,10 @@ class LLMSkillViewSet(
         tags of the skills on the current page. Same object-level filter the list endpoint applies,
         so the picker never offers a tag that only exists on a skill the list would hide.
         """
-        readable_skills = self.user_access_control.filter_queryset_by_access_level(
-            get_latest_skills_queryset(self.team), resource="llm_skill"
-        )
         return Response(
-            LLMSkillTagOptionsSerializer({"tags": skill_tag_names_for_skills(self.team, readable_skills)}).data
+            LLMSkillTagOptionsSerializer(
+                {"tags": skill_tag_names_for_skills(self.team, self._visible_skills_queryset())}
+            ).data
         )
 
     @extend_schema(
