@@ -824,7 +824,11 @@ class TestLogsAlertAPI(APIBaseTest):
                 "description": "Generic webhook template",
                 "code": "return event",
                 "code_language": "hog",
-                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "inputs_schema": [
+                    {"key": "url", "type": "string"},
+                    {"key": "body", "type": "json"},
+                    {"key": "headers", "type": "dictionary"},
+                ],
                 "type": "destination",
                 "status": "stable",
                 "category": ["Integrations"],
@@ -911,6 +915,28 @@ class TestLogsAlertAPI(APIBaseTest):
                 "logs_alert.auto_disabled",
                 "logs_alert.errored",
             )
+
+    def test_create_webhook_destination_stores_a_custom_body_and_headers(self):
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        body = {"routing_key": "R123", "payload": {"summary": "{event.properties.alert_name}"}}
+        response = self.client.post(
+            self._destinations_url(created["id"]),
+            {
+                "type": "webhook",
+                "webhook_url": "https://events.example.com/v2/enqueue",
+                "webhook_body": body,
+                "webhook_headers": {"X-Routing-Key": "R123"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        hog_functions = HogFunction.objects.filter(id__in=response.json()["hog_function_ids"])
+        for hf in hog_functions:
+            inputs = hf.inputs or {}
+            assert inputs["body"]["value"] == body
+            assert inputs["headers"]["value"]["X-Routing-Key"] == "R123"
 
     def test_create_teams_destination_creates_one_hog_function_per_event_kind(self):
         self._sync_destination_templates()

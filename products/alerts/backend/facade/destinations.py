@@ -35,6 +35,9 @@ MAX_DESTINATIONS_PER_ALERT: Final = 5
 # One destination is one HogFunction, so this only stops a malformed request becoming a huge query.
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST: Final = 100
 
+# Headers every webhook destination sends. A custom header of the same name replaces one of these.
+DEFAULT_WEBHOOK_HEADERS: Final = destination_configs.WEBHOOK_HEADERS
+
 
 def destination_template_id(destination_type: DestinationType) -> str:
     """The HogFunction template one destination type is stored as."""
