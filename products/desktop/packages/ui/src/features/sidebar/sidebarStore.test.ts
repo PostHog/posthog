@@ -1,5 +1,4 @@
 import {
-  ANY_SOURCE,
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DESKTOP_SOURCE,
 } from "@posthog/core/canvas/channelItems";
@@ -31,30 +30,34 @@ describe("sidebarStore", () => {
     {
       label: "the old default",
       version: 0,
-      source: ANY_SOURCE,
-      expected: DESKTOP_SOURCE,
+      source: "any",
+      expected: [DESKTOP_SOURCE],
     },
     {
       label: "an old explicit source",
       version: 0,
       source: "slack",
-      expected: "slack",
+      expected: ["slack"],
     },
     {
-      label: "the new Any source choice",
+      label: "the old Any source choice",
       version: 1,
-      source: ANY_SOURCE,
-      expected: ANY_SOURCE,
+      source: "any",
+      expected: [],
+    },
+    {
+      label: "an old single source",
+      version: 1,
+      source: "slack",
+      expected: ["slack"],
     },
   ])("rehydration preserves $label", async ({ version, source, expected }) => {
+    const { sources: _, ...filters } = DEFAULT_CHANNEL_ITEM_FILTERS;
     localStorage.setItem(
       "sidebar-storage",
       JSON.stringify({
         state: {
-          channelItemFilters: {
-            ...DEFAULT_CHANNEL_ITEM_FILTERS,
-            source,
-          },
+          channelItemFilters: { ...filters, source },
         },
         version,
       }),
@@ -62,7 +65,9 @@ describe("sidebarStore", () => {
 
     await useSidebarStore.persist.rehydrate();
 
-    expect(useSidebarStore.getState().channelItemFilters.source).toBe(expected);
+    const { channelItemFilters } = useSidebarStore.getState();
+    expect(channelItemFilters.sources).toEqual(expected);
+    expect(channelItemFilters).not.toHaveProperty("source");
     localStorage.removeItem("sidebar-storage");
   });
 });
