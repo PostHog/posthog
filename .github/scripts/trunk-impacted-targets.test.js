@@ -810,7 +810,11 @@ test('the agent-skills workflow claims both language families', () => {
 })
 
 test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
-    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
+    for (const file of [
+        '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
+        'Dockerfile.ml-mirror-image-scrub',
+        'Dockerfile.ml-mirror-image-scrub.dockerignore',
+    ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
     }
 })

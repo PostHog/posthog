@@ -1,0 +1,12 @@
+# BuildKit reads this file instead of the root .dockerignore when it builds Dockerfile.ml-mirror-image-scrub.
+# The root file keeps the sidecar's models/ out of every other image, but this image copies its models
+# from the build context.
+*
+!nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/node_modules
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/corpus
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/test-data
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/out
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/tmp
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/*.traineddata
+**/__snapshots__

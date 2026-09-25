@@ -603,6 +603,8 @@ const TRIPWIRE_RULES = [
     // belongs with them.
     ['Dockerfile.llm-analytics', DEPLOY],
     ['Dockerfile.ml-mirror-image-scrub', NODE],
+    // BuildKit reads this ignore file only for the ml-mirror-image-scrub build.
+    ['Dockerfile.ml-mirror-image-scrub.dockerignore', NODE],
     ['Dockerfile.playwright', FULLSTACK],
     ['Dockerfile.sandbox', FULLSTACK],
     ['Dockerfile*', APP_IMAGE],

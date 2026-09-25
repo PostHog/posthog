@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 /**
  * One-time setup: download the ONNX models and a bounded sample of real test images (faces + text),
@@ -11,31 +11,16 @@ import { existsSync } from 'node:fs'
  * The dataset list below is just defaults — swap in whatever faces/text sources you want.
  */
 import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import sharp from 'sharp'
+
+import { assertPinnedSha256, readModelManifest } from './model-manifest.ts'
 
 const ROOT = new URL('..', import.meta.url).pathname
 
-// The models decide what gets redacted, so they're pinned to immutable refs and digest-verified —
-// a mutable `main` URL would let an upstream change (or compromise) silently swap the anonymization
-// control. Keep URLs + digests in sync with Dockerfile.ml-mirror-image-scrub (the image bakes the
-// same files at build time).
-const MODELS: { url: string; file: string; sha256: string }[] = [
-    {
-        url: 'https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/en_PP-OCRv3_det_infer.onnx',
-        file: 'models/dbnet_det.onnx',
-        sha256: 'f139598bc2af4e4b6fe98dec11574e30edfdd91fc94ac1425c18ace3bd5a866b',
-    },
-    {
-        url: 'https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx',
-        file: 'models/yunet.onnx',
-        sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4',
-    },
-    {
-        url: 'https://huggingface.co/OwenElliott/image-safety-classifier-xs/resolve/54f4560bd9c5ee92d45dc30418a8f8680e80de6d/onnx/image-safety-classifier-xs.onnx',
-        file: 'models/safety.onnx',
-        sha256: '8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689',
-    },
-]
+// PostHog engineers have this profile and read the models from the S3 mirror that the image build uses.
+// Everyone else falls back to the upstream URLs, and both paths check the same pinned sha256.
+const MODELS_AWS_PROFILE = 'ml-prod-us'
 
 // HuggingFace datasets to sample (verified reachable via datasets-server). Faces: real faces. Text:
 // dense text + PII-like fields. Swap in others (RICO/WebUI screenshots, COCO-Text/ICDAR scene text).
@@ -88,19 +73,36 @@ async function getBuf(url: string, tries = 3): Promise<Buffer> {
     throw new Error('unreachable')
 }
 
+/** Returns null when the read fails for any reason: no aws CLI, no profile, an expired login, or no object. */
+function readFromS3Mirror(s3Url: string, region: string): Buffer | null {
+    const result = spawnSync(
+        'aws',
+        ['s3', 'cp', s3Url, '-', '--only-show-errors', '--profile', MODELS_AWS_PROFILE, '--region', region],
+        { maxBuffer: 2 ** 30, timeout: 300_000 }
+    )
+    if (result.status === 0) {
+        return result.stdout
+    }
+    console.warn(`  cannot read ${s3Url}: ${result.error?.message ?? result.stderr.toString().trim()}`)
+    return null
+}
+
 async function downloadModels(): Promise<void> {
-    for (const m of MODELS) {
-        const dest = ROOT + m.file
+    const manifest = readModelManifest()
+    for (const model of manifest.models) {
+        const dest = ROOT + model.path
         if (existsSync(dest)) {
             continue
         }
-        const buf = await getBuf(m.url)
-        const digest = createHash('sha256').update(buf).digest('hex')
-        if (digest !== m.sha256) {
-            throw new Error(`${m.file}: sha256 mismatch (got ${digest}, want ${m.sha256}) — refusing to write`)
+        const s3Url = `s3://${manifest.bucket}/${model.s3Key}`
+        const fromS3Mirror = readFromS3Mirror(s3Url, manifest.region)
+        if (!fromS3Mirror) {
+            console.warn(`  ${model.path}: downloading ${model.upstreamUrl} instead`)
         }
-        await mkdir(ROOT + 'models', { recursive: true })
-        await writeFile(dest, buf)
+        const bytes = fromS3Mirror ?? (await getBuf(model.upstreamUrl))
+        assertPinnedSha256(model, bytes, fromS3Mirror ? s3Url : model.upstreamUrl)
+        await mkdir(dirname(dest), { recursive: true })
+        await writeFile(dest, bytes)
     }
 }
 

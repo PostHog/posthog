@@ -43,6 +43,7 @@ jobs:
                       scrub_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**'
                         - 'Dockerfile.ml-mirror-image-scrub'
+                        - 'Dockerfile.ml-mirror-image-scrub.dockerignore'
                         - '.github/workflows/ci-ml-mirror-image-scrub-container.yml'
 
     test:
@@ -121,6 +122,35 @@ jobs:
 
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Assert model mirror role is configured
+              env:
+                  MODELS_ROLE: ${{ vars.AWS_ML_IMAGE_SCRUB_MODELS_IAM_ROLE }}
+              run: |
+                  if [[ -z "$MODELS_ROLE" ]]; then
+                    echo "::error::AWS_ML_IMAGE_SCRUB_MODELS_IAM_ROLE is not set, so the build cannot read the models from S3."
+                    exit 1
+                  fi
+
+            - name: Configure AWS credentials for the model mirror
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ vars.AWS_ML_IMAGE_SCRUB_MODELS_IAM_ROLE }}
+                  aws-region: us-east-1
+                  # A named profile keeps this role out of the job environment, where docker-meta
+                  # exports the ECR role that pushes the image.
+                  aws-profile: ml-image-scrub-models
+
+            - name: Fetch the models into the build context
+              working-directory: nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar
+              run: |
+                  set -euo pipefail
+                  bucket="$(jq -r .bucket models.json)"
+                  jq -r '.models[] | [.s3Key, .path] | @tsv' models.json |
+                    while IFS=$'\t' read -r key path; do
+                      aws s3 cp --profile ml-image-scrub-models --only-show-errors "s3://$bucket/$key" "$path"
+                    done
+                  jq -r '.models[] | "\(.sha256)  \(.path)"' models.json | sha256sum --check --strict
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
