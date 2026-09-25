@@ -5955,6 +5955,14 @@ class MCPHarnessBreakdownItem(BaseModel):
         ...,
         description=('Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other".'),
     )
+    harness_sessions: int | None = Field(
+        default=None,
+        description=(
+            "Distinct sessions in this harness across all tools, in the same window and"
+            " filters. The denominator for the tool's session share within the harness."
+            " Set only when the query has toolName."
+        ),
+    )
     sessions: int
     total_calls: int
 
@@ -6096,6 +6104,17 @@ class MCPToolStatsItem(BaseModel):
     errors: int
     p50_ms: float | None = None
     p95_ms: float | None = None
+    total_calls: int = Field(
+        ...,
+        description=("Calls to any tool in the same window and filters. The denominator for the tool's call share."),
+    )
+    total_conversations: int = Field(
+        ...,
+        description=(
+            "Conversations with a call to any tool in the same window and filters. The"
+            " denominator for the tool's session share."
+        ),
+    )
     users: int
     with_intent: int = Field(
         ...,
