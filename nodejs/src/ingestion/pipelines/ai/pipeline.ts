@@ -43,6 +43,7 @@ import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/e
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
     createEventUsageBeforeBatchStep,
@@ -87,6 +88,7 @@ export interface AiIngestionPipelineConfig {
     overflowLaneTTLRefreshService: OverflowRedirectService
     concurrentBatches: number
     eventSchemaEnforcementEnabled: boolean
+    teamsPrefetchEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
@@ -135,6 +137,7 @@ export function createAiIngestionPipeline<
         overflowLaneTTLRefreshService,
         concurrentBatches,
         eventSchemaEnforcementEnabled,
+        teamsPrefetchEnabled,
         eventSchemaEnforcementManager,
         topHog,
         aiBlobStore,
@@ -170,6 +173,7 @@ export function createAiIngestionPipeline<
             // Kafka message key — the partition key capture computed. Cookieless
             // events count under token:client_ip.
             .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())

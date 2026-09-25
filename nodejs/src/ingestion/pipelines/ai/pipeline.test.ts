@@ -105,6 +105,7 @@ describe('AiIngestionPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -163,6 +164,7 @@ describe('AiIngestionPipeline', () => {
                 [APP_METRICS_OUTPUT]: single(APP_METRICS_OUTPUT, 'clickhouse_app_metrics2_test'),
             }),
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager as any,
             cookielessManager: mockCookielessManager,

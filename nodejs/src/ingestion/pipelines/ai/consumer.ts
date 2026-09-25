@@ -57,6 +57,7 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
         | 'EVENT_SCHEMA_ENFORCEMENT_ENABLED'
+        | 'TEAMS_PREFETCH_ENABLED'
         | 'AI_BLOB_S3_BUCKET'
         | 'AI_BLOB_S3_PREFIX'
         | 'AI_BLOB_S3_ENDPOINT'
@@ -199,6 +200,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             overflowLaneTTLRefreshService: container.overflowLaneTTLRefreshService,
             concurrentBatches: config.INGESTION_WORKER_CONCURRENT_BATCHES,
             eventSchemaEnforcementEnabled: config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
+            teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED,
             // Schema loads run detached in the LazyLoader buffer, so an un-retried transient
             // failure can surface as an unhandled rejection and restart the worker.
             eventSchemaEnforcementManager: new EventSchemaEnforcementManager(container.postgres, {

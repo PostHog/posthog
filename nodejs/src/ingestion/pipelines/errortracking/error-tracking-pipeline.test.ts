@@ -241,6 +241,7 @@ describe('ErrorTrackingPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -323,6 +324,7 @@ describe('ErrorTrackingPipeline', () => {
             }),
             promiseScheduler,
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
             personRepository: mockPersonRepository,
             hogTransformer: mockHogTransformer,
             cymbalClient: mockCymbalClient,

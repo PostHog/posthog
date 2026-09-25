@@ -79,7 +79,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     PersonHogConfig &
     UsageIngestionConfig &
     CookielessServerConfig &
-    Pick<IngestionConsumerConfig, 'KAFKA_BATCH_START_LOGGING_ENABLED'> &
+    Pick<IngestionConsumerConfig, 'KAFKA_BATCH_START_LOGGING_ENABLED' | 'TEAMS_PREFETCH_ENABLED'> &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
