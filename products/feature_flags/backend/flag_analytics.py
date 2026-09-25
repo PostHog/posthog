@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
@@ -13,6 +12,7 @@ from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
+from posthog.models.organization import Organization
 from posthog.redis import get_client, redis
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -175,7 +175,11 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
+    # Subquery on the for_internal_metrics partial index, so Postgres does not read every organization row.
+    teams = Team.objects.exclude(is_demo=True).exclude(
+        organization_id__in=Organization.objects.filter(for_internal_metrics=True).values("id")
+    )
+    for team in teams.only("id", "uuid"):
         capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
