@@ -106,9 +106,10 @@
 # - handle-snapshots sets up Node from .nvmrc for its CI report steps, which canonical runs on
 #   the node that ships with the GitHub-hosted image, and fails with a rebase hint when the PR
 #   head predates .depot/actions/commit-snapshots
-# - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
-#   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
-#   Committed .test_durations is the fallback.
+# - Test durations restored from Depot Cache (posthog-test-durations- prefix). Canonical's
+#   .github/workflows/ci-backend-update-test-timing.yml runs on Depot runners and writes
+#   that same cache, so shard counts match GitHub Actions. Committed .test_durations is the
+#   fallback.
 # - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
 #   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
 #   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
@@ -118,7 +119,7 @@
 # This workflow runs all of our backend django tests.
 #
 # Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
-# .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
+# .github/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: Backend CI on Depot
 # Depot CI copy of canonical Backend CI. Branch protection requires only canonical's
 # `Django Tests Pass`, which relays this workflow's gate when the event ran here. Each event runs on
