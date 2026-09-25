@@ -6,6 +6,8 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { findQueryAtCursor, splitQueries } from 'lib/monaco/multiQueryUtils'
 
+export const SELECTION_LABEL = 'Selection'
+
 export interface SaveCandidates {
     queries: string[]
     initialIndex: number
@@ -30,7 +32,7 @@ export function resolveSaveCandidates(
     if (selectionText) {
         const trimmed = selectionText.trim()
         if (trimmed) {
-            return { queries: [trimmed], initialIndex: 0, selectionLabel: 'Selection' }
+            return { queries: [trimmed], initialIndex: 0, selectionLabel: SELECTION_LABEL }
         }
     }
 
