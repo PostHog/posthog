@@ -131,6 +131,9 @@ export class FetchCandidatePool<T> {
         deadlineMs: number,
         owner?: FetchCandidatePoolOwner
     ): PoolBatch<T> {
+        if (this.closed) {
+            throw new Error('the image fetch candidate pool is closed, so no worker would take these candidates')
+        }
         const nowMs = Date.now()
         const batch: PoolBatch<T> = { owner, entries: [], queued: 0, expiryTimer: undefined }
         const touched = new Set<OriginQueue<T>>()

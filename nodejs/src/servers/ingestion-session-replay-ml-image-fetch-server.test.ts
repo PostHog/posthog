@@ -1,6 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { FetchCandidatePool } from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-candidate-pool'
+import {
+    FetchCandidatePool,
+    FetchCandidatePoolAdmission,
+} from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-candidate-pool'
 import { ImageFetchBatchJoiner } from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import {
     buildImageFetchBatchHandlers,
@@ -85,10 +88,13 @@ describe('image fetch consumer wiring', () => {
               )
             : undefined
         const fetchConsumer = { handleBatch: jest.fn().mockResolvedValue(undefined) }
-        const joiner = { handleBatch: jest.fn().mockResolvedValue(undefined) }
+        const joiner = {
+            handleBatch: jest.fn().mockResolvedValue(undefined),
+            waitForProcessing: jest.fn().mockResolvedValue(undefined),
+        }
         const message: Message = { topic: 'test-topic', partition: 0, offset: 1, value: Buffer.from('x'), size: 1 }
 
-        const handlers = buildImageFetchBatchHandlers(2, fetchConsumer, { candidatePool: pool }, joiner)
+        const { handlers } = buildImageFetchBatchHandlers(2, fetchConsumer, { candidatePool: pool }, joiner)
         await Promise.all(handlers.map((handler) => handler([message])))
 
         expect(handlers).toHaveLength(2)
@@ -99,6 +105,39 @@ describe('image fetch consumer wiring', () => {
             expect(firstAdmission.owner).not.toBe(secondAdmission.owner)
         }
         pool?.close()
+    })
+
+    it('waits for a pooled member batch that is still preparing before it closes the fetch runner', async () => {
+        const pool = new FetchCandidatePool<unknown>(
+            { maxConcurrentPerRegistrableDomain: 6, refillRunnableUrls: 100, maxQueuedUrlsPerOwner: 1_000 },
+            { originCrawlDelayMs: () => 0, originNextImageStartAtMs: () => 0 }
+        )
+        let finishBatch: () => void = () => undefined
+        const fetchConsumer = {
+            handleBatch: jest.fn(
+                (_messages: Message[], _nowMs: number, admission?: FetchCandidatePoolAdmission) =>
+                    new Promise<void>((resolve) => {
+                        admission?.admitted()
+                        finishBatch = resolve
+                    })
+            ),
+        }
+        const joiner = { handleBatch: jest.fn(), waitForProcessing: jest.fn().mockResolvedValue(undefined) }
+        const startedBatches = buildImageFetchBatchHandlers(1, fetchConsumer, { candidatePool: pool }, joiner)
+        await startedBatches.handlers[0]([
+            { topic: 'test-topic', partition: 0, offset: 1, value: Buffer.from('x'), size: 1 },
+        ])
+        const consumers = [{ stopConsuming: jest.fn().mockResolvedValue(undefined), disconnect: jest.fn() }]
+        const fetchRunner = { close: jest.fn().mockResolvedValue(undefined) }
+
+        const shutdown = shutdownImageFetchConsumers(consumers, startedBatches, fetchRunner)
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(fetchRunner.close).not.toHaveBeenCalled()
+        finishBatch()
+        await shutdown
+
+        expect(fetchRunner.close).toHaveBeenCalledTimes(1)
+        pool.close()
     })
 
     it.each([false, true])('waits for joined work before disconnecting and cleaning up (failure=%s)', async (fails) => {

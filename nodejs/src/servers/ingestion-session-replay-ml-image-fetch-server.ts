@@ -211,30 +211,52 @@ export function buildImageFetchConsumerOverrides(
     }
 }
 
+export interface ImageFetchBatchHandlers {
+    handlers: EachBatch[]
+    /** Resolves once every batch started so far has settled, including pooled batches that the Kafka drain gave up on. */
+    waitForProcessing(): Promise<void>
+}
+
 export function buildImageFetchBatchHandlers(
     consumerCount: number,
     fetchConsumer: Pick<UrlFetchConsumer, 'handleBatch'>,
     fetchRunner: { candidatePool?: Pick<FetchCandidatePool<unknown>, 'createOwner'> },
-    batchJoiner: Pick<ImageFetchBatchJoiner, 'handleBatch'>
-): EachBatch[] {
+    batchJoiner: Pick<ImageFetchBatchJoiner, 'handleBatch' | 'waitForProcessing'>
+): ImageFetchBatchHandlers {
     const pool = fetchRunner.candidatePool
-    return Array.from({ length: consumerCount }, (): EachBatch => {
+    const pooledBatches = new Set<Promise<void>>()
+    const trackPooledBatch = (batch: Promise<void>): Promise<void> => {
+        pooledBatches.add(batch)
+        const forget = (): void => {
+            pooledBatches.delete(batch)
+        }
+        batch.then(forget, forget)
+        return batch
+    }
+    const handlers = Array.from({ length: consumerCount }, (): EachBatch => {
         if (!pool) {
             return (messages) => batchJoiner.handleBatch(messages)
         }
         return createPoolWindowBatchHandler(pool.createOwner(), (messages, admission) =>
-            fetchConsumer.handleBatch(messages, Date.now(), admission)
+            trackPooledBatch(fetchConsumer.handleBatch(messages, Date.now(), admission))
         )
     })
+    return {
+        handlers,
+        waitForProcessing: async () => {
+            await batchJoiner.waitForProcessing()
+            await Promise.allSettled([...pooledBatches])
+        },
+    }
 }
 
 export async function shutdownImageFetchConsumers(
     consumers: Pick<KafkaConsumerV2, 'stopConsuming' | 'disconnect'>[],
-    batchJoiner: Pick<ImageFetchBatchJoiner, 'waitForProcessing'>,
+    startedBatches: Pick<ImageFetchBatchHandlers, 'waitForProcessing'>,
     fetchRunner?: Pick<FetchRunner, 'close'>
 ): Promise<void> {
     await Promise.allSettled(consumers.map((consumer) => consumer.stopConsuming()))
-    await batchJoiner.waitForProcessing()
+    await startedBatches.waitForProcessing()
     await Promise.allSettled(consumers.map((consumer) => consumer.disconnect()))
     await fetchRunner?.close()
 }
@@ -359,7 +381,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
-            onShutdown: () => shutdownImageFetchConsumers(consumers, batchJoiner, fetchRunner),
+            onShutdown: () => shutdownImageFetchConsumers(consumers, batchHandlers, fetchRunner),
             healthcheck: () => {
                 for (const consumer of consumers) {
                     const health = consumer.isHealthy()
@@ -370,7 +392,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
                 return new HealthCheckResultOk()
             },
         })
-        await Promise.all(consumers.map((consumer, index) => consumer.connect(batchHandlers[index])))
+        await Promise.all(consumers.map((consumer, index) => consumer.connect(batchHandlers.handlers[index])))
     }
 
     protected getCleanupResources(): CleanupResources {
