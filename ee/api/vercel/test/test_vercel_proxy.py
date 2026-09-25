@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import jwt
 import requests as req
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -97,13 +98,24 @@ class TestVercelProxyAPI(APIBaseTest):
             body={"amount": 100},
         )
 
+    @parameterized.expand(
+        [
+            (400, False),
+            (403, False),
+            (500, True),
+            (503, True),
+        ]
+    )
+    @patch("ee.api.vercel.vercel_proxy.capture_exception")
     @patch("ee.api.vercel.vercel_proxy.forward_to_vercel")
-    def test_proxy_returns_vercel_error_status(self, mock_forward, mock_license):
+    def test_proxy_returns_vercel_error_status(
+        self, vercel_status_code, expects_capture, mock_forward, mock_capture, mock_license
+    ):
         mock_license.return_value = self.license
 
         mock_response = MagicMock()
         mock_response.ok = False
-        mock_response.status_code = 400
+        mock_response.status_code = vercel_status_code
         mock_response.text = "Bad request"
         mock_response.json.return_value = {"error": "Invalid invoice data"}
         mock_forward.return_value = mock_response
@@ -119,8 +131,9 @@ class TestVercelProxyAPI(APIBaseTest):
             **self._get_auth_headers(),
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == vercel_status_code
         assert response.json() == {"error": "Invalid invoice data"}
+        assert mock_capture.called is expects_capture
 
     def test_proxy_rejects_missing_token(self, mock_license):
         mock_license.return_value = self.license
