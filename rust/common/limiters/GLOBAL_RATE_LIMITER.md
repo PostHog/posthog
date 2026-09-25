@@ -275,7 +275,7 @@ only if you're also changing the window/sync intervals.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `local_cache_max_entries` | 300,000 | Hard cap on entry count. ~400 bytes/entry → 300K ≈ 120 MB. Exposed as `GLOBAL_RATE_LIMIT_LOCAL_CACHE_MAX_ENTRIES` in capture |
+| `local_cache_max_entries` | 300,000 | Hard cap on entry count. ~400 bytes/entry → 300K ≈ 120 MB. Exposed as `GLOBAL_RATE_LIMIT_LOCAL_CACHE_MAX_ENTRIES` in capture, which raises it well above this default for the `token:distinct_id` key space. At the library default that limiter would sit permanently at its cap and evict live entries |
 | `local_cache_ttl` | 600s | Absolute entry expiry. Should be long enough for leaky bucket decay to stay useful between syncs |
 | `local_cache_idle_timeout` | 300s | Entries not accessed within this window are evicted early. Hot keys are constantly re-inserted so they never idle-expire; cold keys reclaim slots faster than waiting for the full TTL |
 
@@ -284,9 +284,20 @@ only if you're also changing the window/sync intervals.
 | Parameter | Default | Description |
 |---|---|---|
 | `global_cache_ttl` | 2 × `window_interval` | Sets the deadline on Redis epoch keys, applied as `EXPIREAT` rather than a relative TTL so a key's life follows its epoch instead of its last write. Any value above the two-window minimum becomes clock-skew grace. |
-| `global_read_timeout` | 100ms | Timeout for batched MGET reads |
-| `global_write_timeout` | 100ms | Timeout for batched INCRBY writes |
+| `global_read_timeout` | 250ms | Outer timeout for batched MGET reads. See the note below: it is not the deadline that fires. |
+| `global_write_timeout` | 250ms | Outer timeout for batched INCRBY writes. See the note below: it is not the deadline that fires. |
 | `redis_key_prefix` | `@posthog/global_rate_limiter` | Prefix for all Redis keys (capture derives from `capture_mode`) |
+
+**The effective command deadline is the Redis client's, not these settings.**
+`global_read_timeout` and `global_write_timeout` wrap each command in an outer
+`tokio::time::timeout`, but the client applies its own `response_timeout` underneath.
+In capture that comes from `GLOBAL_RATE_LIMIT_REDIS_RESPONSE_TIMEOUT_MS`, which falls back to
+`REDIS_RESPONSE_TIMEOUT_MS` (100ms) when unset, so the inner deadline always fires first and the
+outer pair never does.
+A failure therefore arrives as `Ok(Err(..))` and is counted as `redis_error`/`redis_write`, never
+as `read_timeout`/`write_timeout`.
+Read the error `cause` label to tell which deadline you are actually looking at, and change
+`GLOBAL_RATE_LIMIT_REDIS_RESPONSE_TIMEOUT_MS` when you want to move the real one.
 
 #### Internal
 
@@ -451,7 +462,7 @@ never hashes. Two things to know before that changes.
 | `global_rate_limiter_tick_ms` | Histogram | Full tick duration |
 | `global_rate_limiter_pipeline_size` | Histogram | Entities per pipeline (read/write) |
 | `global_rate_limiter_pending_sync_size` | Gauge | Backpressure signal |
-| `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
+| `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`). Tiers come from each entry's **last synced** pressure, so an entity below `min_sync_floor` never syncs and stays in `idle` whatever its true fleet count. Read this as sync cadence, not as the real count distribution |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier promotion/demotion events |
 | `global_rate_limiter_cache_size` | Gauge | Live local cache entry count vs cap |
 | `global_rate_limiter_window_seconds` | Gauge | Configured `window_interval` per scope. Deployments that share a Redis key prefix must report the same value, or their epoch keys diverge and the shared counter splits |
@@ -470,9 +481,9 @@ Compared to the previous N-bucket design:
 | Keys per entity | 3 | 2 |
 | Redis round-trips per check | 1 (inline MGET) | 0 (hot path is local) |
 | Round-trips per tick | N/A | 1 (batched pipeline) |
-| Read volume per tick | N/A | ~296 entities (vs ~6,667 without adaptive) |
-| Total RT reduction | — | ~99% |
-| Read volume reduction | — | ~95% |
+| Read volume per tick | N/A | Only entities above `min_sync_floor` and due by their pressure tier, rather than every active entity |
+| Total RT reduction | — | The hot path stops touching Redis, so round trips scale with ticks instead of with requests |
+| Read volume reduction | — | Scales with the share of entities under the floor, which the `sync_skipped_total{reason="below_floor"}` counter measures live |
 
 ## File Layout
 
