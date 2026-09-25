@@ -12,13 +12,7 @@ from owners_yaml.schema import TeamEntry
 
 from posthog.models.team.team import Team
 from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
-from posthog.team_notifications.slack import (
-    MAX_BLOCKS,
-    MAX_SECTION_CHARS,
-    MAX_TEXT_CHARS,
-    SlackChannel,
-    SlackPostRefused,
-)
+from posthog.slack.channels import MAX_BLOCKS, MAX_SECTION_CHARS, MAX_TEXT_CHARS, SlackChannel, SlackPostRefused
 
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,

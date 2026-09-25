@@ -52,8 +52,48 @@ class TestRenderSkillMd:
 
     def test_optional_fields_omitted_when_empty(self) -> None:
         frontmatter, _ = _parse(render_skill_md(name="X", description="Y", body="Z"))
-        for omitted in ("tags", "author_handle", "license", "compatibility", "allowed_tools"):
+        for omitted in ("tags", "author_handle", "license", "compatibility", "allowed_tools", "kind", "scout_config"):
             assert omitted not in frontmatter
+
+    def test_marks_a_scout_and_carries_its_settings(self) -> None:
+        # Without the marker the catalog can't tell a scout from a skill, and it lands inert.
+        frontmatter, _ = _parse(
+            render_skill_md(
+                name="Feed scout",
+                description="Watch a feed.",
+                body="b",
+                kind="scout",
+                scout_config={"run_interval_minutes": 720, "emit": False},
+            )
+        )
+        assert frontmatter["kind"] == "scout"
+        assert frontmatter["scout_config"] == {"run_interval_minutes": 720, "emit": False}
+
+    @pytest.mark.parametrize(
+        "kind,scout_config",
+        [
+            ("scout", {"network_access": "full"}),
+            ("scout", {"model": "claude"}),
+            ("scout", {"mcp_gateway_server_ids": ["abc"]}),
+            ("scout", {"run_interval_minutes": 5}),
+            ("skill", {"emit": False}),
+        ],
+    )
+    def test_rejects_scout_settings_ingest_would_drop(self, kind: str, scout_config: dict[str, Any]) -> None:
+        with pytest.raises(CommunitySkillPublishError):
+            render_skill_md(name="n", description="d", body="b", kind=kind, scout_config=scout_config)
+
+    def test_rejects_a_scout_with_bundled_files(self) -> None:
+        # Ingest refuses one, so publishing it opens a PR that merges and never reaches the catalog.
+        with pytest.raises(CommunitySkillPublishError):
+            render_community_skill_files(
+                slug="signals-scout-feed",
+                name="Feed scout",
+                description="Watch a feed.",
+                body="b",
+                kind="scout",
+                files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
+            )
 
     def test_optional_fields_included_when_set(self) -> None:
         content = render_skill_md(

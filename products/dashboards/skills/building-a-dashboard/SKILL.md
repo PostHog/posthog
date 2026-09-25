@@ -51,14 +51,16 @@ Prefer reusing existing insights over recreating them.
 ## Assemble the dashboard
 
 - New dashboard: `dashboard-create` with a short (3–7 word) name and a concise description, then add the insight tiles.
-- Existing dashboard: `dashboard-update`. Adding, replacing, or removing insights means sending the full intended set of
-  tiles — insights you omit are removed, so include the ones you want to keep.
-- Layout: by default preserve existing tile placement. Use `dashboard-update` to plan each tile independently on the
-  12-column grid. Tile widths can be any whole number from 1 to 12, subject to each tile's minimum size. Use wider
-  tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as 8 plus 4 or 6 plus 6 can show
-  that hierarchy.
+- Existing dashboard: use `dashboard-update` to add insight tiles or change their layout. Tiles omitted from a PATCH
+  remain on the dashboard. To remove a tile, find its ID with `dashboard-get`, then use `dashboard-delete-tile`.
+  To replace an insight tile, add the new insight and delete the old tile.
+- Layout: after you add insight tiles, call `dashboard-get` again to get their tile IDs. Use `dashboard-update` to plan
+  each tile independently on the 12-column grid. Tile widths can be any whole number from 1 to 12, subject to each
+  tile's minimum size. Use wider tiles for primary charts and smaller tiles for supporting metrics. Mixed rows such as
+  8 plus 4 or 6 plus 6 can show that hierarchy.
 - Reflow: use `dashboard-reorder-tiles` only when the user explicitly asks to reorder tiles or make every tile the
-  same size. Its layout modes give every tile a uniform box. For mixed widths or heights, use `dashboard-update`.
+  same size. Include every tile ID from `dashboard-get`; omitted tiles keep their positions and can overlap moved tiles.
+  Its layout modes give every listed tile a uniform box. For mixed widths or heights, use `dashboard-update`.
 - Tile sizes: send `tiles` through `dashboard-update` with each tile's `id` and a complete `layouts.sm` box. `sm` is
   required whenever you send `layouts`, because a write replaces the tile's whole layout. `sm` controls desktop
   placement, and the dashboard derives the mobile layout from the `sm` order and heights, so set only `sm`. The API

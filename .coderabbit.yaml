@@ -73,6 +73,12 @@ reviews:
               Prefer parameterised tests over near-duplicate test functions.
               In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.
 
+        - path: 'products/*/skills/**'
+          instructions: >-
+              These skills ship to every MCP client. Flag any instruction that uses a command, flag, tool, or
+              capability not available to every MCP user: flag-gated, client-specific, or mode-specific.
+              Example: the `learn` cli forms (`learn -s`, `learn posthog:`, `learn project:`), `--no-skills`.
+
     pre_merge_checks:
         # PostHog documents selectively and does not enforce docstring coverage.
         docstrings:

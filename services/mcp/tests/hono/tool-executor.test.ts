@@ -451,11 +451,8 @@ describe('ToolExecutor', () => {
             })
         })
 
-        // Active project metadata reaches the model on the exec `command` for every
-        // single-exec client, including the ones that honor `instructions`: that payload is
-        // capped at MCP_INSTRUCTIONS_CHAR_BUDGET and spends all of it on the tool-domain
-        // index, so env-context would be the first thing a client-side truncation ate. The
-        // command description has no cap. The domain index is the mirror image — it stays
+        // Hosts cache one tool roster and serve it to other accounts, so nothing
+        // account-specific may reach the advertised exec entry. The domain index stays
         // out of the command description except for Claude web/desktop, which ignores
         // `instructions` and has nowhere else to receive it.
         it.each([
@@ -475,38 +472,42 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: false,
             },
         ])(
-            'injects project metadata into the exec command for $label',
+            'advertises the same exec entry to every account for $label',
             async ({ supportsInstructions, isClaudeChatHost }) => {
-                const tools = catalog
-                    .getPreBuiltEntries()
-                    .slice(0, 5)
-                    .map((e) => ({ name: e.name }))
-                const metadataMarker = 'CURRENT PROJECT: Acme (timezone America/New_York)'
+                const tools = [
+                    ...catalog
+                        .getPreBuiltEntries()
+                        .slice(0, 5)
+                        .map((e) => ({ name: e.name })),
+                    { name: 'project-get' },
+                ]
+                const stateFor = (distinctId: string): ReturnType<typeof makeToolExecutorState> =>
+                    makeToolExecutorState(tools, {
+                        useSingleExec: true,
+                        distinctId,
+                        clientProfile: {
+                            capabilities: { supportsInstructions },
+                            isCliModeEnabled: vi.fn(() => true),
+                            isClaudeUiHost: vi.fn(() => false),
+                            isInlineExecUiHost: vi.fn(() => false),
+                            isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                        } as any,
+                    })
 
-                const state = makeToolExecutorState(tools, {
-                    useSingleExec: true,
-                    metadata: metadataMarker,
-                    clientProfile: {
-                        capabilities: { supportsInstructions },
-                        isCliModeEnabled: vi.fn(() => true),
-                        isClaudeUiHost: vi.fn(() => false),
-                        isInlineExecUiHost: vi.fn(() => false),
-                        isClaudeChatHost: vi.fn(() => isClaudeChatHost),
-                    } as any,
-                })
-
-                const result = await executor.handleToolsList(state)
+                const result = await executor.handleToolsList(stateFor('account-a'))
+                const other = await executor.handleToolsList(stateFor('account-b'))
                 const commandDesc = (result.tools[0]!.inputSchema.properties as any).command.description as string
                 const compactDomains = buildToolDomainsCompact(
                     tools.map(({ name }) => ({ name, category: getToolDefinition(name).category }))
                 )
 
+                expect(JSON.stringify(other.tools)).toBe(JSON.stringify(result.tools))
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
                 expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
                 expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
                 expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
-                expect(commandDesc).toContain(metadataMarker)
+                expect(commandDesc).toContain('Call `project-get` without an ID to read the active project')
             }
         )
 
