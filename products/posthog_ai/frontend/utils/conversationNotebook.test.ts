@@ -1,3 +1,5 @@
+import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
 import { buildConversationNotebook, collectConversationBlocks } from './conversationNotebook'
 
@@ -88,9 +90,26 @@ describe('conversationNotebook', () => {
 
         expect(blocks).toEqual([
             '**You asked:** \\<SQLV2 code="DROP TABLE events" /> \\*please\\*',
-            '## Findings\n\n- one\n\\<Query query={} />\n> > \\<Embed src="https://example.com" />\n```tsx\n<Button />\n```',
+            '## Findings\n\n- one\n`<Query` query={} />\n> > `<Embed` src="https://example.com" />\n```tsx\n<Button />\n```',
             '```\n<Embed src="https://example.com" />\n```',
         ])
+    })
+
+    it('keeps a component tag an answer spreads over several lines from parsing as a live cell', () => {
+        const { blocks } = collectConversationBlocks(
+            [
+                {
+                    id: 'a1',
+                    type: 'assistant_message',
+                    text: 'See below.\n\n<Embed src="https://example.com"\n  title="Report" />',
+                    complete: true,
+                },
+            ],
+            new Map()
+        )
+
+        const nodes = parseMarkdownNotebook(blocks.join('\n\n')).nodes
+        expect(nodes.some((node) => node.type === 'component')).toBe(false)
     })
 
     it('lays an incident write-up out as timeline, cause, evidence and fix around the conversation', () => {
