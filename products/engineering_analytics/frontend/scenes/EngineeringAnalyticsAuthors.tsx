@@ -9,17 +9,13 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { CountCell } from '../components/CountCell'
 import { FrictionGroupBar } from '../components/FrictionGroupBar'
+import { FrictionGroupLegend } from '../components/FrictionGroupLegend'
 import { SourceScopeChip } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import type { AuthorFrictionApi } from '../generated/api.schemas'
 import { timesTypical } from '../lib/format'
-import {
-    FRICTION_GROUP_COLORS,
-    FRICTION_GROUP_DESCRIPTIONS,
-    FRICTION_GROUP_LABELS,
-    FRICTION_GROUP_ORDER,
-} from '../lib/friction'
+import { FRICTION_GROUP_DESCRIPTIONS, FRICTION_GROUP_LABELS, FRICTION_GROUP_ORDER } from '../lib/friction'
 import { rowNavigationProps } from '../lib/rowNavigation'
 import { withCurrentScope } from '../lib/scope'
 import { authorFrictionLogic } from './authorFrictionLogic'
@@ -140,21 +136,15 @@ export function EngineeringAnalyticsAuthors(): JSX.Element {
         />
     )
 
-    const legend = (
-        <span className="flex flex-wrap items-center gap-3">
-            {FRICTION_GROUP_ORDER.map((group) => (
-                <span key={group} className="flex items-center gap-1">
-                    <span className={`size-2 rounded-sm ${FRICTION_GROUP_COLORS[group]}`} />
-                    {FRICTION_GROUP_LABELS[group]}
-                </span>
-            ))}
-        </span>
-    )
-
     return (
         <div className="flex flex-col gap-4">
             <ScopePanel busy={frictionLoading && !!friction} controls={<SourceScopeChip pickerOnly />}>
-                <Section id="author-friction" title="Friction by author" note={legend} right={teamFilter}>
+                <Section
+                    id="author-friction"
+                    title="Friction by author"
+                    note={<FrictionGroupLegend />}
+                    right={teamFilter}
+                >
                     {frictionFailed ? (
                         <CIAnalyticsLoadError onRetry={loadFriction} loading={frictionLoading} />
                     ) : friction && !friction.available ? (
