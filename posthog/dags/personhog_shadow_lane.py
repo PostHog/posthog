@@ -55,14 +55,21 @@ LEGACY_STATE_TABLES = [
     "posthog_group",
     "posthog_grouptypemapping",
 ]
-PERSONHOG_STATE_TABLES = [
-    "personhog_person_tmp",
-    "personhog_persondistinctid_tmp",
-    "personhog_featureflaghashkeyoverride_tmp",
+# Saga bookkeeping the identity sweeper rewrites on every pass: it garbage-collects
+# completed ops past retention and re-claims failing ones. Excluded from the drain
+# counter because that activity never stops, and any saga step that changes person
+# state also lands in the person, distinct id or override tables.
+LIFECYCLE_OP_TABLES = [
     "lifecycle_op",
     "lifecycle_op_person",
     "lifecycle_op_tmp",
     "lifecycle_op_person_tmp",
+]
+PERSONHOG_STATE_TABLES = [
+    "personhog_person_tmp",
+    "personhog_persondistinctid_tmp",
+    "personhog_featureflaghashkeyoverride_tmp",
+    *LIFECYCLE_OP_TABLES,
     "person_pg_cleanup_queue",
     "person_tombstone_publish_queue",
 ]
@@ -199,24 +206,20 @@ def wait_for_quiescence(
 
 
 def read_shadow_write_counter(connection: psycopg2.extensions.connection) -> int:
-    """Sum the whole database's tuple-write counters.
+    """Sum the database's tuple-write counters, minus the sweeper's bookkeeping tables.
 
     The shadow database serves only the lane, so a stable sum means every
     writer has drained; a table allowlist would silently go stale when the
-    lane gains a table. The connection must be in autocommit so each poll is
-    its own transaction and reads a fresh pg_stat snapshot instead of the
-    first transaction's cached one.
+    lane gains a table. LIFECYCLE_OP_TABLES are the one exception, because
+    the identity sweeper keeps them moving while the lane is stopped. The
+    connection must be in autocommit so each poll is its own transaction and
+    reads a fresh pg_stat snapshot instead of the first transaction's cached one.
     """
     with connection.cursor() as cursor:
-        # The identity service's lifecycle GC deletes completed lifecycle_op
-        # rows past retention on a timer, and it keeps running while the lane
-        # is scaled to zero. After a run longer than the retention window those
-        # deletes land every sweep, so counting them would never let the wait
-        # settle. They remove nothing the reset would otherwise keep.
         cursor.execute(
-            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd"
-            " + CASE WHEN relname LIKE 'lifecycle\\_op%' THEN 0 ELSE n_tup_del END), 0) AS writes"
-            " FROM pg_stat_user_tables"
+            "SELECT COALESCE(SUM(n_tup_ins + n_tup_upd + n_tup_del), 0) AS writes "
+            "FROM pg_stat_user_tables WHERE relname != ALL(%(excluded)s)",
+            {"excluded": LIFECYCLE_OP_TABLES},
         )
         return int(cursor.fetchone()["writes"])
 
