@@ -1,12 +1,14 @@
 # Reusable scout environments
 
-Implementation checkpoint: September 23, 2026.
+Historical execution checkpoint: September 23, 2026.
 The initial harness review used `ba2de6b231b`, with additional dependency checks after merging `e7e0c103433` from master.
 The parameterized command now runs saved code and data cases through the production scout harness.
 Historical data restoration is verified in fresh projects, two identical data trials completed, and the code case completed on the updated runtime.
 The data trials start from equal normalized history and event checks with separate mutable identities.
 Both environments retain full results and clean up their agent sandboxes and dedicated services.
 The implementation history below records completed checks and failed attempts.
+Those runs used the earlier JSON-based snapshot format.
+The current snapshot contract uses schema v2 and Parquet tables; the historical runs do not establish conversion parity for that format.
 
 ## Purpose and agreed constraints
 
@@ -124,16 +126,32 @@ The existing [harness Modal provider](../../../../posthog_ai/eval_harness/harnes
 | Parquet queried through a custom MCP backend | Saved tables plus an implementation of the selected tools  | Consider only for a narrow interface; reproducing HogQL and product APIs adds work |
 | Full service and project snapshot            | Broad application and database state                       | More storage and maintenance than the initial cases justify                        |
 
-Parquet can store the bounded historical dataset while the restored case still uses real PostHog queries.
+Parquet stores the bounded historical dataset while the restored case still uses real PostHog queries.
 It does not require replacing MCP or ClickHouse.
 ClickHouse supports [Parquet input and output](https://clickhouse.com/docs/reference/formats/Parquet/Parquet); schemas and product metadata still need explicit restoration.
 [DuckDB can query Parquet directly](https://duckdb.org/docs/current/data/parquet/overview), but that does not supply PostHog's other tool behavior.
 
-The implemented v0 stores events as compressed JSON Lines, related state as JSON, and repository contents in a Git bundle.
-A manifest records input hashes and restoration metadata.
-These formats fit the existing loaders and preserve nested event properties without introducing another conversion step.
-No format benchmark established that JSON is faster or smaller than Parquet.
-An event-reader change could add Parquet later while keeping the database restoration and MCP interfaces unchanged.
+### Snapshot format
+
+The saved-case runtime requires one JSON manifest with `schema_version: 2` and Parquet tables for events and history.
+The manifest keeps the checkpoint, completeness, gaps, and timezone inline under `state`.
+Its `events` list contains hashed Parquet file references, and `state.tables` maps history table names to hashed Parquet file references.
+Each reference supplies a relative `path` and `sha256`.
+Skill files retain their declared content types, and repository contents remain in a Git bundle.
+
+History tables cover `scratchpad`, `reports`, `report_artefacts`, `scout_notes`, `tasks`, `task_runs`, `scout_runs`, `metrics`, and `project_profile`.
+Omit empty history tables; `project_profile` must contain exactly one row when supplied.
+Event files may contain zero rows if they retain the full declared schema.
+The tables use explicit columns, UTC timestamps with microsecond precision, UUID strings, and JSON text for flexible nested fields.
+One reader validates both event and history tables before the existing database restoration step.
+The [saved-case command guide](../../../../../docs/internal/ai-offline-evaluation-reporting.md#private-saved-scout-cases) describes the contract and validation commands.
+
+The runtime rejects schema v1 manifests, JSON Lines event files, and separate `state.json` payloads.
+Convert older inputs once with a local script into a separate private directory and preserve the originals.
+The runtime has no conversion mode or legacy reader.
+Verify every decoded event and history record against the original, then verify restoration through real PostHog queries in a fresh project.
+Conversion parity checks need no model calls; completed agent runs remain evidence for the format they used.
+Record parity does not establish an advantage in storage size or execution speed.
 
 Recorded tool responses cannot serve as the main environment for exploratory comparisons.
 A different model may issue a new query or inspect another filter, for which a recording has no answer.
@@ -282,6 +300,7 @@ Keep a small manifest beside each case's grading instructions:
 
 Keep the grading reference inaccessible to the scout, even when stored beside the case manifest.
 Record the harness/tool revision, skill body hash/version, model, effective effort, and trial ID with every result.
+Case metadata includes `schema_version`, `manifest_sha256`, per-table `state_table_sha256`, and ordered `event_sha256` values.
 Record the batch's target cutoff and time offset so reported dates can be mapped back to the immutable source case.
 The case ID identifies the shared starting state; each repeated trial has its own mutable state and result directory.
 Retain artifacts for the intended comparison period; recreate execution environments when needed.
@@ -314,7 +333,7 @@ Echoverse's implementation was inspected at the linked commit; OpenEnv and Harbo
 
 The [autoresearch data preparation script](https://github.com/karpathy/autoresearch/blob/master/prepare.py) also separates cached Parquet inputs from repeated executions and reserves a validation shard.
 Its loader prepares text for model training; it does not restore PostHog state or MCP behavior.
-Reuse the separation of saved data from execution, with Parquet as a possible event-storage format and a case-specific PostHog restore step.
+Reuse the separation of saved data from execution, with Parquet tables and a case-specific PostHog restore step.
 
 ## Next decisions and work
 

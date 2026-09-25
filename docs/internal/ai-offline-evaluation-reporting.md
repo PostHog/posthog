@@ -92,13 +92,31 @@ Before execution, coordinate use of the backing development services, eval ports
 Separate worktrees still share those resources, so do not run the harness alongside another saved-case invocation or DB-backed pytest.
 `--create-db` rebuilds the test database and is unnecessary for an ordinary repeat.
 
-The case manifest declares the saved skill and its file hashes, initial state, optional compressed event files, source cutoff, and optional pinned repository.
+The JSON case manifest requires `schema_version: 2` and declares the saved skill, initial state, Parquet event files, source cutoff, and optional pinned repository.
+It stores `state.checkpoint`, `state.complete`, `state.gaps`, and `state.timezone` inline.
+The `events` list references Parquet files; `state.tables` maps each supplied history table to a Parquet file.
+Every file reference contains its relative `path` and SHA-256 `sha256`, and must stay inside the case directory.
+
+Supported history tables are `scratchpad`, `reports`, `report_artefacts`, `scout_notes`, `tasks`, `task_runs`, `scout_runs`, `metrics`, and `project_profile`.
+Omit empty history tables; a supplied `project_profile` table must contain exactly one row.
+The event list can be empty, and event files with the complete schema and zero rows are valid.
+The [saved models](../../products/signals/evals/agentic/saved_case.py) define each table's columns.
+The shared [Parquet reader and writer](../../products/signals/evals/agentic/saved_table.py) enforce column names, types, order, and nullability.
+Timestamps use UTC with microsecond precision, UUIDs use strings, and flexible nested values such as event properties use JSON text columns.
+The writer uses Zstandard compression.
+
+The runtime reads only schema v2 Parquet tables and rejects JSON Lines, separate `state.json` payloads, and schema v1 manifests.
+Convert older cases once with a local script into a separate private directory, preserving the original inputs.
+The saved-case command has no conversion mode or compatibility reader.
+Before using a converted case, compare every decoded event and history record with the original, then verify restoration in a fresh project.
+These parity checks do not require model calls.
+
 For fixed-file code cases, `repository.history_depth: 1` retains the original commit and complete tree without its ancestors.
 Omit the depth when the scout needs retained Git history and the source checkout contains all required objects.
 Keep private case files and results in ignored storage or outside the repository.
 Use absolute paths when those inputs live outside the execution worktree.
 The retained repository cache lives under `<output-dir>/repositories/`; a new output root prepares a separate cache.
-`--validate-only` checks the manifest, hashes, record types, event records, and historical references without checking execution prerequisites.
+`--validate-only` checks the manifest, hashes, Parquet schemas, record types, event records, and historical references without checking execution prerequisites.
 It needs no model credentials or running Docker daemon and cannot be combined with `--preflight-only`.
 Both check-only modes leave the output directory untouched.
 
@@ -114,6 +132,7 @@ The investigation interval includes its start and excludes its end.
 This preserves elapsed-time relationships; it does not provide a historical clock or preserve all calendar-dependent behavior.
 
 Each invocation retains its manifest and skill hashes, source commit and local changes, model settings, target cutoff, start and finish times, exit status, and full harness transcript.
+Case metadata records `schema_version`, `manifest_sha256`, `state_table_sha256` by table name, and `event_sha256` in event-file order.
 Execution attempts that fail the prerequisite checks retain this invocation history and transcript too.
 Each trial has its own reports, scratchpad changes, session log, and execution result.
 A skipped scout, failed task, or missing transcript fails the saved-case run.

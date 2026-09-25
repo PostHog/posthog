@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import re
-import gzip
 import json
 import hashlib
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from itertools import groupby
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Literal, Self, TextIO, cast
+from typing import TYPE_CHECKING, Literal, Self, cast
 from uuid import UUID, uuid4, uuid5
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator
+
+from products.signals.evals.agentic.saved_table import SavedTable
 
 if TYPE_CHECKING:
     from django.db.models import Model, QuerySet
@@ -75,8 +76,29 @@ class SavedRepository(SavedModel):
     history_depth: Literal[1] | None = None
 
 
+type StateTableName = Literal[
+    "scratchpad",
+    "reports",
+    "report_artefacts",
+    "scout_notes",
+    "tasks",
+    "task_runs",
+    "scout_runs",
+    "metrics",
+    "project_profile",
+]
+
+
+class SavedStateManifest(SavedModel):
+    checkpoint: AwareDatetime
+    complete: bool
+    gaps: list[str] = Field(default_factory=list)
+    timezone: str = "UTC"
+    tables: dict[StateTableName, SavedFile] = Field(default_factory=dict)
+
+
 class SavedCaseManifest(SavedModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2]
     case_id: str = Field(pattern=r"^[a-zA-Z0-9_-]+$")
     source_cutoff: AwareDatetime
     investigation_start: AwareDatetime | None = None
@@ -85,7 +107,7 @@ class SavedCaseManifest(SavedModel):
     skill: SavedSkill
     repository: SavedRepository | None = None
     events: list[SavedFile] = Field(default_factory=list)
-    state: SavedFile
+    state: SavedStateManifest
     time_strings: list[str] = Field(default_factory=list)
     string_replacements: dict[str, str] = Field(default_factory=dict)
 
@@ -261,6 +283,42 @@ class SavedState(SavedModel):
 _UUID_TEXT = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 
 
+STATE_MODELS: dict[StateTableName, type[SavedModel]] = {
+    "scratchpad": SavedScratchpad,
+    "reports": SavedReport,
+    "report_artefacts": SavedReportArtefact,
+    "scout_notes": SavedScoutNote,
+    "tasks": SavedTask,
+    "task_runs": SavedTaskRun,
+    "scout_runs": SavedScoutRun,
+    "metrics": SavedMetric,
+    "project_profile": SavedProjectProfile,
+}
+_JSON_FIELDS = frozenset(
+    {
+        "charts",
+        "metrics",
+        "suggested_prompts",
+        "state",
+        "output",
+        "artifacts",
+        "emitted_finding_ids",
+        "emitted_report_ids",
+        "edited_report_ids",
+        "metadata",
+        "payload",
+        "definition",
+        "referenced_table_names",
+    }
+)
+EVENT_TABLE = SavedTable(SavedEvent, json_fields={"properties"})
+
+
+def state_table(name: StateTableName) -> SavedTable[SavedModel]:
+    model = STATE_MODELS[name]
+    return SavedTable(model, json_fields=_JSON_FIELDS.intersection(model.model_fields))
+
+
 class RestoredEventSummary:
     def __init__(self, timestamp: datetime) -> None:
         self.count = 1
@@ -281,10 +339,13 @@ class RestoredEventSummary:
 
 
 class SavedScoutCase:
-    def __init__(self, path: Path, manifest: SavedCaseManifest, state: SavedState) -> None:
+    def __init__(
+        self, path: Path, manifest: SavedCaseManifest, state: SavedState, *, manifest_sha256: str | None = None
+    ) -> None:
         self.path = path
         self.manifest = manifest
         self.state = state
+        self.manifest_sha256 = manifest_sha256
         self.event_count = 0
         self.event_names: set[str] = set()
 
@@ -303,9 +364,11 @@ class SavedScoutCase:
     @property
     def metadata(self) -> dict[str, JsonValue]:
         return {
+            "schema_version": self.manifest.schema_version,
             "case_id": self.manifest.case_id,
+            "manifest_sha256": self.manifest_sha256,
             "source_cutoff": self.manifest.source_cutoff.isoformat(),
-            "state_sha256": self.manifest.state.sha256,
+            "state_table_sha256": {name: file.sha256 for name, file in self.manifest.state.tables.items()},
             "event_sha256": [file.sha256 for file in self.manifest.events],
             "event_count": self.event_count,
             "skill_name": self.skill_name,
@@ -317,16 +380,25 @@ class SavedScoutCase:
     @classmethod
     def load(cls, path: Path) -> Self:
         path = path.resolve(strict=True)
-        manifest = SavedCaseManifest.model_validate_json(path.read_bytes())
-        state_path = manifest.state.resolve(path.parent)
-        state = SavedState.model_validate_json(state_path.read_bytes())
-        case = cls(path, manifest, state)
+        manifest_bytes = path.read_bytes()
+        manifest = SavedCaseManifest.model_validate_json(manifest_bytes)
+        values: dict[str, object] = manifest.state.model_dump(exclude={"tables"})
+        for name, reference in manifest.state.tables.items():
+            rows = list(state_table(name).read(reference.resolve(path.parent)))
+            if name == "project_profile":
+                if len(rows) != 1:
+                    raise ValueError("The saved project profile must contain exactly one row.")
+                values[name] = rows[0]
+            else:
+                values[name] = rows
+        state = SavedState.model_validate(values)
+        case = cls(path, manifest, state, manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest())
         case.preflight()
         return case
 
     def _files(self) -> list[SavedFile]:
         return [
-            self.manifest.state,
+            *self.manifest.state.tables.values(),
             self.manifest.skill.body,
             *self.manifest.events,
             *[file.content for file in self.manifest.skill.files],
@@ -347,20 +419,7 @@ class SavedScoutCase:
     def events(self) -> Iterator[SavedEvent]:
         for reference in self.manifest.events:
             path = (self.path.parent / reference.path).resolve(strict=True)
-            if path.name.endswith(".jsonl.gz"):
-                stream: TextIO = gzip.open(path, "rt", encoding="utf-8")
-            elif path.name.endswith(".jsonl"):
-                stream = path.open(encoding="utf-8")
-            else:
-                raise ValueError(f"Event fixtures must use .jsonl or .jsonl.gz: {reference.path}")
-            with stream:
-                for line_number, line in enumerate(stream, start=1):
-                    if not line.strip():
-                        raise ValueError(f"Blank event record at {reference.path}:{line_number}")
-                    try:
-                        yield SavedEvent.model_validate_json(line)
-                    except ValueError as error:
-                        raise ValueError(f"Invalid event record at {reference.path}:{line_number}") from error
+            yield from EVENT_TABLE.read(path)
 
     def preflight(self, *, validate_events: bool = True) -> None:
         for reference in self._files():
