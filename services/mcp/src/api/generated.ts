@@ -13925,6 +13925,8 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers | null;
       /** A schema of custom fields to select when exporting data. */
       readonly schema: unknown;
       filters?: unknown;
@@ -14772,6 +14774,8 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
@@ -22936,6 +22940,8 @@ export namespace Schemas {
       model: FileDownloadHogQLRequestModel;
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
       /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
@@ -46904,6 +46910,8 @@ export namespace Schemas {
       exclude?: string[];
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query?: string;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
       /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
@@ -46930,6 +46938,8 @@ export namespace Schemas {
       model: FileDownloadHogQLModelEnum;
       /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
       hogql_query: string;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers;
       /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
       data_interval_start?: string;
       /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
@@ -70112,6 +70122,8 @@ export namespace Schemas {
          * @nullable
          */
       hogql_query?: string | null;
+      /** HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone. */
+      hogql_modifiers?: HogQLQueryModifiers | null;
       /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
       filters?: unknown;
       /**
