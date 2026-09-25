@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this replay scanner.",
+            "type": "string"
+        },
+        "session_ids": {
+            "description": "Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.",
+            "items": {
+                "maxLength": 128,
+                "type": "string"
+            },
+            "maxItems": 200,
+            "type": "array"
+        }
+    },
+    "required": ["id", "session_ids"],
+    "type": "object"
+}

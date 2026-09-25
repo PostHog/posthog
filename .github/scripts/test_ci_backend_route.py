@@ -195,18 +195,18 @@ def test_main_keeps_a_handed_off_commit_on_depot_after_rollback(
 
 
 @pytest.mark.parametrize(
-    "percent,labels,exit_code",
+    "percent,labels",
     [
-        ("50", "[]", 1),
-        ("", json.dumps(["ci-backend-depot"]), 1),
-        ("5", "[]", 0),
-        ("0", "[]", 0),
-        ("", "[]", 0),
-        ("50", json.dumps(["ci-backend-github"]), 0),
+        ("50", "[]"),
+        ("", json.dumps(["ci-backend-depot"])),
+        ("5", "[]"),
+        ("0", "[]"),
+        ("", "[]"),
+        ("50", json.dumps(["ci-backend-github"])),
     ],
 )
-def test_main_fails_on_an_unreadable_handoff_only_when_depot_would_run(
-    percent: str, labels: str, exit_code: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_main_never_switches_engines_on_an_unreadable_handoff(
+    percent: str, labels: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def failing(repo: str, sha: str, token: str) -> list[dict[str, Any]]:
         raise route.HandoffReadError("boom")
@@ -222,8 +222,5 @@ def test_main_fails_on_an_unreadable_handoff_only_when_depot_would_run(
     monkeypatch.setenv("GH_TOKEN", "t")
     monkeypatch.setattr(route, "fetch_handoff_checks", failing)
     monkeypatch.setattr(route.time, "sleep", lambda seconds: None)
-    assert route.main() == exit_code
-    if exit_code:
-        assert not output.exists()
-    else:
-        assert output.read_text().startswith("engine=github\n")
+    assert route.main() == 1
+    assert not output.exists()

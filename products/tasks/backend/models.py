@@ -318,6 +318,7 @@ def clear_channel_repositories_on_github_integration_delete(
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY = "slack_notified_pr_outcomes"
 PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
 PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
 PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
@@ -908,6 +909,27 @@ class Task(DeletedMetaFields, models.Model):
             task.state = state
             task.save(update_fields=["state", "updated_at"])
         self.state = state
+
+    def claim_slack_pr_closed_notification(self, pr_url: str, *, merged: bool) -> bool:
+        """Record that the task's Slack thread is told ``pr_url`` merged or closed, and say whether to post.
+
+        Each outcome posts once per PR, so a PR closed, reopened, and then merged still gets its
+        merged card. Returns False when the thread never announced ``pr_url``, a newer PR replaced
+        it, or this outcome is already announced. Row-locked so a redelivered webhook cannot post twice.
+        """
+        outcome = f"{'merged' if merged else 'closed'}:{pr_url}"
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            notified = state.get(SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY)
+            notified = notified if isinstance(notified, list) else []
+            if state.get(SLACK_NOTIFIED_PR_URL_STATE_KEY) != pr_url or outcome in notified:
+                return False
+            state[SLACK_NOTIFIED_PR_OUTCOMES_STATE_KEY] = [*notified, outcome]
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+        return True
 
     @property
     def pr_ready_email_sent_at(self) -> str | None:
@@ -3060,6 +3082,17 @@ class TaskRun(models.Model):
             return False
         return True
 
+    def failure_sandbox_backend_properties(self) -> dict[str, str]:
+        state = self.state if isinstance(self.state, dict) else {}
+        if not state.get("sandbox_id"):
+            return {}
+        backend = state.get("sandbox_backend")
+        if backend in ("modal", "hogland"):
+            return {"sandbox_backend": backend}
+        if backend is None:
+            return {"sandbox_backend": "modal"}
+        return {}
+
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
             return round((self.completed_at - self.created_at).total_seconds(), 1)
@@ -3114,6 +3147,7 @@ class TaskRun(models.Model):
                 "error_message": truncate_error_message(error),
                 "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
+                **self.failure_sandbox_backend_properties(),
             },
         )
         from products.tasks.backend.push_dispatcher import notify_task_run_failed

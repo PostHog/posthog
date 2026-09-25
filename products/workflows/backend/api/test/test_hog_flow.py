@@ -15,6 +15,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -933,6 +934,7 @@ class TestHogFlowAPI(APIBaseTest):
                     "url": {
                         "value": "https://example.com",
                         "bytecode": ["_H", 1, 32, "https://example.com"],
+                        "bytecode_contract": RUNTIME_CONTRACT,
                         "order": 0,
                     }
                 },
@@ -1338,7 +1340,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert hog_flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
         assert hog_flow.actions[1]["config"]["inputs"] == {
-            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+            "url": {
+                "order": 0,
+                "value": "https://example.com",
+                "bytecode": ["_H", 1, 32, "https://example.com"],
+                "bytecode_contract": RUNTIME_CONTRACT,
+            }
         }
 
     def test_hog_flow_conversion_filters_compiles_bytecode_on_create(self):
@@ -4517,6 +4524,8 @@ class TestHogFlowAPI(APIBaseTest):
         # Bytecode should just check for $pageview event
         bytecode_without = response_without.json()["trigger"]["filters"]["bytecode"]
         assert bytecode_without == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
+        # A flow's trigger is stamped like a destination's filters, so its errors classify the same way.
+        assert response_without.json()["trigger"]["filters"]["bytecode_contract"] == RUNTIME_CONTRACT
 
         # Create a workflow WITH filter_test_accounts: true
         trigger_action_with_filter = {
@@ -4577,7 +4586,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert flow.actions[1]["filters"].get("bytecode") == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
         assert flow.actions[1]["config"]["inputs"] == {
-            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+            "url": {
+                "order": 0,
+                "value": "https://example.com",
+                "bytecode": ["_H", 1, 32, "https://example.com"],
+                "bytecode_contract": RUNTIME_CONTRACT,
+            }
         }
 
     def test_hog_flow_draft_to_active_compiles_bytecode(self):
@@ -4603,7 +4617,12 @@ class TestHogFlowAPI(APIBaseTest):
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.trigger["filters"].get("bytecode") == ["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11]
         assert flow.actions[1]["config"]["inputs"] == {
-            "url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}
+            "url": {
+                "order": 0,
+                "value": "https://example.com",
+                "bytecode": ["_H", 1, 32, "https://example.com"],
+                "bytecode_contract": RUNTIME_CONTRACT,
+            }
         }
 
     def test_hog_flow_draft_partial_inputs_skips_input_bytecode(self):

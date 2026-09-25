@@ -72,10 +72,13 @@ class TestAwsCostExplorerSource:
         [
             "AWS Cost Explorer request failed: LimitExceededException - Rate exceeded",
             "AWS Cost Explorer request failed: HTTP 503 - ",
+            "AWS Cost Explorer request failed: InternalFailure - ",
+            "AWS Cost Explorer request failed: ServiceUnavailableException - ",
         ],
     )
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_uses_the_endpoints_primary_key_and_a_stable_partition_key(self, endpoint: str) -> None:

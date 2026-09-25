@@ -112,6 +112,24 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Time at which the user was last updated, in ISO 8601 format.",
         },
     },
+    "Fields": {
+        "description": "A custom field definition, listed per project across every project in the "
+        "workspace. Fields resolve the custom field values carried on data entries and docs, and "
+        "cover both field set types ('data' and 'doc').",
+        "docs_url": "https://developers.dovetail.com/reference/get_v1-fields",
+        "columns": {
+            "id": "Unique identifier for the field.",
+            "type": "Resource type, always 'field'.",
+            "label": "Display label of the field.",
+            "field_type": "Data type of the field: ARR, BOOLEAN, CSAT, DATETIME, EMAIL, MULTI_SELECT, NPS, NUMBER, PERSON, PHONE, RATING, SINGLE_SELECT, TEXT, or URL.",
+            "field_set_type": "Which set the field belongs to: 'data' for data entry fields, 'doc' for doc fields.",
+            "project_id": "Identifier of the project the field belongs to.",
+            "rank": "Ordering position of the field within its field set.",
+            "options": "Choices for a select field, or display options (format, currency symbol) for a numeric field.",
+            "created_at": "Time at which the field was created, in ISO 8601 format.",
+            "deleted": "Whether the field has been deleted.",
+        },
+    },
     "DocComments": {
         "description": "A comment left on a Dovetail doc, aggregated across every doc in the workspace.",
         "docs_url": "https://developers.dovetail.com/reference/get_v1-docs-doc-id-comments",

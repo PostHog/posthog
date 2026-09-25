@@ -1,4 +1,4 @@
-import type { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 
 import {
     AttributionMode,
@@ -30,10 +30,9 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
     'azure',
 ]
 
-// Map of native sources that require a feature flag to be enabled. Empty today
-// (all current sources are fully rolled out), but kept so a new source can be
-// gated behind a flag while it's being rolled out.
-export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {}
+export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+}
 
 /**
  * Filter native marketing sources based on feature flags
@@ -46,7 +45,7 @@ export function getEnabledNativeMarketingSources(
     return VALID_NATIVE_MARKETING_SOURCES.filter((source) => {
         const featureFlagKey = NATIVE_SOURCE_FEATURE_FLAGS[source]
         if (featureFlagKey) {
-            return !!featureFlags[featureFlagKey]
+            return featureFlags[featureFlagKey] === true
         }
         return true
     })
@@ -71,6 +70,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     BingAds: 'Bing Ads',
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
+    AppleSearchAds: 'Apple Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -320,6 +320,7 @@ interface SourceColumnMappings {
     costNeedsDivision?: boolean
     currencyColumn?: string
     fallbackCurrency?: string
+    currencyTimestampColumn?: string
 }
 
 interface ConversionExprResult extends Partial<DataWarehouseNode> {
@@ -359,6 +360,32 @@ function buildConversionExpr(
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
+    AppleSearchAds: {
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'local_spend.amount',
+            impressions: 'impressions',
+            clicks: 'taps',
+            reportedConversion: 'total_installs',
+            reportedConversionValue: '0',
+            currencyColumn: 'local_spend.currency',
+            currencyTimestampColumn: 'date',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr(
+                    ['total_installs', 'installs'],
+                    table,
+                    (fields) => `SUM(coalesce(${fields.map((field) => `toFloat(${field})`).join(', ')}, 0))`
+                )
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
+            }
+            return null
+        },
+    },
     GoogleAds: {
         // idField is a column on the stats table, which flattens `campaign.id` to
         // `campaign_id` and has no bare `id`.
@@ -644,10 +671,13 @@ function wrapWithCurrencyConversion(
 ): string {
     const currencyColumn = mappings.currencyColumn
     const fallbackCurrency = mappings.fallbackCurrency
-    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn.split('.')[0] in table.fields
 
     if (hasCurrencyColumn) {
-        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr})))`
+        const dateArgument = mappings.currencyTimestampColumn
+            ? `, coalesce(toDate(${mappings.currencyTimestampColumn}), today())`
+            : ''
+        return `SUM(toFloat(convertCurrency(coalesce(${currencyColumn}, '${baseCurrency}'), '${baseCurrency}', ${valueExpr}${dateArgument})))`
     }
     if (fallbackCurrency) {
         return `toFloat(convertCurrency('${fallbackCurrency}', '${baseCurrency}', SUM(${valueExpr})))`
@@ -663,7 +693,7 @@ function wrapAggregatedWithCurrencyConversion(
 ): string {
     const currencyColumn = mappings.currencyColumn
     const fallbackCurrency = mappings.fallbackCurrency
-    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn in table.fields
+    const hasCurrencyColumn = currencyColumn && table.fields && currencyColumn.split('.')[0] in table.fields
 
     if (hasCurrencyColumn) {
         return `toFloat(convertCurrency(any(coalesce(${currencyColumn}, '${baseCurrency}')), '${baseCurrency}', ${aggregatedExpr}))`
@@ -700,7 +730,9 @@ export function createMarketingTile(
         return null
     }
 
-    const table = source.tables.find((t) => t.name.split('.').pop() === integrationConfig.statsTableName)
+    const table = source.tables.find(
+        (t) => extractSchemaName(t.name, sourceType) === integrationConfig.statsTableName.toLowerCase()
+    )
     if (!table) {
         return null
     }
@@ -727,7 +759,10 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const mathHogql = conversionExpr === '0' ? '0' : `SUM(${costExpr}) / nullIf(${conversionExpr}, 0)`
+        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
+            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+            : `SUM(${costExpr})`
+        const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 

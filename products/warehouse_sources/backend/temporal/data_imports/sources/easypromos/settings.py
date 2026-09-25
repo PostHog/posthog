@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class EasypromosEndpointConfig:
     name: str
     # Path under /v2. Fan-out children use a `{promotion_id}` placeholder filled per parent
@@ -24,6 +26,9 @@ class EasypromosEndpointConfig:
     fan_out_over_promotions: bool = False
     # Whether the table is selected for sync by default in the wizard.
     should_sync_default: bool = True
+    # Whether the endpoint returns the `paging` envelope. A few endpoints return the whole
+    # collection in one response with no `paging` object at all.
+    paginated: bool = True
     # Easypromos exposes no server-side updated-since filter — only `order=created_asc|created_desc`
     # with no `created_gte`-style cutoff — so every endpoint is full refresh and advertises no
     # incremental fields. Kept as an explicit (empty) field for parity with other sources.
@@ -75,6 +80,18 @@ EASYPROMOS_ENDPOINTS: dict[str, EasypromosEndpointConfig] = {
         primary_keys=["promotion_id", "id"],
         partition_key="created",
         fan_out_over_promotions=True,
+    ),
+    # GetPrizeInventoryByPromotion. The prize types defined in a promotion, each with `qty` (total
+    # units) and `given` (units already awarded) — the stock figures behind remaining-stock and
+    # redemption reporting. Distinct from `prizes`, which holds one row per awarded prize: a prize
+    # type nobody has won yet appears here and nowhere else. The response carries no `paging`
+    # object, so it is a single page.
+    "prize_inventory": EasypromosEndpointConfig(
+        name="prize_inventory",
+        path="/prizes/inventory/{promotion_id}",
+        primary_keys=["promotion_id", "id"],
+        fan_out_over_promotions=True,
+        paginated=False,
     ),
     # GetPromotionVirtualCoinTransactions. The transaction object carries an `id`; its timestamp
     # field name isn't confirmed against a live account, so no partition key until verified.
