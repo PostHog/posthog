@@ -80,12 +80,17 @@ async def _calculate_and_publish_per_experiment(
     for em in experiment_metrics:
         groups.setdefault((em.experiment_id, em.team_id), []).append(em)
 
+    # Publishes get their own limit. Every metric task in the hour enqueues on the shared semaphore up
+    # front and waiters are served in order, so a publish waiting in that queue would sit behind the whole
+    # remaining batch, which recreates the end-of-hour barrier this function exists to remove.
+    publish_semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
+
     async def _run_experiment(experiment_id: int, team_id: int | None, metrics: list) -> tuple[list, bool]:
         metric_results = await asyncio.gather(*[_run_metric(em) for em in metrics], return_exceptions=True)
         if team_id is None:
             return metric_results, False
         try:
-            async with semaphore:
+            async with publish_semaphore:
                 synced = await temporalio.workflow.execute_activity(
                     create_recalculation_from_timeseries,
                     args=[experiment_id, team_id, run_started_at.isoformat()],
