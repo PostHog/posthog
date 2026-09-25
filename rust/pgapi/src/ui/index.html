@@ -91,7 +91,7 @@
   const PAGES = [
     ['overview', 'Overview'], ['queries', 'Queries'], ['activity', 'Activity'], ['waits', 'Wait events'], ['locks', 'Locks'],
     ['tables', 'Tables'], ['indexes', 'Indexes'], ['vacuum', 'Vacuum'], ['events', 'Events'], ['logs', 'Logs'],
-    ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
+    ['cpu', 'CPU'], ['checkpoints', 'Checkpoints'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
   ];
   const state = { servers: [], server: null, page: 'overview', params: {}, range: '1h', build: null };
   const $ = (s, r = document) => r.querySelector(s);
@@ -595,8 +595,8 @@
     ];
   };
 
-  pages.system = async () => {
-    const d = await api(`/servers/${state.server}/system`, { ...rangeQuery() });
+  pages.cpu = async () => {
+    const d = await api(`/servers/${state.server}/cpu`, { ...rangeQuery() });
     const byInst = (rows, key) => { const m = {}; for (const r of rows) (m[r.instance] ||= []).push([new Date(r.collected_at), r[key]]); return Object.entries(m).map(([n, pts], i) => ({ name: n, color: COLORS[i], points: pts })); };
     const cpuTitle = 'Host CPU %' + (d.host.length ? ` (${d.host.map(h => `${h.instance}: ${h.ncpu} vCPU`).join(', ')})` : '');
     const noProctab = () => el('div', { class: 'empty' }, 'No pg_proctab data. Run CREATE EXTENSION pg_proctab in the database the collector connects to; rows start within 10 minutes.');
@@ -609,7 +609,7 @@
       { key: 'backends', label: 'backends', num: true, fmt: fmt.num },
     ];
     return [
-      el('h1', {}, 'System'),
+      el('h1', {}, 'CPU'),
       el('div', { class: 'grid two' },
         panel(cpuTitle, d.cpu.length ? chart(byInst(d.cpu, 'cpu_pct'), { yfmt: fmt.pct, missing: null }) : noProctab()),
         panel('Load average', d.memory.length ? chart(byInst(d.memory, 'load1'), { yfmt: v => fmt.dec(v, 2), missing: null }) : el('div', { class: 'empty' }, 'no pg_proctab data')),
@@ -625,12 +625,25 @@
           { key: 'tags', label: 'code path', render: r => el('a', { href: hashFor('queries', { tags: tagEntries(r.tags).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join(',') }) }, tagPills(r.tags, 4)) },
           ...cpuCols,
         ], { empty: 'no query tags seen on active backends in this range' }))),
-      el('div', { style: 'margin-top:12px' }, panel('CPU by query (sampled from the active statement each minute)', table(d.cpu_by_query, [
-        { key: 'query', label: 'query', render: r => el('a', { href: hashFor('query', { queryid: r.queryid, datname: r.datname }) }, queryLabel(r)) },
-        { key: 'datname', label: 'db' },
-        ...cpuCols,
-      ], { empty: 'no query ids seen on active backends in this range' }))),
-      el('div', { class: 'grid two', style: 'margin-top:12px' },
+      el('div', { style: 'margin-top:12px' }, panel('CPU by query (estimated)',
+        el('div', { class: 'muted small', style: 'margin-bottom:6px' }, "Each role's measured CPU is split between its queries: execution time minus I/O time first, then the rest (planning, parsing, protocol) by number of calls. Share is of all query CPU on the instance."),
+        table(d.cpu_by_query, [
+          { key: 'query', label: 'query', render: r => el('a', { href: hashFor('query', { queryid: r.queryid, datname: r.datname }) }, queryLabel(r)) },
+          { key: 'datname', label: 'db' },
+          { key: 'cpu_seconds', label: 'CPU time', num: true, fmt: v => fmt.dec(v, 1) + ' s' },
+          { key: 'avg_cores', label: 'avg cores', num: true, fmt: cores },
+          { key: 'host_pct', label: '% of host', num: true, fmt: v => v == null ? '–' : fmt.dec(v, 2) + '%' },
+          { key: 'share_pct', label: 'share', num: true, fmt: v => v == null ? '–' : fmt.dec(v, 1) + '%' },
+          { key: 'calls', label: 'calls', num: true, fmt: fmt.num },
+        ], { empty: 'no pg_stat_statements rows in this range' }))),
+    ];
+  };
+
+  pages.checkpoints = async () => {
+    const d = await api(`/servers/${state.server}/checkpoints`, { ...rangeQuery() });
+    return [
+      el('h1', {}, 'Checkpoints & replicas'),
+      el('div', { class: 'grid two' },
         panel('Checkpoints (from the log)', table(d.checkpoints, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind' }, { key: 'buffers_written', label: 'buffers', num: true, fmt: fmt.num }, { key: 'buffers_pct', label: '%', num: true, fmt: fmt.pct }, { key: 'write_s', label: 'write', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'sync_s', label: 'sync', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'distance_kb', label: 'distance', num: true, fmt: v => fmt.bytes(v * 1024) }], { empty: 'none in range' })),
         panel('bgwriter / checkpointer (summed)', table(d.bgwriter, [{ key: 'instance', label: 'instance' }, { key: 'checkpoints_timed', label: 'timed', num: true, fmt: fmt.num }, { key: 'checkpoints_req', label: 'requested', num: true, fmt: fmt.num }, { key: 'buffers_checkpoint', label: 'ckpt buffers', num: true, fmt: fmt.num }, { key: 'buffers_clean', label: 'bgw buffers', num: true, fmt: fmt.num }, { key: 'buffers_alloc', label: 'allocated', num: true, fmt: fmt.num }])),
         panel('Aurora replicas', table(d.aurora_replicas, [{ key: 'instance_id', label: 'instance' }, { key: 'role', label: 'role' }, { key: 'replica_lag_ms', label: 'lag', num: true, fmt: v => v == null ? '–' : fmt.ms(v) }, { key: 'replay_latency_us', label: 'replay', num: true, fmt: v => fmt.ms(v / 1000) }, { key: 'active_txns', label: 'txns', num: true }, { key: 'storage_daemon_cpu', label: 'storage cpu', num: true, fmt: fmt.pct }], { empty: 'not Aurora' })),
@@ -695,6 +708,8 @@
   async function route() {
     const h = parseHash();
     if (!h && state.servers.length) { go('overview', {}, state.servers[0].server_id); return; }
+    // Old bookmarks point at the page before it was renamed.
+    if (h?.page === 'system') { go('cpu', h.params, h.server); return; }
     if (h) { state.server = h.server; state.page = h.page; state.params = h.params; }
     $('#server').value = state.server;
     syncRangeControl();
