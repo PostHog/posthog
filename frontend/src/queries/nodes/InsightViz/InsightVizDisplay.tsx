@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { NetworkError } from 'lib/api'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -209,6 +210,7 @@ export function InsightVizDisplay({
         insightData,
         validationError,
         validationErrorCode,
+        insightDataError,
         theme,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -315,6 +317,7 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    networkError={insightDataError instanceof NetworkError}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
