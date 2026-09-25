@@ -201,6 +201,21 @@ def test_all_source_non_retryable_error_is_skipped():
     _run_activity(source_mock)
 
 
+def test_unimplemented_get_schemas_is_skipped_and_keeps_the_schedule():
+    # A worker that runs older code than web can get a source whose `get_schemas` is still the
+    # base stub. That recovers on the next discovery run after the worker catches up, so it must
+    # not fail the activity or drop the schedule.
+    source_mock = mock.MagicMock()
+    source_mock.parse_config.return_value = {}
+    source_mock.get_schemas.side_effect = NotImplementedError()
+
+    with mock.patch.object(module, "delete_discover_schemas_schedule") as delete_schedule:
+        entered = _run_activity(source_mock)
+
+    entered["sync_old_schemas_with_new_schemas"].assert_not_called()
+    delete_schedule.assert_not_called()
+
+
 def test_undecrypted_integration_secret_error_is_skipped():
     # Checked by type, not message, so it must be skipped even when get_non_retryable_errors
     # has no matching entry — otherwise discovery retries forever on an unrecoverable decryption
