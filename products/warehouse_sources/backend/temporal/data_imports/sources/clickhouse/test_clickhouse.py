@@ -1005,8 +1005,14 @@ class TestGetClientSessionSettings:
 
 
 class TestTranslateError:
-    def test_matches_substring_inside_long_error(self):
-        msg = "Code: 516. DB::Exception: Authentication failed for user 'default'"
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "Code: 516. DB::Exception: Authentication failed for user 'default'",
+            "Code: 192. DB::Exception: There is no user `analytics` in user directories. (UNKNOWN_USER)",
+        ],
+    )
+    def test_rejected_login_maps_to_invalid_credentials(self, msg):
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
         assert "rejected the username or password" in translated
