@@ -2016,12 +2016,16 @@ export function escapeMarkdownLineStart(line: string): string {
 }
 
 const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
+const COMPONENT_TAG_OPENER = /^(<[A-Z][A-Za-z0-9]*|<!--)/
 
 // The parser lifts a quoted tag out of its blockquote, so the check runs after any `>` markers too.
+// A backslash is not enough: the parser recovers a `\<Tag` that spans lines, because the prose
+// serializer writes multiline components that way. Inline code cannot be recovered into a tag.
 function escapeComponentTagLineStart(line: string): string {
     const prefix = line.match(/^[\s>]*/)?.[0] ?? ''
     const content = line.slice(prefix.length)
-    return COMPONENT_TAG_LINE_START.test(content) ? `${prefix}\\${content}` : line
+    const opener = content.match(COMPONENT_TAG_OPENER)?.[0]
+    return opener ? `${prefix}\`${opener}\`${content.slice(opener.length)}` : line
 }
 
 // For markdown the author meant to render: only a line that would parse as a component tag or a
