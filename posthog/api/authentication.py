@@ -1359,6 +1359,7 @@ def _is_signed_in_github_account_link(strategy: DjangoStrategy, backend: BaseAut
         and request.user.is_authenticated
         and getattr(backend, "name", "") == "github"
         and (strategy.session_get("next") or "").startswith("/account-connected/github-login")
+        and _sso_reauth_request(strategy) is None
     )
 
 

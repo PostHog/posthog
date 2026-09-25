@@ -1069,10 +1069,18 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.assertFalse(User.objects.filter(email=email).exists())
         self.assertFalse(UserSocialAuth.objects.filter(provider=provider).exists())
 
-    @parameterized.expand([("github", "github"), ("google", "google-oauth2")])
-    def test_sso_reauth_with_an_unlinked_unverified_identity_grants_nothing(self, _name: str, provider: str) -> None:
+    @parameterized.expand(
+        [
+            ("github", "github", "/settings/user"),
+            ("github_account_connect_next", "github", "/account-connected/github-login?provider=github"),
+            ("google", "google-oauth2", "/settings/user"),
+        ]
+    )
+    def test_sso_reauth_with_an_unlinked_unverified_identity_grants_nothing(
+        self, _name: str, provider: str, next_url: str
+    ) -> None:
         last_reauth_at_before = self.client.session[settings.SESSION_LAST_REAUTH_AT_KEY]
-        login_query = urlencode({"reauth": "true", "next": "/settings/user", "email": self.user.email})
+        login_query = urlencode({"reauth": "true", "next": next_url, "email": self.user.email})
 
         if provider == "github":
             response = self._complete_github_login(
