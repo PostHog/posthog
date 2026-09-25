@@ -22,7 +22,8 @@ export const getToolCallDescriptionAndWidgetDef = (
 ): [string, ToolCallWidgetDef | null] => {
     const commentary = toolCall.args.commentary as string
     const definition = getToolDefinitionFromToolCall(toolCall)
-    let description = `${toolCall.status === TaskExecutionStatus.InProgress ? 'Executing' : 'Executed'} ${toolCall.name}`
+    // toolCall.name is a wire identifier, so the fallback stays generic rather than printing it.
+    let description = toolCall.status === TaskExecutionStatus.InProgress ? 'Working on it...' : 'Done'
     let widgetDef: ToolCallWidgetDef | null = null
     if (definition) {
         if (definition.displayFormatter) {
