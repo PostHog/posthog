@@ -28,7 +28,8 @@ class ScoutToolEntry:
     holdable: bool
     # Required scopes the baseline `signals_scout` posture does not carry. On a holdable tool
     # these name what the scout has to be granted, or which preset it has to opt into. On a
-    # tool that is not holdable they name what no scout can reach.
+    # tool that is not holdable they include every scope no scout can reach, next to any
+    # grantable ones.
     missing_scopes: tuple[str, ...]
 
 

@@ -4077,7 +4077,8 @@ class ScoutToolCatalogueEntrySerializer(serializers.Serializer):
         help_text=(
             "Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these "
             "are what the scout has to be granted, or the preset it has to opt into. On a tool that is not "
-            "holdable they are the scopes no scout can reach."
+            "holdable they include every scope no scout can reach, and can also include scopes a person can "
+            "grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart."
         ),
     )
     feature_flag = serializers.CharField(
