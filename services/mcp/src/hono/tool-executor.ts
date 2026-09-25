@@ -1061,9 +1061,6 @@ function safeUrlPath(url: string): string {
     }
 }
 
-/** Arguments the SDK or host injects on every call; not something the agent chose to send. */
-const INJECTED_ARG_KEYS = new Set(['context', 'llm_model'])
-
 /** How long a tool result waits for the session record; a healthy Redis answers in about a millisecond. */
 const SESSION_OBSERVE_TIMEOUT_MS = 100
 
@@ -1100,7 +1097,7 @@ function inputShapeAnalyticsProperties(
     const record = input as Record<string, unknown>
     const aliases = describeAliasesUsed(schema ? readParamAliases(schema) : undefined, record)
     return {
-        $mcp_input_keys: describeInputKeys(record, INJECTED_ARG_KEYS),
+        $mcp_input_keys: describeInputKeys(record, schema),
         ...(aliases.length > 0 ? { $mcp_param_aliases_used: aliases } : {}),
     }
 }

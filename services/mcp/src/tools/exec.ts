@@ -1,3 +1,4 @@
+import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
@@ -1246,36 +1247,30 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    return { fields, inputKeys: describeInputKeys(input) }
+    return { fields, inputKeys: describeInputKeys(input, schema) }
 }
 
-/** The `$mcp_input_keys` cap; separate from the validation-descriptor cap so tuning one does not move the other. */
-const MAX_INPUT_KEYS = 20
+const RECORDABLE_KEY_PATTERN = /^[A-Za-z0-9_.-]+$/
 
 /**
- * Recorded in place of a key whose text is not identifier-shaped, so an argument name
- * the caller invented cannot carry arbitrary text into analytics. Real parameter
- * spellings, right or wrong, always match the pattern.
+ * Widens the SDK's default, which records only declared names: an undeclared name is
+ * recorded too when it is identifier-shaped, because measuring which wrong spellings
+ * agents send is the point of `$mcp_input_keys` here. A name that is not
+ * identifier-shaped can carry arbitrary caller text, so it stays `[redacted]`.
  */
-const UNRECORDABLE_KEY = '*'
-const RECORDABLE_KEY_PATTERN = new RegExp(`^[A-Za-z0-9_.-]{1,${MAX_KEY_LENGTH}}$`)
+export const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
+    declared || RECORDABLE_KEY_PATTERN.test(key)
 
 /**
- * The top-level keys a caller sent, sorted and capped, with no values. Shared by the
+ * The top-level keys a caller sent, with no values, from the SDK helper. Shared by the
  * validation descriptors and the per-call `$mcp_input_keys` property so both record the
- * same shape of the same request. Only a plain object has argument names: a string or
- * an array here is unvalidated caller input, and walking it would build one entry per
- * character or element.
+ * same shape of the same request. The SDK owns the limits (20 names, 64 characters),
+ * declared-names-first ordering, the single `[redacted]` marker, and dropping its
+ * injected `context`, `llm_model`, and `conversation_id` unless the schema declares them.
  */
-export function describeInputKeys(input: unknown, exclude?: ReadonlySet<string>): string[] {
-    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-        return []
-    }
-    return Object.keys(input)
-        .filter((key) => !exclude?.has(key))
-        .sort()
-        .slice(0, MAX_INPUT_KEYS)
-        .map((key) => (RECORDABLE_KEY_PATTERN.test(key) ? key : UNRECORDABLE_KEY))
+export function describeInputKeys(input: unknown, schema?: z.ZodType): string[] {
+    const keys = getToolInputProperties(input, schema, { shouldRecordInputKey }).$mcp_input_keys
+    return Array.isArray(keys) ? (keys as string[]) : []
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps

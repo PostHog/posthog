@@ -1944,7 +1944,7 @@ describe('exec tool', () => {
 
             // A 100-character key is not a parameter spelling; it is recorded as masked, not truncated.
             const long = 'x'.repeat(100)
-            expect(describeInputKeys({ [long]: 1 })).toEqual(['*'])
+            expect(describeInputKeys({ [long]: 1 })).toEqual(['[redacted]'])
         })
 
         // `params.arguments` is an unvalidated cast until the schema runs; a string or
@@ -1956,12 +1956,25 @@ describe('exec tool', () => {
             expect(describeInputKeys(null)).toEqual([])
         })
 
-        it('drops excluded keys and masks a key that is not identifier-shaped', () => {
+        it('drops SDK-injected keys and masks a key that is not identifier-shaped', () => {
+            expect(describeInputKeys({ context: {}, llm_model: 'x', conversation_id: 'c', id: 1 })).toEqual(['id'])
             expect(
-                describeInputKeys({ context: {}, llm_model: 'x', id: 1 }, new Set(['context', 'llm_model']))
-            ).toEqual(['id'])
+                describeInputKeys({ context: {}, id: 1 }, z.object({ context: z.string(), id: z.number() }))
+            ).toEqual(['context', 'id'])
             // Free text in a key name is caller text; the property records names only.
-            expect(describeInputKeys({ 'drop table users; --': 1, ok_key: 2 })).toEqual(['*', 'ok_key'])
+            expect(describeInputKeys({ 'drop table users; --': 1, ok_key: 2 })).toEqual(['ok_key', '[redacted]'])
+        })
+
+        it('records declared names before misspelled ones when the limit is reached', () => {
+            const declared = Object.fromEntries(
+                Array.from({ length: 20 }, (_, i) => [`d${String(i).padStart(2, '0')}`, i])
+            )
+            const schema = z.preprocess(
+                (value) => value,
+                z.object(Object.fromEntries(Object.keys(declared).map((key) => [key, z.number()])))
+            )
+            const keys = describeInputKeys({ aaa_misspelled: 1, ...declared }, schema)
+            expect(keys).toEqual(Object.keys(declared))
         })
 
         it('is what describeValidationError records as inputKeys', () => {
