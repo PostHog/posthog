@@ -17,8 +17,8 @@ const FETCH_COUNTER: &str = "global_rate_limiter_custom_thresholds_fetch_total";
 ///
 /// The refresh loop calls `fetch` on a timer and atomically swaps the returned
 /// map into the limiter. `Ok(Some(map))` replaces the current thresholds,
-/// `Ok(None)` means "no thresholds configured" (clears them), and `Err` leaves
-/// the current map untouched (fail-static). Implementations own their own
+/// `Ok(None)` means the key is absent, and both it and `Err` leave the current
+/// map untouched (fail-static). Implementations own their own
 /// connection lifecycle, including reconnecting after a transient failure.
 #[async_trait]
 pub trait CustomKeyThresholdSource: Send + Sync {

@@ -76,13 +76,13 @@ const TIER_LABELS: [&str; 4] = ["idle", "low", "normal", "hot"];
 /// Pressure tiers for adaptive sync scheduling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PressureTier {
-    /// < 10% capacity: skip sync entirely
+    /// < 10% capacity: no cadence of its own. Above `min_sync_floor` it syncs on the Low cadence
     Idle,
     /// 10-50% capacity: sync at 4x sync_interval
     Low,
     /// 50-80% capacity: sync at 1x sync_interval
     Normal,
-    /// > 80% capacity: sync at sync_interval / 2
+    /// >= 80% capacity: sync at sync_interval / 2
     Hot,
 }
 
@@ -122,7 +122,7 @@ impl PressureTier {
 /// Compute the effective sync interval for a given pressure tier
 pub fn tier_sync_interval(pressure: f64, base_sync_interval: Duration) -> Option<Duration> {
     match PressureTier::from_pressure(pressure) {
-        PressureTier::Idle => None, // skip sync entirely
+        PressureTier::Idle => None, // no cadence of its own; the caller uses the Low cadence
         PressureTier::Low => Some(base_sync_interval.mul_f64(4.0)),
         PressureTier::Normal => Some(base_sync_interval),
         PressureTier::Hot => Some(base_sync_interval.div_f64(2.0)),
@@ -137,9 +137,9 @@ pub trait GlobalRateLimiter: Send + Sync {
     /// - Consult the local cache with leaky bucket decay
     /// - Enqueue an update to the key's count for async batch submission
     /// - Push to pending_sync if sync interval exceeded
-    /// - Fail open if the local cache is empty and no prior data exists
+    /// - Allow the request if the local cache has no entry for the key yet
     ///
-    /// Returns `EvalResult` indicating whether the request is allowed, limited, or failed open
+    /// Returns `EvalResult` indicating whether the request is allowed or limited
     async fn check_limit(
         &self,
         key: &str,
@@ -155,7 +155,7 @@ pub trait GlobalRateLimiter: Send + Sync {
     /// - If the key is present in the map, the override threshold value is applied
     /// - If the key is not present in the map, it is not subject to rate limiting
     ///
-    /// Returns `EvalResult` indicating whether the request is allowed, limited, not applicable, or failed open
+    /// Returns `EvalResult` indicating whether the request is allowed, limited, or not applicable
     async fn check_custom_limit(
         &self,
         key: &str,
@@ -177,15 +177,18 @@ pub struct GlobalRateLimiterConfig {
     pub global_threshold: u64,
     /// Sliding window size (e.g., 60 seconds) - defines the 2-epoch counter size
     pub window_interval: Duration,
-    /// Max staleness before re-sync with Redis (default 15s)
+    /// Base re-sync cadence (default 15s). The pressure tier scales it: Hot is
+    /// half, Normal is 1x, Low and Idle are 4x
     pub sync_interval: Duration,
     /// Background task cadence for pipeline reads + writes (default 1s)
     pub tick_interval: Duration,
     /// Redis key prefix (not including final separator)
     pub redis_key_prefix: String,
-    /// TTL for Redis epoch keys (2 * window_interval)
+    /// Epoch keys expire at an absolute deadline, so only the part of this above
+    /// 2 * window_interval is used, as clock-skew grace
     pub global_cache_ttl: Duration,
-    /// How long to cache locally in the moka LRU
+    /// Time since an entry was last written before moka drops it. Every request
+    /// and every read rewrites the entry, so this restarts each time
     pub local_cache_ttl: Duration,
     /// Evict entries not accessed within this window. Hot keys are constantly
     /// re-inserted so they never idle-expire; cold keys reclaim slots faster
@@ -195,7 +198,8 @@ pub struct GlobalRateLimiterConfig {
     pub global_read_timeout: Duration,
     /// Timeout for global cache write operations
     pub global_write_timeout: Duration,
-    /// Maximum entries in the local LRU cache
+    /// Maximum entries in the local cache. Moka's TinyLFU policy can refuse a
+    /// new key at the cap
     pub local_cache_max_entries: u64,
     /// Capacity of the mpsc channel for async global cache updates
     pub channel_capacity: usize,
@@ -203,14 +207,14 @@ pub struct GlobalRateLimiterConfig {
     ///
     /// A key far below its threshold cannot be limited no matter what the other
     /// nodes report, so syncing it buys nothing and costs two Redis keys per
-    /// tick. With an unbounded key space (e.g. keyed on distinct_id) the
+    /// sync. With an unbounded key space (e.g. keyed on distinct_id) the
     /// one-shot keys dominate, so this floor is what keeps the pipeline sized to
     /// the keys that can actually be enforced rather than to total traffic.
     ///
     /// The level is per-node, so the ceiling on a safe value is
     /// `global_threshold / node_count` -- above that, a key sitting exactly at
-    /// the threshold but spread evenly across the fleet would never sync and so
-    /// could never be limited. Keep well under that: the saving is dominated by
+    /// the threshold but spread evenly across the fleet would sync only after its
+    /// unwindowed local count reached the floor, more than a window late. Keep well under that: the saving is dominated by
     /// the single-event keys, so a small floor captures nearly all of it.
     ///
     /// Set to 0 to sync every key, restoring the pre-floor behavior.
@@ -220,7 +224,8 @@ pub struct GlobalRateLimiterConfig {
     pub max_read_outage: Option<Duration>,
     /// Maximum keys drained from `pending_sync` per tick. The remainder stays
     /// queued for the next tick, so a backlog degrades into staleness instead of
-    /// a tick loop that overruns its own interval.
+    /// a tick loop that overruns its own interval. The same bound caps the write
+    /// entries sent per tick.
     pub max_sync_keys_per_tick: usize,
     /// Maximum Redis keys per individual command. Reads cost two keys per entity
     /// (current + previous epoch), so an entity chunk is half this. Bounds how
@@ -235,7 +240,7 @@ pub struct GlobalRateLimiterConfig {
     /// at the cap, updates for new keys are dropped and counted. Without this,
     /// unique-key inflow faster than the per-tick drain grows the batch without
     /// bound -- the update channel's capacity does not help, because the
-    /// receiver moves entries into this map as fast as they arrive.
+    /// receiver moves entries into this map between ticks.
     pub max_write_batch_entries: usize,
     /// Maximum keys held in the pending-sync set. At the cap, new sync
     /// requests are dropped and counted; the key's next request re-queues it
@@ -506,7 +511,7 @@ fn instance_index(key: &str, instances: usize) -> usize {
     (hasher.finish() as usize) % instances
 }
 
-/// Select a Redis client from the pool based on consistent key hashing.
+/// Select a Redis client from the pool by a stable hash of the key, modulo the pool size.
 /// Returns (client_ref, index) tuple for metric tagging.
 fn select_redis_client(
     key: &str,
@@ -527,7 +532,7 @@ pub struct GlobalRateLimitResponse {
     pub threshold: u64,
     /// The sliding window interval
     pub window_interval: Duration,
-    /// Sync interval (how often we re-read from Redis)
+    /// Base sync interval; the key's pressure tier scales it
     pub sync_interval: Duration,
     /// Whether this limit was applied via a custom key override
     pub is_custom_limited: bool,
@@ -551,11 +556,12 @@ pub enum EvalResult {
     Limited(GlobalRateLimitResponse),
     /// Key not subject to rate limiting (custom key mode, unregistered key)
     NotApplicable,
-    /// Failed open due to Redis error or timeout
+    /// Failed open due to Redis error or timeout. Not returned today, because
+    /// Redis failures happen in the background task and never reach a request.
     FailOpen { reason: FailOpenReason },
 }
 
-/// A distributed rate limiter using local LRU cache with leaky bucket decay,
+/// A distributed rate limiter using a local moka cache with leaky bucket decay,
 /// 2-epoch sliding window counters in Redis, and a unified background pipeline
 /// for batched reads + writes.
 #[derive(Clone)]
@@ -639,7 +645,7 @@ impl GlobalRateLimiterImpl {
             );
             config.local_cache_idle_timeout = config.window_interval;
         }
-        // Same hazard for the hard TTL: an entry evicted mid-window discards the
+        // Same hazard for the TTL: an entry evicted mid-window discards the
         // counts it was accumulating, and the next request follows the always-
         // allowed miss path.
         if config.local_cache_ttl < config.window_interval {
@@ -811,7 +817,7 @@ impl GlobalRateLimiterImpl {
 
             (level, global_level, true)
         } else {
-            // Cache miss: no prior data, allow through and queue sync
+            // Cache miss: no prior data, allow through and queue a sync at or above the floor
             metrics::counter!(GLOBAL_RATE_LIMITER_CACHE_COUNTER, "scope" => self.scope, "result" => "miss").increment(1);
 
             // Insert a fresh entry so subsequent requests have local_pending tracked
@@ -862,8 +868,8 @@ impl GlobalRateLimiterImpl {
     ///
     /// The configured floor is capped at 1% of the key's own threshold. The
     /// floor is a per-node level, so a fleet of N nodes can hide at most
-    /// N * floor events from Redis; the cap keeps that bypass under N% of the
-    /// threshold regardless of configuration. Without it, a custom threshold
+    /// N * floor events from enforcement; the cap keeps that bypass under N% of
+    /// the threshold for any threshold of 100 or more. Without it, a custom threshold
     /// far below the global one (the exact keys overrides exist to clamp) could
     /// sit entirely below a floor tuned for the global threshold and never
     /// sync, making the override unenforceable.
@@ -1023,14 +1029,10 @@ impl GlobalRateLimiterImpl {
         }
     }
 
-    /// Spawn the unified background tick loop that handles both reads and writes.
+    /// Spawn the background loop that handles both reads and writes.
     ///
-    /// Every tick_interval:
-    /// 1. Drain pending_sync (entities needing Redis read)
-    /// 2. Drain pending_writes from channel (entities with local increments)
-    /// 3. Build single Redis pipeline with reads + writes
-    /// 4. Execute pipeline
-    /// 5. Process read responses to update cache entries
+    /// Between ticks it merges each update into the write batch, and every
+    /// tick_interval it runs `tick`. The channel is not read while a tick runs.
     fn spawn_background_task(
         config: GlobalRateLimiterConfig,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -1062,7 +1064,7 @@ impl GlobalRateLimiterImpl {
                                 );
                             }
                             None => {
-                                // Channel closed, do final flush and exit
+                                // Channel closed: run one last bounded tick and exit
                                 if !write_batch.is_empty() {
                                     Self::tick(
                                         &config, &redis_instances, &cache,
@@ -1124,8 +1126,8 @@ impl GlobalRateLimiterImpl {
 
     /// Execute one tick of the background pipeline.
     ///
-    /// Drains pending reads + writes, builds a single pipeline, executes it,
-    /// and processes read responses to update cache entries.
+    /// Takes bounded slices of the pending syncs and the write batch, purges
+    /// stale epochs, then sends chunked writes before chunked reads per instance.
     #[allow(clippy::too_many_arguments)]
     async fn tick(
         config: &GlobalRateLimiterConfig,
@@ -1178,8 +1180,9 @@ impl GlobalRateLimiterImpl {
         }
 
         // Bound the write drain the same way. The deferred remainder stays in
-        // `write_batch`, where new arrivals merge into it by (key, epoch), so no
-        // count is lost -- it lands in the same epoch key up to a few ticks late.
+        // `write_batch`, where new arrivals merge into it by (key, epoch). It lands
+        // in the same epoch key a few ticks late, unless its epoch ages out first
+        // and the purge above drops it.
         // Without the bound, a high-cardinality burst produces a write batch
         // whose waves consume the whole tick before reads run.
         let writes: HashMap<(String, i64), u64> =
@@ -1357,8 +1360,9 @@ impl GlobalRateLimiterImpl {
                             Self::record_pipeline_error(scope, &redis_idx_str, "redis_write");
                             warn!(error = %e, records = chunk_len, "Failed to write rate limit batch to Redis");
                             // A dead MultiplexedConnection never recovers on its
-                            // own; ask the client to rebuild. Timeouts are
-                            // transient and never route here.
+                            // own; ask the client to rebuild. The client's own
+                            // response timeout also lands here, as a recoverable
+                            // error that does not trigger a rebuild.
                             if e.is_unrecoverable_error() {
                                 redis.heal().await;
                             }
@@ -1600,10 +1604,10 @@ impl GlobalRateLimiterImpl {
                 }
             }
 
-            // estimated_count from Redis already includes events this node wrote
-            // across prior ticks. Reset local_pending to avoid double-counting.
-            // Events arriving during the MGET window (~100ms) are lost from the
-            // local estimate but will be written to Redis on the next tick.
+            // estimated_count from Redis already includes the events this node
+            // wrote. Reset local_pending to avoid double-counting. Events counted
+            // after this tick took its write batch drop out of the local estimate
+            // until the next read, and still reach Redis on a later tick.
             cache.insert(
                 key.clone(),
                 CacheEntry {

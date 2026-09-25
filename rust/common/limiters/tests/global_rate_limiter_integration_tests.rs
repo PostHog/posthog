@@ -106,9 +106,10 @@ async fn test_epoch_key_ttl_expiry() {
     };
 
     let mut config = test_config("ttl_expiry");
-    // `new()` clamps global_cache_ttl to 2x the window, so observing expiry
-    // needs a short window. 2s (not 1s) keeps the tick's stale-epoch purge
-    // 2-4s away from the write, safe on a loaded runner.
+    // Keys expire at an absolute deadline two windows after their epoch starts,
+    // plus up to one window of offset, so observing expiry needs a short window.
+    // 2s (not 1s) keeps the tick's stale-epoch purge 2-4s away from the write,
+    // safe on a loaded runner.
     config.window_interval = Duration::from_secs(2);
     config.global_cache_ttl = Duration::from_secs(4);
     let redis_arc: Arc<dyn Client + Send + Sync> = Arc::new(redis.clone());
