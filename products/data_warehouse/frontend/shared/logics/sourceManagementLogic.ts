@@ -471,11 +471,26 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             actions.loadDatabase()
         },
         deleteSource: async ({ source }) => {
-            await api.externalDataSources.delete(source.id)
-            actions.loadSources()
-            actions.sourceLoadingFinished(source)
+            // The confirm dialog stays clickable while it animates out, so a double click sends the
+            // delete twice. The second request 404s on a source the first one already removed, which
+            // surfaces as a failure for something that worked.
+            const deleting: Set<string> = (cache.deletingSourceIds ??= new Set())
+            if (deleting.has(source.id)) {
+                return
+            }
+            deleting.add(source.id)
 
-            posthog.capture('source deleted', { sourceType: source.source_type })
+            try {
+                await api.externalDataSources.delete(source.id)
+                posthog.capture('source deleted', { sourceType: source.source_type })
+            } catch (e) {
+                lemonToast.error("We couldn't delete this source. Refresh the page and try again.")
+                posthog.captureException(e)
+            } finally {
+                deleting.delete(source.id)
+                actions.loadSources()
+                actions.sourceLoadingFinished(source)
+            }
         },
         reloadSource: async ({ source }) => {
             // Optimistic UI updates before sending updates to the backend
