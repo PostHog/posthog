@@ -61,6 +61,7 @@ function CategoryPillContent({
     const { hasAvailableFeature } = useValues(userLogic)
     const {
         totalResultCount,
+        totalResultCountIsCapped,
         totalListCount,
         isLoading,
         isLocalDataLoading,
@@ -77,7 +78,7 @@ function CategoryPillContent({
         taxonomicFilterGroupTypesWithEmptyStates.includes(groupType) ||
         groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading
-    const countIsLowerBound = hasMore
+    const countIsLowerBound = hasMore || totalResultCountIsCapped
 
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const disabledReason = getCategoryPillDisabledReason(canInteract, groupType, hasPathsAdvanced)
@@ -109,13 +110,13 @@ function CategoryPillContent({
                             {showLoading ? (
                                 <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
                             ) : (
-                                formatDefinitionCount(totalResultCount, false)
+                                formatDefinitionCount(totalResultCount, totalResultCountIsCapped)
                             )}
                             {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
                             <span
                                 aria-label={countIsLowerBound ? `${totalResultCount} or more` : `${totalResultCount}`}
                             >
-                                {hasMore ? '+' : ''}
+                                {hasMore && !totalResultCountIsCapped ? '+' : ''}
                             </span>
                         </>
                     )}

@@ -242,13 +242,13 @@ export const LargeProjectCappedCount: Story = {
     render: CategoryRailStoryRender,
     args: {
         taxonomicFilterLogicKey: 'large-project-capped-count',
-        taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/property_definitions': () => ({
-                    results: Array.from({ length: 100 }, (_, i) => ({ id: `property_${i}`, name: `property_${i}` })),
+                '/api/projects/:team_id/event_definitions': () => ({
+                    results: Array.from({ length: 100 }, (_, i) => ({ id: `event_${i}`, name: `event_${i}` })),
                     count: 10_000,
                     count_is_capped: true,
                 }),
@@ -256,10 +256,10 @@ export const LargeProjectCappedCount: Story = {
         }),
     ],
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="taxonomic-tab-event_properties"]' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-tab-events"]' },
         docs: {
             description: {
-                story: 'A project above the count cap. The endpoint stops counting at 10,000, so the tab badge reads 10,000+.',
+                story: 'A project above the event count cap. The event definitions endpoint stops counting at 10,000, so the Events badge ends in a +.',
             },
         },
     },

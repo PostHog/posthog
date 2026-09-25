@@ -352,6 +352,7 @@ export interface infiniteListLogicValues {
     totalExtraCount: number
     totalListCount: number
     totalResultCount: number
+    totalResultCountIsCapped: boolean
     trimmedSearchQuery: string
     usableRemoteItems: ListStorage
 }
@@ -451,6 +452,7 @@ export interface infiniteListLogicActions {
             | ListStorage
             | {
                   count: any
+                  countIsCapped: boolean
                   loadDurationMs: number | undefined
                   queryChanged: boolean
                   results: TaxonomicDefinitionTypes[]
@@ -462,6 +464,7 @@ export interface infiniteListLogicActions {
             | ListStorage
             | {
                   count: any
+                  countIsCapped: boolean
                   loadDurationMs: number | undefined
                   queryChanged: boolean
                   results: TaxonomicDefinitionTypes[]
@@ -761,6 +764,7 @@ export interface infiniteListLogicMeta {
             searchQuery: string | undefined
             syntheticSelectedCount: number
         }) => number
+        totalResultCountIsCapped: (hasRemoteDataSource: boolean, usableRemoteItems: ListStorage) => boolean
         totalExtraCount: (isExpandable: boolean, hasRenderFunction: boolean) => number
         totalListCount: (totalResultCount: number, totalExtraCount: number) => number
         expandedCount: (
@@ -1030,6 +1034,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             response.count ||
                             (Array.isArray(response) ? response.length : 0) ||
                             (response.results || []).length,
+                        countIsCapped: response.count_is_capped === true,
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -2073,6 +2078,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                           syntheticSelectedCount: number
                       }
             ) => items.count || 0,
+        ],
+        totalResultCountIsCapped: [
+            (s) => [s.hasRemoteDataSource, s.usableRemoteItems],
+            (hasRemoteDataSource: boolean, usableRemoteItems: ListStorage): boolean =>
+                hasRemoteDataSource && usableRemoteItems.countIsCapped === true,
         ],
         totalExtraCount: [
             (s) => [s.isExpandable, s.hasRenderFunction],

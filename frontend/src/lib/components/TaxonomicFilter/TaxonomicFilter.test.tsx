@@ -16,6 +16,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
+    mockEventDefinitions,
     mockEventPropertyDefinition,
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
@@ -272,6 +273,31 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('taxonomic-tab-events')).toBeInTheDocument()
             expect(screen.getByTestId('taxonomic-tab-actions')).toBeInTheDocument()
         })
+
+        it.each([
+            { countIsCapped: true, badge: 'Events: 10,001+' },
+            { countIsCapped: false, badge: 'Events: 10,001' },
+        ])(
+            'reads the events badge as $badge when count_is_capped is $countIsCapped',
+            async ({ countIsCapped, badge }) => {
+                // The badge adds the local "All events" row to the endpoint's 10,000.
+                useMocks({
+                    get: {
+                        '/api/projects/:team/event_definitions': () => [
+                            200,
+                            { results: mockEventDefinitions, count: 10_000, count_is_capped: countIsCapped },
+                        ],
+                    },
+                })
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('taxonomic-tab-events').textContent).toBe(badge)
+                })
+            }
+        )
 
         it.each([
             { label: 'Suggested series', description: 'series context' },
