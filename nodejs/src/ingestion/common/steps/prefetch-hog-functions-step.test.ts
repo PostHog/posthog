@@ -1,5 +1,5 @@
+import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { prefetchHogFunctionsStep } from '~/ingestion/pipelines/analytics/steps/prefetchHogFunctionsStep'
 
 type TestInput = { team: { id: number } }
 
