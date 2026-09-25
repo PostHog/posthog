@@ -22,6 +22,7 @@ import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
 import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
+import { toast } from 'react-toastify'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
@@ -217,6 +218,8 @@ export interface DashboardEditing {
 }
 
 type DashboardEditSaveScope = 'colors' | 'layout'
+
+const LAYOUT_EDIT_MODE_TOAST_ID = 'dashboard-layout-edit-mode'
 
 function parseDashboardTileId(tileId: string | undefined): DashboardTileIdOrNew {
     const parsedTileId = Number(tileId)
@@ -3393,6 +3396,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            toast.dismiss(LAYOUT_EDIT_MODE_TOAST_ID)
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
         },
@@ -3895,7 +3899,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
                 dashboardsModel.actions.updateDashboardSuccess(getQueryBasedDashboard(dashboard))
                 eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
-            } catch {
+            } catch (error) {
+                posthog.captureException(error)
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
                     actions.loadDashboard({ action: DashboardLoadAction.Update })
@@ -4511,7 +4516,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDashboardEditing: async ({ editing, source }) => {
             if (editing?.layout && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
+                lemonToast.info("Editing the dashboard. Press E or click Save when you're done.", {
+                    toastId: LAYOUT_EDIT_MODE_TOAST_ID,
+                    // The container pauses auto-close while the tab is in the background, which can
+                    // leave a mode hint on screen long after the user has left edit mode.
+                    pauseOnFocusLoss: false,
+                })
             } else if (
                 editing === null &&
                 (source === DashboardEventSource.DashboardHeaderSaveDashboard ||
@@ -4525,7 +4535,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
 
-            if (editing?.layout) {
+            if (!editing?.layout) {
+                // Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id
+                // cancelled and the next entry into edit mode would show no toast at all.
+                toast.dismiss(LAYOUT_EDIT_MODE_TOAST_ID)
+            } else {
                 eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
                     values.dashboard,
                     source,
