@@ -2,7 +2,7 @@ from django.http import HttpRequest, JsonResponse
 
 import jwt
 
-from products.exports.backend.models.subscription import unsubscribe_using_token
+from products.exports.backend.models.subscription import Subscription, unsubscribe_using_token
 
 
 def unsubscribe(request: HttpRequest):
@@ -12,7 +12,9 @@ def unsubscribe(request: HttpRequest):
 
     try:
         unsubscribe_using_token(token)
-    except jwt.DecodeError:
+    except (jwt.InvalidTokenError, Subscription.DoesNotExist):
+        # An unsubscribe link arrives by email, so the recipient cannot retry it. Every
+        # unusable token gets the "may already be unsubscribed" page, never an error.
         return JsonResponse({"success": False})
 
     return JsonResponse({"success": True})
