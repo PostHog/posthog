@@ -15,18 +15,22 @@ export class SessionManager {
         return `session:${sessionId}`
     }
 
-    async getSessionUuid(sessionId: string): Promise<string> {
+    async getSessionUuid(sessionId: string, initialUuid?: string): Promise<string> {
         const key = this._getKey(sessionId)
-        const existingSession = await this.cache.get(key)
+        let newSessionUuid = initialUuid
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const existingSession = await this.cache.get(key)
+            if (existingSession?.uuid) {
+                return existingSession.uuid
+            }
 
-        if (existingSession?.uuid) {
-            return existingSession.uuid
+            newSessionUuid ??= uuidv7()
+            if (await this.cache.compareAndSet(key, existingSession, { uuid: newSessionUuid })) {
+                return newSessionUuid
+            }
         }
 
-        const newSessionUuid = uuidv7()
-        await this.cache.set(key, { uuid: newSessionUuid })
-
-        return newSessionUuid
+        throw new Error('Could not resolve the session after concurrent cache updates')
     }
 
     async hasSession(sessionId: string): Promise<boolean> {

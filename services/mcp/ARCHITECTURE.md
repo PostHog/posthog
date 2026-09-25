@@ -113,6 +113,12 @@ Three identifiers travel with each request, each with a different lifecycle and 
 
 Crucially, **`sessionId` and `mcpSessionId` are different concepts** and will not match for the same request. The wrapper-app `sessionId` is only set for a small fraction of traffic (mostly integrator-driven flows); the transport `mcpSessionId` is on essentially every authenticated request after initialize.
 
+Conversation handles take precedence when the server selects the analytics session UUID.
+Their mappings use the authenticated user's cache scope, so an access token refresh preserves the conversation's session.
+An existing token-scoped mapping seeds the user-scoped mapping when available.
+Atomic cache writes ensure that concurrent requests use the same UUID.
+Transport and wrapper session mappings keep their token scope.
+
 #### Forwarding session and conversation IDs to Django
 
 When the Worker calls PostHog's Django backend (any `ApiClient.fetch`), the outbound request carries:

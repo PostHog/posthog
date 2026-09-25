@@ -24,6 +24,14 @@ export class MemoryCache<T extends Record<string, any>> extends ScopedCache<T> {
         this.cache.delete(key as string)
     }
 
+    async compareAndSet<K extends keyof T>(key: K, expected: T[K] | undefined, value: T[K]): Promise<boolean> {
+        if (JSON.stringify(this.cache.get(key as string)) !== JSON.stringify(expected)) {
+            return false
+        }
+        this.cache.set(key as string, value)
+        return true
+    }
+
     async clear(): Promise<void> {
         this.cache.clear()
     }

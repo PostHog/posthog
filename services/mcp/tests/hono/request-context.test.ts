@@ -30,7 +30,10 @@ function fakeRedis(): RedisLike {
     const store = new Map<string, string>()
     return {
         get: async (key) => store.get(key) ?? null,
-        set: async (key, value) => {
+        set: async (key, value, ...args) => {
+            if (args.includes('NX') && store.has(key)) {
+                return null
+            }
             store.set(key, String(value))
             return 'OK'
         },
@@ -329,6 +332,58 @@ describe('RequestContext', () => {
     })
 
     describe('getEffectiveSessionUuid', () => {
+        it('keeps a conversation in one session after an access token changes', async () => {
+            const redis = fakeRedis()
+            const first = new RequestContext(redis, env, makeProps({ userHash: 'token-before-refresh' }))
+            const refreshed = new RequestContext(redis, env, makeProps({ userHash: 'token-after-refresh' }))
+            await first.tokenCache.set('distinctId', 'person-a')
+            await refreshed.tokenCache.set('distinctId', 'person-a')
+            const context = { authMethod: 'oauth' as const, mcpConversationId: 'conversation-a' }
+            const legacySession = await first.getSessionUuid(context.mcpConversationId)
+
+            const initialSession = await first.getEffectiveSessionUuid(context)
+
+            expect(initialSession).toBe(legacySession)
+            expect(await refreshed.getEffectiveSessionUuid(context)).toBe(initialSession)
+        })
+
+        it('keeps concurrent first requests in one conversation session', async () => {
+            const redis = fakeRedis()
+            const requests = Array.from({ length: 3 }, () => new RequestContext(redis, env, makeProps()))
+            await requests[0]!.tokenCache.set('distinctId', 'person-a')
+
+            const sessions = await Promise.all(
+                requests.map((request) =>
+                    request.getEffectiveSessionUuid({ authMethod: 'oauth', mcpConversationId: 'conversation-a' })
+                )
+            )
+
+            expect(new Set(sessions).size).toBe(1)
+        })
+
+        it.each([
+            { person: 'person-b', conversation: 'conversation-a' },
+            { person: 'person-a', conversation: 'conversation-b' },
+        ])(
+            'keeps $person / $conversation separate from person-a / conversation-a',
+            async ({ person, conversation }) => {
+                const redis = fakeRedis()
+                const first = new RequestContext(redis, env, makeProps({ userHash: 'token-a' }))
+                const second = new RequestContext(redis, env, makeProps({ userHash: 'token-b' }))
+                await first.tokenCache.set('distinctId', 'person-a')
+                await second.tokenCache.set('distinctId', person)
+
+                const initialSession = await first.getEffectiveSessionUuid({
+                    authMethod: 'oauth',
+                    mcpConversationId: 'conversation-a',
+                })
+
+                expect(
+                    await second.getEffectiveSessionUuid({ authMethod: 'oauth', mcpConversationId: conversation })
+                ).not.toBe(initialSession)
+            }
+        )
+
         it.each([
             { mcpConversationId: undefined, sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
             { mcpConversationId: undefined, sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
@@ -341,13 +396,15 @@ describe('RequestContext', () => {
             'conversationId=$mcpConversationId sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
             async ({ mcpConversationId, sessionId, mcpSessionId, expectedKey }) => {
                 const ctx = new RequestContext(fakeRedis(), env, makeProps())
+                await ctx.tokenCache.set('distinctId', 'person-a')
+                const expected = expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined
                 const effective = await ctx.getEffectiveSessionUuid({
                     mcpConversationId,
                     sessionId,
                     mcpSessionId,
                 } as any)
 
-                expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
+                expect(effective).toBe(expected)
                 if (expectedKey) {
                     expect(effective).toMatch(/^[0-9a-f-]{36}$/)
                 }

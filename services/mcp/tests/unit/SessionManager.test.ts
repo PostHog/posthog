@@ -16,6 +16,7 @@ describe('SessionManager', () => {
         mockCache = {
             get: vi.fn(),
             set: vi.fn(),
+            compareAndSet: vi.fn().mockResolvedValue(true),
             delete: vi.fn(),
             clear: vi.fn(),
             has: vi.fn(),
@@ -51,7 +52,7 @@ describe('SessionManager', () => {
 
             expect(result).toBe('test-uuid-12345')
             expect(mockCache.get).toHaveBeenCalledWith('session:test-session-123')
-            expect(mockCache.set).toHaveBeenCalledWith('session:test-session-123', {
+            expect(mockCache.compareAndSet).toHaveBeenCalledWith('session:test-session-123', null, {
                 uuid: 'test-uuid-12345',
             })
         })
@@ -64,9 +65,13 @@ describe('SessionManager', () => {
             const result = await sessionManager.getSessionUuid(sessionId)
 
             expect(result).toBe('test-uuid-12345')
-            expect(mockCache.set).toHaveBeenCalledWith('session:test-session-123', {
-                uuid: 'test-uuid-12345',
-            })
+            expect(mockCache.compareAndSet).toHaveBeenCalledWith(
+                'session:test-session-123',
+                {},
+                {
+                    uuid: 'test-uuid-12345',
+                }
+            )
         })
     })
 
@@ -178,7 +183,7 @@ describe('SessionManager', () => {
 
             const uuid1 = await sessionManager.getSessionUuid(sessionId)
             expect(uuid1).toBe('test-uuid-12345')
-            expect(mockCache.set).toHaveBeenCalled()
+            expect(mockCache.compareAndSet).toHaveBeenCalled()
 
             const hasSession = await sessionManager.hasSession(sessionId)
             expect(hasSession).toBe(true)

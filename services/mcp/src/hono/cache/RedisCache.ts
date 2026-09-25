@@ -21,6 +21,13 @@ const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 const CLEAR_MAX_ITERATIONS = 50
 const CLEAR_SCAN_COUNT = 100
 
+const COMPARE_AND_SET = `
+local current = redis.call('GET', KEYS[1])
+if (current or '') ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+return 1
+`
+
 export type CachePrefix = 'token' | 'user' | 'session'
 
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
@@ -75,6 +82,28 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     async delete<K extends keyof T>(key: K): Promise<void> {
         const scopedKey = this.getScopedKey(key as string)
         await this.redis.del(scopedKey)
+    }
+
+    async compareAndSet<K extends keyof T>(key: K, expected: T[K] | undefined, value: T[K]): Promise<boolean> {
+        try {
+            const scopedKey = this.getScopedKey(key as string)
+            const result =
+                expected === undefined
+                    ? await this.redis.set(scopedKey, JSON.stringify(value), 'EX', this.ttl, 'NX')
+                    : await this.redis.eval(
+                          COMPARE_AND_SET,
+                          1,
+                          scopedKey,
+                          JSON.stringify(expected),
+                          JSON.stringify(value),
+                          this.ttl
+                      )
+            redisOperationsTotal.inc({ operation: 'set', status: 'success' })
+            return result === 'OK' || result === 1
+        } catch (error) {
+            redisOperationsTotal.inc({ operation: 'set', status: 'error' })
+            throw error
+        }
     }
 
     /**

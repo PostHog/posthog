@@ -177,9 +177,16 @@ export class RequestContext {
      * `initialize` and the `Mcp-Session-Id` header, so for those clients the other
      * two are absent and every tool call would ship with no `$session_id` at all.
      * Every id here is caller-supplied, so `SessionManager` maps it to a UUID this
-     * server minted instead of emitting it.
+     * server minted instead of emitting it. Conversation mappings use the authenticated
+     * user so an access token refresh does not select a different session.
      */
     async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
+        if (requestContext.mcpConversationId) {
+            const manager = new SessionManager(this.getUserCache(await this.getDistinctId()))
+            // Keep an existing session when its token-scoped mapping moves to the user scope.
+            const existing = await this.tokenCache.get(`session:${requestContext.mcpConversationId}`)
+            return manager.getSessionUuid(requestContext.mcpConversationId, existing?.uuid)
+        }
         return this.getSessionUuid(resolveSessionKey(requestContext))
     }
 

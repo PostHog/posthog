@@ -3,6 +3,7 @@ export abstract class ScopedCache<T extends Record<string, any>> {
 
     abstract get<K extends keyof T>(key: K): Promise<T[K] | undefined>
     abstract set<K extends keyof T>(key: K, value: T[K]): Promise<void>
+    abstract compareAndSet<K extends keyof T>(key: K, expected: T[K] | undefined, value: T[K]): Promise<boolean>
     abstract delete<K extends keyof T>(key: K): Promise<void>
     abstract clear(): Promise<void>
 
