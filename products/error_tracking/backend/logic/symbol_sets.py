@@ -63,6 +63,9 @@ class SymbolSetUpload:
     chunk_id: str
     release_id: str | None
     content_hash: str | None
+    # Byte count of the chunk the client is about to send. Clients that send it get a presigned
+    # PUT signed for exactly that length; clients that omit it get only the presigned POST.
+    content_length: int | None = None
 
 
 def _extract_failure_code(error_codes: object) -> str | None:
@@ -95,7 +98,7 @@ def generate_symbol_set_file_key() -> str:
     return f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
 
 
-def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
+def generate_symbol_set_upload_presigned_urls(file_key: str, content_length: int | None = None) -> dict[str, Any]:
     pair = object_storage.get_presigned_post_pair(
         file_key=file_key,
         conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
@@ -107,6 +110,22 @@ def generate_symbol_set_upload_presigned_urls(file_key: str) -> dict[str, Any]:
         # transfer-acceleration domain while regular S3 works, so the CLI needs a
         # standard-endpoint presigned POST to retry against.
         urls["fallback_presigned_url"] = pair.fallback
+
+    if content_length is not None:
+        # Presigned POST is an AWS S3 extension. S3-compatible stores that do not implement it
+        # (Cloudflare R2 answers `501 NotImplemented`) can never receive a symbol set, so clients
+        # that declare their chunk size also get a presigned PUT, which every store supports.
+        # The signed `content-length` replaces the POST policy's `content-length-range`: it is
+        # exact rather than a range, which is why it needs the client-declared size.
+        put_pair = object_storage.get_presigned_put_pair(
+            file_key=file_key,
+            content_length=content_length,
+            expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+        )
+        if put_pair.primary is not None:
+            urls["presigned_put_url"] = put_pair.primary
+            if put_pair.fallback is not None:
+                urls["fallback_presigned_put_url"] = put_pair.fallback
     return urls
 
 
@@ -209,6 +228,19 @@ def _validate_uploads(new_symbol_sets: list[SymbolSetUpload], team: Team) -> Non
                 code="invalid_release_id",
                 detail=f"Unknown release ID provided: {release_id}",
             )
+
+    # A declared size is signed into the presigned PUT, so an oversized chunk can be refused here
+    # rather than after the client has spent the bandwidth and `bulk_finish_upload` deletes the row.
+    oversized = sorted(
+        ss.chunk_id
+        for ss in new_symbol_sets
+        if ss.content_length is not None and ss.content_length > ONE_HUNDRED_MEGABYTES
+    )
+    if oversized:
+        raise ValidationError(
+            code="file_too_large",
+            detail=f"Symbol sets larger than 100MB cannot be uploaded: {', '.join(oversized)}",
+        )
 
 
 def _binds_release(existing: ErrorTrackingSymbolSet, upload: SymbolSetUpload) -> bool:
@@ -323,7 +355,7 @@ def bulk_create_symbol_sets(
     def reissue_upload(existing: ErrorTrackingSymbolSet) -> None:
         storage_ptr = generate_symbol_set_file_key()
         id_url_map[existing.ref] = {
-            **generate_symbol_set_upload_presigned_urls(storage_ptr),
+            **generate_symbol_set_upload_presigned_urls(storage_ptr, new_symbol_set_map[existing.ref].content_length),
             "symbol_set_id": str(existing.id),
         }
         existing.storage_ptr = storage_ptr
@@ -338,7 +370,9 @@ def bulk_create_symbol_sets(
         symbol_sets_to_be_created = []
         for chunk_id in missing_sets:
             storage_ptr = generate_symbol_set_file_key()
-            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(storage_ptr)
+            id_url_map[chunk_id] = generate_symbol_set_upload_presigned_urls(
+                storage_ptr, new_symbol_set_map[chunk_id].content_length
+            )
             # Note that on creation, we /do not set/ the content hash. We use content hashes included in
             # the create request only to see if we can skip updated - we set the content hash when we
             # get upload confirmation, during `bulk_finish_upload`, not before

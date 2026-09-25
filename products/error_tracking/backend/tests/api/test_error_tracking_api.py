@@ -1,6 +1,7 @@
 import os
 import json
 from datetime import UTC, datetime, timedelta
+from urllib.parse import unquote
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -1421,6 +1422,64 @@ class TestErrorTracking(APIBaseTest):
         assert "s3-accelerate" in entry["presigned_url"]["url"]
         assert "s3-accelerate" not in entry["fallback_presigned_url"]["url"]
         assert entry["fallback_presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    def test_bulk_start_upload_omits_presigned_put_without_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash"}]},
+        )
+
+        entry = response.json()["id_map"][chunk_id]
+        assert "presigned_put_url" not in entry
+        assert entry["presigned_url"]["fields"]["key"] is not None
+
+    def test_bulk_start_upload_signs_presigned_put_for_declared_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 1234}]},
+        )
+
+        entry = response.json()["id_map"][chunk_id]
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
+        put_url = entry["presigned_put_url"]
+        # The PUT addresses the object itself, unlike the POST, which addresses the bucket root.
+        assert symbol_set.storage_ptr in put_url
+        # Only a signed content-length stops an oversized body, so it must reach the signature.
+        assert "content-length" in unquote(put_url)
+        assert "fallback_presigned_put_url" not in entry
+        # The POST form stays for clients that predate the PUT.
+        assert entry["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
+
+    def test_bulk_start_upload_includes_fallback_presigned_put_when_accelerated(self) -> None:
+        chunk_id = str(uuid7())
+        with (
+            self.settings(OBJECT_STORAGE_TRANSFER_ACCELERATION=True),
+            patch("posthog.storage.object_storage._accelerated_presigned_client", None),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+                data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 10}]},
+            )
+
+        entry = response.json()["id_map"][chunk_id]
+        assert "s3-accelerate" in entry["presigned_put_url"]
+        assert "s3-accelerate" not in entry["fallback_presigned_put_url"]
+
+    def test_bulk_start_upload_rejects_oversized_content_length(self) -> None:
+        chunk_id = str(uuid7())
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [{"chunk_id": chunk_id, "content_hash": "hash", "content_length": 100 * 1024 * 1024 + 1}]
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_too_large"
+        # The row must not exist: a rejected upload leaves nothing for retention to clean up.
+        assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
 
     @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_start_upload_skips_uploaded_symbol_sets(self, patched_capture: Mock) -> None:

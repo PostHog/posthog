@@ -1,5 +1,6 @@
 import re
 import uuid
+from urllib.parse import unquote
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -24,6 +25,7 @@ from posthog.storage.object_storage import (
     UnavailableStorage,
     copy_objects,
     get_presigned_post,
+    get_presigned_put,
     get_presigned_url,
     health_check,
     is_usable_endpoint,
@@ -111,6 +113,29 @@ class TestStorage(APIBaseTest):
                 r"^http://localhost:\d+/posthog",
                 presigned_url["url"],
             )
+
+    def test_can_generate_presigned_put_url(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_put_url/{uuid.uuid4()}"
+
+            presigned_url = get_presigned_put(file_name)
+            assert presigned_url is not None
+            # A PUT addresses the object itself, where a POST addresses the bucket root.
+            assert re.match(rf"^http://localhost:\d+/posthog/{re.escape(file_name)}\?", presigned_url)
+            assert "X-Amz-Algorithm=AWS4-HMAC-SHA256" in presigned_url
+
+    def test_presigned_put_url_signs_the_declared_content_length(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_presigned_put_signs_length/{uuid.uuid4()}"
+
+            presigned_url = get_presigned_put(file_name, content_length=1234)
+            assert presigned_url is not None
+            # `content-length` must sit in the signed header list. That is what makes object
+            # storage refuse a body of any other size, and it is the only size condition a
+            # presigned PUT can carry.
+            signed_headers = re.search(r"X-Amz-SignedHeaders=([^&]+)", presigned_url)
+            assert signed_headers is not None
+            assert "content-length" in unquote(signed_headers.group(1)).split(";")
 
     def test_can_list_objects_with_prefix(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):

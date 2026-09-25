@@ -53,6 +53,12 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
+        pass
+
+    @abc.abstractmethod
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
 
@@ -127,6 +133,11 @@ class UnavailableStorage(ObjectStorageClient):
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
     ) -> Optional[dict]:
+        pass
+
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
         pass
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
@@ -235,6 +246,28 @@ class ObjectStorage(ObjectStorageClient):
             )
         except Exception as e:
             logger.exception("object_storage.get_presigned_post_failed", file_name=file_key, error=e)
+            capture_exception(e)
+            return None
+
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
+        try:
+            params: dict[str, Any] = {"Bucket": bucket, "Key": file_key}
+            if content_length is not None:
+                # A signed `content-length` is the only size condition a presigned PUT can carry:
+                # it becomes part of the SigV4 canonical request, so storage rejects a body of any
+                # other size. It is exact rather than a range, unlike a POST policy's
+                # `content-length-range`, so the caller must know the byte count up front.
+                params["ContentLength"] = content_length
+            return self.presigned_client.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod="PUT",
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_presigned_put_failed", file_name=file_key, error=e)
             capture_exception(e)
             return None
 
@@ -604,6 +637,15 @@ def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3
     )
 
 
+def get_presigned_put(file_key: str, content_length: Optional[int] = None, expiration: int = 3600) -> Optional[str]:
+    return object_storage_client().get_presigned_put(
+        bucket=settings.OBJECT_STORAGE_BUCKET,
+        file_key=file_key,
+        content_length=content_length,
+        expiration=expiration,
+    )
+
+
 _accelerated_presigned_client: Optional[Any] = None
 _accelerated_client_lock = threading.Lock()
 
@@ -643,6 +685,23 @@ class PresignedPostPair:
     fallback: Optional[dict]
 
 
+@frozen
+class PresignedPutPair:
+    """Presigned PUTs for one upload.
+
+    Mirrors ``PresignedPostPair``: the primary targets the transfer-acceleration endpoint when
+    it is configured and presigning succeeds, and the fallback then targets the standard
+    endpoint. Unlike a POST policy, a PUT carries no ``content-length-range``, so a caller that
+    needs the size enforced passes ``content_length`` and storage signs that exact value.
+
+    Cloudflare R2 and other S3-compatible stores implement presigned PUT but not presigned POST,
+    so this is the only upload form that works everywhere.
+    """
+
+    primary: Optional[str]
+    fallback: Optional[str]
+
+
 def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: int = 3600) -> PresignedPostPair:
     accelerated = _get_accelerated_presigned_client()
     if accelerated:
@@ -659,6 +718,34 @@ def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: in
             capture_exception(e)
     return PresignedPostPair(
         primary=get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration),
+        fallback=None,
+    )
+
+
+def get_presigned_put_pair(
+    file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+) -> PresignedPutPair:
+    accelerated = _get_accelerated_presigned_client()
+    if accelerated:
+        try:
+            params: dict[str, Any] = {"Bucket": settings.OBJECT_STORAGE_BUCKET, "Key": file_key}
+            if content_length is not None:
+                params["ContentLength"] = content_length
+            primary = accelerated.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod="PUT",
+            )
+            return PresignedPutPair(
+                primary=primary,
+                fallback=get_presigned_put(file_key=file_key, content_length=content_length, expiration=expiration),
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_accelerated_presigned_put_failed", file_name=file_key, error=e)
+            capture_exception(e)
+    return PresignedPutPair(
+        primary=get_presigned_put(file_key=file_key, content_length=content_length, expiration=expiration),
         fallback=None,
     )
 
