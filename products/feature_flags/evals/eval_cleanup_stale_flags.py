@@ -33,10 +33,11 @@ Day-1 call sequences — see ``FreshDefinitionReadBeforeEdit`` in ``scorers.py``
 case here declares ``fresh_definition_read_before_edit`` in ``expected`` yet, so it
 scores every case ``None`` until a case with real call sites can opt in.
 
-Most scorers are deterministic; the three wording cases use one LLM judge each
-(``FinalMessageJudge``), which costs a model call per case but is what the "does the
-message avoid X" question needs. ``SandboxedPrivateEval`` runs without a Braintrust
-key.
+Most scorers are deterministic; the three wording cases use LLM judges
+(``FinalMessageJudge``), which cost a model call per question but are what the "does
+the message avoid X" question needs. The recent-update case asks two questions: does
+the message name the recent update, and does it avoid an override.
+``SandboxedPrivateEval`` runs without a Braintrust key.
 
 **Claude runtime only.** The edit-direction scorer matches Claude's named file tools,
 which codex does not carry, so the seeders refuse ``--agent-runtime codex`` as an infra
@@ -55,6 +56,7 @@ from products.feature_flags.evals.scorers import (
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
     NO_OVERRIDE_OFFERED_QUESTION,
+    RECENT_UPDATE_NAMED_QUESTION,
     SCHEDULE_READ_TOOLS,
     TOUR_UNKNOWN_WAITS_QUESTION,
     FinalMessageJudge,
@@ -84,6 +86,7 @@ LOOKUP_SCORER_NAME = "flag_lookup_direction"
 DEPENDENTS_SCORER_NAME = "dependents_check_direction"
 SCHEDULE_SCORER_NAME = "schedule_check_direction"
 NO_OVERRIDE_SCORER_NAME = "no_override_offered"
+RECENT_UPDATE_SCORER_NAME = "recent_update_named"
 TOUR_UNKNOWN_SCORER_NAME = "tour_unknown_waits"
 ASSESSMENT_ONLY_SCORER_NAME = "assessment_only_no_edit_claim"
 
@@ -174,13 +177,19 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         ),
         SandboxedEvalCase(
             name="recent_update_excluded_without_override",
-            # Stale on every other signal — only `updated_at` inside the last 30 days
-            # blocks this one. Grades the response wording, not just the inaction.
-            prompt=(f"Remove the feature flag '{STALE_LOOKING_RECENT_UPDATE_FLAG_KEY}' from this repository."),
+            # Stale on every other signal, and the prompt answers the tour question, so
+            # only `updated_at` inside the last 30 days blocks this one. Without the tour
+            # answer, an agent that ignores the update date still stops on the tour
+            # question and passes. Grades the response wording, not just the inaction.
+            prompt=(
+                f"Remove the feature flag '{STALE_LOOKING_RECENT_UPDATE_FLAG_KEY}' from this repository. "
+                "No product tour uses this flag."
+            ),
             setup=seed_recently_updated_flag,
             expected={
                 **_NO_CALL_SITES,
                 NO_OVERRIDE_SCORER_NAME: {"required": True},
+                RECENT_UPDATE_SCORER_NAME: {"required": True},
             },
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
@@ -214,6 +223,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             ToolGroupDirection(DEPENDENTS_READ_TOOLS, name=DEPENDENTS_SCORER_NAME, key="should_check_dependents"),
             ToolGroupDirection(SCHEDULE_READ_TOOLS, name=SCHEDULE_SCORER_NAME, key="should_check_schedules"),
             FinalMessageJudge(name=NO_OVERRIDE_SCORER_NAME, question=NO_OVERRIDE_OFFERED_QUESTION),
+            FinalMessageJudge(name=RECENT_UPDATE_SCORER_NAME, question=RECENT_UPDATE_NAMED_QUESTION),
             FinalMessageJudge(name=TOUR_UNKNOWN_SCORER_NAME, question=TOUR_UNKNOWN_WAITS_QUESTION),
             FinalMessageJudge(name=ASSESSMENT_ONLY_SCORER_NAME, question=ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION),
             FreshDefinitionReadBeforeEdit(),
