@@ -198,6 +198,18 @@ class TestEvaluateSrmDiagnosis(TestCase):
         assert result is not None
         self.assertEqual(result.cause, SrmCause.UNKNOWN)
 
+    def test_surface_share_is_measured_against_all_exposures_not_the_returned_rows(self):
+        # The query returns only the busiest surfaces, so "/promo" is 12% of the two rows here
+        # but 4% of the 10,000 exposures the experiment actually has. It sits under the 5%
+        # floor, so it cannot explain the split and must not be named.
+        result = evaluate_srm_diagnosis(
+            p_value=1e-9,
+            expected_counts=HEALTHY_EXPECTED,
+            surface_splits=[surface("/", 3000, 1500, dominant_variant="control"), surface("/promo", 400, 400)],
+        )
+        assert result is not None
+        self.assertEqual(result.cause, SrmCause.UNKNOWN)
+
     def test_expected_share_comes_from_the_configured_rollout_not_an_even_split(self):
         # An 80/20 rollout expects 80% control on every page, so 82% is not a skew.
         result = evaluate_srm_diagnosis(

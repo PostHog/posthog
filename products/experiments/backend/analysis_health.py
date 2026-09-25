@@ -121,9 +121,11 @@ def _find_surface_skew(
     configured split. The same skew on every surface means the imbalance is upstream of
     where exposures are recorded, not a surface the other variants cannot reach.
     """
+    # The share denominator is the whole exposed population, not the surfaces this got
+    # handed: the query returns only the busiest few, so summing them would overstate every
+    # surface's share and let one through the floor that is smaller than it looks.
     total_expected = sum(expected_counts.values())
-    total_exposures = sum(split.exposures for split in surface_splits)
-    if total_expected <= 0 or total_exposures <= 0:
+    if total_expected <= 0:
         return None
 
     expected_shares = {variant: count / total_expected for variant, count in expected_counts.items()}
@@ -133,7 +135,7 @@ def _find_surface_skew(
     has_balanced_surface = False
 
     for split in surface_splits:
-        if split.exposures < SURFACE_MIN_EXPOSURES or split.exposures / total_exposures < SURFACE_MIN_SHARE:
+        if split.exposures < SURFACE_MIN_EXPOSURES or split.exposures / total_expected < SURFACE_MIN_SHARE:
             continue
         expected_share = expected_shares.get(split.dominant_variant)
         if expected_share is None:

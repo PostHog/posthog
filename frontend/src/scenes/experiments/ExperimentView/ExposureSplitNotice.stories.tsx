@@ -33,15 +33,15 @@ function story(mismatch: SampleRatioMismatch): Story {
 
 const EXPECTED = { control: 5000, test: 5000 }
 
-export const MatchesRollout = story({ expected: EXPECTED, p_value: 0.42 })
+export const MatchesRollout: Story = story({ expected: EXPECTED, p_value: 0.42 })
 
-export const LowSampleSize = story({
+export const LowSampleSize: Story = story({
     expected: { control: 250, test: 250 },
     p_value: 6.3e-4,
     diagnosis: { cause: SrmCause.LowSampleSize, smallest_expected_count: 250 },
 })
 
-export const CaptureBySurface = story({
+export const CaptureBySurface: Story = story({
     expected: EXPECTED,
     p_value: 4.7e-11,
     diagnosis: {
@@ -56,7 +56,7 @@ export const CaptureBySurface = story({
     },
 })
 
-export const UnknownCause = story({
+export const UnknownCause: Story = story({
     expected: EXPECTED,
     p_value: 4.7e-11,
     diagnosis: { cause: SrmCause.Unknown },
