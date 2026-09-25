@@ -23,6 +23,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.analytics_platform.backend.models import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSIONS_INSERT_TEMPLATE,
     base_placeholders,
@@ -32,6 +33,54 @@ from products.marketing_analytics.backend.hogql_queries.marketing_sessions_preco
 
 @time_machine.travel("2026-09-10T12:00:00Z", tick=False)
 class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("UTC", "2026-09-10T08:00:00Z"),
+            ("America/Los_Angeles", "2026-09-10T06:00:00Z"),
+            ("America/Los_Angeles", "2026-09-10T08:00:00Z"),
+            ("America/Santiago", "2026-09-10T04:00:00Z"),
+            ("Asia/Kathmandu", "2026-09-10T19:00:00Z"),
+        ]
+    )
+    def test_current_utc_window_refreshes_after_two_hours(self, timezone: str, now: str) -> None:
+        self.team.timezone = timezone
+        with time_machine.travel(now, tick=False) as clock:
+            created_at = datetime.now(UTC)
+            start = created_at.replace(hour=0, minute=0, second=0, microsecond=0)
+            end = start + timedelta(days=1)
+            initial = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert initial.ready, initial.errors
+            job = PreaggregationJob.objects.get(id=initial.job_ids[0])
+            assert job.expires_at == created_at + timedelta(hours=2)
+
+            PreaggregationJob.objects.filter(id=job.id).update(expires_at=created_at + timedelta(days=1))
+            clock.shift(timedelta(hours=1))
+            timestamp = datetime.now(UTC)
+            session_id = uuid7(int(timestamp.timestamp() * 1000))
+            create_person(team=self.team, distinct_ids=["new-session-visitor"])
+            _create_event(
+                team=self.team,
+                distinct_id="new-session-visitor",
+                event="$pageview",
+                timestamp=timestamp,
+                properties={"$session_id": str(session_id)},
+            )
+            flush_persons_and_events()
+            cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
+            assert cached.ready
+            assert cached.job_ids == initial.job_ids
+
+            clock.shift(timedelta(hours=1, seconds=1))
+            assert not ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False).ready
+            refreshed = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert refreshed.ready, refreshed.errors
+            assert set(refreshed.job_ids).isdisjoint(initial.job_ids)
+            assert sync_execute(
+                "SELECT session_id_v7 FROM web_sessions_dimensional_preaggregated "
+                "WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s",
+                {"team_id": self.team.pk, "job_ids": refreshed.job_ids},
+            ) == [(session_id.int,)]
+
     def test_future_window_requires_refresh_when_it_starts(self) -> None:
         self.team.timezone = "America/Los_Angeles"
         start = datetime(2026, 9, 11, tzinfo=UTC)
