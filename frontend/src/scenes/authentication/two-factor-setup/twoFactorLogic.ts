@@ -416,7 +416,6 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         },
         generateBackupCodesSuccess: ({ generatingCodes }) => {
             lemonToast.success('Backup codes generated successfully')
-            // The new codes replace the old ones, so the remaining count is known without another request.
             if (values.status && generatingCodes) {
                 actions.loadStatusSuccess({
                     ...values.status,
