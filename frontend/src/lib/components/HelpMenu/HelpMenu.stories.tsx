@@ -2,14 +2,16 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import { BillingSummary } from '~/types'
 
 import { HelpMenu } from './HelpMenu'
 import { helpMenuLogic } from './helpMenuLogic'
 
 // The health-issues summary is the only request the menu makes that the default Storybook
-// mocks (billing, preflight, users/@me, status page) don't already cover. Mocking it drives
+// mocks (preflight, users/@me, status page) don't already cover. Mocking it drives
 // the trigger/Health badge state deterministically.
 const NO_ISSUES = { total: 0, by_severity: {}, by_kind: {} }
 const HEALTHY_SUMMARY = { unsnoozed: NO_ISSUES, snoozed: NO_ISSUES }
@@ -30,12 +32,24 @@ const ALL_SNOOZED_SUMMARY = {
     },
 }
 
+const BILLING_SUMMARY_WITH_ACCOUNT_OWNER: BillingSummary = {
+    deactivated: false,
+    current_period_end: null,
+    trial: null,
+    account_owner: { name: 'Simon Fisher', email: 'simon@posthog.com' },
+    products: [],
+}
+
 const meta: Meta<typeof HelpMenu> = {
     title: 'Components/Help Menu',
     component: HelpMenu,
     render: () => {
         const { setHelpMenuOpen } = useActions(helpMenuLogic)
-        useOnMountEffect(() => setHelpMenuOpen(true))
+        const { setBillingSummary } = useActions(billingLogic)
+        useOnMountEffect(() => {
+            setBillingSummary(BILLING_SUMMARY_WITH_ACCOUNT_OWNER)
+            setHelpMenuOpen(true)
+        })
 
         return (
             <div className="flex h-[1400px] w-[600px]">
