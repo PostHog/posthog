@@ -138,7 +138,7 @@ class Command(BaseCommand):
                             # it was last compiled against. Name it: the owner has to fix it or turn it off.
                             self.stdout.write(
                                 self.style.WARNING(
-                                    f"Does not validate: team {hog_flow.team_id}, workflow {hog_flow.id} ({hog_flow.name})"
+                                    f"Does not validate: team {hog_flow.team_id}, workflow {hog_flow.id} ({hog_flow.name!r})"
                                 )
                             )
                             raise Exception(f"Serializer validation failed: {serializer.errors}")

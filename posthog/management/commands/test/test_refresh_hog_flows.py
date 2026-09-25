@@ -1,4 +1,5 @@
 from io import StringIO
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -237,7 +238,6 @@ class TestRefreshHogFlows(BaseTest):
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refuses_a_conditional_branch_carrying_event_filters(self, mock_reload):
-
         # Create a HogFlow with conditional branch that has filters but no bytecode
         actions = [
             {
@@ -325,9 +325,9 @@ class TestRefreshHogFlows(BaseTest):
         self.assertIn("Updated: 0", output)
         self.assertIn("Errors: 1", output)
 
-    def _unstamped(self, trigger_filters: dict, conditions: list | None = None) -> HogFlow:
+    def _unstamped(self, trigger_filters: dict[str, Any], conditions: list[dict[str, Any]] | None = None) -> HogFlow:
         trigger_config = {"type": "event", "filters": trigger_filters}
-        actions: list[dict] = [
+        actions: list[dict[str, Any]] = [
             {"id": "trigger_node", "name": "trigger", "type": "trigger", "config": trigger_config},
             {"id": "exit_node", "name": "exit", "type": "exit", "config": {}},
         ]
