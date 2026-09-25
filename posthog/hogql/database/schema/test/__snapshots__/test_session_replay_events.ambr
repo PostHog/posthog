@@ -94,7 +94,7 @@
   JOIN
     (SELECT events.event AS event,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), equals(raw_session_replay_events__events.event, '$pageview'))
   ORDER BY session_replay_events.session_id ASC
@@ -119,7 +119,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(like(raw_session_replay_events__events.`properties___$current_url`, '%example.com%'), 0))
   ORDER BY session_replay_events.session_id ASC
@@ -168,7 +168,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS `properties___$current_url`,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE equals(session_replay_events.team_id, 99999)
   GROUP BY session_replay_events.session_id
@@ -194,7 +194,7 @@
   JOIN
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'person_property'), ''), 'null'), '^"|"$', '') AS poe___properties___person_property,
             events.`$session_id` AS `$session_id`
-     FROM events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
+     FROM events PREWHERE greaterOrEquals(events.timestamp, toDateTime64(minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)), 6, 'UTC'))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(ifNull(raw_session_replay_events__events.poe___properties___person_property, 'false'), 'true'), 0))
   ORDER BY session_replay_events.session_id ASC

@@ -503,7 +503,7 @@
   SELECT sumMerge(e.pageviews_count_state) AS total,
          toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
   FROM web_pre_aggregated_stats AS e
-  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))))
+  WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(e.period_bucket, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), 0), ifNull(lessOrEquals(e.period_bucket, assumeNotNull(toDateTime64(toDateTime('2024-11-26 23:59:59', 'UTC'), 6, 'UTC'))), 0))
   GROUP BY day_start
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -531,7 +531,7 @@
        (SELECT uniqMerge(e.persons_uniq_state) AS total,
                toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
         FROM web_pre_aggregated_stats AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))))
+        WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(e.period_bucket, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), 0), ifNull(lessOrEquals(e.period_bucket, assumeNotNull(toDateTime64(toDateTime('2024-11-26 23:59:59', 'UTC'), 6, 'UTC'))), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
@@ -562,7 +562,7 @@
        (SELECT sumMerge(e.pageviews_count_state) AS total,
                toStartOfDay(toTimeZone(e.period_bucket, 'UTC')) AS day_start
         FROM web_pre_aggregated_stats AS e
-        WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.period_bucket, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.period_bucket, 'UTC'), assumeNotNull(toDateTime('2024-11-26 23:59:59', 'UTC'))))
+        WHERE and(equals(e.team_id, 99999), ifNull(greaterOrEquals(e.period_bucket, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2024-11-22 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), 0), ifNull(lessOrEquals(e.period_bucket, assumeNotNull(toDateTime64(toDateTime('2024-11-26 23:59:59', 'UTC'), 6, 'UTC'))), 0))
         GROUP BY day_start)
      GROUP BY day_start
      ORDER BY day_start ASC)
