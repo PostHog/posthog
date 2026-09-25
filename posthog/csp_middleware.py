@@ -43,6 +43,30 @@ def csp_report_endpoint(**params: str) -> str:
     return parts._replace(query=urlencode(query)).geturl()
 
 
+def object_storage_upload_source() -> str:
+    """The `connect-src` source a browser POSTs a presigned upload to, or "" when there is none.
+
+    A file the user attaches goes straight from the page to object storage: the API hands out a
+    presigned POST and the bytes never pass through Django, so the store's public endpoint has to
+    be a `connect-src` the policy names. The bucket is part of the source because in cloud that
+    endpoint is shared S3, and an origin on its own would let injected script POST to every other
+    bucket on the same host.
+
+    Returns "" for a deployment that serves object storage from its own origin, which `'self'`
+    already covers, and for one that has not configured the store at all.
+
+    The source is https whatever the endpoint says, because a bucket reached over plaintext is
+    not something to admit. The dev store runs on http, so it keeps its scheme the way the other
+    localhost sources in this policy do.
+    """
+    parts = urlsplit(settings.OBJECT_STORAGE_PUBLIC_ENDPOINT)
+    bucket = settings.OBJECT_STORAGE_BUCKET
+    if parts.scheme not in ("http", "https") or not parts.netloc or not bucket:
+        return ""
+    scheme = parts.scheme if settings.DEBUG or settings.TEST else "https"
+    return f"{scheme}://{parts.netloc}/{bucket}"
+
+
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
@@ -258,6 +282,7 @@ class CSPMiddleware:
                 frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            object_storage_source = object_storage_upload_source()
             js_url = urlsplit(settings.JS_URL)
             bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             csp_parts = [
@@ -339,7 +364,7 @@ class CSPMiddleware:
                 frame_ancestors,
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

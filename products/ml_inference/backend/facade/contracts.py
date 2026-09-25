@@ -10,6 +10,8 @@ from .enums import DecisionQuestionType
 
 DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-bf16-0.3"
 
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
+
 
 class DecisionsDisabledError(Exception):
     """The team is not enrolled in decisions; callers show the feature as absent."""
@@ -59,9 +61,12 @@ class DecisionQuestion:
 @dataclass(frozen=True)
 class DecisionRequest:
     team_id: int
-    state: str
+    state: JsonValue
     questions: dict[str, DecisionQuestion]
     model: str = DEFAULT_DECISION_MODEL
+    ai_product: str = "ml_inference"
+    trace_id: str | None = None
+    properties: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:

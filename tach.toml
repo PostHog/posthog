@@ -851,6 +851,8 @@ depends_on = [
     # Facade-only: the scout harness pre-resolves the external MCP servers a run's sandbox will
     # mount so the run prompt can name them.
     "products.mcp_store",
+    # Facade-only: actionability and safety experiments call the shared decision-model client.
+    "products.ml_inference",
     "products.notebooks",
     "products.product_analytics",
     # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a

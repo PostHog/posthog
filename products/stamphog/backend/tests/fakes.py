@@ -13,16 +13,21 @@ audience / channel-resolution / digest logic) runs as real code. The dev runner
 
 from __future__ import annotations
 
+import io
 import re
 import hmac
 import json
+import base64
 import hashlib
+import tarfile
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from slack_sdk.errors import SlackApiError
+
+from products.stamphog.backend.temporal.constants import STAMPHOG_SANDBOX_PAYLOAD_PATH, STAMPHOG_SANDBOX_REPO_DIR
 
 # --- Webhook payload + signing (mirrors what GitHub sends) ---
 
@@ -186,6 +191,8 @@ class GitHubRecorder:
         # Per-repository overrides for the same paths, for cases where two connected repos must
         # answer differently (one carries a root owners.yaml, another does not).
         self.repo_files: dict[tuple[str, str], str] = {}
+        # (repo, path) -> link target, for a symlink the contents API reports as a symlink object.
+        self.repo_symlinks: dict[tuple[str, str], str] = {}
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -247,7 +254,8 @@ class GitHubRecorder:
         if method == "DELETE" and (m := _PR_REACTION_DELETE_RE.match(path)):
             return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
-            return self._get_contents(m.group("repo"), m.group("path"))
+            raw = "raw" in (kwargs.get("headers") or {}).get("Accept", "")
+            return self._get_contents(m.group("repo"), m.group("path"), raw=raw)
         if method == "POST" and path == "/graphql":
             return self._graphql(json_body or {})
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
@@ -301,10 +309,16 @@ class GitHubRecorder:
         numbers = self.author_merged.get((repo, author), []) if page == 1 else []
         return FakeResponse(200, json_data={"items": [{"number": n} for n in numbers]})
 
-    def _get_contents(self, repo: str, path: str) -> FakeResponse:
+    def _get_contents(self, repo: str, path: str, *, raw: bool = True) -> FakeResponse:
+        if (repo, path) in self.repo_symlinks:
+            target = self.repo_symlinks[(repo, path)]
+            return FakeResponse(200, json_data={"type": "symlink", "path": path, "target": target})
         content = self.repo_files.get((repo, path), self.policy_files.get(path))
         if content is None:
             return FakeResponse(404, text="not found")
+        if not raw:
+            encoded = base64.b64encode(content.encode()).decode()
+            return FakeResponse(200, json_data={"type": "file", "path": path, "encoding": "base64", "content": encoded})
         return FakeResponse(200, text=content, headers={"Content-Type": "text/plain; charset=utf-8"})
 
     def _graphql(self, body: dict) -> FakeResponse:
@@ -366,6 +380,8 @@ class GitHubRecorder:
                 continue
             path = str(expression).split(":", 1)[1]
             content = self.repo_files.get((repo, path), self.policy_files.get(path))
+            if (repo, path) in self.repo_symlinks:
+                content = self.repo_symlinks[(repo, path)]
             if content is None:
                 field[f"f{name[1:]}"] = None
             else:
@@ -604,7 +620,8 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
     """A sandbox class returning ``engine_output`` for the reviewer command, no-ops otherwise.
 
     ``write_sink``, when given, records every ``write_file`` as ``(path, payload)`` so a test can
-    assert what was injected into the checkout (e.g. the default policy files).
+    assert what was injected into the checkout (e.g. the default policy files). The review payload
+    archive is recorded member by member, at the path it extracts to in the checkout.
     """
 
     class _FakeSandbox:
@@ -637,7 +654,13 @@ def make_fake_sandbox_class(engine_output: str, write_sink: list[tuple[str, byte
             return FakeExecResult(stdout=stdout, stderr="", exit_code=0)
 
         def write_file(self, path: str, payload: bytes) -> FakeExecResult:
-            if write_sink is not None:
+            if write_sink is not None and path == STAMPHOG_SANDBOX_PAYLOAD_PATH:
+                with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+                    for member in archive.getmembers():
+                        extracted = archive.extractfile(member)
+                        assert extracted is not None
+                        write_sink.append((f"{STAMPHOG_SANDBOX_REPO_DIR}/{member.name}", extracted.read()))
+            elif write_sink is not None:
                 write_sink.append((path, payload))
             return FakeExecResult(stdout="", stderr="", exit_code=0)
 

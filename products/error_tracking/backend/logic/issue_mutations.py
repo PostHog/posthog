@@ -19,6 +19,7 @@ from posthog.tasks.email import send_error_tracking_issue_assigned
 from products.access_control.backend.facade.api import role_belongs_to_organization
 from products.cohorts.backend.facade.api import cohort_exists_for_team
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
+from products.error_tracking.backend.logic.assignees import assignee_property
 from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_ASSIGNED_EVENT,
     ISSUE_MERGED_EVENT,
@@ -26,7 +27,6 @@ from products.error_tracking.backend.logic.lifecycle_events import (
     ISSUE_UNASSIGNED_EVENT,
     STATUS_CHANGE_EVENTS,
     PendingLifecycleEvent,
-    assignee_property,
     prepare_issue_lifecycle_event,
     produce_issue_lifecycle_event_on_commit,
     produce_issue_lifecycle_events_on_commit,

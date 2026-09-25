@@ -21,6 +21,21 @@ def decide(request: contracts.DecisionRequest) -> contracts.DecisionResult:
     return decisions.decide(request)
 
 
-def decide_unchecked(request: contracts.DecisionRequest) -> contracts.DecisionResult:
-    """Ask the model regardless of enrollment. Operator tooling only; product callers use decide."""
-    return decisions.decide(request)
+def decide_when_available(
+    request: contracts.DecisionRequest, *, timeout_seconds: float | None = None
+) -> contracts.DecisionResult:
+    """Ask the model where the decision service is available; the caller owns its rollout gate."""
+    if not decisions.decisions_available_here():
+        raise contracts.DecisionsDisabledError(request.team_id)
+    if timeout_seconds is None:
+        return decisions.decide(request)
+    return decisions.decide(request, timeout_seconds=timeout_seconds)
+
+
+def decide_unchecked(
+    request: contracts.DecisionRequest, *, timeout_seconds: float | None = None
+) -> contracts.DecisionResult:
+    """Ask the model when the caller owns its rollout gate."""
+    if timeout_seconds is None:
+        return decisions.decide(request)
+    return decisions.decide(request, timeout_seconds=timeout_seconds)
