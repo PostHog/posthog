@@ -421,13 +421,22 @@ export class PosthogFilesystem extends TerminalFilesystem {
             { signal: this.signal }
         )
         const params = { type: 'notebook', ref: notebook.short_id, include_content_type: true }
-        const page = await fileSystemList(this.projectId, params, { signal: this.signal })
-        const entry = page.results.find((entry) => entry.type === 'notebook' && entry.ref === notebook.short_id)
-        if (!entry) {
-            throw new Error('The notebook was created but could not be loaded. Run ph refresh to reload the folder.')
+        try {
+            const page = await fileSystemList(this.projectId, params, { signal: this.signal })
+            const entry = page.results.find((entry) => entry.type === 'notebook' && entry.ref === notebook.short_id)
+            if (!entry) {
+                throw new Error(
+                    'The notebook was created but could not be loaded. Run ph refresh to reload the folder.'
+                )
+            }
+            this.mountEntries([entry], true)
+            return this.mountedFiles.get(this.fileIdentity(entry, '.md'))!
+        } catch (error) {
+            // The notebook exists but is not mounted. Reload the folder on the next lookup so that
+            // a retry finds the notebook instead of creating a duplicate.
+            this.loadedDirectories.delete(parent)
+            throw error
         }
-        this.mountEntries([entry], true)
-        return this.mountedFiles.get(this.fileIdentity(entry, '.md'))!
     }
 
     private storedName(name: string): string {

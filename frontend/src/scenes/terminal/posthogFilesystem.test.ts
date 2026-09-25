@@ -190,6 +190,49 @@ describe('PostHog filesystem projection', () => {
         expect(fs.writers.size).toBe(0)
     })
 
+    it('shows a created notebook after its lookup fails so a retry does not duplicate it', async () => {
+        jest.mocked(notebooksCreate).mockImplementation(async () => {
+            jest.mocked(fileSystemList)
+                .mockRejectedValueOnce(new Error('Network error'))
+                .mockResolvedValue({
+                    count: 2,
+                    next: null,
+                    results: [entry('note1', 'Research/Notes'), entry('created', 'Research/Draft.md')],
+                })
+            return { ...notebook, short_id: 'created' }
+        })
+        const fs = new PosthogFilesystem('42', new AbortController().signal, jest.fn().mockResolvedValue(true), true)
+        await fs.load()
+        const server = new NinePServer(fs, jest.fn())
+        const request = async (type: number, body: NinePWriter): Promise<{ type: number; body: NinePReader }> => {
+            const response = new NinePReader(
+                await new Promise<Uint8Array>((resolve) => server.handle(body.frame(type, 1), resolve))
+            )
+            response.number(4)
+            const responseType = response.number(1)
+            response.number(2)
+            return { type: responseType, body: response }
+        }
+        const create = async (fid: number): Promise<number> => {
+            await request(
+                110,
+                new NinePWriter().number(1, 4).number(fid, 4).number(2, 2).string('files').string('Research')
+            )
+            const response = await request(
+                14,
+                new NinePWriter().number(fid, 4).string('Draft.md').number(1, 4).number(0o644, 4).number(0, 4)
+            )
+            return response.type === 7 ? response.body.number(4) : 0
+        }
+        await request(104, new NinePWriter().number(1, 4).number(0xffffffff, 4).string('root').string('').number(0, 4))
+
+        expect(await create(2)).toBe(5)
+        expect(await create(3)).toBe(17)
+        expect(notebooksCreate).toHaveBeenCalledTimes(1)
+        expect(fs.root.children!.get('files')!.children!.get('Research')!.children!.has('Draft.md')).toBe(true)
+        expect(fs.writers.size).toBe(0)
+    })
+
     it('edits SQL while preserving insight options and exposes editable JSON metadata', async () => {
         const signal = new AbortController().signal
         jest.mocked(fileSystemList).mockResolvedValue({
