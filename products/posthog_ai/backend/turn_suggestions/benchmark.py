@@ -7,6 +7,7 @@ instead of asking Jev again.
 
 import re
 import time
+import ipaddress
 from collections.abc import Callable, Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import field
@@ -98,6 +99,21 @@ class SystemOneEndpoint:
     @property
     def label(self) -> str:
         return f"{urlsplit(self.url).netloc} {self.model or 'default'}"
+
+    @property
+    def sends_credentials_in_clear(self) -> bool:
+        """Basic auth over http to a host off this machine, where anyone on the path can read it."""
+        parts = urlsplit(self.url)
+        return bool(self.username) and parts.scheme == "http" and not _is_loopback(parts.hostname or "")
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 SYSTEM_ONE_PATH = "/v1/systemone"

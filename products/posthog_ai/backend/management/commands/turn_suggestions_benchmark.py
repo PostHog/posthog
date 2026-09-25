@@ -157,6 +157,12 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         judges = _judges(options)
+        for label, endpoint in judges:
+            if endpoint is not None and endpoint.sends_credentials_in_clear:
+                self.stderr.write(
+                    self.style.WARNING(f"{label} gets its username and password over plain http. Use https:// ")
+                    + self.style.WARNING("unless the network to that host is trusted.")
+                )
         api_key = settings.TYPESAFE_API_KEY or _from_env_local("TYPESAFE_API_KEY")
         if not api_key and any(endpoint is None for _, endpoint in judges):
             raise CommandError("Set TYPESAFE_API_KEY in the environment or in .env.local, or pass --skip-jev.")

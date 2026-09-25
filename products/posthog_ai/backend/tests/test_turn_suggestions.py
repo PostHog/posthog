@@ -751,6 +751,19 @@ class TestBenchmark(SimpleTestCase):
         assert [endpoint.label for endpoint in endpoints] == ["10.0.0.1:8080 candidate-2", "api.example.com default"]
         assert "p@ss" not in repr(endpoints)
 
+    @parameterized.expand(
+        [
+            ("http_remote_host", "http://judge:secret@203.0.113.7:8080", True),
+            ("https", "https://judge:secret@api.example.com", False),
+            ("loopback", "http://judge:secret@127.0.0.1:8080", False),
+            ("no_credentials", "http://203.0.113.7:8080", False),
+        ]
+    )
+    def test_flags_credentials_sent_over_plain_http(self, _name: str, entry: str, expected: bool):
+        [endpoint] = parse_endpoints(entry)
+
+        assert endpoint.sends_credentials_in_clear is expected
+
     @parameterized.expand([("no_scheme", "judge:secret@10.0.0.1"), ("bad_port", "http://judge:secret@10.0.0.1:99999")])
     def test_endpoint_errors_do_not_echo_the_entry(self, _name: str, entry: str):
         with self.assertRaises(ValueError) as raised:
