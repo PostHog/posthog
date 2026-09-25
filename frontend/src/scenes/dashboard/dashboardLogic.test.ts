@@ -4077,7 +4077,7 @@ describe('dashboardLogic', () => {
                 get: {
                     '/api/environments/:team_id/dashboards/5/': () => [
                         200,
-{ ...dashboards[5], tiles: [...dashboards[5].tiles, WIDGET_TILE] },
+                        { ...dashboards[5], tiles: [...dashboards[5].tiles, WIDGET_TILE] },
                     ],
                 },
             })
