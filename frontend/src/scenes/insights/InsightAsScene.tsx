@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -20,12 +20,32 @@ import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightQueryScanBanner } from './InsightQueryScanBanner'
 import { InsightSceneHeader } from './InsightSceneHeader'
+import { insightSubscribeNudgeLogic } from './insightSubscribeNudgeLogic'
 import { insightVizDataLogic } from './insightVizDataLogic'
 import { SqlInsightFilters } from './SqlInsightFilters'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
+}
+
+function InsightSubscribeNudgeTrigger({
+    insightId,
+    insightShortId,
+    insightName,
+    canEditInsight,
+    insightProps,
+}: {
+    insightId: number
+    insightShortId: string
+    insightName?: string | null
+    canEditInsight: boolean
+    insightProps: InsightLogicProps
+}): null {
+    useMountedLogic(
+        insightSubscribeNudgeLogic({ insightId, insightShortId, insightName, canEditInsight, insightProps })
+    )
+    return null
 }
 
 export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JSX.Element | null {
@@ -43,7 +63,13 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         filtersOverride,
         variablesOverride,
     })
-    const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
+    const {
+        insightProps,
+        accessDeniedToInsight,
+        insightLoading,
+        insight: loadedInsight,
+        canEditInsight,
+    } = useValues(logic)
 
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
@@ -83,6 +109,15 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
             <SceneContent className={clsx('Insight', isEditing && '!gap-0')}>
+                {loadedInsight.id && loadedInsight.short_id && loadedInsight.saved && (
+                    <InsightSubscribeNudgeTrigger
+                        insightId={loadedInsight.id}
+                        insightShortId={loadedInsight.short_id}
+                        insightName={loadedInsight.name}
+                        canEditInsight={canEditInsight}
+                        insightProps={insightProps}
+                    />
+                )}
                 {isEditing ? (
                     <div className="flex flex-col gap-y-4 shrink-0">
                         <InsightSceneHeader insightLogicProps={insightProps} />
