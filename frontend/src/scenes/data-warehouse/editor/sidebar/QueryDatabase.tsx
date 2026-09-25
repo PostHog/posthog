@@ -89,6 +89,29 @@ export function getSidebarAddJoinSourceTableName(
 }
 
 /**
+ * The SQL the sidebar's Query action opens for a row, or null when the row has nothing to query.
+ *
+ * Tables and views share this builder so that both land on the same query and the same output tab.
+ * The two escape helpers are not interchangeable: a table name can be dotted (`source.table`), so
+ * each part is escaped on its own, while a view name is one identifier that keeps any dot in it.
+ */
+export function getSidebarPreviewQuery(
+    record: { type?: string; tableName?: string } | undefined,
+    itemName: string
+): string | null {
+    switch (record?.type) {
+        case 'table':
+            return buildSelectAllQuery(itemName, 'LIMIT 100')
+        case 'view':
+        case 'managed-view':
+        case 'endpoint':
+            return `SELECT * FROM ${escapePropertyAsHogQLIdentifier(record.tableName || itemName)} LIMIT 100`
+        default:
+            return null
+    }
+}
+
+/**
  * The text a column row inserts at the cursor, or null when there is nothing to insert.
  *
  * The name has to be checked rather than assumed: escaping an undefined one throws, and a throw
@@ -326,12 +349,11 @@ export const QueryDatabase = ({
     }
 
     const previewItem = (item: TreeDataItem): void => {
-        if (!isPreviewableViewItem(item)) {
+        const previewQuery = getSidebarPreviewQuery(item.record, item.name)
+        if (!previewQuery) {
             return
         }
 
-        const table = item.record?.tableName || item.name
-        const previewQuery = `SELECT * FROM ${escapePropertyAsHogQLIdentifier(table)} LIMIT 100`
         const nextConnectionId = connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
 
         if (isEmbeddedMode) {
@@ -709,14 +731,7 @@ export const QueryDatabase = ({
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    const nextConnectionId =
-                                        connectionId && connectionId !== POSTHOG_WAREHOUSE ? connectionId : undefined
-                                    router.actions.push(
-                                        urls.sqlEditor({
-                                            query: buildSelectAllQuery(item.name, null),
-                                            connectionId: nextConnectionId,
-                                        })
-                                    )
+                                    previewItem(item)
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>

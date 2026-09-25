@@ -224,53 +224,40 @@ export function QueryWindow({
         </span>
     )
 
-    const editorSettingsItems = [
-        ...(vimModeFeatureEnabled
-            ? [
-                  {
-                      custom: true,
-                      label: () => (
-                          <LemonSwitch
-                              checked={editorVimModeEnabled}
-                              onChange={setEditorVimModeEnabled}
-                              label="Vim mode"
-                              size="small"
-                              fullWidth
-                              data-attr="sql-editor-vim-toggle"
-                          />
-                      ),
-                  },
-              ]
-            : []),
-        ...(canSendRawQuery
-            ? [
-                  {
-                      custom: true,
-                      label: () => (
-                          <LemonSwitch
-                              checked={sendRawQueryEnabled}
-                              onChange={setSendRawQuery}
-                              label={sendRawQueryLabel}
-                              size="small"
-                              fullWidth
-                              data-attr="sql-editor-send-raw-query-toggle"
-                          />
-                      ),
-                  },
-              ]
-            : []),
-    ]
+    const toggleVimMode = (enabled: boolean): void => {
+        setEditorVimModeEnabled(enabled)
+        // pinned: analytics event name — renaming breaks dashboards
+        posthog.capture('sql-editor-vim-mode-toggled', {
+            enabled,
+            mode: mode ?? SQLEditorMode.FullScene,
+            host_product: hostProduct ?? null,
+        })
+    }
+
+    const sendRawQueryItem = {
+        custom: true,
+        label: () => (
+            <LemonSwitch
+                checked={sendRawQueryEnabled}
+                onChange={setSendRawQuery}
+                label={sendRawQueryLabel}
+                size="small"
+                fullWidth
+                data-attr="sql-editor-send-raw-query-toggle"
+            />
+        ),
+    }
 
     return (
         <div className="flex grow flex-col overflow-hidden">
             {showQueryPanel ? (
                 <div
                     className={cn(
-                        'flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
+                        'flex flex-row flex-wrap justify-start align-center gap-y-1 w-full pl-2 pr-2 bg-white dark:bg-black border-b border-t py-1',
                         isDatabaseTreeCollapsed || mode !== SQLEditorMode.FullScene ? '' : 'rounded-tl-lg'
                     )}
                 >
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 gap-y-1">
                         <ExpandDatabaseTreeButton
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
@@ -303,6 +290,16 @@ export function QueryWindow({
                                 cancelQueryLoading={cancelQueryLoading}
                             />
                         )}
+                        {vimModeFeatureEnabled ? (
+                            <LemonSwitch
+                                checked={editorVimModeEnabled}
+                                onChange={toggleVimMode}
+                                label="Vim mode"
+                                size="small"
+                                bordered
+                                data-attr="sql-editor-vim-toggle"
+                            />
+                        ) : null}
                         <CollapsedConnectionSelector tabId={tabId} mode={mode} />
                         {!showBIEditor ? <LemonDivider vertical /> : null}
                         {!showBIEditor ? (
@@ -331,8 +328,8 @@ export function QueryWindow({
 
                     <div className="ml-auto flex items-center gap-2">
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
-                        {editorSettingsItems.length > 0 ? (
-                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
+                        {canSendRawQuery ? (
+                            <LemonMenu items={[sendRawQueryItem]} closeOnClickInside={false} placement="bottom-end">
                                 <LemonButton
                                     icon={<IconGear />}
                                     type="secondary"
