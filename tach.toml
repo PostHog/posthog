@@ -895,6 +895,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
+    "products.conversations",
     "products.feature_flags",
     "products.product_analytics",
     "products.product_tours", "products.access_control",

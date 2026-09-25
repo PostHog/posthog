@@ -11,6 +11,7 @@ interface SessionRecordingPanelProps {
         [key: string]: any
     }
     distinctId?: string
+    sessionId?: string | null
 }
 
 /** The widget stores the replay URL under `replay_url`. The id is its last path segment. */
@@ -21,8 +22,12 @@ export function recordingIdFromReplayUrl(replayUrl: unknown): string | null {
     return replayUrl.split('?')[0].split('/').filter(Boolean).pop() ?? null
 }
 
-export function SessionRecordingPanel({ sessionContext, distinctId }: SessionRecordingPanelProps): JSX.Element {
-    const recordingId = recordingIdFromReplayUrl(sessionContext?.replay_url)
+export function SessionRecordingPanel({
+    sessionContext,
+    distinctId,
+    sessionId,
+}: SessionRecordingPanelProps): JSX.Element {
+    const recordingId = recordingIdFromReplayUrl(sessionContext?.replay_url) ?? sessionId
 
     return (
         <LemonCollapse

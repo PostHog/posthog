@@ -2084,14 +2084,16 @@ def _assign_ticket(
             ),
         )
 
-        # Emit analytics event for workflow triggers
-        try:
-            if assignee:
-                assignee_type = assignee["type"]
-                assignee_id = str(assignee["id"])
-            else:
-                assignee_type = None
-                assignee_id = None
-            capture_ticket_assigned(ticket, assignee_type, assignee_id, actor=user, actor_type="user")
-        except Exception as e:
-            capture_exception(e, {"ticket_id": str(ticket.id)})
+        def capture_assignment_event() -> None:
+            try:
+                if assignee:
+                    assignee_type = assignee["type"]
+                    assignee_id = str(assignee["id"])
+                else:
+                    assignee_type = None
+                    assignee_id = None
+                capture_ticket_assigned(ticket, assignee_type, assignee_id, actor=user, actor_type="user")
+            except Exception as e:
+                capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        transaction.on_commit(capture_assignment_event)

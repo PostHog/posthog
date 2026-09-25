@@ -32489,7 +32489,7 @@ export namespace Schemas {
     export interface DesktopFeedbackResponse {
       /** Whether the feedback response was accepted. */
       accepted: boolean;
-      /** Identifier of the survey response event. */
+      /** Identifier of the feedback ticket or legacy survey response event. */
       response_id: string;
     }
 

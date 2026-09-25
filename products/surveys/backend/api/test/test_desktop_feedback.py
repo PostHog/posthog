@@ -14,11 +14,14 @@ from PIL import Image
 from rest_framework import status
 
 from posthog.models import Team, UploadedMedia
+from posthog.models.comment import Comment
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.uploaded_media import MEDIA_PURPOSE_DESKTOP_FEEDBACK, MEDIA_PURPOSE_EMAIL
 from posthog.ph_client import PH_US_API_KEY
 
+from products.access_control.backend.models.role import Role
+from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket, TicketAssignment
 from products.surveys.backend.desktop_feedback import (
     DESKTOP_FEEDBACK_MEDIA_RETENTION,
     sweep_expired_desktop_feedback_media,
@@ -36,12 +39,213 @@ def _image_file(name: str = "example.png", image_format: str = "PNG") -> SimpleU
 class TestDesktopFeedback(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        flag_patch = patch(
+            "products.surveys.backend.desktop_feedback.posthoganalytics.feature_enabled", return_value=False
+        )
+        self.flag = flag_patch.start()
+        self.addCleanup(flag_patch.stop)
         self.internal_org = Organization.objects.create(name="PostHog internal")
         self.internal_team = Team.objects.create(
             organization=self.internal_org,
             name="Internal feedback",
             api_token=PH_US_API_KEY,
         )
+
+    def configure_feedback_tickets(self) -> EmailChannel:
+        self.flag.return_value = True
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+        self.support_role = Role.objects.create(organization=self.internal_org, name="Example support")
+        self.internal_team.conversations_enabled = True
+        self.internal_team.conversations_settings = {
+            "email_enabled": True,
+            "desktop_feedback_role_id": str(self.support_role.id),
+        }
+        self.internal_team.save()
+        return EmailChannel.objects.create(
+            team=self.internal_team,
+            inbound_token="desktop-feedback-test",
+            from_email="support@example.com",
+            from_name="Example support",
+            domain="example.com",
+            domain_verified=True,
+            is_default=True,
+        )
+
+    @parameterized.expand([("assigned", True), ("unassigned", False)])
+    @patch("products.conversations.backend.api.tickets.capture_ticket_assigned")
+    @patch("posthog.models.uploaded_media.object_storage.write")
+    @patch("products.surveys.backend.desktop_feedback.get_client")
+    def test_creates_ticket_with_private_attachments_and_email_reply_path(
+        self, _name: str, assign_role: bool, get_client, _write_object, capture_assigned
+    ) -> None:
+        channel = self.configure_feedback_tickets()
+        if not assign_role:
+            self.internal_team.conversations_settings = {"email_enabled": True}
+            self.internal_team.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_feedback/",
+            {
+                "response": "The search results are empty",
+                "source": "Generic (Leave feedback button)",
+                "feedback_view": "task-detail",
+                "feedback_task_id": "example-task",
+                "feedback_folder_id": "example-folder",
+                "session_id": "00000000-0000-0000-0000-000000000002",
+                "feedback_app_logs": "[info] Example search",
+                "app_version": "1.2.3",
+                "screenshot": _image_file(),
+            },
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ticket = Ticket.objects.get(id=response.json()["response_id"])
+        assert ticket.team_id == self.internal_team.id
+        assert ticket.email_config_id == channel.id
+        if assign_role:
+            assert ticket.assignment.role_id == self.support_role.id
+            assert ticket.assignment.user_id is None
+            capture_assigned.assert_not_called()
+        else:
+            assert not TicketAssignment.objects.filter(ticket=ticket).exists()
+        assert ticket.email_from == self.user.email
+        assert ticket.channel_source == "email"
+        assert ticket.session_context == {
+            "feedback_source": "Generic (Leave feedback button)",
+            "feedback_view": "task-detail",
+            "feedback_task_id": "example-task",
+            "feedback_folder_id": "example-folder",
+            "app_version": "1.2.3",
+            "$session_id": "00000000-0000-0000-0000-000000000002",
+            "source_product": "desktop",
+        }
+        assert ticket.session_id == "00000000-0000-0000-0000-000000000002"
+        assert ticket.identity_verified is True
+        message = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=False)
+        assert message.content == "The search results are empty"
+        media = UploadedMedia.objects.get()
+        assert isinstance(message.rich_content, dict)
+        image_url = message.rich_content["content"][1]["attrs"]["src"]
+        assert (
+            urlsplit(image_url).path
+            == f"/api/projects/{self.internal_team.id}/desktop_feedback/attachments/{media.id}/"
+        )
+        assert self.client.get(urlsplit(image_url).path).status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.get(media.get_absolute_url()).status_code == status.HTTP_404_NOT_FOUND
+        note = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=True)
+        assert note.content is not None
+        assert "[info] Example search" in note.content
+        assert not EmailOutboxMessage.objects.exists()
+        get_client.assert_not_called()
+
+        reply = Comment.objects.create(
+            team=self.internal_team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="Which search did you use?",
+            item_context={"author_type": "human", "is_private": False},
+        )
+        outbox = EmailOutboxMessage.objects.get(comment=reply)
+        assert outbox.ticket_id == ticket.id
+        assert outbox.team_id == self.internal_team.id
+
+    @parameterized.expand(
+        [
+            ("disabled",),
+            ("no_channel",),
+            ("unverified_channel",),
+            ("unverified_user",),
+            ("deleted_role",),
+            ("invalid_role",),
+            ("other_organization_role",),
+        ]
+    )
+    @patch("products.surveys.backend.desktop_feedback.get_client")
+    @patch("posthog.models.uploaded_media.object_storage.write")
+    @patch("products.surveys.backend.desktop_feedback.object_storage.delete")
+    def test_ticket_failure_removes_images_without_survey_fallback(
+        self, failure, delete_object, _write, get_client
+    ) -> None:
+        channel = self.configure_feedback_tickets()
+        if failure == "disabled":
+            self.internal_team.conversations_enabled = False
+            self.internal_team.save()
+        elif failure == "no_channel":
+            channel.delete()
+        elif failure == "unverified_channel":
+            channel.domain_verified = False
+            channel.save()
+        elif failure == "unverified_user":
+            self.user.is_email_verified = False
+            self.user.save()
+        elif failure == "deleted_role":
+            self.support_role.delete()
+        else:
+            role_id = (
+                str(Role.objects.create(organization=self.organization, name="Example support").id)
+                if failure == "other_organization_role"
+                else "invalid"
+            )
+            self.internal_team.conversations_settings = {"email_enabled": True, "desktop_feedback_role_id": role_id}
+            self.internal_team.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_feedback/",
+            {
+                "response": "Example feedback",
+                "source": "Generic (Leave feedback button)",
+                "feedback_view": "home",
+                "image_1": _image_file(),
+            },
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert not Ticket.objects.exists()
+        assert not TicketAssignment.objects.exists()
+        assert not UploadedMedia.objects.exists()
+        delete_object.assert_called_once()
+        get_client.assert_not_called()
+
+    @parameterized.expand([("bug",), ("feature",), ("general",)])
+    def test_preserves_feedback_type_for_ticket_routing(self, feedback_type: str) -> None:
+        self.configure_feedback_tickets()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_feedback/",
+            {
+                "response": "Example feedback",
+                "source": "Generic (Leave feedback button)",
+                "feedback_view": "home",
+                "feedback_type": feedback_type,
+            },
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        ticket = Ticket.objects.get(id=response.json()["response_id"])
+        assert ticket.session_context == {
+            "feedback_source": "Generic (Leave feedback button)",
+            "feedback_view": "home",
+            "feedback_type": feedback_type,
+            "source_product": "desktop",
+        }
+        assert ticket.session_id is None
+
+    @patch("products.conversations.backend.api.tickets.capture_ticket_assigned")
+    @patch(
+        "products.conversations.backend.services.feedback.Comment.objects.create",
+        side_effect=RuntimeError("Unavailable"),
+    )
+    def test_ticket_and_message_are_atomic(self, _create, capture_assigned) -> None:
+        self.configure_feedback_tickets()
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/desktop_feedback/",
+                {"response": "Example feedback", "source": "Generic (Leave feedback button)", "feedback_view": "home"},
+                format="multipart",
+            )
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert not Ticket.objects.exists()
+        assert not TicketAssignment.objects.exists()
+        capture_assigned.assert_not_called()
 
     @patch("posthog.models.uploaded_media.object_storage.write")
     @patch("products.surveys.backend.desktop_feedback.get_client")
