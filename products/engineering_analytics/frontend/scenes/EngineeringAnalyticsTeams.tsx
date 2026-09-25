@@ -28,6 +28,29 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
     const { friction } = useValues(authorFrictionLogic)
     const medianFriction = new Map((friction?.teams ?? []).map((team) => [team.github_team, team.median_score]))
 
+    // A dash would read as too few scored members, so without friction data or memberships the column stays out.
+    const frictionColumns: LemonTableColumns<TeamCIHealthRow> =
+        friction?.available && friction.has_membership_data
+            ? [
+                  {
+                      title: 'Friction',
+                      key: 'friction',
+                      width: 100,
+                      align: 'right',
+                      tooltip: `Median friction of the team's members over the last ${friction?.window_days ?? 30} days, as a multiple of the typical author. Shown for teams with at least 3 members who have a score.`,
+                      sorter: (a, b) =>
+                          (medianFriction.get(a.ownerTeam) ?? -1) - (medianFriction.get(b.ownerTeam) ?? -1),
+                      render: (_, row) => (
+                          <span className="tabular-nums">
+                              {medianFriction.has(row.ownerTeam)
+                                  ? timesTypical(medianFriction.get(row.ownerTeam))
+                                  : '–'}
+                          </span>
+                      ),
+                  },
+              ]
+            : []
+
     const columns: LemonTableColumns<TeamCIHealthRow> = [
         {
             title: 'Team',
@@ -59,19 +82,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     </Link>
                 ),
         },
-        {
-            title: 'Friction',
-            key: 'friction',
-            width: 100,
-            align: 'right',
-            tooltip: `Median friction of the team's members over the last ${friction?.window_days ?? 30} days, as a multiple of the typical author. Shown for teams with at least 3 members who have a score.`,
-            sorter: (a, b) => (medianFriction.get(a.ownerTeam) ?? -1) - (medianFriction.get(b.ownerTeam) ?? -1),
-            render: (_, row) => (
-                <span className="tabular-nums">
-                    {medianFriction.has(row.ownerTeam) ? timesTypical(medianFriction.get(row.ownerTeam)) : '–'}
-                </span>
-            ),
-        },
+        ...frictionColumns,
         {
             title: 'Test files',
             key: 'testFileCount',
