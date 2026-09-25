@@ -34,6 +34,7 @@ export function GridChatPanel({
   target,
   canvasTaskId,
   commentTaskId,
+  commentsEnabled,
   canvasVersionId,
   commentVersionLabel,
   canvasId,
@@ -49,8 +50,9 @@ export function GridChatPanel({
   /** The recorded canvas-wide conversation, if one has been started. */
   canvasTaskId: string | null;
   /** The task canvas comments anchor to (the canvas conversation, or the run
-   * that produced the current layout). Null disables the comments tab. */
+   * that produced the current layout). */
   commentTaskId: string | null;
+  commentsEnabled: boolean;
   /** The layout version currently shown, for labeling new comments. */
   canvasVersionId: string | null;
   commentVersionLabel: (versionId: string) => string | null;
@@ -118,7 +120,7 @@ export function GridChatPanel({
             </TabsTrigger>
             <TabsTrigger
               value="comments"
-              disabled={!commentTaskId}
+              disabled={!commentsEnabled}
               className="px-2.5"
             >
               Comments
@@ -126,7 +128,7 @@ export function GridChatPanel({
           </TabsList>
         </Tabs>
       </ChromeBar>
-      {tab === "comments" && commentTaskId ? (
+      {tab === "comments" && commentsEnabled ? (
         <CanvasComments
           taskId={commentTaskId}
           canvasId={canvasId}
@@ -175,7 +177,7 @@ function CanvasComments({
   canvasVersionId,
   commentVersionLabel,
 }: {
-  taskId: string;
+  taskId: string | null;
   canvasId: string;
   canvasName: string;
   canvasVersionId: string | null;

@@ -15,7 +15,7 @@ import { channelDisplayName } from "./channelName";
 
 export interface TaskActivityItem {
   id: string;
-  taskId: string;
+  taskId: string | null;
   taskTitle: string;
   /** Backend channel (tasks product Channel UUID); null for channel-less tasks. */
   channelId: string | null;

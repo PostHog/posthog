@@ -58,7 +58,9 @@ export function deriveActivityFeedContent({
   // open, and the backend keeps counting the row as unread.
   const shownItems = taskItems.filter(
     (item) =>
-      activityCanvasId(item) !== null || !archivedTaskIds.has(item.taskId),
+      activityCanvasId(item) !== null ||
+      item.taskId === null ||
+      !archivedTaskIds.has(item.taskId),
   );
   const visibleReports = unreadsOnly ? [] : reports;
   const visibleTaskItems = mentionsIncluded

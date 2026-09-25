@@ -17,6 +17,7 @@ export function openActivityItem(item: TaskActivityItem): void {
     navigateToChannelDashboard(channelId, item.commentTarget.itemId);
     return;
   }
+  if (!item.taskId) return;
   // The channel thread route is the deep-link target; unfiled tasks fall back
   // to the plain task view.
   if (channelId) {

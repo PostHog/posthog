@@ -3,12 +3,16 @@ import type { TextCommentAnchor } from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCreateComment } from "@posthog/ui/features/sessions/components/useComments";
 
 export function CanvasSelectionCommentAction({
   selection,
   taskId,
+  enabled,
   dashboardId,
   canvasName,
   versionId,
@@ -16,6 +20,7 @@ export function CanvasSelectionCommentAction({
 }: {
   selection: CanvasTextSelection | null;
   taskId: string | null;
+  enabled: boolean;
   dashboardId: string;
   canvasName: string;
   versionId: string | null;
@@ -53,7 +58,7 @@ export function CanvasSelectionCommentAction({
             }
           : null
       }
-      open={!!selection && !!taskId}
+      open={!!selection && enabled}
       filePath={canvasName}
       actionLabel="Add comment"
       placeholder="Add a comment about this selection"
@@ -61,7 +66,7 @@ export function CanvasSelectionCommentAction({
       members={members}
       onDismiss={onDismiss}
       onSubmit={async (_start, _end, content, mentions) => {
-        if (!anchor || !taskId) return;
+        if (!anchor || !enabled) return;
         openComments();
         const comment = await createComment.mutateAsync({
           content,
@@ -73,9 +78,14 @@ export function CanvasSelectionCommentAction({
         });
         useCommentNavigationStore
           .getState()
-          .requestCommentFocus(taskId, target, comment.id, {
-            intent: "focus-only",
-          });
+          .requestCommentFocus(
+            canvasCommentFocusKey(dashboardId),
+            target,
+            comment.id,
+            {
+              intent: "focus-only",
+            },
+          );
       }}
     />
   );

@@ -141,7 +141,10 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
   },
 }));
 
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { TaskCommentsList } from "./TaskCommentsList";
 
 const task = { id: "task-1", latest_run: null } as unknown as Task;
@@ -526,7 +529,7 @@ describe("TaskCommentsList", () => {
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(
-          "task-1",
+          canvasCommentFocusKey("canvas-1"),
           { scope: "desktop_canvas", itemId: "canvas-1" },
           "comment-1",
         );

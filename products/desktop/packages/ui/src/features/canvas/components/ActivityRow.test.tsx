@@ -39,7 +39,10 @@ vi.mock("@posthog/ui/features/canvas/utils/copyChannelLink", () => ({
   copyChannelLink: links.copyChannelLink,
 }));
 
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityRow } from "./ActivityRow";
 import { openActivityItem } from "./openActivityItem";
 import type { TaskRowMenuProps } from "./TaskRowMenu";
@@ -249,7 +252,11 @@ describe("ActivityRow", () => {
       "canvas-1",
     );
     expect(navigation.toChannelTask).not.toHaveBeenCalled();
-    expect(useCommentNavigationStore.getState().focusByTask["task-1"]).toEqual({
+    expect(
+      useCommentNavigationStore.getState().focusByTask[
+        canvasCommentFocusKey("canvas-1")
+      ],
+    ).toEqual({
       target: { scope: "desktop_canvas", itemId: "canvas-1" },
       threadId: "comment-1",
       nonce: expect.any(Number),

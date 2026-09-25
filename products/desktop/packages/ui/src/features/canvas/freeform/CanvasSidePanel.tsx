@@ -90,6 +90,7 @@ function PanelTabButton({
 export function CanvasSidePanel({
   chatTaskId,
   commentTaskId,
+  commentsEnabled,
   interactive,
   onMinimize,
   dashboardId,
@@ -111,6 +112,7 @@ export function CanvasSidePanel({
    * here, even while it is in flight. */
   chatTaskId: string | null;
   commentTaskId: string | null;
+  commentsEnabled: boolean;
   /** Whether the canvas is being edited. The composer is an edit affordance, so
    * view mode shows an empty chat when this person has no run. */
   interactive?: boolean;
@@ -162,7 +164,7 @@ export function CanvasSidePanel({
                   tab={option}
                   active={visibleTab === option}
                   disabled={
-                    (option === "comments" && !commentTaskId) ||
+                    (option === "comments" && !commentsEnabled) ||
                     (option === "blocks" && firstBuildRunning)
                   }
                   onSelect={setTab}
@@ -205,7 +207,7 @@ export function CanvasSidePanel({
             versionLabel={commentVersionLabel}
             onOpen={onCommentOpen}
           />
-        ) : visibleTab === "comments" && commentTaskId ? (
+        ) : visibleTab === "comments" && commentsEnabled ? (
           <CanvasComments
             taskId={commentTaskId}
             dashboardId={dashboardId}
@@ -269,7 +271,7 @@ function CanvasComments({
   commentVersionLabel,
   onCommentOpen,
 }: {
-  taskId: string;
+  taskId: string | null;
   dashboardId: string;
   name: string;
   displayedVersionId: string | null;

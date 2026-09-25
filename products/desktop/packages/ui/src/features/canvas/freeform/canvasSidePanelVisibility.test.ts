@@ -8,7 +8,7 @@ const base = {
   generatingPanelOpen: false,
   viewOpen: false,
   collapsed: false,
-  hasCommentTask: true,
+  commentsEnabled: true,
 };
 
 describe("canvasSidePanelVisibility", () => {
@@ -40,8 +40,8 @@ describe("canvasSidePanelVisibility", () => {
       false,
     ],
     [
-      "viewing a canvas no task backs",
-      { viewOpen: true, hasCommentTask: false },
+      "viewing a canvas with comments off",
+      { viewOpen: true, commentsEnabled: false },
       false,
       false,
     ],

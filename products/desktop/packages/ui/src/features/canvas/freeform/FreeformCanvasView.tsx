@@ -53,6 +53,7 @@ import {
 } from "@posthog/quill";
 import { CANVAS_COMPONENT_PATH, formatRelativeAge } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CANVAS_COMMENTS_FLAG } from "@posthog/shared";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { CanvasSourceAutosave } from "@posthog/ui/features/canvas/blocks/CanvasBlocks";
@@ -84,7 +85,11 @@ import {
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
   buildCommentThreads,
   readCommentContext,
@@ -352,6 +357,8 @@ export function FreeformCanvasView({
     interactive ? dashboardId : undefined,
   );
   const commentTaskId = canvasCommentTaskId(genTaskId, versions);
+  const canvasCommentsFlag = useFeatureFlag(CANVAS_COMMENTS_FLAG);
+  const commentsEnabled = canvasCommentsFlag || !!commentTaskId;
   // The run whose chat the panel shows: this person's own run on the canvas,
   // found through the record's task or the versions they published. Another
   // person's run never shows, so each editor keeps their own conversation.
@@ -530,23 +537,27 @@ export function FreeformCanvasView({
     [dashboardId],
   );
   const commentsQuery = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
+    commentsEnabled ? commentTarget : null,
     commentTaskId ?? "",
   );
   const focusedCommentId = useCommentNavigationStore(
-    (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
+    (state) =>
+      state.focusByTask[canvasCommentFocusKey(dashboardId)]?.threadId ?? null,
   );
   const activateComment = useCallback(
     (id: string) => {
-      if (!commentTaskId) return;
+      if (!commentsEnabled) return;
       useCanvasChatPanelStore.getState().openComments();
       useCommentNavigationStore
         .getState()
-        .requestCommentFocus(commentTaskId, commentTarget, id, {
-          intent: "reveal-thread",
-        });
+        .requestCommentFocus(
+          canvasCommentFocusKey(dashboardId),
+          commentTarget,
+          id,
+          { intent: "reveal-thread" },
+        );
     },
-    [commentTaskId, commentTarget],
+    [commentsEnabled, commentTarget, dashboardId],
   );
   const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
     const threads = buildCommentThreads(commentsQuery.data ?? []);
@@ -853,7 +864,7 @@ export function FreeformCanvasView({
     generatingPanelOpen,
     viewOpen: embedded ? false : panelViewOpen,
     collapsed,
-    hasCommentTask: !!commentTaskId,
+    commentsEnabled,
   });
   const showPanel = panelVisibility.editing;
   // Build failures/progress surface in view mode too — the toolbar renders
@@ -1349,6 +1360,7 @@ export function FreeformCanvasView({
           <CanvasSidePanel
             chatTaskId={chatTaskId}
             commentTaskId={commentTaskId}
+            commentsEnabled={commentsEnabled}
             interactive={interactive}
             onMinimize={() => {
               setCollapsed(true);
@@ -1380,6 +1392,7 @@ export function FreeformCanvasView({
         <CanvasSelectionCommentAction
           selection={textSelection}
           taskId={commentTaskId}
+          enabled={commentsEnabled}
           dashboardId={dashboardId}
           canvasName={dashboard?.name ?? "Canvas"}
           versionId={displayedVersionId}
