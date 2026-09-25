@@ -82,9 +82,11 @@ const COMPACT_AFTER_ENTRIES = 64
 /**
  * One queue of fetch candidates for the whole pod.
  *
- * Every consumer's batch adds its candidates here, and the fetch workers take them in age order
- * among the origins that are under their limits and past their crawl delay. The limits count
- * across the pod, so two batches from one partition cannot both claim a domain's slots.
+ * Every consumer's batch adds its candidates here, and the fetch workers take them in the order they
+ * entered the pool, among the origins that are under their limits and past their crawl delay. The
+ * order uses pool entry and not record age, because the pass deadline and the batch timeout count
+ * from when the pod received the batch. The limits count across the pod, so two batches from one
+ * partition cannot both claim a domain's slots.
  */
 export class FetchCandidatePool<T> {
     private readonly domains = new Map<string, DomainQueue<T>>()
