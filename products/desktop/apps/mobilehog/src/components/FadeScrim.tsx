@@ -5,7 +5,13 @@ const STRIPS = 28;
 
 // Fades content out under the composer: clear at the top, solid at the
 // bottom. Stacked strips stand in for a gradient so no native module is needed.
-export function FadeScrim({ style }: { style?: StyleProp<ViewStyle> }) {
+export function FadeScrim({
+  style,
+  color = colors.bg,
+}: {
+  style?: StyleProp<ViewStyle>;
+  color?: string;
+}) {
   return (
     <View pointerEvents="none" style={[styles.root, style]}>
       {Array.from({ length: STRIPS }, (_, index) => {
@@ -15,7 +21,7 @@ export function FadeScrim({ style }: { style?: StyleProp<ViewStyle> }) {
             key={String(index)}
             style={{
               flex: 1,
-              backgroundColor: colors.bg,
+              backgroundColor: color,
               opacity: Math.min(1, t * t * 1.05),
             }}
           />
