@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG, CatalogEntry
@@ -18,6 +19,7 @@ from products.mcp_store.backend.models import (
 )
 from products.mcp_store.backend.oauth_credentials import SUPPORTED_OAUTH_CREDENTIAL_SOURCES, OAuthCredentialsSource
 from products.mcp_store.backend.probe import ProbeResult
+from products.mcp_store.backend.tasks.tasks import MCP_STORE_CATALOG_SYNC_CRONTAB
 
 VALID_AUTH_TYPES = {choice for choice, _ in AUTH_TYPE_CHOICES}
 VALID_CATEGORIES = {choice for choice, _ in CATEGORY_CHOICES}
@@ -118,6 +120,19 @@ class TestCatalogEntries(SimpleTestCase):
             if entry.oauth_credentials_source is not None:
                 assert entry.auth_type == "oauth", entry.url
                 assert entry.oauth_credentials_source in SUPPORTED_OAUTH_CREDENTIAL_SOURCES, entry.url
+
+
+class TestReprobeCadence(SimpleTestCase):
+    def test_the_sync_polls_more_often_than_the_reprobe_interval(self):
+        # last_probed_at is stamped when a run probes, so a poll spaced exactly at the
+        # interval lands a hair under it on the next tick and every entry skips a turn,
+        # halving the real cadence. The poll has to be the faster of the two.
+        # Deferred because scheduled.py eagerly imports every product's task modules, and
+        # no other test in this file needs them.
+        from posthog.tasks.scheduled import estimate_crontab_interval_seconds  # noqa: PLC0415
+
+        poll_seconds = estimate_crontab_interval_seconds(MCP_STORE_CATALOG_SYNC_CRONTAB)
+        assert poll_seconds < DCR_REPROBE_INTERVAL.total_seconds()
 
 
 class TestSyncMCPCatalog(TestCase):
@@ -491,3 +506,20 @@ class TestSyncMCPCatalog(TestCase):
         assert counts.failed == 1
         assert counts.created >= 1
         assert MCPServerTemplate.objects.filter(url=good.url, is_active=True).exists()
+
+    def test_the_celery_soft_time_limit_stops_the_sync(self):
+        # The per-entry guard above swallows anything the loop raises. Celery raises the soft
+        # limit inside whichever entry is mid-probe, so without an explicit re-raise the sync
+        # would log a bogus entry failure and keep probing until the hard limit kills the
+        # worker mid-write.
+        slow = _entry(url="https://mcp.slow.example/mcp", name="Slow")
+        never_reached = _entry()
+
+        with patch(
+            "products.mcp_store.backend.catalog_sync.probe_mcp_server",
+            side_effect=SoftTimeLimitExceeded(),
+        ) as probe_mock:
+            with self.assertRaises(SoftTimeLimitExceeded):
+                sync_mcp_catalog(entries=[slow, never_reached])
+
+        probe_mock.assert_called_once()

@@ -1,6 +1,10 @@
 """Sync the code-defined catalog (``catalog.py``) into ``MCPServerTemplate`` rows.
 
-Semantics, chosen so the sync can run unattended at every app startup:
+Runs unattended from two triggers: every app startup, and a celery beat schedule
+(``MCP_STORE_CATALOG_SYNC_CRONTAB``). The schedule is what paces the DCR re-probe below,
+because a deployment that never restarts would otherwise never re-probe.
+
+Semantics, chosen so the sync is safe to run on both:
 
 - Rows are keyed on ``url``. A catalog entry with no row **creates** one; an entry with an
   existing row **updates content fields only**. A changed ``url`` is therefore a new identity:
@@ -45,6 +49,7 @@ from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from .catalog import MCP_SERVER_CATALOG, CatalogEntry
 from .models import MCPServerTemplate
@@ -291,6 +296,13 @@ def sync_mcp_catalog(entries: list[CatalogEntry] | None = None, skip_probe: bool
                     counts.unchanged += 1
             else:
                 _update_template(template, entry, skip_probe, counts)
+        except SoftTimeLimitExceeded:
+            # The per-entry handler below exists to contain one bad vendor. Celery raises the
+            # soft limit inside whichever entry happens to be running, so letting that handler
+            # swallow it would log a spurious entry failure and keep probing until the hard
+            # limit kills the worker.
+            logger.warning("mcp_catalog_sync.soft_time_limit", url=entry.url)
+            raise
         except Exception:
             logger.exception("mcp_catalog_sync.entry_failed", url=entry.url)
             counts.failed += 1

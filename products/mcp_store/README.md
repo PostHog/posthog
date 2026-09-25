@@ -65,7 +65,9 @@ Settings supplies its own navigation shell so the gateway workflows fit the main
 ## How the catalog works
 
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
-At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
+Every environment runs `sync_mcp_server_templates` (see `backend/tasks/tasks.py`) from two triggers: app startup, queued from `backend/apps.py`, and a celery beat schedule registered in `posthog/tasks/scheduled.py`.
+The schedule is what paces the interval re-probe below, because a deployment that stays up never restarts.
+Either trigger upserts entries into `MCPServerTemplate` rows:
 
 - Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, OAuth scope allowlist, and credential source). The catalog owns content. Edit it in code, not admin.
 - **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change, a suspension, or a refused DCR registration must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.
