@@ -1323,103 +1323,6 @@ replay_scanners: PostgresTable = PostgresTable(
     },
 )
 
-replay_scanner_backfills: PostgresTable = PostgresTable(
-    name="replay_scanner_backfills",
-    postgres_table_name="replay_vision_replayscannerbackfill",
-    access_scope="replay_scanner",
-    # Child of a scanner: object-level access control applies to the parent scanner.
-    access_control_id_field="scanner_id",
-    description="Replay Vision backfills: one row per run of a scanner over a past window of recordings.",
-    fields={
-        "id": StringDatabaseField(name="id", description="Backfill UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "scanner_id": StringDatabaseField(name="scanner_id", description="Scanner being backfilled."),
-        "window_start": DateTimeDatabaseField(name="window_start", description="Inclusive start of the window."),
-        "window_end": DateTimeDatabaseField(name="window_end", description="Exclusive end of the window."),
-        "status": StringDatabaseField(
-            name="status", description="One of running, paused_quota, completed, cancelled, failed."
-        ),
-        "credits_per_observation": IntegerDatabaseField(
-            name="credits_per_observation", description="Credit price per session, frozen at creation."
-        ),
-        "total_count": IntegerDatabaseField(
-            name="total_count", description="Sessions the backfill set out to scan, counted at creation."
-        ),
-        "dispatched_count": IntegerDatabaseField(name="dispatched_count", description="Sessions dispatched so far."),
-        "skipped_count": IntegerDatabaseField(
-            name="skipped_count", description="Sessions walked over without a scan (already observed or excluded)."
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who started the backfill."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the backfill was created."),
-        "finished_at": DateTimeDatabaseField(
-            name="finished_at", nullable=True, description="When it reached a terminal status (NULL while active)."
-        ),
-    },
-)
-
-vision_alerts: PostgresTable = PostgresTable(
-    name="vision_alerts",
-    postgres_table_name="replay_vision_visionalertconfiguration",
-    # Scoped to the scanner, not `vision_alert`, so per-scanner grants also gate alert rows.
-    access_scope="replay_scanner",
-    access_control_id_field="scanner_id",
-    description="Replay Vision alerts on a scanner's observations; one row per alert.",
-    fields={
-        "id": StringDatabaseField(name="id", description="Alert UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "scanner_id": StringDatabaseField(
-            name="scanner_id", description="Scanner whose observations the alert watches."
-        ),
-        "name": StringDatabaseField(name="name", description="Alert name."),
-        "_enabled": BooleanDatabaseField(name="enabled", hidden=True),
-        "enabled": ExpressionField(
-            name="enabled",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
-            description="1 when the alert is active, 0 otherwise.",
-        ),
-        "kind": StringDatabaseField(
-            name="kind", description="match fires on each matching observation; metric fires on a threshold."
-        ),
-        "selection": StringJSONDatabaseField(
-            name="selection", description="JSON filter picking which observations count (verdict, tags, score)."
-        ),
-        "metric": StringDatabaseField(
-            name="metric", description="Metric alerts: count or avg_score; ignored for match alerts."
-        ),
-        "direction": StringDatabaseField(
-            name="direction", description="Metric alerts: above or below; ignored for match alerts."
-        ),
-        "threshold": FloatDatabaseField(
-            name="threshold", nullable=True, description="Metric alerts: threshold value (NULL for match alerts)."
-        ),
-        "window_days": IntegerDatabaseField(name="window_days", description="Metric alerts: rolling window in days."),
-        "check_interval_minutes": IntegerDatabaseField(
-            name="check_interval_minutes", description="Metric alerts: evaluation cadence in minutes."
-        ),
-        "state": StringDatabaseField(
-            name="state",
-            description="One of not_firing, firing, pending_resolve, errored, snoozed, broken.",
-        ),
-        "consecutive_failures": IntegerDatabaseField(
-            name="consecutive_failures", description="Evaluation failures in a row; resets on success."
-        ),
-        "snooze_until": DateTimeDatabaseField(
-            name="snooze_until", nullable=True, description="Alert is snoozed until this time (NULL when not)."
-        ),
-        "last_checked_at": DateTimeDatabaseField(
-            name="last_checked_at", nullable=True, description="When the alert was last evaluated."
-        ),
-        "last_notified_at": DateTimeDatabaseField(
-            name="last_notified_at", nullable=True, description="When the alert last sent a notification."
-        ),
-        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True, description="User who created it."),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the alert was created."),
-        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the alert was last modified."),
-    },
-)
-
 surveys: PostgresTable = PostgresTable(
     name="surveys",
     postgres_table_name="posthog_survey",
@@ -3235,7 +3138,6 @@ class SystemTables(TableNode):
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
-        "replay_scanner_backfills": TableNode(name="replay_scanner_backfills", table=replay_scanner_backfills),
         "replay_scanners": TableNode(name="replay_scanners", table=replay_scanners),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
@@ -3255,7 +3157,6 @@ class SystemTables(TableNode):
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
-        "vision_alerts": TableNode(name="vision_alerts", table=vision_alerts),
     }
 
 
