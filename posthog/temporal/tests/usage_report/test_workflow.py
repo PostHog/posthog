@@ -32,25 +32,15 @@ from posthog.temporal.usage_report.workflow import (
     LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,
     SANDBOX_COMPUTE_QUERY_NAME,
     RunUsageReportsWorkflow,
-    _queries_for_local_evaluation_not_modified_patch,
-    _queries_for_sandbox_compute_patch,
+    _queries_for_patch,
     build_context,
 )
 
 
-def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
-    assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
-    assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
-
-
-def test_local_evaluation_not_modified_query_is_versioned_for_existing_histories() -> None:
-    queries = _queries_for_sandbox_compute_patch(True)
-    assert LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME not in [
-        spec.name for spec in _queries_for_local_evaluation_not_modified_patch(queries, False)
-    ]
-    assert LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME in [
-        spec.name for spec in _queries_for_local_evaluation_not_modified_patch(queries, True)
-    ]
+@parameterized.expand([(SANDBOX_COMPUTE_QUERY_NAME,), (LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME,)])
+def test_query_is_versioned_for_existing_histories(query_name: str) -> None:
+    assert query_name not in [spec.name for spec in _queries_for_patch(QUERIES, query_name, False)]
+    assert query_name in [spec.name for spec in _queries_for_patch(QUERIES, query_name, True)]
 
 
 @parameterized.expand(

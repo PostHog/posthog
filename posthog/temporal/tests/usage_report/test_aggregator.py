@@ -298,6 +298,7 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
     reports = {
         "with-events": _empty_org_report("with-events", event_count_in_period=1),
         "with-recordings": _empty_org_report("with-recordings", recording_count_in_period=1),
+        "with-304s": _empty_org_report("with-304s", local_evaluation_not_modified_requests_count_in_period=1),
         "idle": _empty_org_report("idle"),
         # Counters not in `has_non_zero_usage` (dashboard counts, query
         # bytes read, etc.) must not keep an org in.
@@ -306,4 +307,4 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
 
     out = filter_orgs_with_usage(reports)
 
-    assert set(out.keys()) == {"with-events", "with-recordings"}
+    assert set(out.keys()) == {"with-events", "with-recordings", "with-304s"}

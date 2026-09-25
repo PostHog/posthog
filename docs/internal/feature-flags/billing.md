@@ -98,7 +98,11 @@ The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag
 
 ### Conditional requests (ETag)
 
-A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs. The billable-flag exclusion applies to 304s too: the service remembers, per team and ETag, whether the current definitions contain a billable flag, so it reads the payload at most once per pod per ETag rather than on every poll.
+A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs.
+
+304 billing rolls out per team through `FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS` (a team ID list, `all`, or empty for off, the default). A team outside the list gets its 304s for free, as before.
+
+A 304 for definitions that hold only survey or product tour flags is not billed, the same as a 200. The service memoizes per team and ETag whether the definitions hold a billable flag, so it reads the payload once per pod per ETag rather than on every poll. The memo is sized by `DEFINITIONS_BILLABLE_CACHE_CAPACITY` and an entry lives for `DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS` (default one hour), which bounds how long a wrong answer can last. Only a payload served from Redis decides, because an S3 copy can lag the ETag by a version. A payload that came from S3, failed to read, or took longer than 500 ms leaves that poll unbilled, and the miss is remembered for 30 seconds so a degraded payload tier is not hammered by every poll. These unbilled polls show as `flags_flag_definitions_not_modified_billing_total{outcome="unknown"}`, which is why the 304 billing counter can run below the ETag hit counter.
 
 ### SDK tracking
 

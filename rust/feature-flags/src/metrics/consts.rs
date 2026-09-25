@@ -382,6 +382,12 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 // redis_error = the etag read failed or the stored value did not decode)
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
+// Billing decision for a /flags/definitions 304. Labels: outcome (billable, not_billable,
+// unknown = the payload was unreadable, slow, or not served from Redis, so the poll went
+// unbilled). Compare with the etag `hit` counter to see how many 304s went unbilled.
+pub const FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER: &str =
+    "flags_flag_definitions_not_modified_billing_total";
+
 // Per-pod resolved cluster for the /flags/definitions reader: 1 on the dedicated flags Redis,
 // 0 on the shared one. Every emission carries a `reason` label, so
 // `{reason="no_dedicated_client"}` separates a pod that wanted the dedicated cluster and could

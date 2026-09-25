@@ -221,12 +221,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in (
-                FlagRequestType.DECIDE,
-                FlagRequestType.LOCAL_EVALUATION,
-                FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED,
-                FlagRequestType.REMOTE_CONFIG,
-            ):
+            for request_type in USAGE_EVENT_NAMES:
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:

@@ -107,8 +107,9 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
-    /// Billable status of each team's current flag definitions, keyed by ETag, so a
-    /// 304 on /flags/definitions applies the billable-flag exclusion without a payload read
+    /// Billable status of each team's current flag definitions, keyed by ETag, so a 304 on
+    /// /flags/definitions for survey-only or product-tour-only definitions goes unbilled
+    /// without a payload read on every poll
     pub definitions_billable_cache: DefinitionsBillableCache,
     /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
     /// Uses token-based lookup instead of team_id
@@ -414,7 +415,10 @@ where
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
-        definitions_billable_cache: DefinitionsBillableCache::new(100_000),
+        definitions_billable_cache: DefinitionsBillableCache::new(
+            config.definitions_billable_cache_capacity,
+            std::time::Duration::from_secs(config.definitions_billable_cache_ttl_seconds),
+        ),
         cohort_membership_provider,
         auth_token_cache,
         billing_aggregator,

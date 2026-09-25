@@ -2865,6 +2865,11 @@ def capture_report(
             capture_exception(err, {"distinct_id": distinct_id, "organization_id": organization_id})
 
 
+def billable_feature_flag_requests(decide: int, local_evaluation: int, local_evaluation_not_modified: int) -> int:
+    """A full local evaluation response costs ten decide requests; a 304 costs one."""
+    return decide + local_evaluation * 10 + local_evaluation_not_modified
+
+
 # extend this with future usage based products
 def has_non_zero_usage(report: UsageReportCounters) -> bool:
     return (
@@ -3297,9 +3302,11 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
         local_evaluation_not_modified_requests_count_in_period=local_evaluation_not_modified_requests_count_in_period,
-        billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
-        + (local_evaluation_requests_count_in_period * 10)
-        + local_evaluation_not_modified_requests_count_in_period,
+        billable_feature_flag_requests_count_in_period=billable_feature_flag_requests(
+            decide_requests_count_in_period,
+            local_evaluation_requests_count_in_period,
+            local_evaluation_not_modified_requests_count_in_period,
+        ),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),

@@ -10,7 +10,7 @@ use crate::{
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
-        FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
+        FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER, FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -118,53 +118,84 @@ pub type FlagDefinitionsResponse = Value;
 /// holds up a 304: the poll goes unbilled and the next one retries.
 const BILLABLE_LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
 
-/// Upper bound on how long a memo entry outlives a mismatch between the ETag
-/// and the payload it was computed from: the writer can publish a new version
-/// between the ETag read and the payload read of one request. One payload read
-/// per team per hour per pod is the price.
-const BILLABLE_MEMO_TTL: Duration = Duration::from_secs(60 * 60);
+/// How long a failed, slow, or non-Redis payload read is remembered. While
+/// the payload tier is degraded this caps the retries at one per pod per
+/// team per interval instead of one per poll, and every poll in between
+/// stays unbilled.
+const BILLABLE_MEMO_FAILURE_TTL: Duration = Duration::from_secs(30);
+
+type BillableMemoKey = (i32, String);
+
+/// A memoized answer outlives a mismatch between the ETag and the payload it
+/// was computed from for at most `answer_ttl`: the writer can publish a new
+/// version between the ETag read and the payload read of one request. A
+/// failure to answer is kept only briefly so the next poll retries soon.
+struct BillableMemoExpiry {
+    answer_ttl: Duration,
+    failure_ttl: Duration,
+}
+
+impl moka::Expiry<BillableMemoKey, Option<bool>> for BillableMemoExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &BillableMemoKey,
+        value: &Option<bool>,
+        _created_at: std::time::Instant,
+    ) -> Option<Duration> {
+        Some(match value {
+            Some(_) => self.answer_ttl,
+            None => self.failure_ttl,
+        })
+    }
+}
 
 /// Memo of whether the definitions behind a `(team, etag)` contain a billable
-/// flag, so a 304 can apply the billable-flag exclusion without reading the
-/// payload it deliberately skips.
+/// flag, so a 304 for definitions that hold only survey or product tour flags
+/// is not billed, without reading the payload the 304 deliberately skips.
 #[derive(Clone)]
 pub struct DefinitionsBillableCache {
-    entries: moka::future::Cache<(i32, String), bool>,
+    entries: moka::future::Cache<BillableMemoKey, Option<bool>>,
 }
 
 impl DefinitionsBillableCache {
-    pub fn new(max_capacity: u64) -> Self {
+    pub fn new(max_capacity: u64, answer_ttl: Duration) -> Self {
+        Self::with_failure_ttl(max_capacity, answer_ttl, BILLABLE_MEMO_FAILURE_TTL)
+    }
+
+    fn with_failure_ttl(max_capacity: u64, answer_ttl: Duration, failure_ttl: Duration) -> Self {
         Self {
             entries: moka::future::Cache::builder()
                 .max_capacity(max_capacity)
-                .time_to_live(BILLABLE_MEMO_TTL)
+                .expire_after(BillableMemoExpiry {
+                    answer_ttl,
+                    failure_ttl,
+                })
                 .build(),
         }
     }
 
     pub async fn insert(&self, team_id: i32, etag: &str, billable: bool) {
         self.entries
-            .insert((team_id, etag.to_string()), billable)
+            .insert((team_id, etag.to_string()), Some(billable))
             .await;
     }
 
     /// Returns the memoized status, or runs `load` once for all concurrent
-    /// callers with the same key and stores its `Some`. `None` when the load
-    /// returns `None`, fails, or exceeds the bound; the next call retries.
+    /// callers with the same key and stores the result. `None` when the load
+    /// returns `None`, fails, or exceeds the bound; that `None` is kept for
+    /// `BILLABLE_MEMO_FAILURE_TTL` before a later call retries.
     pub async fn get_or_load<F>(&self, team_id: i32, etag: &str, load: F) -> Option<bool>
     where
         F: std::future::Future<Output = Option<bool>>,
     {
         self.entries
-            .try_get_with((team_id, etag.to_string()), async {
+            .get_with((team_id, etag.to_string()), async {
                 tokio::time::timeout(BILLABLE_LOOKUP_TIMEOUT, load)
                     .await
                     .ok()
                     .flatten()
-                    .ok_or(())
             })
             .await
-            .ok()
     }
 }
 
@@ -291,6 +322,10 @@ pub async fn flags_definitions(
                 1,
             );
             if !*state.config.skip_writes
+                && state
+                    .config
+                    .flag_definitions_not_modified_billing_teams
+                    .includes_team(team.id)
                 && is_billable_for_etag(&state, &team_key, team.id, current_val).await
             {
                 state.billing_aggregator.record(
@@ -319,8 +354,10 @@ pub async fn flags_definitions(
 
     // Record usage for billing, filtering out non-billable flags (surveys, product tours).
     let billable = has_billable_flags(&cached_response);
-    // Only a Redis payload is the version the ETag names; S3 can lag the writer.
-    if let (Some(etag), CacheSource::Redis) = (&current_etag, cache_source) {
+    if let (Some(etag), Some(billable)) = (
+        &current_etag,
+        billable_for_etag_from(&cached_response, cache_source),
+    ) {
         state
             .definitions_billable_cache
             .insert(team.id, etag, billable)
@@ -465,25 +502,39 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
     Err(FlagError::NoAuthenticationProvided)
 }
 
-/// Reads the payload at most once per pod per ETag. An unreadable, slow, or
-/// non-Redis payload counts as not billable, because a 304 was already free
-/// before this check existed and over-billing is the worse failure.
+/// Only Redis holds the payload the ETag was published with. An S3 fallback
+/// may be another version, so it decides nothing.
+fn billable_for_etag_from(response: &FlagDefinitionsResponse, source: CacheSource) -> Option<bool> {
+    matches!(source, CacheSource::Redis).then(|| has_billable_flags(response))
+}
+
+/// Reads the payload at most once per pod per ETag per memo TTL. An
+/// unreadable, slow, or non-Redis payload is not memoized as an answer and
+/// counts as not billable, because over-billing is the worse failure.
 async fn is_billable_for_etag(
     state: &AppState,
     team_key: &KeyType,
     team_id: i32,
     etag: &str,
 ) -> bool {
-    state
+    let billable = state
         .definitions_billable_cache
         .get_or_load(team_id, etag, async {
             let (response, source) = get_from_cache(state, team_key, team_id).await.ok()?;
-            // Only Redis holds the payload the ETag was published with. An S3
-            // fallback may be another version, so it decides nothing.
-            matches!(source, CacheSource::Redis).then(|| has_billable_flags(&response))
+            billable_for_etag_from(&response, source)
         })
-        .await
-        .unwrap_or(false)
+        .await;
+    let outcome = match billable {
+        Some(true) => "billable",
+        Some(false) => "not_billable",
+        None => "unknown",
+    };
+    inc(
+        FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER,
+        &[("outcome".to_string(), outcome.to_string())],
+        1,
+    );
+    billable.unwrap_or(false)
 }
 
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
@@ -687,7 +738,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_billable_cache_memoizes_a_successful_load() {
-        let cache = DefinitionsBillableCache::new(10);
+        let cache = DefinitionsBillableCache::new(10, Duration::from_secs(3600));
         assert_eq!(
             cache.get_or_load(1, "etag", async { Some(true) }).await,
             Some(true)
@@ -705,9 +756,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_billable_cache_does_not_memoize_a_failed_load() {
-        let cache = DefinitionsBillableCache::new(10);
+    async fn test_billable_cache_memoizes_a_failed_load_until_the_failure_ttl() {
+        let cache = DefinitionsBillableCache::with_failure_ttl(
+            10,
+            Duration::from_secs(3600),
+            Duration::from_millis(50),
+        );
         assert_eq!(cache.get_or_load(1, "etag", async { None }).await, None);
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            None
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(
             cache.get_or_load(1, "etag", async { Some(true) }).await,
             Some(true)
@@ -716,14 +776,24 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn test_billable_cache_bounds_a_slow_load() {
-        let cache = DefinitionsBillableCache::new(10);
+        let cache = DefinitionsBillableCache::new(10, Duration::from_secs(3600));
         assert_eq!(
             cache.get_or_load(1, "etag", std::future::pending()).await,
             None
         );
+    }
+
+    #[test]
+    fn test_billable_for_etag_from_only_trusts_redis() {
+        let response = serde_json::json!({"flags": [{"key": "billable-flag"}]});
         assert_eq!(
-            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            billable_for_etag_from(&response, CacheSource::Redis),
             Some(true)
+        );
+        assert_eq!(billable_for_etag_from(&response, CacheSource::S3), None);
+        assert_eq!(
+            billable_for_etag_from(&response, CacheSource::Fallback),
+            None
         );
     }
 

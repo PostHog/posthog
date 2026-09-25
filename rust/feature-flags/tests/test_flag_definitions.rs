@@ -2907,21 +2907,34 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
 }
 
 /// A 304 lands on the not-modified counter and leaves the full local evaluation
-/// counter untouched. It honours the same billable-flag exclusion as a 200.
+/// counter untouched. It stays unbilled for definitions that hold only survey or
+/// product tour flags, when `skip_writes` is on, and for a team outside the
+/// billing rollout.
 #[rstest::rstest]
-#[case::billable_flag("billable-flag", true)]
-#[case::survey_only("survey-targeting-only", false)]
+#[case::billable_flag("billable-flag", false, true, true)]
+#[case::survey_only("survey-targeting-only", false, true, false)]
+#[case::skip_writes("billable-flag", true, true, false)]
+#[case::team_not_in_rollout("billable-flag", false, false, false)]
 #[tokio::test]
 async fn test_flag_definitions_304_records_not_modified_billing_counter(
     #[case] flag_key: &str,
+    #[case] skip_writes: bool,
+    #[case] team_in_rollout: bool,
     #[case] expect_billed: bool,
 ) {
+    use feature_flags::config::{FlexBool, TeamIdCollection};
     use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
     use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
     use serde_json::json;
 
-    let config = feature_flags::config::Config::default_test_config();
+    let mut config = feature_flags::config::Config::default_test_config();
+    config.skip_writes = FlexBool(skip_writes);
+    config.flag_definitions_not_modified_billing_teams = if team_in_rollout {
+        TeamIdCollection::All
+    } else {
+        TeamIdCollection::None
+    };
     let context = TestContext::new(Some(&config)).await;
     let (team, secret_token, _) = context
         .create_team_with_secret_token(None, None, None)
@@ -2997,6 +3010,119 @@ async fn test_flag_definitions_304_records_not_modified_billing_counter(
         assert!(
             full.is_err(),
             "304 must not increment the full local evaluation counter, got {full:?}"
+        );
+    }
+}
+
+/// Serves one fixed payload for every key, standing in for an S3 copy that
+/// may lag the ETag Redis holds by a version.
+struct FixedJsonS3Client(String);
+
+#[async_trait::async_trait]
+impl common_hypercache::S3Client for FixedJsonS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Ok(self.0.clone())
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// Only a payload served from Redis decides whether a 304 is billed. With the
+/// ETag in Redis but the payload only in S3, neither the full response that
+/// precedes the poll nor the poll's own read may memoize S3's answer, so the
+/// 304 stays unbilled even though S3 says the definitions are billable.
+#[tokio::test]
+async fn test_flag_definitions_304_is_not_billed_from_an_s3_payload() {
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
+    use feature_flags::flags::flag_request::FlagRequestType;
+    use feature_flags::utils::test_utils::{setup_redis_client, TestContext};
+    use serde_json::json;
+    use std::sync::Arc;
+
+    let config = feature_flags::config::Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    let payload = json!({
+        "flags": [{"key": "billable-flag", "active": true}],
+        "group_type_mapping": {},
+        "cohorts": {},
+    });
+    let etag_value = "s3only304etag0001";
+    context
+        .populate_cache_for_team_with_flags_and_etag(team.id, payload.clone(), etag_value)
+        .await
+        .unwrap();
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    // Leave the ETag in Redis and the payload only in S3.
+    redis
+        .del(format!(
+            "posthog:1:cache/teams/{}/feature_flags/flags_with_cohorts.json",
+            team.id
+        ))
+        .await
+        .unwrap();
+    let not_modified_key =
+        get_team_request_key(team.id, FlagRequestType::FlagDefinitionsNotModified);
+    redis.del(not_modified_key.clone()).await.unwrap();
+
+    let server = common::ServerHandle::for_config_with_s3(
+        config,
+        Some(Arc::new(FixedJsonS3Client(payload.to_string()))),
+    )
+    .await;
+    let http = reqwest::Client::new();
+    let url = format!(
+        "http://{}/flags/definitions?token={}",
+        server.addr, team.api_token
+    );
+
+    let bucket_before = current_bucket();
+    let response = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    let response = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .header("If-None-Match", format!("W/\"{etag_value}\""))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 304);
+    let bucket_after = current_bucket();
+
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    for bucket in bucket_before..=bucket_after {
+        let counter = redis
+            .hget(not_modified_key.clone(), bucket.to_string())
+            .await;
+        assert!(
+            counter.is_err(),
+            "304 must not be billed from an S3 payload, got {counter:?}"
         );
     }
 }

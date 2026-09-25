@@ -300,6 +300,43 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
 
     @patch("posthoganalytics.capture")
+    def test_feature_flag_requests_quota_weighs_each_request_type(self, patch_capture) -> None:
+        with (
+            self.settings(USE_TZ=False, DECIDE_BILLING_ANALYTICS_TOKEN="correct"),
+            time_machine.travel("2021-01-25T00:00:00Z", tick=False),
+        ):
+            usage: dict[str, Any] = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}
+            for resource in QuotaResource:
+                usage[resource.value] = {"limit": 100, "usage": 10, "todays_usage": 0}
+            usage["feature_flag_requests"] = {"limit": 100, "usage": 90}
+            self.organization.usage = usage
+            self.organization.save()
+
+            # Flag usage events land in the analytics project, keyed by the billed team's id.
+            analytics_team = Team.objects.filter(pk=2).first() or Team.objects.create(
+                pk=2, organization=self.organization, name="Analytics"
+            )
+            for event, count in (
+                ("decide usage", 1),
+                ("local evaluation usage", 1),
+                ("local evaluation not modified usage", 1),
+            ):
+                _create_event(
+                    distinct_id=str(self.team.id),
+                    event=event,
+                    properties={"count": count, "token": "correct"},
+                    timestamp=now(),
+                    team=analytics_team,
+                )
+            flush_persons_and_events()
+
+            update_all_orgs_billing_quotas()
+
+            self.organization.refresh_from_db()
+            # One decide, one full local evaluation at 10x, one local evaluation 304 at 1x.
+            assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 12
+
+    @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
         def create_usage_summary(**kwargs) -> dict[str, Any]:
             data: dict[str, Any] = {

@@ -146,7 +146,7 @@ Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` 
 
 - **Quota check**: Uses `FeatureFlagsLimiter.is_limited(token)` to verify the team hasn't exceeded their feature flag request quota. Returns HTTP 402 with a JSON body (`{"type": "quota_limited", "code": "payment_required", ...}`) when the quota is exceeded.
 - **Non-billable flag filtering**: Usage tracking skips requests where the response contains only non-billable flags — i.e., flags with keys starting with `survey-targeting-` or `product-tour-targeting-`. The shared `is_billable_flag_key()` predicate (in `flag_analytics.rs`) is used by both this endpoint and the `/flags` billing handler.
-- **304 responses skip billing**: Usage is recorded after the ETag/304 path, so conditional responses that return `304 Not Modified` are not counted toward billing. This matches Django's behavior.
+- **304 responses bill 1 unit**: A conditional response that returns `304 Not Modified` is recorded on its own counter and billed at the `/flags` rate, a tenth of a full response, for teams in `FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS`. See [Conditional requests (ETag)](billing.md#conditional-requests-etag) for the billable-flag memo and what goes unbilled.
 
 ## Request and response types
 

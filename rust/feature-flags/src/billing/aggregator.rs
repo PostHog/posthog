@@ -354,6 +354,16 @@ impl Inner {
         })
     }
 
+    fn record_counter(&self, request_type: FlagRequestType) -> &AtomicU64 {
+        match request_type {
+            FlagRequestType::Decide => &self.record_count_decide,
+            FlagRequestType::FlagDefinitions => &self.record_count_flag_definitions,
+            FlagRequestType::FlagDefinitionsNotModified => {
+                &self.record_count_flag_definitions_not_modified
+            }
+        }
+    }
+
     /// Sum any remaining entries in `pending` plus any drained-but-uncredited
     /// counts from an interrupted flush, and emit them as shutdown drops.
     fn record_shutdown_drops(&self) {
@@ -436,14 +446,9 @@ impl BillingAggregator {
         // Bump the per-request-type atomic counter; the flusher emits the
         // `FLAGS_BILLING_RECORDS` metric in batches at flush time so the
         // hot path doesn't pay the per-call label clone in `inc()`.
-        match request_type {
-            FlagRequestType::Decide => &self.inner.record_count_decide,
-            FlagRequestType::FlagDefinitions => &self.inner.record_count_flag_definitions,
-            FlagRequestType::FlagDefinitionsNotModified => {
-                &self.inner.record_count_flag_definitions_not_modified
-            }
-        }
-        .fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .record_counter(request_type)
+            .fetch_add(1, Ordering::Relaxed);
 
         let key = AggregationKey {
             team_id,
@@ -769,33 +774,21 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     // FLAGS_BILLING_RECORDS. Doing this here instead of in `record()`
     // keeps the hot path free of the per-call `apply_label_filter`
     // allocation that `inc()` triggers.
-    let decide_records = inner.record_count_decide.swap(0, Ordering::Relaxed);
-    if decide_records > 0 {
-        inc(
-            FLAGS_BILLING_RECORDS,
-            &record_labels_for(FlagRequestType::Decide),
-            decide_records,
-        );
-    }
-    let flag_def_records = inner
-        .record_count_flag_definitions
-        .swap(0, Ordering::Relaxed);
-    if flag_def_records > 0 {
-        inc(
-            FLAGS_BILLING_RECORDS,
-            &record_labels_for(FlagRequestType::FlagDefinitions),
-            flag_def_records,
-        );
-    }
-    let flag_def_not_modified_records = inner
-        .record_count_flag_definitions_not_modified
-        .swap(0, Ordering::Relaxed);
-    if flag_def_not_modified_records > 0 {
-        inc(
-            FLAGS_BILLING_RECORDS,
-            &record_labels_for(FlagRequestType::FlagDefinitionsNotModified),
-            flag_def_not_modified_records,
-        );
+    for request_type in [
+        FlagRequestType::Decide,
+        FlagRequestType::FlagDefinitions,
+        FlagRequestType::FlagDefinitionsNotModified,
+    ] {
+        let records = inner
+            .record_counter(request_type)
+            .swap(0, Ordering::Relaxed);
+        if records > 0 {
+            inc(
+                FLAGS_BILLING_RECORDS,
+                &record_labels_for(request_type),
+                records,
+            );
+        }
     }
 
     // Swap pending and zero `pending_total` under the same lock so a
