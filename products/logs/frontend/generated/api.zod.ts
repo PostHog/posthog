@@ -524,14 +524,14 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * Runs anomaly detection on demand over one service's log volume for the given window, read from the volume rollup. Learns a baseline per (namespace, environment, severity) series from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
  * @summary Scan a service's logs for volume anomalies
  */
 export const LogsAnomaliesScanCreateBody = /* @__PURE__ */ zod.object({
     serviceName: zod
         .string()
         .describe(
-            "Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from raw logs, so it is scoped to one service per call."
+            "Service to scan (the log record's service_name). Required: the scan aggregates weeks of baseline history from the volume rollup, so it is scoped to one service per call."
         ),
     dateRange: zod
         .object({

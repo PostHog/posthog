@@ -22,11 +22,6 @@ TEAMS_WITH_LOGS_WINDOW = timedelta(minutes=5)
 # must stay stable across ticks, backfills, and recomputes, so this is
 # deliberately not env-tunable.
 BUCKET_SECONDS = BUCKET_MINUTES * 60
-# A bucket only becomes due this long after it closes, so late-arriving logs are
-# already in place when it is counted. Sized from measured prod ingestion lag:
-# 99.96% of rows land within 10 minutes; the residual tail is reconciliation's job.
-# A dial, not grid identity: env-tunable (read at import, so a worker restart applies it).
-FINALIZATION_ALLOWANCE = timedelta(minutes=int(os.environ.get("LOGS_VOLUME_TICK_FINALIZATION_ALLOWANCE_MINUTES", "10")))
 # Teams the rollup runs over, as comma-separated ids. Empty means no team: an
 # unset variable does nothing rather than sweeping the whole fleet, so a wrong
 # query costs one team's scan — and later one team's rows — not 3,000.
