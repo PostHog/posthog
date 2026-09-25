@@ -7,7 +7,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
@@ -215,8 +214,23 @@ describe('ImplementButton', () => {
                         }
                     },
                     '/api/projects/:team_id/tasks/task-9/': mockTask('task-9', TaskRunStatus.IN_PROGRESS),
+                    '/api/projects/:team_id/tasks/@me/config/': [
+                        200,
+                        { ai_run_preferences: {}, resolved_ai_run_defaults: null },
+                    ],
                     '/api/projects/:team_id/signals/reports/:id/signals/': [],
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+                post: {
+                    // The report cap refuses task creation and names the task holding the slot.
+                    '/api/projects/:team_id/tasks/': () => [
+                        429,
+                        {
+                            code: 'signal_report_task_cap',
+                            error: 'A pull request run is already in progress for this report. Open the run to follow it.',
+                            task_id: 'task-9',
+                        },
+                    ],
                 },
             })
             initKeaTests()
@@ -229,16 +243,7 @@ describe('ImplementButton', () => {
             jest.restoreAllMocks()
         })
 
-        it('offers the run and replaces Implement with Open task', async () => {
-            jest.spyOn(api.tasks, 'create').mockRejectedValue(
-                Object.assign(new Error('Too many requests'), {
-                    code: 'signal_report_task_cap',
-                    data: {
-                        error: 'A pull request run is already in progress for this report. Open the run to follow it.',
-                        task_id: 'task-9',
-                    },
-                })
-            )
+        it('offers the run and replaces Implement with View task', async () => {
             const toast = jest.spyOn(lemonToast, 'error')
             const user = userEvent.setup()
             render(<ImplementButton report={makeReport()} />)
@@ -247,16 +252,23 @@ describe('ImplementButton', () => {
 
             await user.click(screen.getByTestId('inbox-report-create-pr'))
 
-            await waitFor(() => expect(toast).toHaveBeenCalled())
-            const [message, options] = toast.mock.calls[0]
-            expect(message).toContain('already in progress for this report')
-            const openRun = options?.button
-            expect(openRun?.label).toBe('Open run')
+            // The refusal reaches the person as a toast that offers the run it names.
+            const capToast = await waitFor(() => {
+                const call = toast.mock.calls.find(([message]) =>
+                    String(message).includes('already in progress for this report')
+                )
+                expect(call).toBeDefined()
+                return call!
+            })
+            expect(capToast[1]?.button?.label).toBe('Open run')
+
+            // The pane re-reads the artefact log, so the run it never saw now lists and the button
+            // becomes View task instead of a press the server keeps refusing.
             await waitFor(() => expect(artefactRequests).toBe(beforeRefusal + 1))
             expect(await screen.findByTestId('inbox-report-open-task')).toBeInTheDocument()
             expect(screen.queryByTestId('inbox-report-create-pr')).not.toBeInTheDocument()
 
-            void openRun?.action()
+            void capToast[1]?.button?.action()
             expect(router.values.location.pathname).toContain('/tasks/task-9')
         })
     })

@@ -416,9 +416,6 @@ export interface inboxTaskKickoffLogicActions {
     discussReportSuccess: () => {
         value: true
     }
-    reportTaskCapRefused: () => {
-        value: true
-    }
     openReportDiscussion: (
         report: SignalReport,
         reportUrl: string
@@ -438,6 +435,9 @@ export interface inboxTaskKickoffLogicActions {
         taskId: string
     }
     releaseReportDiscussionWarm: () => {
+        value: true
+    }
+    reportTaskCapRefused: () => {
         value: true
     }
     setReportWarmLease: (lease: ReportWarmLease | null) => {
