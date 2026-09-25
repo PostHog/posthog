@@ -90,6 +90,13 @@ class TestAccountViews(APIBaseTest):
             format="json",
         )
         self.assertEqual(first.status_code, status.HTTP_200_OK, first.json())
+        unchanged = self.client.patch(
+            f"{self.endpoint}{view['id']}/",
+            {"version": first.json()["version"]},
+            format="json",
+        )
+        self.assertEqual(unchanged.status_code, status.HTTP_200_OK, unchanged.json())
+        self.assertEqual(unchanged.json()["version"], first.json()["version"])
 
         stale = self.client.patch(
             f"{self.endpoint}{view['id']}/",
@@ -118,6 +125,7 @@ class TestAccountViews(APIBaseTest):
         updated = self.client.patch(
             f"{self.endpoint}{view['id']}/",
             {
+                "name": "Updated private view",
                 "content": account_view_content('<Usage nodeId="usage-one" title="Renewal details" />'),
                 "version": view["version"],
             },
@@ -129,5 +137,8 @@ class TestAccountViews(APIBaseTest):
 
         activities = ActivityLog.objects.filter(scope="AccountView", item_id=view["id"]).order_by("created_at")
         self.assertEqual([activity.activity for activity in activities], ["created", "updated", "deleted"])
-        self.assertNotIn("Product usage", str(activities[0].detail))
-        self.assertNotIn("Renewal details", str(activities[1].detail))
+        for activity in activities:
+            self.assertNotIn("Account workspace", str(activity.detail))
+            self.assertNotIn("Updated private view", str(activity.detail))
+            self.assertNotIn("Product usage", str(activity.detail))
+            self.assertNotIn("Renewal details", str(activity.detail))

@@ -1038,7 +1038,7 @@ class AccountViewUpdateSerializer(serializers.Serializer):
         help_text="Replacement account view components. Omit to keep current content.",
     )
     visibility = serializers.ChoiceField(
-        choices=AccountViewVisibility.choices,
+        choices=[(AccountViewVisibility.PRIVATE, "Personal")],
         required=False,
         write_only=True,
         help_text="Views can only be private.",

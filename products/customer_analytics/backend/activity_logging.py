@@ -37,5 +37,5 @@ def handle_account_view_change(
         item_id=instance.id,
         scope=scope,
         activity=resolved_activity,
-        detail=Detail(changes=changes, name=instance.name),
+        detail=Detail(changes=changes),
     )
