@@ -1182,6 +1182,25 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         # Should still be logged in as original user
         assert self.client.get("/api/users/@me").json()["email"] == self.user.email
 
+    @parameterized.expand(
+        [
+            ("not_impersonating", None, "This session is no longer impersonating a user"),
+            ("already_read_write", "login_as_other_user", "This impersonation session is already read-write"),
+        ]
+    )
+    def test_upgrade_impersonation_rejects_with_reason(self, _name, login_method, expected_error):
+        if login_method:
+            getattr(self, login_method)()
+
+        response = self.client.post(
+            reverse("impersonation-upgrade"),
+            data=json.dumps({"reason": "Need to fix settings"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json() == {"error": expected_error}
+
     def test_read_only_impersonation_blocked_when_user_disallows(self):
         """Verify read-only impersonation fails when target user has allow_impersonation=False."""
         self.other_user.allow_impersonation = False

@@ -566,7 +566,7 @@ export const userLogic = kea<userLogicType>([
                         return values.user ? { ...values.user, is_impersonated_read_only: false } : null
                     } catch (error: any) {
                         console.error(error)
-                        lemonToast.error('Failed to upgrade impersonation')
+                        lemonToast.error(error?.data?.error || 'Failed to upgrade impersonation')
                         return values.user
                     }
                 },
