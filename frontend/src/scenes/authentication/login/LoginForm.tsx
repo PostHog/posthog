@@ -124,12 +124,13 @@ export function LoginForm(): JSX.Element {
         autoRedirectingToProvider,
         availableLoginMethods,
         precheckTrusted,
+        ssoEnforcement,
         ssoEnforcedErrorProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic({ screen: 'login' }))
 
-    const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
+    const isPasswordHidden = !!ssoEnforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
     const lastLoginMethod = useLastLoginMethod()
     const greeting = loginGreeting(lastLoginMethod !== null)
@@ -236,7 +237,7 @@ export function LoginForm(): JSX.Element {
                                                 : buildLoginSupportMessage({
                                                       errorCode: generalError.code,
                                                       region: preflight?.region,
-                                                      ssoEnforcement: precheckResponse.sso_enforcement,
+                                                      ssoEnforcement,
                                                       availableLoginMethods,
                                                       precheckTrusted,
                                                       codeVerificationPending: codeVerificationRequired,
@@ -393,7 +394,7 @@ export function LoginForm(): JSX.Element {
                             </p>
                         )}
                         {/* No password to submit means this button would do nothing */}
-                        {!precheckResponse.sso_enforcement && !isPasswordLoginUnavailable && (
+                        {!ssoEnforcement && !isPasswordLoginUnavailable && (
                             <LemonButton
                                 type="primary"
                                 size="large"
@@ -406,21 +407,21 @@ export function LoginForm(): JSX.Element {
                                 Log in
                             </LemonButton>
                         )}
-                        {precheckResponse.sso_enforcement && (
+                        {ssoEnforcement && (
                             <SSOEnforcedLoginButton
-                                provider={precheckResponse.sso_enforcement}
+                                provider={ssoEnforcement}
                                 email={login.email}
-                                isLastUsed={lastLoginMethod === precheckResponse.sso_enforcement}
+                                isLastUsed={lastLoginMethod === ssoEnforcement}
                             />
                         )}
-                        {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                        {precheckResponse.saml_available && !ssoEnforcement && (
                             <SSOEnforcedLoginButton
                                 provider="saml"
                                 email={login.email}
                                 isLastUsed={lastLoginMethod === 'saml'}
                             />
                         )}
-                        {precheckResponse.oidc_available && !precheckResponse.sso_enforcement && (
+                        {precheckResponse.oidc_available && !ssoEnforcement && (
                             <SSOEnforcedLoginButton
                                 provider="oidc"
                                 email={login.email}
@@ -431,20 +432,18 @@ export function LoginForm(): JSX.Element {
                 )}
                 {/* Normally SAML replaces this row, but when the account has no password we need to
                     show whatever it does have. */}
-                {!isCodeSent &&
-                    !precheckResponse.sso_enforcement &&
-                    (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
-                        <SocialLoginButtons
-                            topDivider
-                            caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
-                            captionLocation="top"
-                            lastUsedProvider={lastLoginMethod}
-                            restrictToProviders={restrictToProviders}
-                            // Once we know the account's methods, only offer a passkey if it actually has
-                            // one — otherwise this is the same dead button we're removing.
-                            showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
-                        />
-                    )}
+                {!isCodeSent && !ssoEnforcement && (!precheckResponse.saml_available || isPasswordLoginUnavailable) && (
+                    <SocialLoginButtons
+                        topDivider
+                        caption={isPasswordLoginUnavailable ? 'Log in with' : 'Or log in with'}
+                        captionLocation="top"
+                        lastUsedProvider={lastLoginMethod}
+                        restrictToProviders={restrictToProviders}
+                        // Once we know the account's methods, only offer a passkey if it actually has
+                        // one — otherwise this is the same dead button we're removing.
+                        showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
+                    />
+                )}
             </AuthSceneCard>
         </AuthScene>
     )

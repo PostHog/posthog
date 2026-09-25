@@ -280,7 +280,7 @@ describe('loginLogic', () => {
             jest.clearAllMocks()
         })
 
-        it('runs the skipped precheck so the error can name the provider, and drops it for another email', async () => {
+        it('runs the skipped precheck so the form can name the provider, and drops it for another email', async () => {
             logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
             logic.actions.submitLogin()
             await expectLogic(logic).toDispatchActions(['submitLoginFailure', 'precheckSuccess'])
@@ -290,6 +290,7 @@ describe('loginLogic', () => {
             expect(logic.values.ssoEnforcedErrorProvider).toEqual('google-oauth2')
 
             logic.actions.setLoginValue('email', 'other@example.com')
+            expect(logic.values.ssoEnforcement).toBe(null)
             expect(logic.values.ssoEnforcedErrorProvider).toBe(null)
         })
     })

@@ -221,6 +221,7 @@ export interface loginLogicValues {
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
     signupUrl: string
+    ssoEnforcement: SSOProvider | null
     ssoEnforcedErrorProvider: SSOProvider | null
     wasSignedOutForSessionRisk: boolean
 }
@@ -386,13 +387,13 @@ export interface loginLogicMeta {
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
         precheckTrusted: (precheckResponse: PrecheckResponseType, login: LoginForm) => boolean
+        ssoEnforcement: (precheckResponse: PrecheckResponseType, precheckTrusted: boolean) => SSOProvider | null
         ssoEnforcedErrorProvider: (
             generalError: {
                 code: string
                 detail: string
             } | null,
-            precheckTrusted: boolean,
-            precheckResponse: PrecheckResponseType
+            ssoEnforcement: SSOProvider | null
         ) => SSOProvider | null
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
@@ -690,18 +691,21 @@ export const loginLogic = kea<loginLogicType>([
                 !precheckResponse.precheckFailed &&
                 precheckResponse.email === login.email,
         ],
+        // The enforced SSO provider for the email now in the form. A precheck for an earlier email
+        // says nothing about this one, so the form must not hide the password box or offer its provider.
+        ssoEnforcement: [
+            (s) => [s.precheckResponse, s.precheckTrusted],
+            (precheckResponse: PrecheckResponseType, precheckTrusted: boolean): SSOProvider | null =>
+                precheckTrusted ? (precheckResponse.sso_enforcement ?? null) : null,
+        ],
         // The provider to name when the server rejects a password because SSO is enforced. The server
         // detail only carries an internal provider key, so the form uses the precheck's provider instead.
         ssoEnforcedErrorProvider: [
-            (s) => [s.generalError, s.precheckTrusted, s.precheckResponse],
+            (s) => [s.generalError, s.ssoEnforcement],
             (
                 generalError: { code: string; detail: string } | null,
-                precheckTrusted: boolean,
-                precheckResponse: PrecheckResponseType
-            ): SSOProvider | null =>
-                generalError?.code === 'sso_enforced' && precheckTrusted
-                    ? (precheckResponse.sso_enforcement ?? null)
-                    : null,
+                ssoEnforcement: SSOProvider | null
+            ): SSOProvider | null => (generalError?.code === 'sso_enforced' ? ssoEnforcement : null),
         ],
     })),
     listeners(({ values, actions }) => ({
