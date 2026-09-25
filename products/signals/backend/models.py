@@ -1359,12 +1359,16 @@ class SignalReportArtefact(UUIDModel):
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
         Postgres count a report's artefacts before the page limit applies, so the whole team's
-        reports get counted to render 25. Reports with no artefacts are omitted.
+        reports get counted to render 25. Reports with no artefacts are omitted, and so are
+        `ranking_score` rows, which the scoring sweep writes with no user action behind them.
         """
         if not report_ids:
             return {}
         rows = (
-            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+            cls.objects.filter(report_id__in=report_ids)
+            .exclude(type=cls.ArtefactType.RANKING_SCORE)
+            .values("report_id")
+            .annotate(artefact_count=models.Count("*"))
         )
         return {str(row["report_id"]): row["artefact_count"] for row in rows}
 

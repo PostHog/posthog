@@ -129,6 +129,7 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
+from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
@@ -949,6 +950,7 @@ schedules = [
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_scout_suggestions_coordinator_schedule,
+    create_inbox_ranking_scoring_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
     create_account_track_rule_coordinator_schedule,

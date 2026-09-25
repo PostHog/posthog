@@ -1160,6 +1160,7 @@ class SignalReportViewSet(
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
+            .exclude(type=SignalReportArtefact.ArtefactType.RANKING_SCORE)
             .values("report_id")
             .annotate(count=Count("*"))
             .values("count"),

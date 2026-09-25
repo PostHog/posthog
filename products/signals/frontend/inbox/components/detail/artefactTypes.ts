@@ -164,13 +164,15 @@ export interface ImplementationHandoverContent {
 
 /**
  * The activity rows worth showing a reader. A handover row lands once per attempt, so `processing`
- * rows are internal retry bookkeeping rather than something that happened to the report. The
+ * rows are internal retry bookkeeping rather than something that happened to the report. A
+ * `ranking_score` row is model output the scoring sweep writes, not an action on the report. The
  * activity count and the log itself both read this, so the two cannot disagree.
  */
 export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): SignalReportArtefact[] {
     return artefacts.filter(
         (artefact) =>
             artefact.type !== 'implementation_dispatch' &&
+            artefact.type !== 'ranking_score' &&
             (artefact.type !== 'implementation_handover' ||
                 (artefact.content as ImplementationHandoverContent).status !== 'processing')
     )

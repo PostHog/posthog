@@ -711,6 +711,9 @@ class TestSignalReportListAPI(APIBaseTest):
         report = self._create_report()
         self._priority_artefact(report, priority="P1")
         self._actionability_artefact(report, actionability="immediately_actionable")
+        SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.RANKING_SCORE, content="{}"
+        )
 
         list_response = self.client.get(self._list_url())
         assert list_response.status_code == status.HTTP_200_OK

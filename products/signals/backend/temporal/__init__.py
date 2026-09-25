@@ -1,3 +1,4 @@
+from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, score_inbox_reports_activity
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
@@ -105,6 +106,7 @@ WORKFLOWS = [
     RunScoutSuggestionsWorkflow,
     ScoutSuggestionsCoordinatorWorkflow,
     SignalReportInboxNotificationWorkflow,
+    InboxRankingScoringWorkflow,
 ]
 
 ACTIVITIES = [
@@ -164,4 +166,5 @@ ACTIVITIES = [
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+    score_inbox_reports_activity,
 ]

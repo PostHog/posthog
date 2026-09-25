@@ -113,6 +113,16 @@ INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_e
 # Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
 # larger call is paged at this size.
 INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
+# Scoring sweep (products/signals/backend/ranking/sweep.py). The schedule exists in every
+# environment, and this switch gates the work, so turning the sweep on needs no schedule change.
+# The max age bounds the reports it scores and stays well inside the 3-month vector TTL. The cap
+# makes the first run after enabling drain the backlog over several ticks.
+INBOX_RANKING_SCORING_ENABLED = get_from_env("INBOX_RANKING_SCORING_ENABLED", False, type_cast=str_to_bool)
+INBOX_RANKING_SCORING_INTERVAL_MINUTES = get_from_env("INBOX_RANKING_SCORING_INTERVAL_MINUTES", 15, type_cast=int)
+INBOX_RANKING_SCORING_MAX_AGE_DAYS = get_from_env("INBOX_RANKING_SCORING_MAX_AGE_DAYS", 30, type_cast=int)
+INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK = get_from_env(
+    "INBOX_RANKING_SCORING_MAX_REPORTS_PER_TICK", 2000, type_cast=int
+)
 # Shadow dag (products/signals/dags/inbox_ranking/shadow): how many daily scores partitions back
 # the read looks for a score that already existed when a list was served. A report is scored on
 # the day it is born, so this bounds how old a report can be and still be graded.

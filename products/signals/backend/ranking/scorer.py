@@ -83,6 +83,12 @@ def _served_extra(feature_set: FeatureSet) -> str | None:
     return extra if extra in RENDERING_BY_EXTRA else None
 
 
+def served_rendering(feature_set: FeatureSet) -> str | None:
+    """The rendering whose vector a set is served from, or None when this build does not serve the set yet."""
+    extra = _served_extra(feature_set)
+    return None if extra is None else RENDERING_BY_EXTRA[extra]
+
+
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:
     present = [report_id for report_id in report_ids if report_id in vectors]
     return pd.DataFrame(
