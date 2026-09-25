@@ -153,6 +153,17 @@ def _split_display_name(display_name: str, default_schema: Optional[str]) -> tup
     return default_schema, display_name
 
 
+def _resolved_database(conn: snowflake.connector.SnowflakeConnection, config: SnowflakeSourceConfig) -> str:
+    """The session database name in the case Snowflake stores it.
+
+    The configured value is typed by the user, so its case can differ from the
+    account. Queries quote the database, and Snowflake matches a quoted name
+    exactly, so the configured spelling can miss the object. The connector keeps
+    the name the server resolved at login, which is the authoritative one.
+    """
+    return conn.database or config.database
+
+
 def _display_by_pair(tables: list[str], default_schema: Optional[str]) -> dict[tuple[str, str], str]:
     """Map each resolvable `(schema, table)` back to its display name, dropping unresolved rows."""
     pairs: dict[tuple[str, str], str] = {}
@@ -180,7 +191,7 @@ def _build_query(
 ) -> tuple[str, tuple[Any, ...]]:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause = format_projected_select_clause(projected, _SNOWFLAKE_IDENTIFIER_QUOTER)
-    table_ref = f"{database}.{schema}.{table_name}"
+    table_ref = _SNOWFLAKE_IDENTIFIER_QUOTER.quote_qualified(database, schema, table_name)
 
     # Positional param order: IDENTIFIER(%s), then the keyset/incremental bound, then row-filter values.
     filter_conditions, filter_values = render_positional_conditions(row_filters or [], _SNOWFLAKE_IDENTIFIER_QUOTER)
@@ -427,6 +438,7 @@ class SnowflakeImplementation(
             return result
 
         display_by_pair = _display_by_pair(tables, normalize_namespace(config.schema))
+        database = _resolved_database(conn, config)
 
         try:
             with conn.cursor() as cursor:
@@ -436,7 +448,7 @@ class SnowflakeImplementation(
                 for schema in sorted({schema for schema, _table in display_by_pair}):
                     try:
                         cursor.execute(
-                            f"SHOW PRIMARY KEYS IN SCHEMA {_SNOWFLAKE_IDENTIFIER_QUOTER.quote_qualified(config.database, schema)}"
+                            f"SHOW PRIMARY KEYS IN SCHEMA {_SNOWFLAKE_IDENTIFIER_QUOTER.quote_qualified(database, schema)}"
                         )
                         table_index = next(
                             (i for i, row in enumerate(cursor.description) if row.name == "table_name"), -1
@@ -513,7 +525,7 @@ class SnowflakeImplementation(
                     WHERE TABLE_CATALOG = %s
                       AND ({pair_predicate})
                     """,
-                    (config.database, *(value for pair in pairs for value in pair)),
+                    (_resolved_database(conn, config), *(value for pair in pairs for value in pair)),
                 )
 
                 for table_schema, table_name, clustering_key in cursor:
@@ -586,7 +598,10 @@ class SnowflakeImplementation(
         transient issue, and it's worth surfacing.
         """
         try:
-            cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+            cursor.execute(
+                "SHOW PRIMARY KEYS IN IDENTIFIER(%s)",
+                (_SNOWFLAKE_IDENTIFIER_QUOTER.quote_qualified(database, schema, table_name),),
+            )
         except Exception as e:
             structlog.get_logger().warning(
                 "Failed to detect primary key for Snowflake table",
@@ -661,7 +676,6 @@ class SnowflakeImplementation(
         if not schema:
             raise ValueError("Schema is missing")
 
-        database = config.database
         logger = inputs.logger
         should_use_incremental_field = inputs.should_use_incremental_field
         incremental_field = inputs.incremental_field
@@ -671,6 +685,7 @@ class SnowflakeImplementation(
         row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
+            database = _resolved_database(connection, config)
             with connection.cursor() as cursor:
                 if cursor is None:
                     raise Exception("Can't create cursor to Snowflake")

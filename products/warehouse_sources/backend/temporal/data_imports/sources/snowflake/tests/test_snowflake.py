@@ -175,7 +175,7 @@ class TestBuildQuery:
         sql, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, "2025-01-01")
         assert 'WHERE "created_at"' in sql
         assert 'ORDER BY "created_at" ASC' in sql
-        assert params == ("DB.PUBLIC.t", "2025-01-01")
+        assert params == ('"DB"."PUBLIC"."t"', "2025-01-01")
 
     def test_incremental_seeds_initial_value_when_missing(self):
         # None last-value triggers fallback to incremental_type_to_initial_value
@@ -188,13 +188,19 @@ class TestBuildQuery:
         assert 'WHERE "Date Established"' in sql
         assert 'ORDER BY "Date Established" ASC' in sql
 
+    def test_lowercase_table_ref_is_quoted(self):
+        # Snowflake converts an unquoted identifier to uppercase, so an unquoted reference misses a
+        # lowercase case-sensitive table and the sync fails on every row.
+        _, params = _build_query("DB", "sales", "orders", False, None, None, None)
+        assert params == ('"DB"."sales"."orders"',)
+
 
 class TestBuildQueryResume:
     def test_full_refresh_orders_by_key_without_resume(self):
         sql, params = _build_query("DB", "PUBLIC", "t", False, None, None, None, order_by_key="ID")
         assert sql.endswith('ORDER BY "ID" ASC')
         assert "WHERE" not in sql
-        assert params == ("DB.PUBLIC.t",)
+        assert params == ('"DB"."PUBLIC"."t"',)
 
     def test_full_refresh_resume_bounds_scan_before_filters(self):
         sql, params = _build_query(
@@ -210,7 +216,7 @@ class TestBuildQueryResume:
             resume_value=500,
         )
         assert 'WHERE "ID" > %s AND "AGE" > %s ORDER BY "ID" ASC' in sql
-        assert params == ("DB.PUBLIC.t", 500, 21)
+        assert params == ('"DB"."PUBLIC"."t"', 500, 21)
 
     def test_incremental_resume_is_inclusive(self):
         # The checkpoint is a persisted batch's max, and rows sharing it can sit in the next batch —
@@ -226,7 +232,7 @@ class TestBuildQueryResume:
             resume_value="2025-06-01",
         )
         assert 'WHERE "created_at" >= %s' in sql
-        assert params == ("DB.PUBLIC.t", "2025-06-01")
+        assert params == ('"DB"."PUBLIC"."t"', "2025-06-01")
 
 
 class TestBatchCheckpoint:
@@ -258,7 +264,7 @@ class TestBuildQueryRowFilters:
         )
         assert 'WHERE "AGE" > %s' in sql
         # Positional order: IDENTIFIER table ref first, then the filter value.
-        assert params == ("DB.PUBLIC.t", 21)
+        assert params == ('"DB"."PUBLIC"."t"', 21)
 
     def test_incremental_orders_table_then_incremental_then_filters(self):
         sql, params = _build_query(
@@ -273,7 +279,7 @@ class TestBuildQueryRowFilters:
         )
         assert 'WHERE "created_at" > %s AND "AGE" > %s AND "SCORE" <= %s ORDER BY "created_at" ASC' in sql
         # Critical: positional values must be (table_ref, incremental_value, *filter_values) in order.
-        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 100)
+        assert params == ('"DB"."PUBLIC"."t"', "2025-01-01", 21, 100)
 
     def test_value_never_interpolated(self):
         sql, params = _build_query(
@@ -291,7 +297,7 @@ class TestBuildQueryRowFilters:
             ],
         )
         assert "DROP TABLE" not in sql
-        assert params == ("DB.PUBLIC.t", "x'; DROP TABLE y; --")
+        assert params == ('"DB"."PUBLIC"."t"', "x'; DROP TABLE y; --")
 
     def test_in_filter_positional_values_in_order(self):
         sql, params = _build_query(
@@ -306,7 +312,7 @@ class TestBuildQueryRowFilters:
         )
         assert 'WHERE "created_at" > %s AND "AGE" IN (%s, %s, %s)' in sql
         # table_ref, incremental_value, then each IN element in order.
-        assert params == ("DB.PUBLIC.t", "2025-01-01", 21, 30, 40)
+        assert params == ('"DB"."PUBLIC"."t"', "2025-01-01", 21, 30, 40)
 
 
 class TestBuildQueryEnabledColumns:
@@ -350,7 +356,7 @@ class TestBuildQueryEnabledColumns:
         assert sql.startswith('SELECT "EMAIL", "ID", "CREATED_AT" FROM IDENTIFIER(%s)')
         assert 'WHERE "CREATED_AT"' in sql
         assert 'ORDER BY "CREATED_AT" ASC' in sql
-        assert params == ("DB.PUBLIC.t", "2025-01-01")
+        assert params == ('"DB"."PUBLIC"."t"', "2025-01-01")
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +450,8 @@ class TestSourceRequiresSsl:
 def _conn_with_cursor(cursor: MagicMock) -> MagicMock:
     conn = MagicMock()
     conn.cursor.return_value = cursor
+    # The connector records the database name the server resolved at login.
+    conn.database = "DB"
     return conn
 
 
@@ -622,6 +630,16 @@ class TestGetPrimaryKeysForTable:
         cursor.__iter__.return_value = iter([("id",), ("email",)])
         assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") == ["id", "email"]
 
+    def test_lowercase_table_ref_is_quoted(self, impl, cursor):
+        # An unquoted reference is uppercased, so the probe misses a lowercase case-sensitive table
+        # and the merge silently loses its primary key.
+        desc = MagicMock()
+        desc.name = "column_name"
+        cursor.description = [desc]
+        cursor.__iter__.return_value = iter([("id",)])
+        impl.get_primary_keys_for_table(cursor, "DB", "sales", "orders")
+        assert cursor.execute.call_args.args[1] == ('"DB"."sales"."orders"',)
+
     def test_raises_when_column_name_missing(self, impl, cursor):
         # Cursor description without `column_name` shouldn't silently return None — it's a Snowflake driver shape change worth surfacing.
         desc = MagicMock()
@@ -700,6 +718,7 @@ class TestBuildPipeline:
 
         mock_connection = MagicMock()
         mock_connection.__enter__.return_value = mock_connection
+        mock_connection.database = "DB"
         mock_connection.cursor.side_effect = cursor_factory
 
         with patch("snowflake.connector.connect", return_value=mock_connection):
@@ -733,6 +752,7 @@ class TestBuildPipeline:
         cursors = iter([metadata_cursor, streaming_cursor])
         mock_connection = MagicMock()
         mock_connection.__enter__.return_value = mock_connection
+        mock_connection.database = "DB"
         mock_connection.cursor.side_effect = lambda: next(cursors)
 
         with patch("snowflake.connector.connect", return_value=mock_connection):
@@ -743,9 +763,30 @@ class TestBuildPipeline:
 
         # PK probe and streaming query both target DB.analytics.users (resolved schema, unqualified table).
         pk_param = metadata_cursor.execute.call_args_list[0].args[1]
-        assert pk_param == ("DB.analytics.users",)
+        assert pk_param == ('"DB"."analytics"."users"',)
         stream_param = streaming_cursor.execute.call_args.args[1]
-        assert stream_param == ("DB.analytics.users",)
+        assert stream_param == ('"DB"."analytics"."users"',)
+
+    def test_database_comes_from_the_session_not_the_config(self, impl):
+        # A quoted name is matched exactly, and the configured database is typed by the user, so its
+        # case can differ from the account. Snowflake reports the name it resolved at login.
+        metadata_cursor = MagicMock()
+        metadata_cursor.__enter__.return_value = metadata_cursor
+        desc = MagicMock()
+        desc.name = "column_name"
+        metadata_cursor.description = [desc]
+        metadata_cursor.__iter__.return_value = iter([("id",)])
+        metadata_cursor.fetchone.return_value = (1,)
+
+        mock_connection = MagicMock()
+        mock_connection.__enter__.return_value = mock_connection
+        mock_connection.database = "REPORTING"
+        mock_connection.cursor.return_value = metadata_cursor
+
+        with patch("snowflake.connector.connect", return_value=mock_connection):
+            impl.build_pipeline(_make_config(database="db"), _make_inputs(schema_name="messages"))
+
+        assert metadata_cursor.execute.call_args_list[0].args[1] == ('"REPORTING"."PUBLIC"."messages"',)
 
 
 class TestResumableStreaming:
@@ -763,6 +804,7 @@ class TestResumableStreaming:
         cursors = iter([metadata_cursor, streaming_cursor])
         mock_connection = MagicMock()
         mock_connection.__enter__.return_value = mock_connection
+        mock_connection.database = "DB"
         mock_connection.cursor.side_effect = lambda: next(cursors)
         return mock_connection
 
@@ -817,7 +859,7 @@ class TestResumableStreaming:
         params = streaming_cursor.execute.call_args.args[1]
         assert '"ID" > %s' in query
         assert 'ORDER BY "ID" ASC' in query
-        assert params == ("DB.PUBLIC.messages", 4)
+        assert params == ('"DB"."PUBLIC"."messages"', 4)
 
     def test_checkpoint_for_a_different_column_is_ignored(self, impl):
         # The schema's key changed between attempts; resuming past another column's value would
@@ -833,7 +875,7 @@ class TestResumableStreaming:
             )
             list(response.items())
         assert response.rows_to_sync == 5
-        assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
+        assert streaming_cursor.execute.call_args.args[1] == ('"DB"."PUBLIC"."messages"',)
 
     def test_unverified_key_keeps_restart_from_zero(self):
         # Snowflake declares but does not enforce primary keys. A strict `>` resume on a key with
@@ -851,7 +893,7 @@ class TestResumableStreaming:
         assert response.rows_to_sync == 5
         query = streaming_cursor.execute.call_args.args[0]
         assert "ORDER BY" not in query
-        assert streaming_cursor.execute.call_args.args[1] == ("DB.PUBLIC.messages",)
+        assert streaming_cursor.execute.call_args.args[1] == ('"DB"."PUBLIC"."messages"',)
         manager.save_state.assert_not_called()
 
 
