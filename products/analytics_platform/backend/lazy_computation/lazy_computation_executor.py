@@ -1130,6 +1130,7 @@ class LazyComputationExecutor:
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
         conflict_passes = 0
+        served: list[PreaggregationJob] = []
 
         had_ready_at_start: bool | None = None
 
@@ -1194,7 +1195,8 @@ class LazyComputationExecutor:
                 # would read as zero if the unfiltered union counted it as covered.
                 # The filter can also hide a window covered only by an older
                 # PENDING job; recomputing it costs at most one duplicate build.
-                missing_ranges = find_missing_contiguous_windows(filter_overlapping_jobs(fresh_jobs), start, end)
+                covering = filter_overlapping_jobs(fresh_jobs)
+                missing_ranges = find_missing_contiguous_windows(covering, start, end)
                 build_ranges = clamp_ranges_to_data_horizon(
                     split_ranges_by_ttl(missing_ranges, self.ttl_schedule), historical_end
                 )
@@ -1449,7 +1451,8 @@ class LazyComputationExecutor:
                     interval = min(interval * 2, self.max_poll_interval_seconds)
                     continue
 
-                # Step 5: Nothing to insert, nothing pending — done
+                # Step 5: Nothing to insert, nothing pending — `covering` is the answer
+                served = covering
                 break
         finally:
             if pubsub:
@@ -1459,13 +1462,12 @@ class LazyComputationExecutor:
                 except Exception:
                     pass
 
-        # All ranges covered — collect READY job IDs
-        final_jobs = find_existing_jobs(team, query_hash, start, end)
-        final_fresh = self._filter_by_freshness(final_jobs)
-        final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
+        # `served` is the set the coverage proof accepted. Reading the jobs again here
+        # would let a peer's narrower rebuild win the overlap filter and evict the
+        # broader job it replaces, dropping the other days only that job covered.
         result = LazyComputationResult(
             ready=True,
-            job_ids=[j.id for j in final_ready],
+            job_ids=[j.id for j in served],
             freshly_built=jobs_created > 0 or bool(waited_job_ids),
             computed_at=_oldest_computed_at(final_ready),
         )
