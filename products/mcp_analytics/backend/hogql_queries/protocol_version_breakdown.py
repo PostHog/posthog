@@ -31,8 +31,8 @@ if TYPE_CHECKING:
 # values), so properties.$mcp_protocol_version reads "2025-06-18" back as a timestamp. Read the raw string.
 PROTOCOL_VERSION_SQL = "JSONExtractString(properties, '$mcp_protocol_version')"
 
-# Matches the SDKs' era rule: revisions are dated, and the rolling draft sits ahead of all of them.
-CURRENT_PROTOCOL_REVISION = "2026-07-28"
+# Matches the SDKs' era rule: versions are dated, and the rolling draft sits ahead of all of them.
+CURRENT_PROTOCOL_VERSION = "2026-07-28"
 IS_DATED_SQL = r"match(protocol_version, '^\\d{4}-\\d{2}-\\d{2}$')"
 
 PROTOCOL_VERSION_SERIES_LIMIT = 8
@@ -65,7 +65,7 @@ class MCPProtocolVersionBreakdownQueryRunner(AnalyticsQueryRunner[MCPProtocolVer
             """
             SELECT
                 protocol_version,
-                protocol_version = 'draft' OR ({is_dated} AND protocol_version >= {current_revision}) AS is_current,
+                protocol_version = 'draft' OR ({is_dated} AND protocol_version >= {current_version}) AS is_current,
                 count() AS total_calls
             FROM (
                 SELECT coalesce(nullIf(trim({protocol_version_sql}), ''), 'Unknown') AS protocol_version
@@ -77,11 +77,11 @@ class MCPProtocolVersionBreakdownQueryRunner(AnalyticsQueryRunner[MCPProtocolVer
             placeholders={
                 "protocol_version_sql": parse_expr(PROTOCOL_VERSION_SQL),
                 "is_dated": parse_expr(IS_DATED_SQL),
-                "current_revision": ast.Constant(value=CURRENT_PROTOCOL_REVISION),
+                "current_version": ast.Constant(value=CURRENT_PROTOCOL_VERSION),
                 "where": self._where(),
             },
         )
-        # Current revisions rank ahead of the cut so the long tail folded into 'Other' is only ever legacy.
+        # Current versions rank ahead of the cut so the long tail folded into 'Other' is only ever legacy.
         return parse_select(
             """
             SELECT protocol_version, is_current, total_calls

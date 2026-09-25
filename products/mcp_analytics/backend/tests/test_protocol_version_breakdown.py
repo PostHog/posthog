@@ -50,15 +50,15 @@ class TestMCPProtocolVersionBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixi
 
     @parameterized.expand(
         [
-            ("stateless_revision", "2026-07-28", True),
-            ("later_revision", "2027-01-15", True),
-            ("draft_revision", "draft", True),
-            ("legacy_revision", "2025-11-25", False),
-            ("date_shaped_non_revision", "2026-01-26", False),
+            ("stateless_version", "2026-07-28", True),
+            ("later_version", "2027-01-15", True),
+            ("draft_version", "draft", True),
+            ("legacy_version", "2025-11-25", False),
+            ("date_shaped_non_version", "2026-01-26", False),
             ("non_date_value", "v2", False),
         ]
     )
-    def test_returns_raw_revision_despite_datetime_typed_property(
+    def test_returns_raw_version_despite_datetime_typed_property(
         self, _name: str, version: str, is_current: bool
     ) -> None:
         self._define_as_datetime()
@@ -66,7 +66,7 @@ class TestMCPProtocolVersionBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixi
 
         assert self._rows() == [(version, is_current, 1)]
 
-    def test_missing_or_blank_revision_is_unknown(self) -> None:
+    def test_missing_or_blank_version_is_unknown(self) -> None:
         self._define_as_datetime()
         self._emit(distinct_id="blank", properties={"$mcp_protocol_version": "  "})
         self._emit_calls({None: 1, "2025-06-18": 1})
