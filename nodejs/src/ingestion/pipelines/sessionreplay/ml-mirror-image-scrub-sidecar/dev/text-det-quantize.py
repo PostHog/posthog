@@ -2,9 +2,9 @@
 Static int8 quantization of a detector, calibrated on inputs dumped by dev/text-det-bench.ts or
 dev/face-bench.ts.
 
-    tsx dev/text-det-bench.ts --dump-calibration "ppocrv3 (prod)"
+    tsx dev/text-det-bench.ts --dump-calibration "ppocrv3"
     uv run --with onnxruntime --with onnx python dev/text-det-quantize.py \
-        models/dbnet_det.onnx out/text-det-calibration/ppocrv3_prod_ models/candidates/ppocrv3_det_int8.onnx
+        models/candidates/ppocrv3_det.onnx out/text-det-calibration/ppocrv3 models/candidates/ppocrv3_det_int8.onnx
 
 The PP-OCRv3 export keeps its weights in Constant nodes, which the quantizer does not treat as weights
 and ORT's optimizer does not turn into initializers, so they are moved to initializers first. ORT's

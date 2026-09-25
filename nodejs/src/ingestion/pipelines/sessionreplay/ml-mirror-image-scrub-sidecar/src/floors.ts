@@ -21,17 +21,18 @@ export interface Floor {
 }
 
 /**
- * Text is the binding subject and the best measured.
+ * Text is the best measured subject.
  *
- * Detection: `tsx dev/glyph-floor.ts` sweeps rendered size against a fixed frame. DBNet starts finding
- * text at about 4.9px and has every line by 7px, at the model input.
+ * Detection: `tsx dev/glyph-floor.ts` sweeps rendered size against a fixed frame. PP-OCRv6 tiny starts
+ * finding text at about 2.9px and has every line by 4.3px, at the model input. On the labelled sets of
+ * `dev/text-det-bench.ts` it covers every word from 5 to 7px there, and those sets hold few words below 5px.
  *
  * Readability: rendered samples at a range of sizes, judged by eye. 4px is readable and 3px is not,
  * so 3px is the largest size that carries nothing, which is the conservative end of that boundary. Tesseract gives up at 8-9px and is not the bar: a person reads
  * well past where OCR does, and using OCR as the proxy hid a live leak once already.
  */
 export const TEXT_FLOOR: Floor = {
-    detectedAt: 7,
+    detectedAt: 4.3,
     readableAt: 3,
     unit: 'font-size px (ink is about 0.72x this)',
     measuredBy: 'dev/glyph-floor.ts, plus a human judgement on rendered samples',
