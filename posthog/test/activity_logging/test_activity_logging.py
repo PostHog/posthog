@@ -725,7 +725,7 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
         self.assertEqual(log.detail["trigger"], expected_trigger)
         self.assertEqual(log.user_id, self.user.id)
         self.assertEqual(log.client, "mcp")
-        self.assertEqual(log.ip_address, None if task_id else "203.0.113.7")
+        self.assertEqual(log.ip_address, "203.0.113.7")
 
     def test_recording_intent_does_not_re_enter_authentication(self) -> None:
         self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, None)
