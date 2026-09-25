@@ -129,6 +129,7 @@ class _Recorder:
         # child only waits for the implementation PR if the task already exists then, so a 0 here
         # means the card ships without the PR link.
         self.autostarts_at_notification: list[int] = []
+        self.autostart_inputs: list[MaybeAutostartImplementationInput] = []
 
 
 def _signal_data() -> SignalData:
@@ -157,7 +158,9 @@ class _StubInboxNotificationWorkflow:
         )
 
 
-async def _run_summary_workflow(recorder: _Recorder) -> None:
+async def _run_summary_workflow(
+    recorder: _Recorder, *, requested_user_id: int | None = None, requested_after_run_count: int | None = None
+) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input) -> bool:
         return False
@@ -212,6 +215,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="maybe_autostart_implementation_activity")
     async def fake_autostart(input: MaybeAutostartImplementationInput) -> None:
         recorder.autostarts += 1
+        recorder.autostart_inputs.append(input)
 
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
@@ -243,7 +247,12 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             await asyncio.wait_for(
                 env.client.execute_workflow(
                     SignalReportSummaryWorkflow.run,
-                    SignalReportSummaryWorkflowInputs(team_id=1, report_id=report_id),
+                    SignalReportSummaryWorkflowInputs(
+                        team_id=1,
+                        report_id=report_id,
+                        requested_implementation_user_id=requested_user_id,
+                        requested_after_run_count=requested_after_run_count,
+                    ),
                     id=f"summary-settle-{uuid.uuid4()}",
                     task_queue=TASK_QUEUE,
                 ),
@@ -269,6 +278,16 @@ async def test_no_buffer_autostarts_immediately_at_settle():
     assert recorder.autostarts == 1
     # The task exists before the notification looks, so its card can wait for the PR.
     assert recorder.autostarts_at_notification == [1]
+
+
+@pytest.mark.asyncio
+async def test_requested_implementation_reaches_settle_after_fresh_research():
+    recorder = _Recorder(buffer_seconds=0, candidate_on_first_check=False)
+    await _run_summary_workflow(recorder, requested_user_id=42, requested_after_run_count=5)
+    assert recorder.researches == 1
+    assert len(recorder.autostart_inputs) == 1
+    assert recorder.autostart_inputs[0].requested_user_id == 42
+    assert recorder.autostart_inputs[0].requested_after_run_count == 5
 
 
 @pytest.mark.asyncio

@@ -383,6 +383,30 @@ class TestBuildAsyncAnthropicClient:
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     @patch("posthog.llm.gateway_client.httpx.AsyncClient")
     @patch("posthog.llm.gateway_client.AsyncAnthropic")
+    def test_gateway_mode_uses_the_callers_trace_and_properties(self, mock_anthropic, mock_httpx):
+        build_async_anthropic_client(
+            "signals",
+            ai_product="signals_safety",
+            ai_stage="signal_safety",
+            team_id=42,
+            trace_id="decision-1",
+            properties={"signals_decision_id": "decision-1", "source_product": "linear"},
+        )
+
+        _, kwargs = mock_anthropic.call_args
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Trace-Id"] == "decision-1"
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "signals_safety",
+            "ai_stage": "signal_safety",
+            "signals_decision_id": "decision-1",
+            "source_product": "linear",
+            "team_id": "42",
+        }
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.AsyncClient")
+    @patch("posthog.llm.gateway_client.AsyncAnthropic")
     def test_gateway_mode_omits_trace_header_when_team_id_unset(self, mock_anthropic, mock_httpx):
         build_async_anthropic_client("signals", ai_product="signals_grouping", ai_stage="match")
 

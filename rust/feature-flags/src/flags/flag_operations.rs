@@ -39,11 +39,20 @@ impl FeatureFlag {
     /// OR if the flag has a group property filter that `group_filter_needs_db` selects
     ///    (the caller owns the request's group context — see
     ///    `FeatureFlagMatcher::group_filter_needs_db_prep`)
+    ///
+    /// A supported v2 flag needs it only when a predicate key is absent from the overrides.
     pub fn requires_db_preparation(
         &self,
         overrides: &HashMap<String, Value>,
         group_filter_needs_db: &dyn Fn(&PropertyFilter, Option<GroupTypeIndex>) -> bool,
     ) -> bool {
+        if let Some(config) = self.filters.supported_v2() {
+            return config
+                .rules
+                .iter()
+                .flat_map(|rule| &rule.targeting)
+                .any(|predicate| !overrides.contains_key(&predicate.key));
+        }
         self.filters
             .requires_db_properties(overrides, &self.key, group_filter_needs_db)
             || self.filters.requires_cohort_filters()
@@ -1330,6 +1339,29 @@ mod tests {
             ]);
             assert!(!flag.requires_db_preparation(&overrides, &|_, _| true));
         }
+    }
+
+    #[test]
+    fn test_v2_requires_db_preparation_only_when_a_predicate_key_is_missing() {
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "key": "v2", "active": true,
+            "filters": {"version": 2, "return_type": "boolean", "default_value": false, "rules": [
+                {"id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1", "rule_type": "targeted_release",
+                 "value": true, "targeting": {"properties": [
+                    {"key": "a", "type": "person", "operator": "exact", "value": "1", "negation": false},
+                    {"key": "b", "type": "person", "operator": "exact", "value": "2", "negation": false}
+                 ]}}
+            ]}
+        }))
+        .unwrap();
+
+        assert!(
+            flag.requires_db_preparation(&HashMap::from([("a".into(), json!("1"))]), &|_, _| true)
+        );
+        assert!(!flag.requires_db_preparation(
+            &HashMap::from([("a".into(), json!("1")), ("b".into(), json!("2"))]),
+            &|_, _| true
+        ));
     }
 
     #[test]

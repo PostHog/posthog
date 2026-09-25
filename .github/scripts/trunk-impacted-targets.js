@@ -154,8 +154,9 @@ const SEMGREP = 'semgrep'
 const CARGO_LOCK = 'cargo-lock'
 
 // The nodejs lane on its own, for files whose only reader is the ingestion
-// suite or an image built purely from nodejs/ sources. The rust and proto
-// rules also use it to name that lane without dragging in the frontend.
+// suite or an image built from nodejs/ sources and native bindings that claim
+// this lane already. The rust and proto rules also use it to name that lane
+// without dragging in the frontend.
 const NODE = 'node'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
@@ -277,7 +278,8 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
-    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
+    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources and the replay-anonymizer addon,
+    // and a change to that native binding claims the node lane too (NATIVE_BINDING_CONSUMER_LANES).
     ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
     // The skills build renders templates that import product Python, and the
     // embedded-payload job runs the services/mcp generator that writes into
@@ -595,7 +597,8 @@ const TRIPWIRE_RULES = [
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
-    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
+    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources and the
+    // replay-anonymizer addon, whose changes already claim the node lane, and the
     // playwright and sandbox images host suites that run both language
     // families. Everything else at the root, the unified app image included,
     // backs E2E, hobby, and production, which is the app-image radius; no
@@ -1508,7 +1511,10 @@ const RUST_DETERMINATOR = 'rust:determinator'
 // nodejs/package.json is the only dependent of the two binding packages
 // (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
-// dependent fails there rather than silently going unclaimed here.
+// dependent fails there rather than silently going unclaimed here. The
+// image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
+// addon too, built from the crate rather than installed from the package, and
+// it sits in this same lane.
 const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 
 // Every target this script can emit. A widening decision names this set instead
