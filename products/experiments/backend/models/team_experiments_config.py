@@ -1,3 +1,7 @@
+import re
+from datetime import time
+
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
@@ -6,6 +10,42 @@ from posthog.models.team import Team
 
 MAX_RECALCULATION_TIMES = 2
 MIN_RECALCULATION_GAP_HOURS = 6
+
+RECALCULATION_TIME_PATTERN = re.compile(r"^(?:[01]\d|2[0-3]):00:00$")
+
+
+def validate_recalculation_times(value: object) -> None:
+    """Shared by the model field (admin forms) and the experiments_config serializer,
+    so every write path enforces the same schedule contract."""
+    if value is None:
+        return
+    if not isinstance(value, list) or not value:
+        raise ValidationError("Recalculation times must be a non-empty list of 'HH:00:00' strings.")
+    if len(value) > MAX_RECALCULATION_TIMES:
+        raise ValidationError(f"At most {MAX_RECALCULATION_TIMES} recalculation times are allowed.")
+    hours = []
+    for entry in value:
+        if not isinstance(entry, str) or not RECALCULATION_TIME_PATTERN.match(entry):
+            raise ValidationError("Recalculation times must be on the hour, in HH:00:00 format (UTC).")
+        hours.append(int(entry[:2]))
+    if len(set(hours)) != len(hours):
+        raise ValidationError("Recalculation times must be different.")
+    for i, first in enumerate(hours):
+        for second in hours[i + 1 :]:
+            # Circular distance, so 23:00 and 01:00 count as 2 hours apart.
+            gap = abs(first - second)
+            if min(gap, 24 - gap) < MIN_RECALCULATION_GAP_HOURS:
+                raise ValidationError(
+                    f"Recalculation times must be at least {MIN_RECALCULATION_GAP_HOURS} hours apart."
+                )
+
+
+def recalculation_times_from_legacy(legacy: time | None) -> list[str] | None:
+    return [f"{legacy.hour:02d}:00:00"] if legacy is not None else None
+
+
+def legacy_from_recalculation_times(times: list[str] | None) -> time | None:
+    return time(hour=int(times[0][:2])) if times else None
 
 
 class TeamExperimentsConfig(models.Model):
@@ -27,6 +67,7 @@ class TeamExperimentsConfig(models.Model):
     experiment_recalculation_times = models.JSONField(
         null=True,
         blank=True,
+        validators=[validate_recalculation_times],
         help_text=(
             "Times of day (UTC) when experiment metrics are recalculated, as a list of 'HH:00:00' "
             "strings on the hour, at most 2 entries at least 6 hours apart. Null means the default "

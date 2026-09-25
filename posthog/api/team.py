@@ -1,14 +1,12 @@
 import re
 import json
 import secrets
-from datetime import (
-    time as datetime_time,
-    timedelta,
-)
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -365,6 +363,9 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
         MAX_RECALCULATION_TIMES,
         MIN_RECALCULATION_GAP_HOURS,
         TeamExperimentsConfig,
+        legacy_from_recalculation_times,
+        recalculation_times_from_legacy,
+        validate_recalculation_times,
     )
 
     class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
@@ -403,19 +404,10 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             ]
 
         def validate_experiment_recalculation_times(self, value: list[str] | None) -> list[str] | None:
-            if value is None:
-                return None
-            hours = [int(entry[:2]) for entry in value]
-            if len(set(hours)) != len(hours):
-                raise serializers.ValidationError("Recalculation times must be different.")
-            for i, first in enumerate(hours):
-                for second in hours[i + 1 :]:
-                    # Circular distance, so 23:00 and 01:00 count as 2 hours apart.
-                    gap = abs(first - second)
-                    if min(gap, 24 - gap) < MIN_RECALCULATION_GAP_HOURS:
-                        raise serializers.ValidationError(
-                            f"Recalculation times must be at least {MIN_RECALCULATION_GAP_HOURS} hours apart."
-                        )
+            try:
+                validate_recalculation_times(value)
+            except DjangoValidationError as e:
+                raise serializers.ValidationError(e.messages)
             return value
 
         def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
@@ -426,14 +418,12 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             # The two recalculation fields must stay coherent while both exist: writing one
             # syncs the other, so old clients and the workflow reader never disagree.
             if "experiment_recalculation_times" in validated_data:
-                times = validated_data["experiment_recalculation_times"]
-                validated_data["experiment_recalculation_time"] = (
-                    datetime_time(hour=int(times[0][:2])) if times else None
+                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
+                    validated_data["experiment_recalculation_times"]
                 )
             elif "experiment_recalculation_time" in validated_data:
-                legacy = validated_data["experiment_recalculation_time"]
-                validated_data["experiment_recalculation_times"] = (
-                    [f"{legacy.hour:02d}:00:00"] if legacy is not None else None
+                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
+                    validated_data["experiment_recalculation_time"]
                 )
             return super().update(instance, validated_data)
 
