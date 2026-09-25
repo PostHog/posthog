@@ -105,7 +105,7 @@ async function downloadModels(): Promise<void> {
         const bytes = fromS3Mirror ?? (await getBuf(model.upstreamUrl))
         assertPinnedSha256(model, bytes, fromS3Mirror ? s3Url : model.upstreamUrl)
         await mkdir(dirname(dest), { recursive: true })
-        const partial = `${dest}.partial`
+        const partial = `${dest}.${process.pid}.partial`
         try {
             await writeFile(partial, bytes)
             await rename(partial, dest)
