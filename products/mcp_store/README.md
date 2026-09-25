@@ -68,10 +68,22 @@ The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per serve
 At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
 - Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, OAuth scope allowlist, and credential source). The catalog owns content. Edit it in code, not admin.
-- **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.
+- **Operational state normally stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change, a suspension, or a refused DCR registration must fail closed. A catalog-managed credential source is the exception: sync activates it after a successful shared-client probe and deactivates it when its required settings disappear. Rows absent from the catalog remain untouched.
 - **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. A reviewed instance credential source can satisfy the shared-client gate without copying secrets into the template.
 - **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it lets a configured credential source retry its shared-client probe; other entries still require operator review.
-- Probes run **only on creation**, except when a configured credential source is inactive or first adopted. DCR probes never repeat because they mint real clients.
+- **When probes run**: on creation, and when an entry with a configured credential source is inactive or first adopts that source.
+  The sync also re-probes an **active DCR entry** on an interval (`DCR_REPROBE_INTERVAL`, 24 hours).
+  A vendor can stop accepting our client registrations at any time.
+  A DCR entry has no credential source whose probe would catch that.
+  A DCR probe mints a real client with the provider, so the sync claims each probe with a conditional update on the row's `last_probed_at`.
+  That holds an entry to one probe per interval, even when two syncs overlap.
+- **A refused DCR registration deactivates the row**: the re-probe clears `is_active` only when the server answered, served OAuth metadata, and still refused to register a client.
+  The store stops listing the tile and refuses new installs of it.
+  A probe that does not reach the server, or that finds no OAuth metadata, leaves `is_active` alone.
+  A working tile does not disappear after a network timeout.
+  A row you reactivate in admin does not stay active while the vendor keeps refusing.
+  The next sync after the interval re-probes it and deactivates it again.
+  Provision a reviewed credential source for the entry, or get our client allowlisted with the vendor, before you reactivate it.
 
 To add a server, follow the `adding-mcp-store-servers` skill (`.agents/skills/adding-mcp-store-servers/`).
 To probe a server by hand:
