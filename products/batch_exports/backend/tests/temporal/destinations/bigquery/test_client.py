@@ -1,9 +1,11 @@
+import io
 import random
 import string
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
+from google.api_core.exceptions import GoogleAPICallError, from_http_status
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError
@@ -192,3 +194,44 @@ def test_from_service_account_inputs_rejects_token_uri_that_is_not_google():
             client_email="svc@proj.iam.gserviceaccount.com",
             project_id="proj",
         )
+
+
+@pytest.fixture
+def fast_backoff(monkeypatch):
+    """Speed up the load job retry backoff so tests don't actually sleep."""
+    monkeypatch.setattr(
+        "products.batch_exports.backend.temporal.destinations.bigquery_batch_export.asyncio.sleep", AsyncMock()
+    )
+
+
+@pytest.mark.parametrize(
+    "status_code,should_retry",
+    [(410, True), (599, True), (402, False)],
+    ids=["gone_is_retried", "unmapped_server_error_is_retried", "client_error_is_not_retried"],
+)
+@pytest.mark.asyncio
+async def test_load_file_retries_errors_without_a_typed_exception_class(
+    status_code: int, should_retry: bool, fast_backoff
+):
+    error = from_http_status(status_code, "An internal error occurred")
+    # Guards the premise of this test: `google.api_core` has no typed class for these codes.
+    assert type(error) is GoogleAPICallError
+
+    table = BigQueryTable(
+        "test_table",
+        (BigQueryField("id", BigQueryType("INT64", False), False),),
+        parents=("test-project", "test_dataset"),
+    )
+    mock_load_job = MagicMock()
+    mock_load_job.result.return_value = MagicMock(name="mock_result")
+    mock_sync_client = MagicMock()
+    mock_sync_client.load_table_from_file.side_effect = [error, mock_load_job]
+    client = BigQueryClient(mock_sync_client)
+
+    if should_retry:
+        assert await client.load_file(io.BytesIO(b""), "JSONLines", table) is mock_load_job.result.return_value
+        assert mock_sync_client.load_table_from_file.call_count == 2
+    else:
+        with pytest.raises(GoogleAPICallError):
+            await client.load_file(io.BytesIO(b""), "JSONLines", table)
+        assert mock_sync_client.load_table_from_file.call_count == 1

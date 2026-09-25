@@ -21,13 +21,10 @@ import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     BadRequest,
     Forbidden,
-    GatewayTimeout,
     GoogleAPICallError,
     InternalServerError,
     NotFound,
     PermissionDenied,
-    ServiceUnavailable,
-    TooManyRequests,
 )
 from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
@@ -107,6 +104,16 @@ NON_RETRYABLE_ERROR_TYPES = (
     "BigQueryIntegrationNotFoundError",
     # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
     "BigQueryIncompatibleSchemaError",
+)
+
+# Status codes that indicate a transient BigQuery failure, on top of every 5xx.
+RETRYABLE_HTTP_STATUS_CODES = (
+    # The request timed out.
+    408,
+    # A resumable upload session is gone, so the upload must start again.
+    410,
+    # Too many requests.
+    429,
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -571,6 +578,13 @@ def _is_contention_exception(exc: Exception) -> bool:
     return "concurrent update" in str(exc)
 
 
+def _is_retryable_status_code(code: int | None) -> bool:
+    """Whether an HTTP status code reported by BigQuery indicates a transient failure."""
+    if code is None:
+        return False
+    return code in RETRYABLE_HTTP_STATUS_CODES or code >= 500
+
+
 class BigQueryClient:
     """Async client to interact with BigQuery.
 
@@ -1032,6 +1046,31 @@ class BigQueryClient:
         )
         return await query_job(merge_query)
 
+    async def _wait_after_transient_load_error(
+        self, err: "GoogleAPICallError | BigQueryQuotaExceededError", attempt: int, backoff: int
+    ) -> None:
+        """Report a transient load job error and wait for `backoff` seconds."""
+        self.logger.warning(
+            "LoadJob transient error encountered",
+            attempt=attempt,
+            backoff=backoff,
+            error_code=err.code,
+            exc_info=True,
+        )
+        self.external_logger.warning(
+            "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
+            " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
+            " to check with BigQuery if it keeps happening consistently."
+            " Error: %s",
+            backoff,
+            attempt,
+            err,
+            attempt=attempt,
+            backoff=backoff,
+            error_code=err.code,
+        )
+        await asyncio.sleep(backoff)
+
     async def load_file(self, file, format: FileFormat, table: BigQueryTable):
         """Load a file into BigQuery table."""
         schema = tuple(field.to_destination_field() for field in table.fields)
@@ -1066,35 +1105,9 @@ class BigQueryClient:
         while True:
             try:
                 result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-            except (
-                TooManyRequests,
-                ServiceUnavailable,
-                GatewayTimeout,
-                InternalServerError,
-                BigQueryQuotaExceededError,
-            ) as err:
+            except BigQueryQuotaExceededError as err:
                 backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
-                self.logger.warning(
-                    "LoadJob transient error encountered",
-                    attempt=attempt,
-                    backoff=backoff,
-                    error_code=err.code,
-                    exc_info=True,
-                )
-                self.external_logger.warning(
-                    "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
-                    " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
-                    " to check with BigQuery if it keeps happening consistently."
-                    " Error: %s",
-                    backoff,
-                    attempt,
-                    err,
-                    attempt=attempt,
-                    backoff=backoff,
-                    error_code=err.code,
-                )
-
-                await asyncio.sleep(backoff)
+                await self._wait_after_transient_load_error(err, attempt, backoff)
                 attempt += 1
 
             except Forbidden as err:
@@ -1157,6 +1170,17 @@ class BigQueryClient:
                     exc_info=True,
                 )
                 raise BigQueryIncompatibleSchemaError(repr(field_name))
+
+            except GoogleAPICallError as err:
+                # `google.api_core` maps only some status codes to a typed exception class, so
+                # retryability comes from the status code and not from the class. This clause must
+                # stay below the `Forbidden` and `BadRequest` clauses, which are subclasses.
+                if not _is_retryable_status_code(err.code):
+                    raise
+
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
+                await self._wait_after_transient_load_error(err, attempt, backoff)
+                attempt += 1
 
             else:
                 return result
