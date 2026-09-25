@@ -231,6 +231,10 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 <ConnectGitHubSource />
             ) : (
                 <>
+                    {/* Friction reads a fixed window, so it sits above the panel the date picker governs, as on the
+                        author page. */}
+                    {!isUnowned && <TeamFrictionSection githubTeam={ownerTeam} />}
+
                     {deliveryScope ? (
                         <TeamDeliveryPanel
                             scope={deliveryScope}
@@ -245,8 +249,6 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                             {windowedSections}
                         </ScopePanel>
                     )}
-
-                    {!isUnowned && <TeamFrictionSection githubTeam={ownerTeam} />}
 
                     <Section id="team-tests" title="Owned tests with signal" busy={activityLoading && !!activity}>
                         {activityStatus === 'error' ? (

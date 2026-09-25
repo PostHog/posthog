@@ -20,7 +20,12 @@ export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX
         <Section
             id="team-friction"
             title="Friction"
-            note={<FrictionGroupLegend />}
+            note={
+                <span className="flex flex-wrap items-center gap-2">
+                    <span>Last {friction?.window_days ?? 30} days</span>
+                    <FrictionGroupLegend />
+                </span>
+            }
             right={
                 team ? (
                     <span className="tabular-nums text-secondary">

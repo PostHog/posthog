@@ -73,7 +73,7 @@ export function AuthorFrictionTable({
                     )}
                     <Link
                         to={authorUrl(row.author, sourceId)}
-                        className="text-xs font-medium"
+                        className="whitespace-nowrap text-xs font-medium"
                         data-attr="engineering-analytics-friction-author-link"
                     >
                         {row.author}
