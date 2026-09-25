@@ -82,6 +82,7 @@ from products.signals.backend.scout_harness.tools.checks import (
     record_check_result,
 )
 from products.signals.backend.serializers import CHECK_RESULT_HIDDEN_EXPLANATION, SignalReportCheckWriteSerializer
+from products.signals.backend.temporal.emitter import SignalEmitterInput
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.signals.backend.views import SignalReportCheckViewSet
 from products.skills.backend.models.skills import LLMSkill
@@ -94,6 +95,7 @@ _CONNECT = "posthog.temporal.common.client.sync_connect"
 _FLAG_PAYLOAD = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _OTHER_SKILL = "signals-scout-error-tracking"
 _EMIT_SIGNAL = "products.signals.backend.facade.api.emit_signal"
+_ASYNC_CONNECT = "products.signals.backend.facade.api.async_connect"
 
 _PAGEVIEWS = trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}])
 
@@ -354,9 +356,14 @@ class TestReportCheckExecution(APIBaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 run_due_report_checks()
 
-        assert capture.call_count == 1
-        properties = capture.call_args.kwargs["properties"]
-        assert capture.call_args.kwargs["event"] == "signals_report_check_evaluated"
+        # Filtered by event rather than counted: `_CAPTURE` patches an attribute on the shared
+        # `posthoganalytics` module, so every other capture in the commit — the breach on a resolved
+        # report emits a signal, which fires its own — lands on this same mock.
+        evaluated = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "signals_report_check_evaluated"
+        ]
+        assert len(evaluated) == 1
+        properties = evaluated[0].kwargs["properties"]
         assert properties["outcome"] == "failed"
         assert properties["check_status"] == SignalReportCheck.Status.FAILED
         assert properties["kind"] == SignalReportCheck.Kind.METRIC_THRESHOLD
@@ -1243,6 +1250,32 @@ class TestFailedCheckResurfaces(APIBaseTest):
         assert sent["extra"]["check_id"] == str(check.id)
         assert sent["extra"]["baseline_value"] == 40.0
         assert str(self.report.id) in sent["description"]
+
+    def test_the_breach_signal_clears_both_gates_inside_emission(self) -> None:
+        # `_run_and_capture` mocks `emit_signal` away, so no test above reaches the two gates inside
+        # it. Both refuse this pair by default: `check_failed` is deliberately absent from the
+        # configurable `SourceType` set, so a row-backed enable check can never pass, and an
+        # unregistered input variant makes `validate_signal_input` raise "Unknown signal type".
+        # The producer logs and swallows either one, so the whole follow-up-check path goes quiet.
+        check = self._check()
+        client = AsyncMock()
+
+        with (
+            patch(_ASYNC_CONNECT, return_value=client),
+            patch(_MEASURE, return_value=MetricMeasurement(value=42.0, measured_at=timezone.now(), series=None)),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            record_check_verdict(check, measure_check(check, deadline=time.monotonic() + 30))
+
+        emitted = [
+            call.args[1].signal
+            for call in client.start_workflow.call_args_list
+            if isinstance(call.args[1], SignalEmitterInput)
+        ]
+        assert [(signal.source_product, signal.source_type) for signal in emitted] == [
+            (SignalSourceProduct.SIGNALS_CHECK, SignalSourceType.CHECK_FAILED)
+        ]
+        assert emitted[0].extra["report_id"] == str(self.report.id)
 
     def test_a_breach_on_a_report_still_being_worked_emits_nothing(self) -> None:
         SignalReport.objects.filter(id=self.report.id).update(status=SignalReport.Status.READY)

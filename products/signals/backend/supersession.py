@@ -280,10 +280,11 @@ def _target_already_closed(team_id: int, target: ImplementationTarget) -> bool:
     return closed
 
 
-def latest_handover(replacement: SignalReportArtefact) -> ImplementationHandover | None:
+def latest_handover(replacement: SignalReportArtefact, *, using: str | None = None) -> ImplementationHandover | None:
     if replacement.task_id is None:
         return None
-    for row in SignalReportArtefact.objects.filter(
+    artefacts = SignalReportArtefact.objects.using(using) if using else SignalReportArtefact.objects
+    for row in artefacts.filter(
         team_id=replacement.team_id,
         report_id=replacement.report_id,
         task_id=replacement.task_id,
@@ -295,13 +296,16 @@ def latest_handover(replacement: SignalReportArtefact) -> ImplementationHandover
     return None
 
 
-def pending_replacement(team_id: int, report_id: str) -> SignalReportArtefact | None:
-    for row in SignalReportArtefact.objects.filter(
-        team_id=team_id, report_id=report_id, type="implementation_replacement"
-    ).order_by("-created_at", "-id"):
+def pending_replacement(team_id: int, report_id: str, *, using: str | None = None) -> SignalReportArtefact | None:
+    """The replacement still in flight for this report, if any. Pass `using="default"` when the
+    answer gates a terminal decision, so a replica's lag cannot miss a just-started replacement."""
+    artefacts = SignalReportArtefact.objects.using(using) if using else SignalReportArtefact.objects
+    for row in artefacts.filter(team_id=team_id, report_id=report_id, type="implementation_replacement").order_by(
+        "-created_at", "-id"
+    ):
         if row.task_id is None:
             continue
-        progress = latest_handover(row)
+        progress = latest_handover(row, using=using)
         if progress is None or progress.status == "processing":
             return row
     return None

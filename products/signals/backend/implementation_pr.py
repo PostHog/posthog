@@ -123,18 +123,22 @@ class ImplementationPr:
     agent_name: str | None = None
 
 
-def fetch_implementation_prs_for_reports(report_ids: list[str], *, team_id: int) -> dict[str, list[ImplementationPr]]:
+def fetch_implementation_prs_for_reports(
+    report_ids: list[str], *, team_id: int, using: str | None = None
+) -> dict[str, list[ImplementationPr]]:
+    """Pull requests per report. Pass `using="default"` when the answer decides whether work starts
+    or a report closes, so a replica's lag cannot read a just-attached pull request as absent."""
     if not report_ids:
         return {}
-    report_ids = [
-        str(pk) for pk in SignalReport.objects.filter(team_id=team_id, id__in=report_ids).values_list("id", flat=True)
-    ]
+    reports = SignalReport.objects.using(using) if using else SignalReport.objects
+    artefacts = SignalReportArtefact.objects.using(using) if using else SignalReportArtefact.objects
+    report_ids = [str(pk) for pk in reports.filter(team_id=team_id, id__in=report_ids).values_list("id", flat=True)]
     if not report_ids:
         return {}
     result: dict[str, list[ImplementationPr]] = {}
     seen: set[tuple[str, str]] = set()
     links = (
-        SignalReportArtefact.objects.filter(
+        artefacts.filter(
             team_id=team_id,
             report_id__in=report_ids,
             pull_request__isnull=False,

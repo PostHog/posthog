@@ -26,9 +26,12 @@ from products.signals.backend.report_links import incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)
 
-# A plan of plans is a real shape, a plan nested ten deep is not. The write path rejects a
-# `part_of` cycle, so this only bounds how far one closing step is allowed to cascade.
-MAX_PLAN_ROLLUP_LEVELS = 10
+# The walk has to reach every hierarchy the write path accepts, or a plan deeper than the budget
+# stays open forever: nothing re-runs the roll-up for it, because the steps that would have
+# triggered it are already closed. `validated_report_link_write` accepts a `part_of` chain up to
+# `MAX_REPORT_LINK_GRAPH_LEVELS`, so that is the depth this walk must finish, and matching it keeps
+# the two from drifting apart. A level costs one indexed read, and a cycle is rejected on write.
+MAX_PLAN_ROLLUP_LEVELS = SignalReportArtefact.MAX_REPORT_LINK_GRAPH_LEVELS
 
 _CLOSED_STATUSES = (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED)
 
@@ -37,7 +40,10 @@ def _pending_replacement(team_id: int, report_id: str) -> bool:
     """A plan waiting on a replacement is mid-decision, so it is left alone like any other report."""
     from products.signals.backend.supersession import pending_replacement
 
-    return pending_replacement(team_id, report_id) is not None
+    # Writer-pinned like every other read this walk decides on: the replacement may have been
+    # written moments ago by the same close that triggered this roll-up, and reading a replica that
+    # has not caught up would close a plan whose replacement is still running.
+    return pending_replacement(team_id, report_id, using="default") is not None
 
 
 # A pull request in any of these states is still going somewhere. A merged or closed one
@@ -59,7 +65,7 @@ def _own_work_in_flight(team_id: int, report_id: str) -> bool:
     """
     from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
-    prs = fetch_implementation_prs_for_reports([report_id], team_id=team_id).get(report_id, [])
+    prs = fetch_implementation_prs_for_reports([report_id], team_id=team_id, using="default").get(report_id, [])
     return any(pr.state in _LIVE_PR_STATES for pr in prs)
 
 

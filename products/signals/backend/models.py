@@ -39,7 +39,12 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.enums import (
+    ReportLinkKind,
+    SignalSourceProduct,
+    SignalSourceType,
+    signal_source_product_choices,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -115,6 +120,13 @@ class SignalSourceConfig(UUIDModel):
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
+            return True
+
+        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
+        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
+        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
+        # already authored is the opt-in.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the

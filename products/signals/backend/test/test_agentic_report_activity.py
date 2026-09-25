@@ -447,6 +447,54 @@ async def test_linked_report_context_requires_an_explicit_safe_verdict(ateam, ve
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("edit_type", "edited_after_verdict", "expected"),
+    [
+        (SignalReportArtefact.ArtefactType.TITLE_CHANGE, True, False),
+        (SignalReportArtefact.ArtefactType.SUMMARY_CHANGE, True, False),
+        (SignalReportArtefact.ArtefactType.SUMMARY_CHANGE, False, True),
+    ],
+)
+async def test_a_linked_report_edited_after_its_verdict_is_not_read_into_a_prompt(
+    ateam, edit_type, edited_after_verdict, expected
+):
+    # The report PATCH path replaces a title or summary without re-running the safety judge, so a
+    # `choice: true` verdict can vouch for prose nobody reviewed. Without this the edited text goes
+    # straight into the research sandbox prompt under the old approval.
+    linked = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, title="edited", summary="Prose the judge never saw."
+    )
+    judged_at = timezone.now()
+
+    def _stamp(artefact_type: str, content: dict, created_at) -> None:
+        # `created_at` is auto_now_add, so it ignores whatever `create()` is handed; the update is
+        # what actually orders these two rows, and this test is entirely about their order.
+        artefact = SignalReportArtefact.objects.create(
+            team=ateam, report=linked, type=artefact_type, content=json.dumps(content)
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=created_at)
+
+    await database_sync_to_async(_stamp)(SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT, {"choice": True}, judged_at)
+    await database_sync_to_async(_stamp)(
+        edit_type,
+        {"new_title": "edited"} if "title" in edit_type else {"new_summary": "edited"},
+        judged_at + timedelta(seconds=30 if edited_after_verdict else -30),
+    )
+    report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(linked.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+
+    assert bool(context) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_load_previous_research_ignores_report_from_another_team(ateam, aorganization):
     other_team = await database_sync_to_async(Team.objects.create)(
         organization=aorganization,

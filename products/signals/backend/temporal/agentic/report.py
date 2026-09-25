@@ -318,16 +318,42 @@ def _collect_linked_report_context(team_id: int, report_id: str) -> list[LinkedR
         .filter(team_id=team_id, report_id__in=reports, type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT)
         .order_by("report_id", "-created_at", "-id")
         .distinct("report_id")
-        .values_list("report_id", "content")
+        .values_list("report_id", "content", "created_at")
     )
-    visible: dict[str, SignalReport] = {}
-    for target_id, content in judgments:
+    approved: dict[str, datetime] = {}
+    for target_id, content, judged_at in judgments:
         try:
             verdict = json.loads(content)
         except (ValueError, TypeError):
             continue
         if isinstance(verdict, dict) and verdict.get("choice") is True:
-            visible[str(target_id)] = reports[str(target_id)]
+            approved[str(target_id)] = judged_at
+    # A verdict approves the text it was reached on, and nothing re-judges a report whose title or
+    # summary is edited afterwards: the report PATCH path retracts the embedding for exactly this
+    # reason (see `_unreviewed_edit` in views.py) rather than re-running the judge. That leaves an
+    # approved report able to hold prose the judge never saw, and this prose goes into a research
+    # prompt, so an edit newer than the verdict reads as unreviewed and the report drops out. Only
+    # the two edit paths write these rows; the pipeline's own rewrites do not, so a re-researched
+    # report is unaffected.
+    edits = (
+        SignalReportArtefact.objects.using("default")
+        .filter(
+            team_id=team_id,
+            report_id__in=list(approved),
+            type__in=(
+                SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+                SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+            ),
+        )
+        .order_by("report_id", "-created_at", "-id")
+        .distinct("report_id")
+        .values_list("report_id", "created_at")
+    )
+    for target_id, edited_at in edits:
+        approved_at = approved.get(str(target_id))
+        if approved_at is not None and edited_at > approved_at:
+            del approved[str(target_id)]
+    visible: dict[str, SignalReport] = {target_id: reports[target_id] for target_id in approved}
     # Capped on what the prompt can use, not on what is linked: a run of deleted or unjudged
     # targets would otherwise spend the budget and leave a usable link behind it unread. The reads
     # below are per report, so the cap comes first.
