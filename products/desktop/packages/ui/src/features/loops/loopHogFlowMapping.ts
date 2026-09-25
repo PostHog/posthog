@@ -625,7 +625,7 @@ function loopRunStatus(status: unknown): LoopSchemas.LoopRunStatusEnum {
  * the sandbox picks it up.
  */
 export function taskToLoopRun(
-  task: Schemas.TaskDetailDTO,
+  task: Schemas.TaskDetailDTO | Schemas.TaskListItem,
 ): LoopSchemas.LoopRun {
   const run = task.latest_run ?? null;
   const status = loopRunStatus(run?.status);

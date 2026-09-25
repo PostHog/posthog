@@ -94,6 +94,10 @@
             "description": "Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.",
             "type": "boolean"
         },
+        "unread": {
+            "description": "Filter by the current user's report read state.",
+            "type": "boolean"
+        },
         "use_priority_preference": {
             "description": "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.",
             "type": "boolean"

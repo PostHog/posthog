@@ -1,0 +1,95 @@
+{
+  "expo": {
+    "name": "posthog",
+    "slug": "mobilehog",
+    "owner": "posthog",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "scheme": ["mobilehog", "posthog"],
+    "icon": "./assets/app-icon.png",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.posthog.mobilehog",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true,
+          "NSAllowsArbitraryLoads": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.posthog.mobilehog"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PostHog to attach photos to your tasks"
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow PostHog to use the microphone for dictation.",
+          "speechRecognitionPermission": "Allow PostHog to turn speech into a message draft."
+        }
+      ],
+      "./plugins/withSceneLifecycle",
+      "./plugins/withPodfileResourceBundleFix",
+      [
+        "expo-font",
+        {
+          "ios": {
+            "fonts": [
+              "./assets/fonts/JetBrainsMono-Regular.ttf",
+              "./assets/fonts/JetBrainsMono-Medium.ttf"
+            ]
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/logomark.png"
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logomark.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "imageWidth": 160
+        }
+      ],
+      "expo-status-bar",
+      "expo-web-browser",
+      "expo-updates",
+      "./plugins/withPostHogSourceMaps"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d8e0731d-1107-4421-aa33-abf130eca27f"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/d8e0731d-1107-4421-aa33-abf130eca27f"
+    }
+  }
+}

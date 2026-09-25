@@ -544,6 +544,7 @@ export class AgentServer {
   private slackArtifactDelivery: SlackArtifactDelivery | null = null;
   private slackChartDelivery = false;
   private slackReplyContext = false;
+  private mobileClient = false;
   private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
@@ -2128,6 +2129,7 @@ export class AgentServer {
     this.slackArtifactDelivery = readSlackArtifactDelivery(preTaskRun);
     this.slackChartDelivery = readSlackChartDelivery(preTaskRun);
     this.slackReplyContext = preTaskRun?.state.slack_reply_context === true;
+    this.mobileClient = preTaskRun?.state.client_platform === "mobile";
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
@@ -4563,6 +4565,7 @@ export class AgentServer {
       createPr: this.config.createPr,
       hasGithubToken: Boolean(resolveGithubToken()),
       isAutomatedOrigin: this.isAutomatedOrigin(),
+      mobileClient: this.mobileClient,
       isSlack: this.isSlackReplyContext(),
       projectId: this.config.projectId,
       repositoryAttached: Boolean(this.config.repositoryPath),

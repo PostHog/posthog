@@ -1,0 +1,149 @@
+import { MAX_DRAFT_PHOTOS } from "@posthog/core/offline/schemas";
+import { getImageMimeType, serializeCloudPrompt } from "@posthog/shared";
+import * as FileSystem from "expo-file-system/legacy";
+import { Platform } from "react-native";
+import { accountStorageKey, sessionIdentity } from "@/lib/auth";
+
+export const MAX_PHOTOS = MAX_DRAFT_PHOTOS;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+export interface PendingPhoto {
+  id: string;
+  uri: string;
+  name: string;
+  mimeType: string;
+  jpegBase64?: string;
+}
+
+export async function pickPhotos(remaining: number): Promise<PendingPhoto[]> {
+  if (remaining <= 0) return [];
+  const identity = sessionIdentity();
+  const scope = accountStorageKey("mobilehog_workspace");
+  let ImagePicker: typeof import("expo-image-picker");
+  try {
+    ImagePicker = await import("expo-image-picker");
+  } catch {
+    throw new Error("Install a new build to attach photos.");
+  }
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ["images"],
+    allowsMultipleSelection: true,
+    selectionLimit: Math.min(remaining, MAX_PHOTOS),
+    orderedSelection: true,
+    quality: 0.8,
+    exif: false,
+    base64: Platform.OS === "ios",
+  });
+  if (identity !== sessionIdentity())
+    throw new Error("Account changed. Select the photos again.");
+  if (result.canceled || !result.assets.length) return [];
+  const photos: PendingPhoto[] = [];
+  const copiedUris: string[] = [];
+  try {
+    for (const asset of result.assets.slice(0, remaining)) {
+      const name = asset.fileName ?? "image.jpg";
+      const mimeType = asset.mimeType ?? getImageMimeType(name);
+      const jpegBase64 =
+        !IMAGE_TYPES.has(mimeType) && Platform.OS === "ios"
+          ? (asset.base64 ?? undefined)
+          : undefined;
+      if (!IMAGE_TYPES.has(mimeType) && !jpegBase64) {
+        throw new Error("Choose a JPEG, PNG, GIF, or WebP image.");
+      }
+      if (
+        (asset.fileSize && !jpegBase64 && asset.fileSize > MAX_IMAGE_BYTES) ||
+        (jpegBase64 &&
+          Math.floor((jpegBase64.length * 3) / 4) > MAX_IMAGE_BYTES)
+      ) {
+        throw new Error("Choose an image smaller than 5 MB.");
+      }
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      let uri = asset.uri;
+      if (Platform.OS !== "web") {
+        const directory = `${FileSystem.documentDirectory}${scope}/photos/`;
+        await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+        uri = `${directory}${id}`;
+        copiedUris.push(uri);
+        if (jpegBase64)
+          await FileSystem.writeAsStringAsync(uri, jpegBase64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        else await FileSystem.copyAsync({ from: asset.uri, to: uri });
+      }
+      if (identity !== sessionIdentity()) {
+        throw new Error("Account changed. Select the photos again.");
+      }
+      photos.push({
+        id,
+        uri,
+        name: jpegBase64 ? `${name.replace(/\.[^.]+$/, "")}.jpg` : name,
+        mimeType: jpegBase64 ? "image/jpeg" : mimeType,
+        jpegBase64: Platform.OS === "web" ? jpegBase64 : undefined,
+      });
+    }
+    return photos;
+  } catch (error) {
+    await Promise.all(
+      copiedUris.map((uri) =>
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {}),
+      ),
+    );
+    throw error;
+  }
+}
+
+export async function buildPhotoPrompt(
+  text: string,
+  photos: PendingPhoto[],
+): Promise<string> {
+  const trimmed = text.trim();
+  if (!photos.length) return trimmed;
+  const FileSystem = await import("expo-file-system/legacy");
+  const blocks: Parameters<typeof serializeCloudPrompt>[0] = [
+    { type: "text", text: trimmed || "Please look at the attached image." },
+  ];
+  let totalBytes = 0;
+  for (const photo of photos) {
+    if (!photo.jpegBase64) {
+      const info = await FileSystem.getInfoAsync(photo.uri);
+      if (!info.exists)
+        throw new Error(`${photo.name} is no longer available.`);
+      if (info.size && totalBytes + info.size > MAX_IMAGE_BYTES) {
+        throw new Error("Images must be under 5 MB in total.");
+      }
+    }
+    const data =
+      photo.jpegBase64 ??
+      (await FileSystem.readAsStringAsync(photo.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      }));
+    const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+    totalBytes += Math.floor((data.length * 3) / 4) - padding;
+    if (totalBytes > MAX_IMAGE_BYTES) {
+      throw new Error("Images must be under 5 MB in total.");
+    }
+    blocks.push({ type: "image", data, mimeType: photo.mimeType });
+  }
+  return serializeCloudPrompt(blocks);
+}
+
+export async function deletePhotos(photos: PendingPhoto[]): Promise<void> {
+  if (Platform.OS === "web") return;
+  await Promise.all(
+    photos.map((photo) =>
+      photo.uri.startsWith(
+        `${FileSystem.documentDirectory}mobilehog_workspace_`,
+      )
+        ? FileSystem.deleteAsync(photo.uri, { idempotent: true }).catch(
+            () => {},
+          )
+        : Promise.resolve(),
+    ),
+  );
+}

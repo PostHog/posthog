@@ -2950,6 +2950,26 @@ export interface PullRequestCiStatusesResponseApi {
     readonly statuses: readonly PullRequestCiStatusApi[]
 }
 
+export interface ReportReadStateRequestApi {
+    /**
+     * Reports to read or update, limited to the current project.
+     * @maxItems 100
+     */
+    report_ids: string[]
+    /** Set these reports read or unread for the current user. Omit to read their state. */
+    read?: boolean
+}
+
+/**
+ * Read state keyed by report UUID.
+ */
+export type ReportReadStateResponseApiStates = { [key: string]: boolean }
+
+export interface ReportReadStateResponseApi {
+    /** Read state keyed by report UUID. */
+    states: ReportReadStateResponseApiStates
+}
+
 export interface SignalReportMetricRefreshRequestApi {
     /**
      * Reports on screen, in display order. Each report's row metric is refreshed before any report's supporting metrics. At most 20 ids per call.
@@ -6272,6 +6292,10 @@ export type SignalsReportsListParams = {
      * Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.
      */
     unclaimed?: boolean
+    /**
+     * Filter by the current user's report read state.
+     */
+    unread?: boolean
     /**
      * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
      */

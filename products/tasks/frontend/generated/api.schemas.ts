@@ -2749,6 +2749,38 @@ export interface TaskPresenceBeaconRequestApi {
     device_id: string
 }
 
+export interface TaskReviewFileApi {
+    /** Repository-relative path. */
+    filename: string
+    /** Change type reported by GitHub. */
+    status: string
+    /** Added lines. */
+    additions: number
+    /** Removed lines. */
+    deletions: number
+    /** Unified diff, limited to 20,000 characters per file. */
+    patch: string
+    /** Open GitHub to read the complete or binary change. */
+    truncated: boolean
+}
+
+export interface TaskReviewApi {
+    /** GitHub pull request URL. */
+    url: string
+    /** Pull request title. */
+    title: string
+    /** Pull request state. */
+    state: string
+    /** Combined check result. */
+    ci_status: string
+    /** Head commit used for the check result. */
+    head_sha: string
+    /** Changed files on this page. */
+    files: TaskReviewFileApi[]
+    /** Whether another file page is available. */
+    has_more: boolean
+}
+
 /**
  * * `http` - http
  * * `sse` - sse
@@ -5975,6 +6007,15 @@ export type TasksCommentsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+}
+
+export type TasksReviewRetrieveParams = {
+    /**
+     * Page of changed files.
+     * @minimum 1
+     * @maximum 100
+     */
+    page?: number
 }
 
 export type TasksRunsListParams = {

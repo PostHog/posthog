@@ -305,6 +305,7 @@ def _engagement_by_team(cutoff: datetime, team_ids: Collection[int]) -> dict[int
     latest: dict[int, datetime] = {}
     for queryset in (
         SignalReportAction.all_teams.filter(team_id__in=team_ids, last_at__gte=cutoff)
+        .exclude(type=SignalReportAction.ActionType.READ)
         .values("team_id")
         .annotate(latest=Max("last_at")),
         SignalScoutConfig.all_teams.filter(team_id__in=team_ids)
