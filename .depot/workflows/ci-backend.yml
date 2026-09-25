@@ -51,6 +51,11 @@
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
+# - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
+#   Actions API by run id, and GitHub has no run for a Depot run id. Here
+#   .github/scripts/capture_depot_running_time.py reads the workflow with `depot ci workflow show`
+#   and DEPOT_CI_CANCEL_TOKEN, then sends the same events with the same property keys and
+#   runner `depot-ci`. Its attempt guard sits on the steps, as canonical's does.
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
 #   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
 #   is safe only while its status remains optional.
@@ -4277,4 +4282,38 @@ jobs:
                   retention-days: 2
                   overwrite: true
 
-    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
+    calculate-running-time:
+        name: Calculate running time
+        needs: [changes, django_tests]
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+        if: >-
+            !cancelled() && github.actor != 'dependabot[bot]' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            && needs.changes.result == 'success'
+        permissions:
+            contents: read
+        steps:
+            # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              id: checkout
+              if: github.run_attempt == '1'
+              continue-on-error: true
+              with:
+                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              id: setup-depot
+              if: github.run_attempt == '1' && steps.checkout.outcome == 'success'
+              continue-on-error: true
+            - name: Capture running time to PostHog and DevEx PostHog
+              if: github.run_attempt == '1' && steps.setup-depot.outcome == 'success'
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  STATUS_JOB: django_tests
+              run: python3 .github/scripts/capture_depot_running_time.py
