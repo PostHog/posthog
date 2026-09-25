@@ -27,6 +27,7 @@ from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryPreview,
+    AlertEventKind,
     GroupTransition,
     MuteReason,
     PlatformAlertCheckInput,
@@ -104,6 +105,26 @@ _NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
     NotificationAction.ERROR: "errored",
     NotificationAction.BROKEN: "broken",
 }
+
+
+# A check that announced nothing is a CHECK even when it moved the alert; the row's two states
+# carry the move.
+_NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
+    NotificationAction.NONE: AlertEventKind.CHECK,
+    NotificationAction.FIRE: AlertEventKind.FIRING,
+    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
+    NotificationAction.ERROR: AlertEventKind.ERRORED,
+    NotificationAction.BROKEN: AlertEventKind.BROKEN,
+}
+
+
+def _evaluation_key(window_end: datetime) -> str:
+    """Names the window a check answered for.
+
+    Scoped to the alert by the row's own columns rather than by the string, so the key keeps one
+    shape across sources and a retry recomputes it from the batch cutoff.
+    """
+    return f"window:{window_end.isoformat()}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
@@ -222,30 +243,54 @@ def _recorded(
     check: PlatformAlertCheckInput,
     *,
     outcome: Outcome,
+    evaluation_key: str,
+    kind: AlertEventKind,
     notified: bool,
     now: datetime,
+    value: float | None = None,
+    error_message: str | None = None,
+    query_duration_ms: int | None = None,
+    muted_notification: str = "",
     disable: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so every path states the firing the same way."""
     return PlatformAlertOutcome(
         configuration_id=check.id,
+        evaluation_key=evaluation_key,
+        kind=kind,
         new_state=outcome.new_state.value,
         notified=notified,
         consecutive_failures=outcome.consecutive_failures,
         firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY),
+        value=value,
+        error_message=error_message,
+        query_duration_ms=query_duration_ms,
+        muted_notification=muted_notification,
         disable=disable,
     )
 
 
 def _delivery(
-    check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime, now: datetime
+    check: PlatformAlertCheckInput,
+    outcome: AlertCheckOutcome,
+    *,
+    window_end: datetime,
+    now: datetime,
+    value: float | None = None,
+    query_duration_ms: int | None = None,
 ) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = _recorded(
         check,
         outcome=outcome,
+        evaluation_key=_evaluation_key(window_end),
+        kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
+        value=value,
+        error_message=outcome.error_message,
+        query_duration_ms=query_duration_ms,
+        muted_notification=outcome.muted_notification.value,
         disable=outcome.disable,
     )
     if outcome.notification == NotificationAction.NONE:
@@ -308,7 +353,15 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
 
 def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
-    recorded = _recorded(check, outcome=outcome, notified=False, now=now)
+    recorded = _recorded(
+        check,
+        outcome=outcome,
+        evaluation_key=_evaluation_key(now),
+        # The notification is NONE here only because the check machine never ran.
+        kind=AlertEventKind.BROKEN,
+        notified=False,
+        now=now,
+    )
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
@@ -327,6 +380,7 @@ def _evaluate_cohort(
     window_minutes, evaluation_periods, cadence_minutes, projection_eligible, date_to = key
     lookback = rolling_check_lookback_minutes(window_minutes, cadence_minutes, evaluation_periods)
 
+    query_started_at = time.monotonic()
     try:
         result = BatchedAlertCheckQuery(
             team=team,
@@ -353,17 +407,28 @@ def _evaluate_cohort(
             for check in checks
         ]
 
+    # One query serves the cohort, so every check in it records the same duration.
+    query_duration_ms = int((time.monotonic() - query_started_at) * 1000)
+
     decided: list[Decision] = []
     for check in checks:
         muted = check.id in muted_ids
+        buckets = result.per_alert.get(str(check.id), [])
+        # ClickHouse emits no bucket for an empty window, so no buckets is a measured zero.
+        value: float | None = float(buckets[-1].count) if buckets else 0.0
+        duration_ms: int | None = query_duration_ms
         try:
-            outcome = _evaluate_one(check, result.per_alert.get(str(check.id), []), now=now, muted=muted)
+            outcome = _evaluate_one(check, buckets, now=now, muted=muted)
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
             outcome = _failed(check, error, now=now, muted=muted)
+            # A check that reached no verdict measured nothing.
+            value, duration_ms = None, None
         # Outside the block above on purpose. Resolving a destination reads the database, and a
         # failure there is not this check's failure.
-        decided.append(_delivery(check, outcome, window_end=date_to, now=now))
+        decided.append(
+            _delivery(check, outcome, window_end=date_to, now=now, value=value, query_duration_ms=duration_ms)
+        )
     return decided
 
 
