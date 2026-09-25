@@ -17,7 +17,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LanedPipelineV3,
     _LaneWriter,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
+    PipelineV3,
+    should_coalesce_tables,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
@@ -886,6 +889,25 @@ async def _run_expecting(pipeline: PipelineV3, redis: MagicMock, exc: type[BaseE
         stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
         with pytest.raises(exc):
             await pipeline.run()
+
+
+class TestShouldCoalesceTables:
+    @pytest.mark.parametrize(
+        "resume_manager,is_webhook,expected",
+        [
+            # The case the resolved manager exists for: a resumable source class whose current run
+            # reports supports_resume=False resolves to no manager, commits no cursor, and so is free
+            # to coalesce. Reading the raw manager here switched coalescing off for every run of every
+            # resumable class instead.
+            (None, False, True),
+            (MagicMock(), False, False),
+            (None, True, False),
+            (MagicMock(), True, False),
+        ],
+        ids=["no_cursor_to_commit", "commits_a_cursor", "webhook", "webhook_and_cursor"],
+    )
+    def test_coalescing_is_off_exactly_when_a_yield_is_durable(self, resume_manager, is_webhook, expected):
+        assert should_coalesce_tables(resume_manager=resume_manager, is_webhook=is_webhook) is expected
 
 
 class TestResumeCursorCommit:
