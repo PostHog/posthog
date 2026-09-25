@@ -15,8 +15,8 @@
                 "minimax",
                 "openai",
                 "openrouter",
+                "system_one",
                 "together_ai",
-                "typesafe",
                 "zeabur"
             ],
             "type": "string"
