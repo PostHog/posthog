@@ -741,8 +741,7 @@ describe('PersonhogPersonsStore', () => {
         expect(await bound.fetchForUpdate(1, 'd1')).toBeNull()
         expect(edgeOf('1:d1')).toBeNull()
 
-        // Another pod attaches d1 meanwhile; the create resolves to that person,
-        // but a purge lands while the call is open, so the answer is not installed.
+        // Another pod attaches d1 and a purge lands mid-call, so the answer is not installed.
         let release!: (value: unknown) => void
         repository.getOrCreatePersonByDistinctId.mockReturnValueOnce(
             new Promise((resolve) => {

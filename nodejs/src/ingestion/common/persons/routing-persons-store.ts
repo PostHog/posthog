@@ -366,10 +366,7 @@ export class RoutingPersonsStore implements PersonsStore {
         )
     }
 
-    /**
-     * Shadow mode follows the Postgres verdict, so a person Postgres created and personhog only
-     * found gets its creation properties there. Set-once, so another creator's values stand.
-     */
+    /** Postgres created the person and personhog only found it: apply the creation properties set-once. */
     private async reconcileShadowCreate(
         authoritative: CreatePersonResult,
         shadow: CreatePersonResult,
@@ -504,8 +501,7 @@ export class RoutingPersonsStore implements PersonsStore {
                         throw new ShadowVerbTimeoutError('mergePersons')
                     }
                     const result = await this.personhog.mergePersons(request, batchId)
-                    // The backend states a retry under the same op id may settle it,
-                    // the same signal the merge service retries on.
+                    // Unsettled means a retry under the same op id may settle it.
                     if (result.results.some((source) => source.settled === false)) {
                         unsettled = result
                         throw new PersonMergeUnsettledError('shadow merge verdict is unsettled')
@@ -626,9 +622,7 @@ export class RoutingPersonsStore implements PersonsStore {
                       .sort()
                       .join(',')
         const disagree =
-            (left.foldAborted === undefined) !== (right.foldAborted === undefined) ||
-            (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) ||
-            verdicts(left) !== verdicts(right)
+            (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) || verdicts(left) !== verdicts(right)
         if (disagree) {
             logger.info('personhog shadow merge verdicts differ', {
                 team_id: request.teamId,

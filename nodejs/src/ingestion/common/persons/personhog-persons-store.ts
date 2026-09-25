@@ -392,8 +392,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     ): InternalPerson | null {
         const distinctKey = `${teamId}:${distinctId}`
         if (options.generation !== this.generationOf(teamId)) {
-            // The answer is not installed, but a cached absence it contradicts is
-            // wrong now: a merge never unmaps an id, so the next read must re-resolve.
+            // A cached absence this answer contradicts is wrong even when the answer is not installed.
             if (fetched !== null && this.resolutions.get(distinctKey) === null) {
                 this.resolutions.delete(distinctKey)
             }
@@ -437,7 +436,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** Check grade only: the personless step discards properties there, and the update grade reads the leader. */
+    /** Identity's answer without properties, for reads the leader cannot serve. */
     private identityDocument(identity: PersonIdentity): InternalPerson {
         return { ...identity, properties: {}, properties_last_updated_at: {}, properties_last_operation: null }
     }
@@ -473,8 +472,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (person !== null) {
                 return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
             }
-            // The leader no longer holds the person the edge names: a merge
-            // moved the id, and identity decides where it lives now.
+            // The leader no longer holds this person; identity decides where the id lives now.
             this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
             this.resolutions.delete(distinctKey)
         }
@@ -484,9 +482,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
         if (person === null) {
-            // Identity's answer died mid-call. The id is not absent, so an absence
-            // must not be cached: ops folded onto identity's answer reach the
-            // survivor through the redirect, as the create path relies on.
+            // The person died mid-call; serve identity's answer rather than cache an absence.
             this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
             return this.identityDocument(resolved.person)
         }
@@ -974,9 +970,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                             return
                         }
                         const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
-                        // A person identity named but the leader no longer holds was
-                        // merged away in between; the id is not absent, so it stays
-                        // unresolved for the update read to settle.
+                        // Merged away since identity answered; the update read resolves it.
                         if (!this.prefetchingBatches.has(batchId) || person === null) {
                             return
                         }

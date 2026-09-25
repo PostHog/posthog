@@ -322,8 +322,7 @@ describe('PostgresPersonRepository', () => {
             const olderCreatedAt = person.created_at.minus({ minutes: 5 })
             const laterLastSeenAt = person.created_at.plus({ hours: 1 })
 
-            // Another writer (a merge fold on another pod) lands a property with its metadata,
-            // the older constituent's created_at, the identified flag and a later last_seen_at.
+            // Another writer lands a key, its metadata and newer scalars after this pod's read.
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 `UPDATE posthog_person
@@ -386,8 +385,7 @@ describe('PostgresPersonRepository', () => {
             const first = await createTestPerson(team.id, 'lock-order-first')
             const second = await createTestPerson(team.id, 'lock-order-second')
             expect(Number(first.id)).toBeLessThan(Number(second.id))
-            // Rewriting the first row places its tuple after the second's, so a scan in
-            // physical order would reach the higher id first.
+            // Rewrite the first row so a physical-order scan reaches the higher id first.
             await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 'UPDATE posthog_person SET version = version + 1 WHERE id = $1',
@@ -395,9 +393,7 @@ describe('PostgresPersonRepository', () => {
                 'lockOrderReorder'
             )
 
-            // A merge holds the lower id, the way readMergeRows locks sources, while the batch write arrives
-            // with the higher id first. Ordered locking blocks the write on the lower id and leaves
-            // the higher one free; join-order locking would have taken the higher one already.
+            // A merge holds the lower id; ordered locking blocks the write there and leaves the higher id free.
             let markLocked!: () => void
             let releaseHold!: () => void
             const locked = new Promise<void>((resolve) => (markLocked = resolve))

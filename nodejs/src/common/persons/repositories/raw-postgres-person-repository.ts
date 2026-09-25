@@ -74,7 +74,7 @@ export interface RawPostgresPersonRepository {
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
 
-    /** The target's row as it stands and the sources' rows, sources row-locked for the rest of the transaction. */
+    /** The sources are row-locked; the target is read unlocked. */
     readMergeRows(
         teamId: number,
         targetId: string,

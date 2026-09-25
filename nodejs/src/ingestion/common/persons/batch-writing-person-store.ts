@@ -474,7 +474,7 @@ class BatchWritingPersonsCache {
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
 
-        // Only pending sets travel here; the base snapshot never becomes part of the diff.
+        // Pending holds only this pod's sets, never the fetched row.
         mergedPersonUpdate.properties_to_set = {
             ...existingPersonUpdate.properties_to_set,
             ...person.properties_to_set,
@@ -1502,7 +1502,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const response = await (tx || this.personRepository).deletePerson(personToDelete)
         observeLatencyByVersion(person, start, 'deletePerson')
-        // The merge clears the person's caches after its commit, so a rollback leaves them intact.
+        // The merge clears the caches after commit, so a rollback keeps them.
         return response
     }
 
@@ -1543,7 +1543,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await tx.readMergeRows(teamId, targetId, sourceIds)
     }
 
-    /** The store's unflushed changes for a person, if any; by person, so a mapping purge cannot hide them. */
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
         const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
         return cached
@@ -1595,7 +1594,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (persons.length > 0) {
             observeLatencyByVersion(persons[0], start, 'deletePersons')
         }
-        // The merge clears the persons' caches after its commit, so a rollback leaves them intact.
+        // The merge clears the caches after commit, so a rollback keeps them.
         return response
     }
 
@@ -1644,7 +1643,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
-                // The checked person for a moved id is the source; the next check re-reads the row.
+                // The checked person is the source; drop it so the next check reads the row.
                 this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
@@ -1676,7 +1675,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
-                // The checked person for a moved id is the source; the next check re-reads the row.
+                // The checked person is the source; drop it so the next check reads the row.
                 this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
@@ -2088,11 +2087,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return [toInternalPerson(personUpdate), []]
     }
 
-    /**
-     * A single-person write through the batch statement, so the individual fallback
-     * merges with the row exactly as the batch does instead of replacing it with this
-     * pod's snapshot. A missing row throws, which withMergeRetry treats as a merge.
-     */
+    /** One row through the batch statement; a missing row throws for withMergeRetry. */
     private async updatePersonNoAssert(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
         const operation = 'updatePersonNoAssert'
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)

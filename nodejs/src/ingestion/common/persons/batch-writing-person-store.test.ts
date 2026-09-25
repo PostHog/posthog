@@ -135,7 +135,6 @@ describe('BatchWritingPersonStore', () => {
             claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             isPersonLive: jest.fn().mockResolvedValue(true),
-            readMergeRows: jest.fn().mockResolvedValue([]),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),

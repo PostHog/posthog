@@ -137,16 +137,16 @@ export interface PostgresMergePolicy {
     noopMappingDebounce?: MergeMappingDebounce
 }
 
-/** Only the keys a merge changes travel to the row, so its snapshot never overwrites a later write. */
+/** The keys a merge changes, so its write leaves every other key to the row. */
 function propertyChanges(before: Properties, after: Properties): { toSet: Properties; toUnset: string[] } {
     const toSet: Properties = {}
     for (const [key, value] of Object.entries(after)) {
-        // Structural: the outcome is a deep copy, so a reference check would re-send every object value.
+        // Deep equality: the outcome is a copy, so object values never match by reference.
         if (!isEqual(before[key], value)) {
             toSet[key] = value
         }
     }
-    const toUnset = Object.keys(before).filter((key) => !(key in after))
+    const toUnset = Object.keys(before).filter((key) => !Object.hasOwn(after, key))
     return { toSet, toUnset }
 }
 
@@ -244,10 +244,7 @@ export class PostgresPersonMerge {
         }
     }
 
-    /**
-     * The property outcome from the rows as they stand inside the transaction, sources locked, with
-     * the store's pending changes on top. Precedence: target, then earlier sources, then the event's ops.
-     */
+    /** Target wins over sources, earlier sources over later; the event's ops apply on top. */
     private async mergeOutcomeAtDelete(
         tx: PersonsStoreTransactionForBatch,
         target: InternalPerson,
@@ -261,7 +258,6 @@ export class PostgresPersonMerge {
             this.targetDistinctId
         )
         const byId = new Map(rows.map((row) => [row.id, row]))
-        // The store's unflushed changes for each person ride on its row.
         const withPending = (row: InternalPerson): InternalPerson => {
             const pending = this.store.pendingChanges(row.team_id, row.id)
             if (!pending) {
@@ -753,7 +749,7 @@ export class PostgresPersonMerge {
                     currentTarget.id,
                     this.targetDistinctId
                 )
-                // Read under lock right before the delete, so the lock spans only the delete.
+                // Right before the delete, so the source locks span only the delete.
                 const { changes, createdAt } = await this.mergeOutcomeAtDelete(
                     tx,
                     currentTarget,
@@ -779,7 +775,7 @@ export class PostgresPersonMerge {
             }
             return [person, [...updateMessages, ...moveResult.messages, ...addMessages, ...deleteMessages]]
         })
-        // After the commit, so a rollback leaves the sources' entries and their pending as they were.
+        // After commit, so a rollback keeps the sources' entries.
         for (const source of mergeSources) {
             this.store.clearAllCachesForPersonId(source.team_id, source.id)
         }
@@ -981,7 +977,7 @@ export class PostgresPersonMerge {
                     this.targetDistinctId
                 )
 
-                // Read under lock right before the delete, so the lock spans only the delete.
+                // Right before the delete, so the source locks span only the delete.
                 const { changes, createdAt } = await this.mergeOutcomeAtDelete(
                     tx,
                     currentTargetPerson,
@@ -1025,7 +1021,7 @@ export class PostgresPersonMerge {
                 }
                 return [person, [...updatePersonMessages, ...allDistinctIdMessages, ...deletePersonMessages]]
             })
-            // After the commit, so a rollback leaves the source's entry and its pending as they were.
+            // After commit, so a rollback keeps the source's entry.
             this.store.clearAllCachesForPersonId(currentSourcePerson.team_id, currentSourcePerson.id)
 
             this.flushOverrideCounts()

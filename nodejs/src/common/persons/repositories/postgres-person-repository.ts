@@ -1535,8 +1535,7 @@ export class PostgresPersonRepository
         sourceIds: string[],
         tx?: TransactionClient
     ): Promise<InternalPerson[]> {
-        // Only the sources lock, in ascending id order like the batch write, so neither a batch
-        // write nor another merge can deadlock on them. The target is read as it stands.
+        // Ascending id order, as the batch write locks, so the two cannot deadlock.
         const { rows } = await this.postgres.query<RawPerson>(
             tx ?? PostgresUse.PERSONS_WRITE,
             `WITH sources AS MATERIALIZED (
@@ -2125,10 +2124,7 @@ export class PostgresPersonRepository
      * Batch update multiple persons in a single query using UNNEST.
      * This uses a fixed query structure regardless of batch size, enabling prepared statement reuse.
      *
-     * No version assertion. Every field merges with the row rather than replacing it, so a
-     * snapshot read before another writer's flush cannot undo that write: properties apply
-     * as a diff, created_at only moves earlier, is_identified only turns on, last_seen_at only advances.
-     * The per-key metadata maps are left untouched; the store never changes them.
+     * No version assertion: every column merges with the row, so a stale snapshot cannot undo another writer's flush.
      */
     async updatePersonsBatch(
         personUpdates: PersonUpdate[]
@@ -2155,8 +2151,6 @@ export class PostgresPersonRepository
             uuids.push(update.uuid)
             teamIds.push(update.team_id)
 
-            // Only this update's own sets travel; the row keeps every key another
-            // writer landed since this snapshot was read.
             properties.push(sanitizeJsonbValue(update.properties_to_set))
             propertiesToUnset.push(sanitizeJsonbValue(update.properties_to_unset))
             isIdentified.push(update.is_identified)
@@ -2167,7 +2161,7 @@ export class PostgresPersonRepository
         try {
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
             // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
-            // The rows are locked in ascending id order first, the order a merge locks them in, before the update.
+            // Lock in ascending id order first, as a merge does, so the two cannot deadlock.
             const { rows } = await this.postgres.query<RawPerson>(
                 PostgresUse.PERSONS_WRITE,
                 `

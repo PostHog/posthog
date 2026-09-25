@@ -2133,11 +2133,11 @@ describe('PersonState.processEvent()', () => {
             await createPerson(hub, timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,
             })
-            // `nested` is object-valued: unchanged by the merge, it must not travel as a set either.
+            // `nested` is object-valued and unchanged, so it must not travel as a set.
             await createPerson(
                 hub,
                 timestamp2,
-                { b: 3, c: 4, d: 5, nested: { k: [1, 2] } },
+                { b: 3, c: 4, d: 5, constructor: 'x', nested: { k: [1, 2] } },
                 {},
                 {},
                 teamId,
@@ -2150,7 +2150,7 @@ describe('PersonState.processEvent()', () => {
             const mergeService = personMergeService({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
-                properties: { $set: { d: 6 }, $unset: ['c'], $anon_distinct_id: oldUserDistinctId },
+                properties: { $set: { d: 6 }, $unset: ['c', 'constructor'], $anon_distinct_id: oldUserDistinctId },
             })
             const result = await mergeService.handleIdentifyOrAlias()
             expect(result.success).toBe(true)
@@ -2159,12 +2159,12 @@ describe('PersonState.processEvent()', () => {
             }
             await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
 
-            // The survivor's own keys (b) stay out of the write; the source's key (a), the $set (d) and the $unset (c) travel.
+            // The survivor's own key (b) stays out; a prototype-named key unsets like any other.
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledWith([
                 expect.objectContaining({
                     uuid: newUserUuid,
                     properties_to_set: { a: 1, d: 6 },
-                    properties_to_unset: ['c'],
+                    properties_to_unset: ['c', 'constructor'],
                 }),
             ])
             const persons = await fetchPostgresPersonsH()
@@ -2242,8 +2242,7 @@ describe('PersonState.processEvent()', () => {
                 0
             )
 
-            // The first attempt fails after its move; the rollback leaves the source's entry and
-            // its pending in place, and the retry merges afresh.
+            // The first attempt fails after its move; the retry merges afresh.
             jest.spyOn(personRepository, 'updateCohortsAndFeatureFlagsForMerge').mockImplementationOnce(() =>
                 Promise.reject(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
             )
@@ -2449,8 +2448,7 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`joins both ids when another writer creates the anon person during a neither-exists merge`, async () => {
-            // Neither person exists. The anon person lands on another pod after the merge's
-            // lookups and before its two-id create, so that create loses on the anon id.
+            // The anon person lands on another pod before this merge's two-id create.
             let raced = false
             jest.spyOn(personRepository, 'createPerson').mockImplementation(async (...args) => {
                 if (!raced) {
@@ -2482,8 +2480,7 @@ describe('PersonState.processEvent()', () => {
         })
 
         it(`does not retry a neither-exists merge when the uuid's holder owns neither id`, async () => {
-            // A live person already carries the target's uuid under a third distinct id, so the
-            // two-id create conflicts on the uuid alone; no retry can attach anything.
+            // A live person holds the target's uuid under a third id, so no retry can attach.
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
                 distinctId: 'stranded-holder',
             })

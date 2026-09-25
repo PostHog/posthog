@@ -57,7 +57,7 @@ export interface PersonsStoreTransactionForBatch {
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
 
-    /** The target's row as it stands and the sources' rows, sources row-locked until the transaction ends. */
+    /** The sources are row-locked; the target is read unlocked. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
