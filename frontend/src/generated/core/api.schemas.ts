@@ -4353,6 +4353,11 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface ReverseProxyCheckApi {
+    /** Whether a $pageview or $screen event from the last day came through a custom API host, such as a reverse proxy. True when the reverse proxy setup task is already completed. */
+    has_reverse_proxy: boolean
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */

@@ -515,6 +515,9 @@ tools:
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false
+    reverse-proxy-check-retrieve:
+        operation: reverse_proxy_check_retrieve
+        enabled: false
     revoke-leaked-key-create:
         operation: revoke_leaked_key_create
         enabled: false

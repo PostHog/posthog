@@ -35,6 +35,7 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
             })
             initKeaTests()
@@ -93,9 +94,7 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
-                },
-                post: {
-                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
             })
             initKeaTests()
@@ -134,9 +133,7 @@ describe('projectNoticeLogic', () => {
                     // Function form so the [status, body] tuple is honored — a static array value
                     // would be served as a 200 JSON body instead of the error status.
                     '/api/organizations/:organization_id/proxy_records': () => [status, {}],
-                },
-                post: {
-                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
             })
             initKeaTests()
@@ -171,10 +168,7 @@ describe('projectNoticeLogic', () => {
                     // currentOrganizationId resolves to the loaded org id, not "@current" —
                     // match any id so loadRecords resolves instead of erroring.
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
-                },
-                post: {
-                    // reverseProxyCheckerLogic's HogQL detection query.
-                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
             })
             initKeaTests()
@@ -214,9 +208,7 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
-                },
-                post: {
-                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
             })
             initKeaTests()
@@ -270,6 +262,7 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
                 post: {
                     '/api/users/request_email_verification/': [200, { success: true }],
@@ -326,9 +319,7 @@ describe('projectNoticeLogic', () => {
             useMocks({
                 get: {
                     '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
-                },
-                post: {
-                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+                    '/api/projects/:team_id/reverse_proxy/check/': [200, { has_reverse_proxy: false }],
                 },
             })
             initKeaTests()

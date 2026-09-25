@@ -1,35 +1,39 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { reverseProxyCheckerLogic } from './reverseProxyCheckerLogic'
 
-const hasReverseProxyValues = [['https://proxy.example.com'], [null]]
-const doesNotHaveReverseProxyValues = [[null], [null]]
+const CHECK_URL = '/api/projects/:team_id/reverse_proxy/check/'
 
-const useMockedValues = (results: (string | null)[][]): void => {
-    useMocks({
-        post: {
-            '/api/environments/:team_id/query/:kind': () => [
-                200,
-                {
-                    results,
-                },
-            ],
-        },
-    })
+function setAppContextCheck(hasReverseProxy: boolean | undefined, teamId: number = MOCK_DEFAULT_TEAM.id): void {
+    window.POSTHOG_APP_CONTEXT = {
+        ...window.POSTHOG_APP_CONTEXT!,
+        current_team: { ...MOCK_DEFAULT_TEAM, id: teamId },
+        has_reverse_proxy: hasReverseProxy,
+    }
 }
 
 describe('reverseProxyCheckerLogic', () => {
     let logic: ReturnType<typeof reverseProxyCheckerLogic.build>
+    let checkRequest: jest.Mock
+
+    function useCheckMock(hasReverseProxy: boolean): void {
+        checkRequest = jest.fn(() => [200, { has_reverse_proxy: hasReverseProxy }])
+        useMocks({ get: { [CHECK_URL]: checkRequest } })
+    }
 
     beforeEach(() => {
         initKeaTests()
-        localStorage.clear()
+        setAppContextCheck(undefined)
         logic = reverseProxyCheckerLogic()
     })
 
@@ -37,58 +41,75 @@ describe('reverseProxyCheckerLogic', () => {
         logic.unmount()
     })
 
-    it('should not have a reverse proxy set - when no data', async () => {
-        useMockedValues([])
+    it.each([
+        {
+            name: 'uses a cached proxy from the app context',
+            context: true,
+            contextTeamOffset: 0,
+            expected: true,
+            requests: 0,
+        },
+        {
+            name: 'uses a cached miss from the app context',
+            context: false,
+            contextTeamOffset: 0,
+            expected: false,
+            requests: 0,
+        },
+        {
+            name: 'asks the server when the app context has no answer',
+            context: undefined,
+            contextTeamOffset: 0,
+            expected: true,
+            requests: 1,
+        },
+        {
+            name: 'asks the server when the app context is for another team',
+            context: false,
+            contextTeamOffset: 1,
+            expected: true,
+            requests: 1,
+        },
+    ])('on mount, $name', async ({ context, contextTeamOffset, expected, requests }) => {
+        useCheckMock(true)
+        setAppContextCheck(context, MOCK_DEFAULT_TEAM.id + contextTeamOffset)
 
         logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadHasReverseProxy()
-        })
+        await expectLogic(logic)
+            .toDispatchActions(['loadHasReverseProxySuccess'])
             .toFinishAllListeners()
-            .toMatchValues({
-                hasReverseProxy: false,
-            })
+            .toMatchValues({ hasReverseProxy: expected })
+
+        expect(checkRequest).toHaveBeenCalledTimes(requests)
     })
 
-    it('should not have a reverse proxy set - when data with no lib_custom_api_host values', async () => {
-        useMockedValues(doesNotHaveReverseProxyValues)
+    it.each([true, false])('returns the server answer %s and throttles repeat checks', async (hasReverseProxy) => {
+        useCheckMock(hasReverseProxy)
 
         logic.mount()
-
         await expectLogic(logic, () => {
             logic.actions.loadHasReverseProxy()
         })
             .toFinishAllListeners()
-            .toMatchValues({
-                hasReverseProxy: false,
-            })
+            .toMatchValues({ hasReverseProxy })
+
+        expect(checkRequest).toHaveBeenCalledTimes(1)
     })
 
-    it('should have a reverse proxy set', async () => {
-        useMockedValues(hasReverseProxyValues)
+    it('marks the reverse proxy setup task complete when a proxy is found', async () => {
+        useCheckMock(true)
+        globalSetupLogic.mount()
 
         logic.mount()
 
-        await expectLogic(logic, () => {
-            logic.actions.loadHasReverseProxy()
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                hasReverseProxy: true,
-            })
+        await expectLogic(globalSetupLogic).toDispatchActions([
+            globalSetupLogic.actionCreators.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy),
+        ])
+        globalSetupLogic.unmount()
     })
 
     it('should swallow server errors silently instead of showing a toast', async () => {
-        // Regression test: previously a 500 from the HogQL endpoint would propagate
-        // through kea-loaders and surface a user-visible
-        // 'Load has reverse proxy failed: A server error occurred' toast on every
-        // scene that mounts ProductSetupButton.
-        useMocks({
-            post: {
-                '/api/environments/:team_id/query/:kind': () => [500, { detail: 'A server error occurred' }],
-            },
-        })
+        useMocks({ get: { [CHECK_URL]: () => [500, { detail: 'A server error occurred' }] } })
 
         const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
         const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)

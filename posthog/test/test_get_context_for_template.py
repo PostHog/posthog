@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.cache import cache
 from django.http import HttpResponse
 from django.test import RequestFactory
 
@@ -93,6 +94,33 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = json.loads(actual["posthog_app_context"])
         assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
+
+    @parameterized.expand(
+        [
+            ("cached_proxy", True, None, True),
+            ("cached_no_proxy", False, None, False),
+            ("cache_miss_is_omitted", None, None, None),
+            ("completed_setup_task_is_not_proof", None, {"set_up_reverse_proxy": "completed"}, None),
+        ]
+    )
+    def test_bootstraps_reverse_proxy_check_from_cache_only(self, _name, cached, onboarding_tasks, expected):
+        cache.delete(f"team_has_reverse_proxy:{self.team.pk}")
+        if cached is not None:
+            cache.set(f"team_has_reverse_proxy:{self.team.pk}", cached)
+        self.team.onboarding_tasks = onboarding_tasks
+        self.team.save(update_fields=["onboarding_tasks"])
+        self.user.refresh_from_db()
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        with mock.patch("posthog.models.team.reverse_proxy_check.execute_hogql_query") as mock_query:
+            actual = get_context_for_template("layout", request)
+
+        mock_query.assert_not_called()
+        app_context = json.loads(actual["posthog_app_context"])
+        assert app_context.get("has_reverse_proxy") == expected
+        assert ("has_reverse_proxy" in app_context) is (expected is not None)
 
     @parameterized.expand(
         [
