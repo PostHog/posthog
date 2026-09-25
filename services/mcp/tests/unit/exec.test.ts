@@ -11,11 +11,13 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolsFromContext } from '@/tools'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
     describeInputKeys,
+    describeInputShape,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
@@ -1984,6 +1986,41 @@ describe('exec tool', () => {
             expect(result.success).toBe(false)
 
             expect(describeValidationError(result.error!, input, schema).inputKeys).toEqual(describeInputKeys(input))
+        })
+
+        describe('describeInputShape', () => {
+            const schema = z.preprocess(
+                normalizeParamAliases({ id: ['experimentId', 'experiment_id'] }),
+                z.preprocess(normalizeParamAliases({ key: ['flagKey'] }), z.object({ id: z.number(), key: z.string() }))
+            )
+
+            it('records each alias the normaliser relied on, from every alias layer', () => {
+                expect(describeInputShape({ flagKey: 'k', experimentId: 1 }, schema)).toEqual({
+                    $mcp_input_keys: ['experimentId', 'flagKey'],
+                    $mcp_input_aliases_used: ['experimentId:id', 'flagKey:key'],
+                })
+            })
+
+            // Mirrors the normaliser: a canonical the input already carries is never filled
+            // from an alias, and only the first alias in map order fills it. Recording the
+            // rest would count rescues that never happened.
+            it('records only the alias the normaliser relied on', () => {
+                expect(describeInputShape({ id: 5, experimentId: 5 }, schema)).not.toHaveProperty(
+                    '$mcp_input_aliases_used'
+                )
+                expect(describeInputShape({ experimentId: 1, experiment_id: 2 }, schema)).toMatchObject({
+                    $mcp_input_aliases_used: ['experimentId:id'],
+                })
+                expect(describeInputShape({ experimentId: 1 }, z.object({ id: z.number() }))).toEqual({
+                    $mcp_input_keys: ['experimentId'],
+                })
+            })
+
+            it('never includes input values', () => {
+                expect(JSON.stringify(describeInputShape({ experimentId: 'secret-value' }, schema))).not.toContain(
+                    'secret-value'
+                )
+            })
         })
     })
 

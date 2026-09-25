@@ -16,6 +16,8 @@ import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { readParamAliases } from './cast-helpers'
+
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
@@ -1262,14 +1264,26 @@ export const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) 
     declared || RECORDABLE_KEY_PATTERN.test(key)
 
 /**
- * The top-level keys a caller sent, with no values, from the SDK helper. Shared by the
- * validation descriptors and the per-call `$mcp_input_keys` property so both record the
- * same shape of the same request. The SDK owns the limits (20 names, 64 characters),
- * declared-names-first ordering, the single `[redacted]` marker, and dropping its
- * injected `context`, `llm_model`, and `conversation_id` unless the schema declares them.
+ * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
+ * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
+ * alias names count as declared and each alias the normaliser relied on is recorded as
+ * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
+ * ordering, the single `[redacted]` marker, and dropping its injected `context`, `llm_model`,
+ * and `conversation_id` unless the schema declares them.
+ */
+export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
+    return getToolInputProperties(input, schema, {
+        shouldRecordInputKey,
+        inputAliases: schema ? readParamAliases(schema) : undefined,
+    })
+}
+
+/**
+ * The `$mcp_input_keys` part of `describeInputShape`. Shared by the validation descriptors
+ * and the per-call property so both record the same shape of the same request.
  */
 export function describeInputKeys(input: unknown, schema?: z.ZodType): string[] {
-    const keys = getToolInputProperties(input, schema, { shouldRecordInputKey }).$mcp_input_keys
+    const keys = describeInputShape(input, schema).$mcp_input_keys
     return Array.isArray(keys) ? (keys as string[]) : []
 }
 

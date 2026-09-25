@@ -2871,18 +2871,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_validation_input_keys": {
             "label": "MCP validation input keys",
-            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections; see $mcp_input_keys for every call, which additionally drops the SDK-injected `context` and `llm_model` keys.",
+            "description": "Top-level argument names the caller sent on a call the MCP server's input schema rejected, sorted and capped at 20. Shows which name an agent used for a parameter the schema spells differently. Only set on local schema rejections, and recorded with the same rule as $mcp_input_keys, which is set on every call.",
             "examples": ["experimentId", "flagKey, limit"],
         },
         "$mcp_input_keys": {
             "label": "MCP input keys",
-            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Sorted, capped at 20, a key that is not identifier-shaped recorded as `*`; names only, never values. Group by it with $mcp_param_aliases_used to see how agents spell a parameter.",
+            "description": "Top-level argument names the caller sent on a tool call, success or failure: every direct-mode call, `render-ui`, and an exec `call` (parsed from the command string). Exec discovery verbs (tools, search, info, schema) carry none, so rate against rows where it is set rather than every $mcp_tool_call. Recorded by the @posthog/mcp SDK helper: names the tool declares (including its aliases) first, then undeclared identifier-shaped names, capped at 20; any other name becomes one `[redacted]` entry. Names only, never values. Group by it with $mcp_input_aliases_used to see how agents spell a parameter.",
             "examples": ["id", "experimentId", "filters, key, name"],
         },
-        "$mcp_param_aliases_used": {
-            "label": "MCP parameter aliases used",
-            "description": "Declared parameter aliases the call relied on, as `alias->canonical` (for example `experimentId->id`). Present only when at least one alias was used. Both names come from the tool's own schema. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
-            "examples": ["experimentId->id", "flagKey->key"],
+        "$mcp_input_aliases_used": {
+            "label": "MCP input aliases used",
+            "description": "Declared parameter aliases the call relied on, as `alias:canonical` (for example `experimentId:id`). Present only when the call did not send the canonical name and used one of its aliases instead. Both names come from the tool's own alias map. Recorded by the @posthog/mcp SDK helper. Measures how much traffic the alias layer rescues, and which spellings agents reach for.",
+            "examples": ["experimentId:id", "flagKey:key"],
         },
         "$mcp_exec_verb": {
             "label": "MCP exec verb",

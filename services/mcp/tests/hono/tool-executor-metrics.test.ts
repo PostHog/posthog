@@ -514,7 +514,7 @@ describe('ToolExecutor metrics', () => {
             expect(call[4]).toMatchObject({
                 // SDK-injected arguments are not something the agent chose to send.
                 $mcp_input_keys: ['experimentId'],
-                $mcp_param_aliases_used: ['experimentId->id'],
+                $mcp_input_aliases_used: ['experimentId:id'],
             })
             expect(JSON.stringify(call[4])).not.toContain('29')
         })
@@ -550,7 +550,7 @@ describe('ToolExecutor metrics', () => {
 
             const extras = trackToolCallExtras('strict-tool')
             expect(extras).toMatchObject({ $mcp_input_keys: ['requiredField'] })
-            expect(extras).not.toHaveProperty('$mcp_param_aliases_used')
+            expect(extras).not.toHaveProperty('$mcp_input_aliases_used')
         })
 
         describe('session properties', () => {
@@ -701,7 +701,7 @@ describe('ToolExecutor metrics', () => {
             expect(extras).toMatchObject({
                 $mcp_exec_verb: 'call',
                 $mcp_input_keys: ['flagKey'],
-                $mcp_param_aliases_used: ['flagKey->key'],
+                $mcp_input_aliases_used: ['flagKey:key'],
             })
             expect(JSON.stringify(extras)).not.toContain('checkout-v2')
         })

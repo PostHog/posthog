@@ -20,12 +20,11 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { getPostHogClient } from '@/lib/posthog'
-import { describeAliasesUsed, readParamAliases } from '@/tools/cast-helpers'
 import {
     createExecTool,
     describeApiValidationError,
     describeExecCommand,
-    describeInputKeys,
+    describeInputShape,
     describeValidationError,
     formatInputValidationError,
     markNoncanonicalMetricRun,
@@ -1078,10 +1077,10 @@ async function sessionUuidForError(state: ResolvedState): Promise<string | undef
  * success and failure alike. `$mcp_validation_input_keys` only exists on a local
  * schema rejection, so until now a call that sent `experimentId` and was
  * rescued by an alias, or sent an unknown key a permissive schema ignored, left
- * no trace of its shape. Names only, never values (see `describeInputKeys`).
+ * no trace of its shape. Names only, never values (see `describeInputShape`).
  *
- * `$mcp_param_aliases_used`: which declared aliases the call relied on, as
- * `alias->canonical`, present only when at least one was. Both halves are names
+ * `$mcp_input_aliases_used`: which declared aliases the call relied on, as
+ * `alias:canonical`, present only when at least one was. Both halves are names
  * the tool's own schema declares.
  */
 function inputShapeAnalyticsProperties(
@@ -1094,12 +1093,7 @@ function inputShapeAnalyticsProperties(
     if (input === null || typeof input !== 'object' || Array.isArray(input)) {
         return {}
     }
-    const record = input as Record<string, unknown>
-    const aliases = describeAliasesUsed(schema ? readParamAliases(schema) : undefined, record)
-    return {
-        $mcp_input_keys: describeInputKeys(record, schema),
-        ...(aliases.length > 0 ? { $mcp_param_aliases_used: aliases } : {}),
-    }
+    return describeInputShape(input, schema)
 }
 
 /** The target `describeExecCommand` recorded, when it resolved to a real tool name. */
