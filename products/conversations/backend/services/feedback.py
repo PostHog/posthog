@@ -32,9 +32,14 @@ def create_desktop_feedback_ticket(
     image_urls: list[str],
     app_logs: str | None,
 ) -> str:
+    from products.conversations.backend.api.tickets import (
+        assign_ticket,  # noqa: PLC0415 - breaks the facade/API import cycle
+    )
+
     team = Team.objects.get(pk=team_id)
     user = User.objects.get(pk=user_id)
-    if not team.conversations_enabled or not (team.conversations_settings or {}).get("email_enabled"):
+    support_settings = team.conversations_settings or {}
+    if not team.conversations_enabled or not support_settings.get("email_enabled"):
         raise FeedbackTicketUnavailable("Feedback email replies are not enabled")
     if not user.email or not user.is_email_verified:
         raise FeedbackTicketUnavailable("A verified account email is required for feedback replies")
@@ -78,6 +83,15 @@ def create_desktop_feedback_ticket(
             session_context=session_context,
             unread_team_count=1,
         )
+        if role_id := support_settings.get("desktop_feedback_role_id"):
+            assign_ticket(
+                ticket=ticket,
+                assignee={"type": "role", "id": role_id},
+                organization=team.organization,
+                user=None,
+                team_id=team.id,
+                was_impersonated=False,
+            )
         Comment.objects.create(
             team=team,
             scope="conversations_ticket",
