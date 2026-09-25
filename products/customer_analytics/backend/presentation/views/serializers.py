@@ -52,6 +52,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresence,
     AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
@@ -1089,6 +1090,23 @@ class AccountPresenceViewerSerializer(DataclassSerializer):
     class Meta:
         dataclass = AccountPresenceViewer
         fields = ["user_id", "display_name"]
+
+
+class AccountPresenceListRequestSerializer(serializers.Serializer):
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        max_length=100,
+        help_text="Up to 100 account IDs to read presence for.",
+    )
+
+
+class AccountPresenceSerializer(DataclassSerializer):
+    account_id = serializers.UUIDField(read_only=True, help_text="Customer analytics account ID.")
+    viewers = AccountPresenceViewerSerializer(many=True, read_only=True, help_text="People viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresence
+        fields = ["account_id", "viewers"]
 
 
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
