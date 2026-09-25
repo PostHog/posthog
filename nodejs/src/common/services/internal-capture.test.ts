@@ -16,6 +16,9 @@ const okResponse = () => ({
 
 const responseWithStatus = (status: number) => ({ ...okResponse(), status })
 
+const connectTimeout = (): Error =>
+    Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' })
+
 describe('InternalCaptureService', () => {
     let service: InternalCaptureService
     beforeEach(() => {
@@ -25,6 +28,7 @@ describe('InternalCaptureService', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
     })
+
     it('should capture an event', async () => {
         await service.capture({
             team_token: 'token',
@@ -38,7 +42,7 @@ describe('InternalCaptureService', () => {
               [
                 "http://localhost:8010/capture",
                 {
-                  "body": "{"api_key":"token","timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","sent_at":"2025-01-01T00:00:00.000Z","event":"event-name","properties":{"capture_internal":true}}",
+                  "body": "{"api_key":"token","sent_at":"2025-01-01T00:00:00.000Z","batch":[{"timestamp":"2025-01-01T00:00:00.000Z","distinct_id":"distinct-id","event":"event-name","properties":{"capture_internal":true}}]}",
                   "headers": {
                     "Content-Type": "application/json",
                   },
@@ -64,25 +68,36 @@ describe('InternalCaptureService', () => {
         expect(parseJSON(mockInternalFetch.mock.calls[0][1].body)).toMatchInlineSnapshot(`
             {
               "api_key": "token",
-              "distinct_id": "distinct-id",
-              "event": "event-name",
-              "properties": {
-                "capture_internal": true,
-                "foo": "bar",
-              },
+              "batch": [
+                {
+                  "distinct_id": "distinct-id",
+                  "event": "event-name",
+                  "properties": {
+                    "capture_internal": true,
+                    "foo": "bar",
+                  },
+                  "timestamp": "2025-03-03T03:03:03.000Z",
+                },
+              ],
               "sent_at": "2025-01-01T00:00:00.000Z",
-              "timestamp": "2025-03-03T03:03:03.000Z",
             }
         `)
     })
 
-    const connectTimeout = (): Error =>
-        Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' })
+    it('sends a team batch as one request', async () => {
+        await service.captureBatch('token', [
+            { team_token: 'token', event: 'a', distinct_id: 'u1' },
+            { team_token: 'token', event: 'b', distinct_id: 'u2' },
+        ])
 
-    it('retries a connect timeout and keeps the event', async () => {
+        expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+        expect(parseJSON(mockInternalFetch.mock.calls[0][1].body).batch).toHaveLength(2)
+    })
+
+    it('retries a connect timeout and keeps the batch', async () => {
         mockInternalFetch.mockRejectedValueOnce(connectTimeout())
 
-        await service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' })
+        await service.captureBatch('token', [{ team_token: 'token', event: 'a', distinct_id: 'u1' }])
 
         expect(mockInternalFetch).toHaveBeenCalledTimes(2)
     })
@@ -91,7 +106,7 @@ describe('InternalCaptureService', () => {
         mockInternalFetch.mockRejectedValue(connectTimeout())
 
         await expect(
-            service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' })
+            service.captureBatch('token', [{ team_token: 'token', event: 'a', distinct_id: 'u1' }])
         ).rejects.toThrow('Connect Timeout Error')
         expect(mockInternalFetch).toHaveBeenCalledTimes(3)
     })
@@ -99,17 +114,17 @@ describe('InternalCaptureService', () => {
     it('retries a 503 from capture', async () => {
         mockInternalFetch.mockResolvedValueOnce(responseWithStatus(503))
 
-        await service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' })
+        await service.captureBatch('token', [{ team_token: 'token', event: 'a', distinct_id: 'u1' }])
 
         expect(mockInternalFetch).toHaveBeenCalledTimes(2)
     })
 
-    it('does not retry a rejected event', async () => {
+    it('does not retry a batch capture rejects', async () => {
         mockInternalFetch.mockResolvedValue(responseWithStatus(401))
 
         await expect(
-            service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' })
-        ).rejects.toThrow('rejected the event with status 401')
+            service.captureBatch('token', [{ team_token: 'token', event: 'a', distinct_id: 'u1' }])
+        ).rejects.toThrow('status 401')
         expect(mockInternalFetch).toHaveBeenCalledTimes(1)
     })
 
@@ -117,7 +132,7 @@ describe('InternalCaptureService', () => {
         const dump = jest.fn(() => Promise.resolve())
         mockInternalFetch.mockResolvedValue({ ...okResponse(), dump })
 
-        await service.capture({ team_token: 'token', event: 'event-name', distinct_id: 'distinct-id' })
+        await service.capture({ team_token: 'token', event: 'a', distinct_id: 'u1' })
 
         expect(dump).toHaveBeenCalledTimes(1)
     })

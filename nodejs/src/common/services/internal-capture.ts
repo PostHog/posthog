@@ -13,8 +13,8 @@ const internalCaptureCounter = new Counter({
 })
 
 const internalCaptureAttemptFailureCounter = new Counter({
-    name: 'internal_capture_event_attempt_failures',
-    help: 'Internal capture attempts that failed, by reason. An event can fail several attempts before it succeeds.',
+    name: 'internal_capture_request_attempt_failures',
+    help: 'Internal capture requests that failed, by reason. A request can fail several attempts before it succeeds.',
     labelNames: ['reason'],
 })
 
@@ -28,6 +28,9 @@ const CAPTURE_RETRY_SCHEDULE: RetrySchedule = {
     softDeadlineMs: 5000,
 }
 
+/** Capture refuses a wire body above 20 MB. Internal events are small, so this chunk stays far below the ceiling. */
+export const MAX_EVENTS_PER_CAPTURE_REQUEST = 500
+
 export type InternalCaptureEvent = {
     team_token: string
     event: string
@@ -36,35 +39,30 @@ export type InternalCaptureEvent = {
     timestamp?: string
 }
 
-type CapturePayloadFormat = {
+type CaptureBatchFormat = {
     api_key: string
-    timestamp: string
-    distinct_id: string
     sent_at: string
-    event: string
-    properties: Record<string, any>
+    batch: {
+        timestamp: string
+        distinct_id: string
+        event: string
+        properties: Record<string, any>
+    }[]
 }
 
-/** Capture rejected the event itself. A retry sends the same payload, so it gets the same answer. */
-class CaptureRejectedError extends Error {
-    readonly isRetriable = false
+/** Capture answered. A 4xx is the same answer every time, so only the rest is worth another attempt. */
+class CaptureStatusError extends Error {
+    readonly isRetriable: boolean
     constructor(readonly status: number) {
-        super(`Internal capture rejected the event with status ${status}`)
-        this.name = 'CaptureRejectedError'
-    }
-}
-
-/** Capture was unavailable or overloaded. A later attempt can still land the event. */
-class CaptureUnavailableError extends Error {
-    constructor(readonly status: number) {
-        super(`Internal capture is unavailable, status ${status}`)
-        this.name = 'CaptureUnavailableError'
+        super(`Internal capture answered with status ${status}`)
+        this.name = 'CaptureStatusError'
+        this.isRetriable = status === 429 || status >= 500
     }
 }
 
 /** Undici reports a transport failure through `code`, for example a connect timeout. */
 function failureReason(error: unknown): string {
-    if (error instanceof CaptureUnavailableError || error instanceof CaptureRejectedError) {
+    if (error instanceof CaptureStatusError) {
         return `status_${error.status}`
     }
     const code = (error as { code?: unknown })?.code
@@ -74,64 +72,72 @@ function failureReason(error: unknown): string {
 export class InternalCaptureService {
     constructor(private config: Pick<CommonConfig, 'CAPTURE_INTERNAL_URL'>) {}
 
-    private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormat {
-        const properties = { ...(event.properties ?? {}), capture_internal: true }
+    private prepareBatch(teamToken: string, events: InternalCaptureEvent[]): CaptureBatchFormat {
         const now = DateTime.utc().toISO()
         return {
-            api_key: event.team_token,
-            timestamp: event.timestamp ?? now,
-            distinct_id: event.distinct_id,
+            api_key: teamToken,
             sent_at: now,
-            event: event.event,
-            properties,
+            batch: events.map((event) => ({
+                timestamp: event.timestamp ?? now,
+                distinct_id: event.distinct_id,
+                event: event.event,
+                properties: { ...(event.properties ?? {}), capture_internal: true },
+            })),
         }
     }
 
     /**
-     * One POST to capture. The body is always drained: undici holds the socket open until the body is read, so a
-     * caller that ignores it makes every capture open a new connection and the pool runs out.
+     * One POST. The body is always drained: undici holds the socket out of the pool until the body is read, so a
+     * caller that ignores it makes every capture open a new connection.
      */
     private async send(body: string): Promise<number> {
-        const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body,
-        })
-        await response.dump()
+        try {
+            const response = await internalFetch(this.config.CAPTURE_INTERNAL_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body,
+            })
+            await response.dump()
 
-        if (response.status === 429 || response.status >= 500) {
-            throw new CaptureUnavailableError(response.status)
+            if (response.status >= 400) {
+                throw new CaptureStatusError(response.status)
+            }
+            return response.status
+        } catch (error) {
+            internalCaptureAttemptFailureCounter.inc({ reason: failureReason(error) })
+            throw error
         }
-        if (response.status >= 400) {
-            throw new CaptureRejectedError(response.status)
-        }
-        return response.status
     }
 
-    /** Resolves when capture accepted the event. Throws when every attempt failed, so the caller can count the loss. */
-    async capture(event: InternalCaptureEvent): Promise<void> {
-        logger.debug('Capturing internal event', { event, url: this.config.CAPTURE_INTERNAL_URL })
-        const body = JSON.stringify(this.prepareEvent(event))
-
-        try {
-            const status = await retryIfRetriable(async () => {
-                try {
-                    return await this.send(body)
-                } catch (error) {
-                    internalCaptureAttemptFailureCounter.inc({ reason: failureReason(error) })
-                    throw error
-                }
-            }, CAPTURE_RETRY_SCHEDULE)
-
-            logger.debug('Internal capture event captured', { status })
-            internalCaptureCounter.inc({ status: status.toString() })
-        } catch (e) {
-            // A rejection keeps its status, so the counter still separates a bad token from capture being unreachable.
-            internalCaptureCounter.inc({ status: e instanceof CaptureRejectedError ? e.status.toString() : 'error' })
-            logger.error('Error capturing internal event', { error: e })
-            throw e
+    /**
+     * Sends one team's events in a single request. Capture reads a batch body on the same path a single event uses,
+     * so a flush costs one request per team rather than one per event.
+     *
+     * Resolves when capture accepted the batch. Throws when every attempt failed, so the caller can count the loss.
+     */
+    async captureBatch(teamToken: string, events: InternalCaptureEvent[]): Promise<void> {
+        if (events.length === 0) {
+            return
         }
+        logger.debug('Capturing internal events', { count: events.length, url: this.config.CAPTURE_INTERNAL_URL })
+        const body = JSON.stringify(this.prepareBatch(teamToken, events))
+
+        let status: number
+        try {
+            status = await retryIfRetriable(() => this.send(body), CAPTURE_RETRY_SCHEDULE)
+        } catch (error) {
+            // A rejection keeps its status, so the counter still separates a bad token from capture being unreachable.
+            const label = error instanceof CaptureStatusError ? error.status.toString() : 'error'
+            internalCaptureCounter.inc({ status: label }, events.length)
+            throw error
+        }
+
+        internalCaptureCounter.inc({ status: status.toString() }, events.length)
+    }
+
+    async capture(event: InternalCaptureEvent): Promise<void> {
+        await this.captureBatch(event.team_token, [event])
     }
 }

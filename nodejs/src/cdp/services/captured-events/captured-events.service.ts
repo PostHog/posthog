@@ -1,6 +1,10 @@
 import { Counter, Gauge } from 'prom-client'
 
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import {
+    InternalCaptureEvent,
+    InternalCaptureService,
+    MAX_EVENTS_PER_CAPTURE_REQUEST,
+} from '~/common/services/internal-capture'
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -18,9 +22,30 @@ const capturedEventsDropped = new Counter({
     help: 'Internal capture events lost because every attempt to send them failed.',
 })
 
-// Capture takes one request per event. A whole batch sent at once opens that many connections to capture and the
-// connects then time out, so a flush keeps a fixed number in flight and queues the rest.
-const MAX_CONCURRENT_CAPTURES = 16
+// A flush already costs one request per team. The cap covers a worker that serves many teams at once, so the
+// requests never grow into a burst of connections that capture cannot accept.
+const MAX_CONCURRENT_CAPTURE_REQUESTS = 16
+
+/** Groups a flush into the requests it takes: one per team, split again when a team has more events than one holds. */
+function requestsFor(events: InternalCaptureEvent[]): [string, InternalCaptureEvent[]][] {
+    const byTeam = new Map<string, InternalCaptureEvent[]>()
+    for (const event of events) {
+        const existing = byTeam.get(event.team_token)
+        if (existing) {
+            existing.push(event)
+        } else {
+            byTeam.set(event.team_token, [event])
+        }
+    }
+
+    const requests: [string, InternalCaptureEvent[]][] = []
+    for (const [teamToken, teamEvents] of byTeam) {
+        for (let i = 0; i < teamEvents.length; i += MAX_EVENTS_PER_CAPTURE_REQUEST) {
+            requests.push([teamToken, teamEvents.slice(i, i + MAX_EVENTS_PER_CAPTURE_REQUEST)])
+        }
+    }
+    return requests
+}
 
 /**
  * Collects and flushes PostHog capture events emitted by hog function
@@ -31,6 +56,9 @@ const MAX_CONCURRENT_CAPTURES = 16
  */
 export class CapturedEventsService {
     private queuedEvents: InternalCaptureEvent[] = []
+
+    // Held on the service, so overlapping flushes share one budget rather than each taking their own.
+    private inFlight = new ConcurrencyController(MAX_CONCURRENT_CAPTURE_REQUESTS)
 
     constructor(
         private internalCaptureService: InternalCaptureService,
@@ -111,18 +139,33 @@ export class CapturedEventsService {
             return
         }
 
-        const inFlight = new ConcurrencyController(MAX_CONCURRENT_CAPTURES)
+        let dropped = 0
+        let firstError: unknown
 
         await Promise.all(
-            events.map((event) =>
-                inFlight
-                    .run({ fn: () => this.internalCaptureService.capture(event), debugTag: 'internal-capture' })
+            requestsFor(events).map(([teamToken, teamEvents]) =>
+                this.inFlight
+                    .run({
+                        fn: () => this.internalCaptureService.captureBatch(teamToken, teamEvents),
+                        debugTag: 'internal-capture',
+                    })
                     .catch((error) => {
-                        capturedEventsDropped.inc()
-                        logger.error('Error capturing internal event', { error })
-                        captureException(error)
+                        dropped += teamEvents.length
+                        firstError = firstError ?? error
                     })
             )
         )
+
+        if (dropped > 0) {
+            capturedEventsDropped.inc(dropped)
+            // One report per flush. Capture is down for the whole flush or for none of it, so a report per request
+            // would say the same thing thousands of times over.
+            logger.error('Error capturing internal events', {
+                dropped,
+                queued: events.length,
+                error: String(firstError),
+            })
+            captureException(firstError)
+        }
     }
 }
