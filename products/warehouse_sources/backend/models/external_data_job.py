@@ -91,6 +91,17 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 condition=Q(status=ExternalDataJobStatus.RUNNING),
                 name="idx_extdatajob_running",
             ),
+            # Serves the billing-limit check at sync start (_rows_synced_in_billing_period):
+            # team IN (<org teams>) with a finished_at range over completed, billable runs.
+            # idx_extdatajob_latest_run puts pipeline before any time column, so without this
+            # index the check reads every job the org has ever run. The INCLUDE columns let
+            # the sum run as an index-only scan.
+            models.Index(
+                fields=["team", "finished_at"],
+                condition=Q(status=ExternalDataJobStatus.COMPLETED, billable=True),
+                include=["pipeline", "rows_synced", "destination_ids"],
+                name="idx_extdatajob_team_billable",
+            ),
         ]
 
     def folder_path(self) -> str:
