@@ -336,12 +336,12 @@ class InkeepDocsSearchTool(MaxSubtool):
 BUSINESS_KNOWLEDGE_SEARCH_PROMPT = """
 # Business knowledge search
 
-Use `kind="business-knowledge"` to search the project's custom knowledge base.
-This knowledge base contains business-specific information uploaded by the project owner —
+Use `kind="business-knowledge"` to search the project's business knowledge.
+Business knowledge contains business-specific information uploaded by the project owner —
 such as product documentation, support policies, internal guides, and FAQs.
 
 **IMPORTANT: You MUST search business knowledge BEFORE composing your first reply to every
-customer message.** The knowledge base may contain policies, context, or rules that apply
+customer message.** Business knowledge may contain policies, context, or rules that apply
 to this conversation. Use a short, broad query derived from the customer's message topic.
 
 Additional rules:
@@ -362,7 +362,7 @@ If you need more surrounding context for a specific result, use `read_data` with
 """.strip()
 
 BK_SEARCH_NO_RESULTS_TEMPLATE = """
-No results found in the project's knowledge base for this query.
+No results found in the project's business knowledge for this query.
 
 <system_reminder>
 No relevant business knowledge was found. Proceed normally — do not mention the empty search to the customer.
