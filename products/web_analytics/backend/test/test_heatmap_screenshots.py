@@ -289,6 +289,11 @@ class TestHeatmapsAPI(APIBaseTest):
         r = self.client.get(f"/api/environments/{self.team.id}/heatmap_screenshots/{saved.id}/content/?width=1024")
         self.assertEqual(r.status_code, 501)
 
+        detail = self.client.get(f"/api/environments/{self.team.id}/saved/{saved.short_id}/")
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(detail.json()["has_content"])
+        self.assertFalse(detail.json()["snapshots"][0]["has_content"])
+
     def test_content_served_increments_metric(self):
         saved = SavedHeatmap.objects.create(
             team=self.team,
