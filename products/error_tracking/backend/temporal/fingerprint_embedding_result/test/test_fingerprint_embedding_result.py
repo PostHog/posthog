@@ -541,3 +541,28 @@ class TestAutoMergeReopensTarget(BaseTest):
 
         assert outcome.merged_count == 1
         assert outcome.reopened_target is None
+
+    def test_auto_merge_reports_the_reopen_when_the_clickhouse_sync_fails(self) -> None:
+        self._create_issue("fp-source", "active")
+        target = self._create_issue("fp-target", "resolved")
+
+        # A failed sync after the commit must not fail the activity. A retry would find the
+        # source gone, report a plain merge and never send the reopened alert.
+        with (
+            patch(
+                "products.error_tracking.backend.models.sync_issues_to_clickhouse",
+                side_effect=Exception("clickhouse sync failed"),
+            ),
+            patch(
+                "products.error_tracking.backend.models.update_error_tracking_issue_fingerprint_overrides",
+                side_effect=Exception("fingerprint override sync failed"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            outcome = self._merge()
+
+        target.refresh_from_db()
+        assert target.status == "active"
+        assert outcome.merged_count == 1
+        assert outcome.reopened_target is not None
+        assert outcome.reopened_target.issue_id == str(target.id)

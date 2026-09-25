@@ -20,6 +20,8 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueEmbeddingPreparationResult,
     IssueSeverityInferenceResult,
 )
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
+from products.error_tracking.backend.temporal.lifecycle.issue_reopened.workflow import run_issue_reopened_side_effects
 from products.error_tracking.backend.temporal.lifecycle.policies import (
     ACTIVITY_RETRY_POLICY,
     ACTIVITY_START_TO_CLOSE_TIMEOUT,
@@ -27,8 +29,6 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
 )
-from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
-from products.error_tracking.backend.temporal.lifecycle.issue_reopened.workflow import run_issue_reopened_side_effects
 
 WORKFLOW_NAME = "error-tracking-issue-created"
 
