@@ -29722,7 +29722,7 @@ class TraceSpansQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
-    dateRange: DateRange
+    dateRange: DateRange | None = None
     excludeAttributes: bool | None = Field(
         default=None,
         description=("Omit the per-span `attributes` map from results to keep payloads compact"),

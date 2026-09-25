@@ -1,5 +1,7 @@
 import datetime as dt
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
 from products.tracing.backend.presentation.views import TRACE_SPANS_PAGE_SIZE
@@ -7,6 +9,11 @@ from products.tracing.backend.tests.test_keyset_pagination import _b64, _TraceSp
 
 BASE = dt.datetime(2026, 6, 2, 8, 0, 0)
 SPAN_COUNT = TRACE_SPANS_PAGE_SIZE + 3  # spills past one page so paging actually kicks in
+# BASE is older than any default window, so the undated lookup can find the trace only by its id.
+LOOKUPS = [
+    ("dated", {"date_from": "2026-06-02T07:00:00Z", "date_to": "2026-06-02T09:00:00Z"}),
+    ("undated", None),
+]
 
 
 class TestTracePagination(_TraceSpansTestBase):
@@ -35,21 +42,20 @@ class TestTracePagination(_TraceSpansTestBase):
             "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
         )
 
-    def _fetch_page(self, offset: int = 0) -> dict:
+    def _fetch_page(self, date_range: dict | None, offset: int = 0) -> dict:
         trace_hex = (1).to_bytes(16, "big").hex()
+        body: dict = {"offset": offset}
+        if date_range is not None:
+            body["dateRange"] = date_range
         response = self.client.post(
-            f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_hex}/",
-            {
-                "dateRange": {"date_from": "2026-06-02T07:00:00Z", "date_to": "2026-06-02T09:00:00Z"},
-                "offset": offset,
-            },
-            format="json",
+            f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_hex}/", body, format="json"
         )
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()
 
-    def test_first_page_is_the_earliest_spans_by_start_time(self):
-        page = self._fetch_page()
+    @parameterized.expand(LOOKUPS)
+    def test_first_page_is_the_earliest_spans_by_start_time(self, _name: str, date_range: dict | None):
+        page = self._fetch_page(date_range)
         names = [span["name"] for span in page["results"]]
         self.assertEqual(len(names), TRACE_SPANS_PAGE_SIZE)
         # The first page is exactly the earliest-starting spans (span_no 1..PAGE_SIZE), in order.
@@ -57,15 +63,17 @@ class TestTracePagination(_TraceSpansTestBase):
         self.assertTrue(page["hasMore"])
         self.assertEqual(page["nextOffset"], TRACE_SPANS_PAGE_SIZE)
 
-    def test_second_page_returns_the_remainder_and_ends(self):
-        page = self._fetch_page(offset=TRACE_SPANS_PAGE_SIZE)
+    @parameterized.expand(LOOKUPS)
+    def test_second_page_returns_the_remainder_and_ends(self, _name: str, date_range: dict | None):
+        page = self._fetch_page(date_range, offset=TRACE_SPANS_PAGE_SIZE)
         names = {span["name"] for span in page["results"]}
         self.assertEqual(names, {f"op-{n}" for n in range(TRACE_SPANS_PAGE_SIZE + 1, SPAN_COUNT + 1)})
         self.assertFalse(page["hasMore"])
         self.assertIsNone(page["nextOffset"])
 
-    def test_pages_do_not_overlap(self):
-        first = {span["span_id"] for span in self._fetch_page()["results"]}
-        second = {span["span_id"] for span in self._fetch_page(offset=TRACE_SPANS_PAGE_SIZE)["results"]}
+    @parameterized.expand(LOOKUPS)
+    def test_pages_do_not_overlap(self, _name: str, date_range: dict | None):
+        first = {span["span_id"] for span in self._fetch_page(date_range)["results"]}
+        second = {span["span_id"] for span in self._fetch_page(date_range, offset=TRACE_SPANS_PAGE_SIZE)["results"]}
         self.assertEqual(first & second, set())
         self.assertEqual(len(first | second), SPAN_COUNT)

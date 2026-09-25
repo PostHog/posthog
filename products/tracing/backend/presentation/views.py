@@ -362,7 +362,7 @@ class _TracingSparklineRequestSerializer(serializers.Serializer):
 class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
-        help_text="Date range for the query. Defaults to last 24 hours.",
+        help_text="Date range for the query. Omit it to search all retained spans for this trace.",
     )
     excludeAttributes = serializers.BooleanField(
         required=False,
@@ -1799,8 +1799,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
-        date_range = self.get_model(
-            normalize_tracing_date_range(query_data.get("dateRange"), default_date_from="-24h"), DateRange
+        date_range = (
+            self.get_model(normalize_tracing_date_range(query_data["dateRange"], default_date_from="-24h"), DateRange)
+            if query_data.get("dateRange")
+            else None
         )
         try:
             # verify the trace_id is valid

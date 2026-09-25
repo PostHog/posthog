@@ -4967,7 +4967,7 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     kind: NodeKind.TraceSpansQuery
-    dateRange: DateRange
+    dateRange?: DateRange
     limit?: integer
     offset?: integer
     /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
