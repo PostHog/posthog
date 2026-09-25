@@ -221,6 +221,108 @@ class TestTask(TestCase):
         self.assertEqual(task.runtime, Task.Runtime.PI)
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
+    @parameterized.expand(
+        [
+            ("unknown", {"sandbox_template": "no_such_template"}),
+            ("vm", {"sandbox_template": "vm_base"}),
+            ("vm_via_extra_run_state", {"extra_run_state": {"sandbox_template": "vm_base"}}),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_rejects_a_template_a_caller_may_not_select(self, _name, kwargs, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.assertRaises(ValueError):
+            Task.create_and_run(
+                team=self.team,
+                title="Slack Task",
+                description="Slack Description",
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user.id,
+                repository="posthog/posthog",
+                **kwargs,
+            )
+
+        mock_execute_workflow.assert_not_called()
+        self.assertEqual(Task.objects.count(), 0)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_keeps_the_template_when_extra_run_state_carries_null(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Slack Task",
+                description="Slack Description",
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user.id,
+                repository="posthog/posthog",
+                sandbox_template="autoresearch_base",
+                extra_run_state={"sandbox_template": None},
+            )
+
+        state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
+        self.assertEqual(state["sandbox_template"], "autoresearch_base")
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.SIGNALS_CHAT,),
+            (Task.OriginProduct.SIGNAL_REPORT,),
+            (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,),
+            (Task.OriginProduct.AUTORESEARCH,),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_attaches_no_github_integration_to_a_repo_less_restricted_origin(
+        self, origin_product, mock_execute_workflow
+    ):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Repo-less task",
+                description="No repository",
+                origin_product=origin_product,
+                user_id=user.id,
+            )
+
+        self.assertIsNone(task.github_integration)
+        self.assertIsNone(task.github_user_integration)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_run_keeps_the_previous_template_and_refuses_a_forbidden_one(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Slack Task",
+                description="Slack Description",
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user.id,
+                repository="posthog/posthog",
+                sandbox_template="autoresearch_base",
+            )
+        first_run = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"])
+        self.assertEqual(first_run.state["sandbox_template"], "autoresearch_base")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            later_run = task.create_run()
+            null_run = task.create_run(extra_state={"sandbox_template": None})
+
+        self.assertEqual(later_run.state["sandbox_template"], "autoresearch_base")
+        self.assertEqual(null_run.state["sandbox_template"], "autoresearch_base")
+
+        with self.assertRaises(ValueError):
+            task.create_run(extra_state={"sandbox_template": "vm_base"})
+        self.assertEqual(TaskRun.objects.filter(task=task).count(), 3)
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_threads_attribution_stamps_into_state(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
@@ -762,6 +864,16 @@ class TestTaskSlackPrNotification(TestCase):
         self.assertEqual(task.state["unrelated"], "keep-me")
         self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
 
+    def test_mutate_state_atomic_saves_a_nested_value_edited_in_place(self):
+        task = self._task()
+        task.state = {"offers": {"items": [1]}}
+        task.save(update_fields=["state"])
+
+        Task.mutate_state_atomic(task.id, lambda state: state["offers"]["items"].append(2))
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["offers"], {"items": [1, 2]})
+
 
 class TestTaskSlug(TestCase):
     organization: ClassVar[Organization]
@@ -953,6 +1065,27 @@ class TestTaskRun(TestCase):
 
         with self.assertRaises(TaskOwnershipChangedError):
             task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
+
+    @parameterized.expand(
+        [
+            ("current_summary", {"task_summary": "Halfway through the migration"}, "Halfway through the migration"),
+            ("inherited_summary", {"prior_run_summary": "Reading the API"}, "Reading the API"),
+            (
+                "current_over_inherited",
+                {"task_summary": "Writing tests", "prior_run_summary": "Reading"},
+                "Writing tests",
+            ),
+            ("blank_summary", {"task_summary": "   "}, None),
+        ]
+    )
+    def test_create_run_carries_the_resume_source_summary(self, _name, source_state, expected):
+        previous_run = TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=source_state
+        )
+
+        run = self.task.create_run(extra_state={"resume_from_run_id": str(previous_run.id)})
+
+        self.assertEqual(run.state.get("prior_run_summary"), expected)
 
     @parameterized.expand(
         [
@@ -1336,11 +1469,19 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
 
-    def test_mark_failed(self):
+    @parameterized.expand(
+        [
+            ("without_sandbox", {}, None),
+            ("modal", {"sandbox_id": "sandbox-example"}, "modal"),
+            ("hogland", {"sandbox_id": "sandbox-example", "sandbox_backend": "hogland"}, "hogland"),
+        ]
+    )
+    def test_mark_failed(self, _name: str, state: dict[str, str], expected_backend: str | None) -> None:
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
+            state=state,
         )
 
         error_msg = "x" * 1400 + "Error: the root cause sits at the tail"
@@ -1355,6 +1496,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(len(captured), 1)
         props = captured[0].kwargs["properties"]
         self.assertEqual(props["error_type"], "stale_queued_cleanup")
+        self.assertEqual(props.get("sandbox_backend"), expected_backend)
         self.assertEqual(len(props["error_message"]), 500)
         self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
 

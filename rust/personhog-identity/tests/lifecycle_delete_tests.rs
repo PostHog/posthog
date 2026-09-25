@@ -310,7 +310,7 @@ async fn a_person_marked_by_another_live_op_is_skipped() {
     .await
     .expect("insert other op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) VALUES ($1, $2, $3, gen_random_uuid(), 'source', 'marked', true)",
     )
     .bind(other_op)
     .bind(ctx.team_id as i32)
@@ -379,8 +379,8 @@ async fn a_victim_destroyed_between_liveness_check_and_mark_settles_as_not_found
     .await
     .expect("insert op");
     sqlx::query(
-        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
-         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked', true)",
     )
     .bind(op_id)
     .bind(ctx.team_id as i32)

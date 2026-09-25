@@ -8,12 +8,14 @@ import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
+    BaseTest,
     ClickhouseTestMixin,
     NewEventsSchemaSnapshotExtension,
     _create_event,
     _create_person,
     flush_persons_and_events,
 )
+from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
@@ -39,8 +41,10 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query_stats import query_stats_scope, record
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
+    json_dynamic_read_sql,
     pretty_print_in_tests,
     pretty_print_response_in_tests,
 )
@@ -48,6 +52,7 @@ from posthog.hogql.test.utils import (
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE, ADHOC_EVENTS_DELETION_TABLE_SQL
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -64,6 +69,23 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
+
+    @parameterized.expand(
+        [
+            ("having", "GROUP BY trace_id HAVING trace_id < 'c'", [("a", 1)]),
+            ("having_all", "GROUP BY ALL HAVING trace_id < 'c'", [("a", 1)]),
+            ("order_by", "GROUP BY trace_id ORDER BY trace_id < 'c' DESC", [("a", 1), ("z", 1)]),
+        ]
+    )
+    def test_grouped_property_comparisons(self, _name: str, clause: str, expected: list[tuple[str, int]]) -> None:
+        for trace_id in ("a", "z"):
+            _create_event(team=self.team, event="test", distinct_id=trace_id, properties={"$ai_trace_id": trace_id})
+        response = execute_hogql_query(
+            "SELECT properties.$ai_trace_id AS trace_id, count() FROM events " + clause, team=self.team
+        )
+        self.assertEqual(response.results, expected)
+        assert response.clickhouse is not None
+        self.assertNotIn("toJSONString(events.properties)", response.clickhouse)
 
     def _schema_snapshot(self, use_new_events_schema_snapshot: bool = False) -> Any:
         if not (use_new_events_schema_snapshot or getattr(self, "_use_new_events_schema_snapshots", False)):
@@ -1130,7 +1152,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 response.results,
                 [
                     (
-                        "",  # empty string
+                        # The native-JSON table treats an empty value as absent, like a materialized column does.
+                        None if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "",
                         None,  # null
                         None,  # undefined
                         "0",  # zero string
@@ -1490,18 +1513,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             assert clickhouse is not None
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
                 self.assertIn("FROM events_json AS events", clickhouse)
-                self.assertIn(
-                    "if(notEquals(toJSONString(events.properties.^string), '{}'), "
-                    "toJSONString(events.properties.^string), "
-                    "if(isNull(events.properties.string), NULL, "
-                    "if(startsWith(dynamicType(events.properties.string), 'DateTime'), "
-                    "replaceOne(toString(events.properties.string), ' ', 'T'), "
-                    "if(or(startsWith(dynamicType(events.properties.string), 'Array'), "
-                    "startsWith(dynamicType(events.properties.string), 'Map'), "
-                    "startsWith(dynamicType(events.properties.string), 'Tuple')), "
-                    "toJSONString(events.properties.string), toString(events.properties.string))))) AS string",
-                    clickhouse,
-                )
+                self.assertIn(f"{json_dynamic_read_sql('events.properties', ['string'])} AS string", clickhouse)
                 self.assertNotIn("JSONExtractRaw(events.properties,", clickhouse)
                 for property_key in [
                     "array_str",
@@ -1512,8 +1524,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "array_obj_array_obj",
                 ]:
                     self.assertIn(f"events.properties.{property_key}", clickhouse)
-                self.assertIn("JSONExtractRaw(if(notEquals(toJSONString(events.properties.^array_str)", clickhouse)
-                self.assertIn("JSONExtractRaw(if(notEquals(toJSONString(events.properties.^obj_array.id)", clickhouse)
+                self.assertIn(json_dynamic_read_sql("events.properties", ["array_str", 1]), clickhouse)
+                self.assertIn(json_dynamic_read_sql("events.properties", ["obj_array", "id", 1]), clickhouse)
             else:
                 self.assertEqual(expected_legacy_clickhouse, clickhouse)
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -2382,3 +2394,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
+
+
+class TestQueryStatsRecording(BaseTest):
+    def test_the_executor_records_each_execution_including_a_killed_run(self) -> None:
+        # The trigger reads the run's executions off the scope, so the executor must record one for
+        # every ClickHouse call, and a run ClickHouse kills has to be recorded with what it read.
+        def ok(sql, values, **kwargs):
+            record(rows_read=42, duration_ms=1.0)
+            return ([[0]], [("count()", "UInt64")])
+
+        with query_stats_scope(retain_ast=True) as stats:
+            with mock.patch("posthog.hogql.query.sync_execute", side_effect=ok):
+                execute_hogql_query("select count() from events", team=self.team, query_type="test")
+        assert len(stats.executions) == 1
+        assert stats.executions[0].rows_read == 42
+        assert stats.executions[0].tree is not None
+        recorded_settings = stats.executions[0].settings
+        assert recorded_settings is not None and recorded_settings.max_ast_elements == 4_000_000
+
+        def killed(sql, values, **kwargs):
+            record(rows_read=90, duration_ms=1.0)
+            raise ClickHouseQueryMemoryLimitExceeded()
+
+        with query_stats_scope(retain_ast=True) as killed_stats:
+            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+                with mock.patch("posthog.hogql.query.sync_execute", side_effect=killed):
+                    execute_hogql_query("select count() from events", team=self.team, query_type="test")
+        assert len(killed_stats.executions) == 1
+        assert killed_stats.executions[0].rows_read == 90

@@ -1,9 +1,11 @@
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import models
+from django.utils.functional import Promise
 
 import requests
 import structlog
@@ -13,6 +15,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.utils import UUIDModel
 
 if TYPE_CHECKING:
@@ -29,6 +32,10 @@ _GITHUB_UNRECOVERABLE_REFRESH_ERRORS = {
     "refresh_token_expired",
     "unauthorized_client",
 }
+
+
+def user_integration_kind_choices() -> list[tuple[str, str | Promise]]:
+    return list(UserIntegration.IntegrationKind.choices)
 
 
 class UserIntegration(UUIDModel):
@@ -62,6 +69,15 @@ class UserIntegration(UUIDModel):
       the most-recently-linked accessible row and warns when it sees more
       than one match — see `find_linked_posthog_user`.
 
+    Contents for Codex (ChatGPT plan for cloud tasks):
+    - `integration_id` holds the ChatGPT account id from the access token claims
+    - `config` holds {plan_type, email, status, connected_at}; `status` is
+      "connected" or "reauth_required"
+    - `sensitive_config` holds {access_token, refresh_token,
+      access_token_expires_at}. The refresh token is single use, so every refresh
+      stores the rotated token under a row lock. See `posthog.models.integration.codex`.
+    - One row per user: Desktop replaces it on reconnect.
+
     The `unique_together = ("user", "kind", "integration_id")` constraint only
     forbids the same PostHog user linking the same Slack workspace identity
     twice (which would have to be a re-OAuth that `update_or_create` already
@@ -73,13 +89,14 @@ class UserIntegration(UUIDModel):
     class IntegrationKind(models.TextChoices):
         GITHUB = "github"
         SLACK = "slack"
+        CODEX = "codex"
 
     user = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="integrations",
     )
-    kind = models.CharField(max_length=32, choices=IntegrationKind.choices)
+    kind = models.CharField(max_length=32, choices=user_integration_kind_choices)
     # The ID of the integration in the external system, same as on Integration
     integration_id = models.TextField()
     config = models.JSONField(default=dict)
@@ -92,6 +109,11 @@ class UserIntegration(UUIDModel):
     class Meta:
         db_table = "posthog_user_integration"
         unique_together = [("user", "kind", "integration_id")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"], condition=models.Q(kind="codex"), name="unique_codex_user_integration"
+            ),
+        ]
         indexes = [
             models.Index(fields=["kind", "integration_id"], name="user_integration_kind_extid"),
         ]
@@ -514,6 +536,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         }
         config = dict(self.integration.config or {})
         config["user_token_refreshed_at"] = now
+        config["credential_version"] = str(uuid4())
         # When GitHub disables user-token expiration, refresh responses omit expiry fields.
         # Clear stored expiries so we do not treat a non-expiring token as perpetually expired.
         if access_expires_in is not None:
@@ -526,6 +549,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             config.pop("user_refresh_token_expires_at", None)
         self.integration.config = config
         self.integration.save(update_fields=["sensitive_config", "config", "updated_at"])
+        GitHubAudit.personal(self.integration).record("credential_refreshed", after_commit=True, reason="oauth_refresh")
 
     def _discard(self, reason: str) -> None:
         """Delete the integration when stored credentials are unusable.
@@ -534,9 +558,12 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         The user falls back to the Connect flow.
         """
         logger.info("UserGitHubIntegration: discarding integration", user_id=self.integration.user_id, reason=reason)
+        audit = GitHubAudit.personal(self.integration)
         try:
             self.integration.delete()
-        except Exception:
+            audit.record("credential_deleted", after_commit=True, reason=reason)
+        except Exception as exc:
+            audit.record("credential_delete_failed", failure_type=type(exc).__name__)
             logger.warning("UserGitHubIntegration: failed to delete unusable integration", exc_info=True)
 
 
@@ -546,6 +573,7 @@ def user_github_integration_from_installation(
     authorization: "GitHubUserAuthorization",
     *,
     create_only: bool = False,
+    originating_organization_id: UUID | None = None,
 ) -> UserIntegration:
     """Create or update a UserIntegration from a GitHub App installation + user authorization.
 
@@ -564,6 +592,16 @@ def user_github_integration_from_installation(
     except (ValueError, AttributeError):
         expires_in = 3600
 
+    # A re-link without organization context keeps the stored one, so later diagnostics stay durable.
+    stored_organization_id = (
+        None
+        if originating_organization_id
+        else UserIntegration.objects.filter(
+            user=user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id=installation.installation_id
+        )
+        .values_list("config__originating_organization_id", flat=True)
+        .first()
+    )
     config: dict[str, Any] = {
         "installation_id": installation.installation_id,
         "expires_in": expires_in,
@@ -575,6 +613,11 @@ def user_github_integration_from_installation(
         },
         "github_user": {"login": authorization.gh_login, "id": authorization.gh_id},
         "user_token_refreshed_at": now,
+        "credential_version": str(uuid4()),
+        "identity_verified_at": authorization.identity_verified_at,
+        "originating_organization_id": str(originating_organization_id)
+        if originating_organization_id
+        else stored_organization_id,
     }
     if authorization.access_token_expires_in is not None:
         config["user_access_token_expires_at"] = now + authorization.access_token_expires_in
@@ -608,6 +651,13 @@ def user_github_integration_from_installation(
             },
         )
         invalidate_github_repository_caches_for_installation(installation.installation_id)
+
+    if created or not create_only:
+        GitHubAudit.personal(integration, user).record(
+            "credential_created" if created else "credential_replaced",
+            after_commit=True,
+            reason="team_connect" if create_only else "personal_connect",
+        )
 
     if created:
         _report_personal_integration_created(user, config, auto_created=create_only)

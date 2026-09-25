@@ -496,6 +496,7 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUser: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
                         return await api.get<UserType>('api/users/@me/')
                     } catch (error: any) {
                         console.error(error)
@@ -509,6 +510,7 @@ export const userLogic = kea<userLogicType>([
                     }
                     // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
                     // user here would be treated as a success, silently masking backend errors.
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
                     const response = await api.update<UserType>('api/users/@me/', user)
                     successCallback?.()
                     return response
@@ -518,6 +520,7 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersCancelEmailChangeRequestPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const response = await api.update<UserType>('api/users/cancel_email_change_request/', {})
                         lemonToast.success('The email change request was cancelled successfully.')
                         return response
@@ -530,6 +533,7 @@ export const userLogic = kea<userLogicType>([
                     }
                 },
                 deleteUser: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.delete('api/users/@me/').then(() => {
                         return null
                     })
@@ -539,6 +543,7 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersScenePersonalisationCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         return await api.create<UserType>('api/users/@me/scene_personalisation', {
                             scene,
                             dashboard,
@@ -551,6 +556,7 @@ export const userLogic = kea<userLogicType>([
                 },
                 upgradeImpersonation: async ({ reason }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
                         await api.create('admin/impersonation/upgrade/', { reason })
                         actions.loadUser()
                         lemonToast.success('Upgraded to read-write impersonation')
@@ -757,6 +763,7 @@ export const userLogic = kea<userLogicType>([
                 return
             }
             await breakpoint(10)
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersPartialUpdate() from '~/generated/core/api' instead.
             await api.update('api/users/@me/', { set_current_organization: organizationId })
 
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
@@ -769,6 +776,7 @@ export const userLogic = kea<userLogicType>([
                 // Its own endpoint rather than a field on the user PATCH: that one needs a recently
                 // authenticated session, so a risk step-up would answer a dismissal with the re-auth modal.
                 // It also merges the key server-side, so two tabs can't drop each other's write.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersProductIntroSeenPartialUpdate() from '~/generated/core/api' instead.
                 await api.update('api/users/@me/product_intro_seen', { product_key: productKey, seen: value })
                 actions.loadUser()
             } catch (error: any) {

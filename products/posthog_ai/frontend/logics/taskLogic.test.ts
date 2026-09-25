@@ -110,6 +110,18 @@ describe('taskLogic', () => {
         })
     })
 
+    describe('updateTaskFailure', () => {
+        it('surfaces the error so a rejected rename does not look saved', async () => {
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.updateTaskFailure('Title is too long', new ApiError('Title is too long', 400))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Title is too long')
+        })
+    })
+
     describe('refreshing task lists after a mutation', () => {
         afterEach(() => {
             jest.restoreAllMocks()
@@ -206,6 +218,7 @@ describe('taskLogic', () => {
                     log_url: null,
                     error_message: null,
                     output: null,
+                    task_summary: null,
                     state: {},
                     artifacts: [],
                     created_at: '2024-01-01T00:00:00Z',

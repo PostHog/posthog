@@ -1,7 +1,15 @@
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.etsy import (
+    DAILY_QUOTA_EXHAUSTED_ERROR,
+    RATE_LIMITED_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.settings import ENDPOINTS, ETSY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.etsy.source import EtsySource
 
@@ -60,3 +68,17 @@ class TestEtsySourceClass:
         retryable_errors = EtsySource().get_retryable_errors()
 
         assert any(pattern in message for pattern in retryable_errors)
+
+    @parameterized.expand([(DAILY_QUOTA_EXHAUSTED_ERROR,), (RATE_LIMITED_ERROR,)])
+    def test_rate_limit_sentinels_stay_retryable_and_carry_a_friendly_message(self, sentinel: str) -> None:
+        # The transport raises these strings and the source is the only thing that reads them, so a
+        # rename on either side would quietly leave the job showing raw 429 text.
+        source = EtsySource()
+
+        assert error_message_matches(sentinel, source.get_retryable_errors())
+        message = next(
+            value
+            for pattern, value in source.get_retry_exhausted_errors().items()
+            if error_message_matches(sentinel, [pattern])
+        )
+        assert "Etsy" in message

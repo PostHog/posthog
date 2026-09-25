@@ -95,6 +95,22 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
+vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
+  ChannelsFab: ({
+    channelId,
+    placement,
+  }: {
+    channelId?: string;
+    placement?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label="Create"
+      data-placement={placement}
+      data-channel-id={channelId}
+    />
+  ),
+}));
 
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
 import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
@@ -106,6 +122,7 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarSearchStore } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
 
 it("stays above floating sidebar layers", () => {
@@ -153,8 +170,47 @@ describe("NavRail", () => {
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
     useSidebarSearchStore.setState({ focusRequest: 0 });
+    useSidebarStore.setState({ open: false, width: 300 });
     rememberVisits({});
     clearKeepListForRoute();
+  });
+
+  // The rail is the one column every destination keeps, so the create button
+  // is always reachable from it.
+  describe("create button", () => {
+    it.each(["/", "/spaces", "/inbox/pulls/$reportId"])(
+      "keeps the create button directly above Search on %s",
+      (fullPath) => {
+        mocks.fullPath = fullPath;
+
+        render(<NavRail />);
+
+        const buttonLabels = screen
+          .getAllByRole("button")
+          .map((button) => button.getAttribute("aria-label"));
+        expect(buttonLabels.slice(-4)).toEqual([
+          "Create",
+          "Search",
+          "Settings",
+          "Project switcher",
+        ]);
+        expect(screen.getByLabelText("Create")).toHaveAttribute(
+          "data-placement",
+          "rail",
+        );
+      },
+    );
+
+    it("files into the space you are in", () => {
+      useCurrentChannelStore.setState({ currentChannelId: "ch-1" });
+
+      render(<NavRail />);
+
+      expect(screen.getByLabelText("Create")).toHaveAttribute(
+        "data-channel-id",
+        "ch-1",
+      );
+    });
   });
 
   it("hides Home when its feature flag is off", () => {
@@ -207,7 +263,7 @@ describe("NavRail", () => {
     ["/", "Home"],
     ["/activity", "Activity"],
     ["/inbox/pulls/$reportId", "Self-driving"],
-    ["/command-center", "Command Center"],
+    ["/command-center", "More"],
     ["/spaces", "Spaces"],
     ["/spaces/$channelId/loops", "Spaces"],
     ["/spaces/$channelId/context", "Spaces"],
@@ -443,18 +499,51 @@ describe("NavRail", () => {
       expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
-    it("counts the report a list opened as being on the list", async () => {
-      const user = userEvent.setup();
-      mocks.fullPath = "/reports/$reportId";
-      mocks.href = "/reports/42?from=%2Finbox";
-      rememberVisits({ inbox: { href: "/reports/42?from=%2Finbox" } });
-      render(<NavRail />);
+    it.each(["/inbox", "/inbox/triage"])(
+      "restores the sidebar without closing a report opened from %s",
+      async (source) => {
+        const user = userEvent.setup();
+        mocks.fullPath = "/reports/$reportId";
+        mocks.href = `/reports/42?from=${encodeURIComponent(source)}`;
+        rememberVisits({ inbox: { href: mocks.href } });
+        render(<NavRail />);
 
-      await user.click(screen.getByLabelText("Self-driving"));
+        await user.click(screen.getByLabelText("Self-driving"));
 
-      expect(useSidebarSearchStore.getState().focusRequest).toBeGreaterThan(0);
-      expect(mocks.navigateToInbox).not.toHaveBeenCalled();
-    });
+        expect(useSidebarStore.getState()).toMatchObject({
+          open: true,
+          width: 300,
+        });
+        expect(useSidebarSearchStore.getState().focusRequest).toBeGreaterThan(
+          0,
+        );
+        expect(mocks.navigateToInbox).not.toHaveBeenCalled();
+        expect(mocks.navigate).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["/inbox/triage", "/inbox/triage/", "/inbox/triage?sort=priority"])(
+      "returns from %s to the list instead of focusing a hidden sidebar",
+      async (href) => {
+        const user = userEvent.setup();
+        mocks.fullPath = "/inbox/triage";
+        mocks.href = href;
+        rememberVisits({ inbox: { href: "/reports/42?from=%2Finbox" } });
+        render(<NavRail />);
+
+        await user.click(screen.getByLabelText("Self-driving"));
+
+        expect(mocks.navigateToInbox).toHaveBeenCalledOnce();
+        expect(mocks.navigate).not.toHaveBeenCalled();
+        expect(useSidebarStore.getState()).toMatchObject({
+          open: true,
+          width: 300,
+        });
+        expect(useSidebarSearchStore.getState().focusRequest).toBeGreaterThan(
+          0,
+        );
+      },
+    );
   });
 
   it("peeks at the feed on hover while Activity is somewhere else", async () => {

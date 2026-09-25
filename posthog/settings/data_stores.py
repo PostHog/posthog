@@ -128,6 +128,11 @@ if read_host:
     DATABASES["replica"] = postgres_config(read_host)
     DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
+# lock_timeout for every direct (migration) connection, main and product, so a migration that
+# loses a lock race fails fast and bin/migrate retries it, instead of queueing all later
+# queries on the table behind it.
+_migration_lock_timeout_option = f"-c lock_timeout={os.getenv('MIGRATE_LOCK_TIMEOUT', '20000')}"
+
 # Configure a direct database connection bypassing PgBouncer.
 # This allows using PGOPTIONS like lock_timeout which PgBouncer doesn't support.
 # Used for migrations: python manage.py migrate --database=default_direct
@@ -140,9 +145,7 @@ if direct_host:
     DATABASES["default_direct"]["PORT"] = os.getenv("POSTHOG_POSTGRES_DIRECT_PORT", "5432")
     # Disable server-side cursors is not needed for direct connection
     DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
-    # Set lock_timeout for migrations to fail fast on lock contention
-    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
-    DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
+    DATABASES["default_direct"]["OPTIONS"] = {"options": _migration_lock_timeout_option}
 
 # The persons database is not a Django connection. Person/group/cohort data lives behind
 # the personhog service and is reached through the personhog client or off-Django psycopg
@@ -254,6 +257,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        DATABASES[direct_alias]["OPTIONS"]["options"] = _migration_lock_timeout_option
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -588,6 +592,15 @@ WORKFLOWS_CANCEL_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_CANCEL_JWT_SECRET", "local-dev-workflows-cancel-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the workflow step resume route (a finished task run waking the workflow
+# step that dispatched it). The Celery and Temporal workers mint, the plugin server verifies.
+# Its own key per the one-key-per-surface rule above. Comma-separated, newest first. Empty
+# outside dev/test, in which case the wake falls back to the `$workflow_step_resume` internal
+# event. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -708,6 +721,14 @@ CACHES["cohort_dependencies"] = {
     "LOCATION": REDIS_URL,
 }
 
+# The inbound webhook dedup lease must read what it wrote: the fence in `release()` compares a
+# holder token against the value the primary holds, and a replica that still serves the previous
+# token would let a run delete a mark a newer run owns.
+CACHES["ingress_dedup"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -772,6 +793,7 @@ if TEST:
     CACHES["query_cache"] = CACHES["default"]
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
+    CACHES["ingress_dedup"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

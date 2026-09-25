@@ -9,7 +9,16 @@ from parameterized import parameterized
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.dependencies import COHORT_REALTIME_STATE_ORPHANED_COUNTER
+from products.cohorts.backend.models.dependencies import (
+    COHORT_BACKFILL_TRIGGER_COUNTER,
+    COHORT_REALTIME_STATE_ORPHANED_COUNTER,
+)
+
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 # (name, run kind, two successive edits as `_filters` args) — the edits move only this kind's leaf
 # shape, so only this kind's receiver reacts to them even though both share one allowlist.
@@ -27,33 +36,57 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.on_commit = on_commit_patch.start()
         self.addCleanup(on_commit_patch.stop)
 
-    def _filters(self, window_days: int, *, person_hash: str | None = None) -> dict:
-        values = [
-            {
+    def _filters(
+        self,
+        window_days: int | None,
+        *,
+        person_hash: str | None = None,
+        extra_person_hash: str | None = None,
+        behavioral_hash: str | None = "stable-conditio",
+        group_type: str = "AND",
+        cohort_ref: int | None = None,
+        windowless: bool = False,
+    ) -> dict:
+        values = []
+        if window_days is not None:
+            behavioral = {
                 "type": "behavioral",
                 "key": "$pageview",
                 "event_type": "events",
                 "value": "performed_event_multiple",
-                "conditionHash": "stable-condition-hash",
                 "time_value": window_days,
                 "time_interval": "day",
                 "operator": "gte",
                 "operator_value": 2,
+                "bytecode": _BYTECODE,
             }
-        ]
-        if person_hash is not None:
-            values.append(
-                {
-                    "type": "person",
-                    "key": "email",
-                    "value": ["person@example.com"],
-                    "operator": "exact",
-                    "conditionHash": person_hash,
-                }
-            )
-        return {"properties": {"type": "AND", "values": values}}
+            if windowless:
+                behavioral = {k: v for k, v in behavioral.items() if k not in ("time_value", "time_interval")}
+                behavioral["value"] = "performed_event"
+            # Absent rather than null, which is how the API stores a leaf whose bytecode generation
+            # failed: the cohort keeps `cohort_type` realtime and the leaf keeps no condition hash.
+            if behavioral_hash is not None:
+                behavioral["conditionHash"] = behavioral_hash[:16].ljust(16, "0")
+            values.append(behavioral)
+        for leaf_hash in (person_hash, extra_person_hash):
+            if leaf_hash is not None:
+                values.append(
+                    {
+                        "type": "person",
+                        "key": "email",
+                        "value": ["person@example.com"],
+                        "operator": "exact",
+                        # The catalog wants exactly 16 characters; the cases only need the hashes
+                        # to differ from each other.
+                        "conditionHash": leaf_hash[:16].ljust(16, "0"),
+                        "bytecode": _BYTECODE,
+                    }
+                )
+        if cohort_ref is not None:
+            values.append({"type": "cohort", "value": cohort_ref})
+        return {"properties": {"type": group_type, "values": values}}
 
-    def _cohort(self, window_days: int = 7, *, person_hash: str | None = None) -> Cohort:
+    def _cohort(self, window_days: int | None = 7, *, person_hash: str | None = None) -> Cohort:
         return Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
@@ -265,6 +298,44 @@ class TestBehavioralBackfillDependencies(BaseTest):
         enqueue.assert_not_called()
         redis.set.assert_not_called()
 
+    def test_a_cohort_the_catalog_refuses_is_named_rather_than_dropped_silently(self) -> None:
+        # No run is created, so the seeder has nothing to report the refusal with. Without this the
+        # cohort stays un-backfillable and nothing anywhere says why.
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+            self.assertLogs("products.cohorts.backend.models.dependencies", level="INFO") as logs,
+        ):
+            Cohort.objects.create(
+                team=self.team,
+                cohort_type=CohortType.REALTIME,
+                filters=self._filters(7, windowless=True),
+            )
+
+        enqueue.assert_not_called()
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL) - before, 1)
+        self.assertIn("unsupported_state_variant", "\n".join(logs.output))
+
+    def test_a_cohort_of_the_other_kind_alone_reports_no_refusal(self) -> None:
+        # Every save of a person-only cohort reaches the behavioral receiver. Counting those would
+        # bury the refusals that need a signal.
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"),
+        ):
+            self._cohort(None, person_hash="person-a")
+
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
+
+    def _refused_count(self, kind: CohortBackfillKind) -> float:
+        return COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="refused_ineligible")._value._value
+
     def _assert_one_debounced_task_per_kind(self, enqueue, redis, cohort: Cohort, trigger: str) -> None:
         self.assertEqual(
             {tuple(call.kwargs["args"][2:]) for call in enqueue.call_args_list},
@@ -296,10 +367,170 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_created")
 
-    def test_edit_touching_both_leaf_kinds_enqueues_one_task_per_kind(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "both_leaf_shapes",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 30, "person_hash": "person-b"},
+            ),
+            (
+                "group_operator_on_mixed",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 7, "person_hash": "person-a", "group_type": "OR"},
+            ),
+            (
+                "first_behavioral_leaf_added_with_the_group_operator",
+                {"window_days": None, "person_hash": "person-a", "extra_person_hash": "person-b"},
+                {"window_days": 7, "person_hash": "person-a", "extra_person_hash": "person-b", "group_type": "OR"},
+            ),
+        ]
+    )
+    def test_edit_owing_both_kinds_enqueues_one_task_per_kind(self, _name: str, before: dict, after: dict) -> None:
         # The kinds seed different stores, so one save that moves both shapes owes a task to each, on
-        # keys that cannot debounce one another. The cohort is created before the trigger allowlist
-        # opens, so the create dispatches nothing real behind the edit's mocks.
+        # keys that cannot debounce one another. A composition edit on a mixed cohort owes both as
+        # well: a pruning person run stores state valid only for the tree it pinned, and the
+        # behavioral run is what nulls the events stamp flags route on. The cohort is created before
+        # the trigger allowlist opens, so the create dispatches nothing real behind the edit's mocks.
+        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        redis = self._redis()
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort.filters = self._filters(**after)
+            cohort.save()
+
+        self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_edited")
+
+    def _assert_one_debounced_task(self, enqueue, redis, cohort: Cohort, kind: CohortBackfillKind) -> None:
+        enqueue.assert_called_once_with(
+            args=[self.team.id, cohort.id, "cohort_edited", kind],
+            countdown=300,
+        )
+        # The value is the pending task's trigger kind, which the cohort API reads to show a build
+        # as queued during the countdown, before any run row exists.
+        redis.set.assert_called_once_with(
+            f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "group_operator_on_person_only",
+                {"window_days": None, "person_hash": "person-a", "extra_person_hash": "person-b"},
+                {
+                    "window_days": None,
+                    "person_hash": "person-a",
+                    "extra_person_hash": "person-b",
+                    "group_type": "OR",
+                },
+                CohortBackfillKind.PERSON_PROPERTY,
+            ),
+            (
+                "cohort_reference_swapped_on_person_only",
+                {"window_days": None, "person_hash": "person-a", "cohort_ref": 4242},
+                {"window_days": None, "person_hash": "person-a", "cohort_ref": 9999},
+                CohortBackfillKind.PERSON_PROPERTY,
+            ),
+            (
+                "cohort_reference_swapped_on_mixed",
+                {"window_days": 7, "person_hash": "person-a", "cohort_ref": 4242},
+                {"window_days": 7, "person_hash": "person-a", "cohort_ref": 9999},
+                CohortBackfillKind.BEHAVIORAL,
+            ),
+            (
+                "last_person_leaf_removed",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": 7},
+                CohortBackfillKind.BEHAVIORAL,
+            ),
+            (
+                "last_behavioral_leaf_removed",
+                {"window_days": 7, "person_hash": "person-a"},
+                {"window_days": None, "person_hash": "person-a"},
+                CohortBackfillKind.PERSON_PROPERTY,
+            ),
+        ]
+    )
+    def test_edit_no_leaf_set_run_repairs_enqueues_one_runnable_kind(
+        self, _name: str, before: dict, after: dict, kind: CohortBackfillKind
+    ) -> None:
+        # Reconcile evaluates the whole tree whichever kind it runs for, so one run repairs the
+        # cohort. A reference swap moves no person-view fingerprint, so the person run is owed only
+        # where no behavioral run re-walks the tree. Removing the last person leaf is in this set
+        # because the person run its hash change would ask for is refused: the cohort has no person
+        # leaf left to pin.
+        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        redis = self._redis()
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort.filters = self._filters(**after)
+            cohort.save()
+
+        self._assert_one_debounced_task(enqueue, redis, cohort, kind)
+
+    @parameterized.expand([("group_operator", None), ("empty_and", "AND"), ("empty_or", "OR")])
+    def test_composition_edit_nulls_both_stamps_and_moves_no_kind_hash(
+        self, _name: str, empty_group: str | None
+    ) -> None:
+        cohort = self._cohort(7, person_hash="person-a")
+        old_behavioral_hash = cohort.behavioral_filters_shape_hash
+        old_person_hash = cohort.person_filters_shape_hash
+        ready_at = timezone.now()
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=ready_at,
+            last_backfill_person_properties_at=ready_at,
+            last_realtime_cohort_calculation_at=ready_at,
+        )
+        cohort.refresh_from_db()
+        before = self._orphan_count()
+
+        # A partial save, because `resave_cohorts` re-drives the fleet with a frozen field set. The
+        # stamp this edit nulls has to be added to that set, or the null is decided and never written.
+        if empty_group is None:
+            cohort.filters = self._filters(7, person_hash="person-a", group_type="OR")
+        else:
+            assert cohort.filters is not None
+            cohort.filters["properties"]["values"].append({"type": empty_group, "values": []})
+        cohort.save(update_fields=["filters"])
+
+        cohort.refresh_from_db()
+        # Runs in flight pin these columns and the processor, the seeder and the finalizer compare
+        # them, so the replacement run must pin what the superseded one did.
+        self.assertEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
+        self.assertEqual(cohort.person_filters_shape_hash, old_person_hash)
+        self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
+        self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
+        self.assertEqual(self._orphan_count(), before + 1)
+
+    def test_adding_the_first_person_leaf_enqueues_only_the_person_run(self) -> None:
+        # The person run already reconciles the whole cohort, so the composition rule must not add a
+        # behavioral history replay to an edit that triggers a run on its own.
+        cohort = self._cohort(7)
+        ready_at = timezone.now()
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=ready_at)
+        cohort.refresh_from_db()
+        redis = self._redis()
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort.filters = self._filters(7, person_hash="person-a")
+            cohort.save()
+
+        self._assert_one_debounced_task(enqueue, redis, cohort, CohortBackfillKind.PERSON_PROPERTY)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.last_backfill_events_at, ready_at)
+
+    def test_behavioral_leaf_losing_its_hash_enqueues_nothing(self) -> None:
+        # The API reaches this state by storing the raw filters when filter validation raises.
         cohort = self._cohort(7, person_hash="person-a")
         redis = self._redis()
         with (
@@ -307,10 +538,86 @@ class TestBehavioralBackfillDependencies(BaseTest):
             mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
         ):
-            cohort.filters = self._filters(30, person_hash="person-b")
+            cohort.filters = self._filters(7, person_hash="person-a", behavioral_hash=None)
             cohort.save()
 
-        self._assert_one_debounced_task_per_kind(enqueue, redis, cohort, "cohort_edited")
+        enqueue.assert_not_called()
+        redis.set.assert_not_called()
+
+    @parameterized.expand([("stored_hashes", False), ("null_hashes", True)])
+    def test_malformed_persisted_filters_still_invalidate_on_a_leaf_edit(self, _name: str, null_hashes: bool) -> None:
+        # The composition signal reads the persisted filters, which the leaf-shape comparison never
+        # had to parse. A row the renderer cannot walk must cost only that signal: the method
+        # swallows its own exceptions, so letting one escape here would silently turn off every
+        # invalidation for this cohort, including the leaf edits that worked before the rule existed.
+        cohort = self._cohort(7, person_hash="person-a")
+        Cohort.objects.filter(id=cohort.id).update(
+            filters={"properties": {"type": "AND", "values": 3}},
+            behavioral_filters_shape_hash=None if null_hashes else cohort.behavioral_filters_shape_hash,
+            person_filters_shape_hash=None if null_hashes else cohort.person_filters_shape_hash,
+            last_backfill_events_at=timezone.now(),
+            last_backfill_person_properties_at=timezone.now(),
+        )
+        cohort.refresh_from_db()
+
+        cohort.filters = self._filters(30, person_hash="person-b")
+        cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
+        self.assertTrue(cohort.behavioral_filters_shape_hash)
+        self.assertTrue(cohort.person_filters_shape_hash)
+
+    @parameterized.expand([("legacy_hash", True), ("current_hash", False)])
+    def test_save_with_unchanged_filters_enqueues_nothing(self, _name: str, legacy_hash: bool) -> None:
+        # Every stored full hash was computed from the leaf set alone before the fingerprint existed.
+        # Reading the previous definition from that column rather than from the persisted filters
+        # would turn each cohort's first save after the deploy into an edit, and the fleet would
+        # replay its history for nothing.
+        cohort = self._cohort(7, person_hash="person-a")
+        old_behavioral_hash = cohort.behavioral_filters_shape_hash
+        old_person_hash = cohort.person_filters_shape_hash
+        ready_at = timezone.now()
+        Cohort.objects.filter(id=cohort.id).update(
+            filters_shape_hash="a-hash-written-under-the-old-rule" if legacy_hash else cohort.filters_shape_hash,
+            last_backfill_events_at=ready_at,
+            last_backfill_person_properties_at=ready_at,
+            last_realtime_cohort_calculation_at=ready_at,
+        )
+        cohort.refresh_from_db()
+        redis = self._redis()
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort.name = "renamed"
+            cohort.save()
+
+        enqueue.assert_not_called()
+        redis.set.assert_not_called()
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
+        self.assertEqual(cohort.person_filters_shape_hash, old_person_hash)
+        self.assertEqual(cohort.last_backfill_events_at, ready_at)
+        self.assertEqual(cohort.last_backfill_person_properties_at, ready_at)
+        self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
+
+    def test_stale_instance_restoring_definition_invalidates_readiness(self) -> None:
+        cohort = self._cohort(7, person_hash="person-a")
+        stale = Cohort.objects.get(id=cohort.id)
+        cohort.filters = self._filters(7, person_hash="person-a", group_type="OR")
+        cohort.save(update_fields=["filters"])
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
+
+        stale.name = "renamed"
+        stale.save()
+
+        stale.refresh_from_db()
+        assert stale.filters is not None
+        self.assertEqual(stale.filters["properties"]["type"], "AND")
+        self.assertIsNone(stale.last_backfill_events_at)
 
     @parameterized.expand(TRIGGER_KINDS)
     def test_two_edits_share_one_debounce_key(self, _name: str, kind: CohortBackfillKind, edits) -> None:
@@ -329,27 +636,30 @@ class TestBehavioralBackfillDependencies(BaseTest):
             args=[self.team.id, cohort.id, "cohort_edited", kind],
             countdown=300,
         )
+        # The value is the pending task's trigger kind, which the cohort API reads to show a build
+        # as queued during the countdown, before any run row exists.
         self.assertEqual(
             redis.set.call_args_list,
-            [mock.call(f"cohort_backfill_{kind.value}_pending:{cohort.id}", 1, nx=True, ex=300)] * 2,
+            [mock.call(f"cohort_backfill_{kind.value}_pending:{cohort.id}", "cohort_edited", nx=True, ex=300)] * 2,
         )
 
     @parameterized.expand(
         [
-            ("static", {"is_static": True}),
-            ("non_realtime_type", {"cohort_type": None}),
+            ("static", {"is_static": True}, {"person_hash": "person-a"}),
+            ("non_realtime_type", {"cohort_type": None}, {"person_hash": "person-a"}),
+            ("windowless_behavioral", {}, {"windowless": True}),
         ]
     )
     @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
-    def test_ineligible_create_enqueues_nothing(self, _name: str, overrides: dict) -> None:
+    def test_ineligible_create_enqueues_nothing(self, _name: str, overrides: dict, filter_kwargs: dict) -> None:
         # Creates skip the shape-changed flags and dispatch straight off kwargs["created"], so the
-        # type guard in _backfill_trigger_kind is all that keeps every ordinary (static or
-        # non-realtime) cohort create in an opted-in team from firing tasks the creators refuse.
+        # type guard in _backfill_trigger_kind and the creators' own predicates are all that keep
+        # every ordinary cohort create in an opted-in team from firing tasks the creators refuse.
         redis = self._redis()
         params: dict = {
             "team": self.team,
             "cohort_type": CohortType.REALTIME,
-            "filters": self._filters(7, person_hash="person-a"),
+            "filters": self._filters(7, **filter_kwargs),
             **overrides,
         }
         with (

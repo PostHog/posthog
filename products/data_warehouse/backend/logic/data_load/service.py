@@ -231,6 +231,22 @@ async def a_external_data_workflow_exists(id: str) -> bool:
     return await a_schedule_exists(temporal, schedule_id=id)
 
 
+@async_to_sync
+async def is_external_data_schedule_paused(id: str) -> bool:
+    """Whether a schema's extraction schedule exists and is currently paused.
+
+    A missing schedule reads as not paused — there is nothing to resume.
+    """
+    temporal = await async_connect()
+    try:
+        desc = await a_describe_schedule(temporal, schedule_id=id)
+    except temporalio.service.RPCError as e:
+        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+            return False
+        raise
+    return desc.schedule.state.paused
+
+
 def pause_external_data_schedule(id: str):
     temporal = sync_connect()
     try:
@@ -512,6 +528,19 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     schemas are active, deletes the schedule.
     """
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.source_management import source_type_supports_cdc
+
+    if not source_type_supports_cdc(source.source_type):
+        # Nothing can read a change stream from this source type, so the schedule could only fire
+        # and fail on every interval. Drop any an earlier call left behind, because the extraction
+        # activity deletes its own schedule for the same reason and this must not recreate it.
+        logger.warning(
+            "Refusing a CDC extraction schedule — source type does not support CDC",
+            source_id=str(source.id),
+            source_type=source.source_type,
+        )
+        delete_cdc_extraction_schedule(str(source.id))
+        return
 
     # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
     # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below

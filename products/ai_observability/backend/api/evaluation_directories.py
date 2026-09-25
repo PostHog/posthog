@@ -1,7 +1,7 @@
 from typing import cast
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, FilteredRelation, Q, QuerySet
 from django.utils import timezone
 
 from rest_framework import serializers, viewsets
@@ -68,7 +68,13 @@ class EvaluationDirectoryViewSet(
         return (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by")
-            .annotate(evaluation_count=Count("evaluations", filter=Q(evaluations__deleted=False)))
+            .alias(
+                team_evaluations=FilteredRelation(
+                    "evaluations",
+                    condition=Q(evaluations__team_id=self.team_id),
+                )
+            )
+            .annotate(evaluation_count=Count("team_evaluations", filter=Q(team_evaluations__deleted=False)))
             .order_by("name", "id")
         )
 

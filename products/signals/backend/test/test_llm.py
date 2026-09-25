@@ -36,7 +36,7 @@ def _mock_anthropic_client() -> MagicMock:
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_gateway_mode_omits_legacy_stage_header():
     client = _mock_anthropic_client()
-    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client) as build_client:
         await call_llm(
             team_id=1,
             system_prompt="s",
@@ -44,8 +44,12 @@ async def test_gateway_mode_omits_legacy_stage_header():
             validate=lambda text: text,
             stage="match",
             ai_product="signals_grouping",
+            trace_id="decision-1",
+            properties={"signals_decision_id": "decision-1"},
         )
 
+    assert build_client.call_args.kwargs["trace_id"] == "decision-1"
+    assert build_client.call_args.kwargs["properties"] == {"signals_decision_id": "decision-1"}
     # In gateway mode the labels ride on the builder's X-PostHog-Properties blob; the per-key
     # ai_stage header (which the Go gateway drops) must not be sent.
     assert "extra_headers" not in client.messages.create.call_args.kwargs
@@ -84,6 +88,32 @@ async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
     legacy.assert_called_once()
     gateway.assert_not_called()
     assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cache_system_prompt,expected_system",
+    [
+        (False, "s"),
+        (True, [{"type": "text", "text": "s", "cache_control": {"type": "ephemeral"}}]),
+    ],
+)
+async def test_cache_system_prompt_marks_the_system_block(
+    cache_system_prompt: bool, expected_system: str | list[dict[str, object]]
+) -> None:
+    client = _mock_anthropic_client()
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+        await call_llm(
+            team_id=1,
+            system_prompt="s",
+            user_prompt="u",
+            validate=lambda text: text,
+            stage="safety_filter",
+            ai_product="signals_safety",
+            cache_system_prompt=cache_system_prompt,
+        )
+
+    assert client.messages.create.call_args.kwargs["system"] == expected_system
 
 
 @pytest.mark.asyncio

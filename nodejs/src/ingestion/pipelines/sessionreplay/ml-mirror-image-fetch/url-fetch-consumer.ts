@@ -3,12 +3,12 @@ import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
 import {
-    MlKafkaEncryption,
+    MlDecodedMessage,
+    MlKafkaTransport,
     ingestionVersion,
-    validateImageOwner,
-} from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/transport'
+    validateImageRefVersion,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
-import { fetchCandidateHistoryKey } from './collected-urls-record'
 import {
     FetchCandidate,
     MAX_HOPS,
@@ -17,6 +17,7 @@ import {
     parseCollectedUrlsRecord,
 } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
+import { FetchCandidatePoolAdmission } from './fetch-candidate-pool'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
@@ -56,7 +57,7 @@ export class UrlFetchConsumer {
         private readonly runner?: FetchPass,
         private readonly deadLetters: FrontierDeadLetterSink | null = null,
         private readonly topHogMetrics?: ImageFetchTopHogMetrics,
-        private readonly privacy?: MlKafkaEncryption
+        private readonly keyManager?: MlKafkaTransport
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -67,28 +68,32 @@ export class UrlFetchConsumer {
         ImageFetchConsumerMetrics.setDryRun(options.dryRun)
     }
 
-    public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        const decoded = this.privacy
-            ? await this.privacy.read(messages, 'image-frontier')
+    public async handleBatch(
+        messages: Message[],
+        nowMs: number,
+        admission?: FetchCandidatePoolAdmission
+    ): Promise<void> {
+        const decoded: MlDecodedMessage[] = this.keyManager
+            ? await this.keyManager.read(messages)
             : messages.map((message) => {
                   let version: 1 | 2
                   try {
                       version = ingestionVersion(message)
                   } catch (error) {
                       if (error instanceof Error && error.message === 'Unsupported ML ingestion version') {
-                          return { message, original: message, key: undefined, invalid: true }
+                          return { message, original: message, version: undefined, invalid: true }
                       }
                       throw error
                   }
                   if (version === 2) {
-                      throw new Error('ML v2 frontier requires privacy configuration')
+                      throw new Error('ML v2 frontier requires key manager configuration')
                   }
-                  return { message, original: message, key: undefined, invalid: undefined }
+                  return { message, original: message, version, invalid: undefined }
               })
-        const decodedValid = decoded.filter((entry) => !entry.invalid)
-        const encrypted = decodedValid.filter((entry) => entry.key).length
-        ImageFetchConsumerMetrics.incrementVersion('2', encrypted)
-        ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - encrypted)
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageFetchConsumerMetrics.incrementVersion('2', v2)
+        ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
@@ -104,7 +109,10 @@ export class UrlFetchConsumer {
         const stage = ImageFetchProcessingMetrics.start('batch_parse')
 
         try {
-            for (const { message, original, key, invalid } of decoded) {
+            for (const { message, original, version, invalid, legacy } of decoded) {
+                if (legacy) {
+                    continue
+                }
                 if (invalid) {
                     rejectedRecords.push({ message: original, reasons: ['malformed'] })
                     continue
@@ -131,23 +139,26 @@ export class UrlFetchConsumer {
                 }
                 try {
                     for (const candidate of parsed.candidates) {
-                        validateImageOwner(candidate.originalRef, key)
+                        validateImageRefVersion(candidate.originalRef, version ?? 1)
+                        if (version === 2 && !candidate.sessionId) {
+                            throw new Error('A v2 fetch job needs its session ID')
+                        }
                     }
                 } catch {
                     rejectedRecords.push({ message: original, reasons: ['bad_ref'] })
                     continue
                 }
                 for (const candidate of parsed.candidates) {
-                    const partitionCandidate = { ...candidate, privacyKey: key, sourcePartitions: [message.partition] }
-                    const existing = candidatesByRef.get(fetchCandidateHistoryKey(partitionCandidate))
+                    const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
+                    const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
                         candidatesByRef.set(
-                            fetchCandidateHistoryKey(partitionCandidate),
+                            partitionCandidate.originalRef,
                             mergeDuplicateFetchCandidates(existing, partitionCandidate)
                         )
                     } else {
-                        candidatesByRef.set(fetchCandidateHistoryKey(partitionCandidate), partitionCandidate)
+                        candidatesByRef.set(partitionCandidate.originalRef, partitionCandidate)
                     }
                 }
             }
@@ -190,7 +201,7 @@ export class UrlFetchConsumer {
             }
 
             const keys = [
-                ...candidates.map(fetchCandidateHistoryKey),
+                ...candidates.map((candidate) => candidate.originalRef),
                 ...[...origins.keys()].flatMap((origin) => [
                     configurationCacheKey(origin, 'robots'),
                     configurationCacheKey(origin, 'tdmrep'),
@@ -203,7 +214,7 @@ export class UrlFetchConsumer {
             const fetchable: FetchCandidate[] = []
             const notReady: FetchCandidate[] = []
             for (const candidate of candidates) {
-                const history = stored.get(fetchCandidateHistoryKey(candidate))
+                const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
                     ImageFetchConsumerMetrics.incDeduped('store', 1)
                     for (const sourcePartition of candidate.sourcePartitions ?? []) {
@@ -227,7 +238,7 @@ export class UrlFetchConsumer {
 
             const republishBatch = this.publisher.createRepublishBatch(republishDeadlineAtMonotonicMs)
             stage.move('batch_fetch')
-            const attempts = await this.runner!.run(fetchable, stored, republishBatch)
+            const attempts = await this.runner!.run(fetchable, stored, republishBatch, admission)
             stage.move('batch_prepare_republish')
             attempts.push(
                 ...(await Promise.all(
@@ -465,7 +476,7 @@ export class UrlFetchConsumer {
         const nextFetchAtMs = urlHistoryExpiresAtMs(candidate.originalRef, nowMs, this.options.seenTtlSeconds)
         return {
             kind: 'url',
-            key: fetchCandidateHistoryKey(candidate),
+            key: candidate.originalRef,
             nextFetchAtMs,
             storageExpiresAtMs: nextFetchAtMs,
             outcome,

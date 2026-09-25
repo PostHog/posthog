@@ -10,6 +10,10 @@ from products.growth.backend.temporal.signup_enrichment.reenrichment import (
     report_sweep_run_activity,
     select_reenrichment_candidates_activity,
 )
+from products.growth.backend.temporal.signup_enrichment.rescore import (
+    WizardStampRescoreWorkflow,
+    resolve_wizard_rescore_signup_inputs_activity,
+)
 from products.growth.backend.temporal.signup_enrichment.workflow import (
     SignupEnrichmentRecheckWorkflow,
     SignupEnrichmentWorkflow,
@@ -21,6 +25,7 @@ WORKFLOWS = [
     SignupEnrichmentRecheckWorkflow,
     IcpReenrichmentSweepWorkflow,
     HarmonicEnrichmentStatusPollWorkflow,
+    WizardStampRescoreWorkflow,
 ]
 
 ACTIVITIES = [
@@ -31,4 +36,5 @@ ACTIVITIES = [
     select_status_poll_candidates_activity,
     poll_status_batch_activity,
     report_status_poll_run_activity,
+    resolve_wizard_rescore_signup_inputs_activity,
 ]

@@ -3,13 +3,14 @@
 Every write routes through ``FeatureFlagSerializer`` — the only path that honors
 ``@approval_gate``, validation, and activity logging. Consumers (currently experiments)
 call these functions instead of driving the serializer and its DRF context by hand.
-The read helpers (``user_can_edit_flag``, ``flag_disable_requires_approval``,
+The read helpers (``user_can_edit_flag``, ``user_can_create_flags``, ``flag_disable_requires_approval``,
 ``serialize_flags``, ``get_feature_flag_request_usage``) expose the flag API's
 access-control, approval-policy, representation, and request-usage logic behind
 the same boundary.
 
 Writes do not enforce access control — that lives at the viewset layer. A caller
-acting on behalf of an end user must pre-check ``user_can_edit_flag`` first.
+acting on behalf of an end user must pre-check ``user_can_edit_flag`` before writing an
+existing flag, and ``user_can_create_flags`` before creating one.
 
 Approval-gate ordering constraint for callers: a gated write can raise ``ApprovalRequired``
 (surfacing as a 409 + change_request_id), which conflicts with ``transaction.atomic`` — the
@@ -37,6 +38,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.approvals.backend.policies import PolicyEngine
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
@@ -78,13 +80,24 @@ def _serializer_context(team: Team, user: Any, request: Any | None, *, method: s
     }
 
 
-def create_flag(data: dict, *, team: Team, user: Any, request: Any | None = None) -> FeatureFlag:
+def create_flag(
+    data: dict,
+    *,
+    team: Team,
+    user: Any,
+    request: Any | None = None,
+    serializer_context: dict | None = None,
+) -> FeatureFlag:
     """Gated create: routes through FeatureFlagSerializer so @approval_gate, validation,
     and activity logging apply. ``data`` is the flag's own write shape (key, name, filters,
     active, ...) and is applied as-is — nothing is silently dropped. Raises ApprovalRequired
     when a policy requires approval. ``user=None`` is a system write (see module docstring):
-    ``created_by`` stays null, activity is logged as system, the approval gate is skipped."""
-    serializer = FeatureFlagSerializer(data=data, context=_serializer_context(team, user, request))
+    ``created_by`` stays null, activity is logged as system, the approval gate is skipped.
+    ``serializer_context`` is extra serializer context (an HTTP caller passes its viewset
+    context); the facade's own ``request``, ``team_id``, ``project_id``, ``get_team`` and
+    ``get_organization`` entries win over the caller's."""
+    context = {**(serializer_context or {}), **_serializer_context(team, user, request)}
+    serializer = FeatureFlagSerializer(data=data, context=context)
     serializer.is_valid(raise_exception=True)
     return serializer.save()
 
@@ -95,6 +108,8 @@ def _redact_unchanged_encrypted_payloads(flag: FeatureFlag, data: dict) -> dict:
     fails its JSON payload validation (and must never be re-encrypted), so values
     byte-identical to the stored ones are swapped for the redacted placeholder, which the
     serializer preserves. Genuinely new payload values pass through and are encrypted."""
+    if not isinstance(data, dict) or detect_config_format(flag.filters).kind != "v1":
+        return data
     filters = data.get("filters")
     if not flag.has_encrypted_payloads or not isinstance(filters, dict):
         return data
@@ -108,20 +123,34 @@ def _redact_unchanged_encrypted_payloads(flag: FeatureFlag, data: dict) -> dict:
     return {**data, "filters": {**filters, "payloads": redacted}}
 
 
-def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request: Any | None = None) -> FeatureFlag:
-    """Gated partial update: routes through FeatureFlagSerializer so @approval_gate,
-    validation, and activity logging apply. ``data`` is a partial flag write payload
-    (fields it omits are untouched) applied as-is — nothing is silently dropped.
-    Raises ApprovalRequired when a policy requires approval; the flag is left untouched.
-    ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
-    cleared, activity is logged as system, the approval gate is skipped.
+def update_flag(
+    flag: FeatureFlag,
+    data: dict,
+    *,
+    team: Team,
+    user: Any,
+    request: Any | None = None,
+    partial: bool = True,
+    serializer_context: dict | None = None,
+) -> FeatureFlag:
+    """Gated update: routes through FeatureFlagSerializer so @approval_gate,
+    validation, and activity logging apply. ``data`` is a flag write payload applied
+    as-is — nothing is silently dropped. Raises ApprovalRequired when a policy requires
+    approval; the flag is left untouched. ``user=None`` is a system write (see module
+    docstring): ``last_modified_by`` is cleared, activity is logged as system, the
+    approval gate is skipped.
+
+    ``partial=True`` (the default) leaves omitted fields untouched; ``partial=False`` is
+    the PUT shape, where the serializer enforces its required fields. ``serializer_context``
+    is extra serializer context (an HTTP caller passes its viewset context); the facade's own
+    ``request``, ``team_id``, ``project_id``, ``get_team`` and ``get_organization`` entries
+    win over the caller's.
 
     Encrypted payload values carried over unchanged from ``flag.get_filters()`` are
     preserved as-is, never re-validated or re-encrypted."""
     data = _redact_unchanged_encrypted_payloads(flag, data)
-    serializer = FeatureFlagSerializer(
-        flag, data=data, partial=True, context=_serializer_context(team, user, request, method="PATCH")
-    )
+    context = {**(serializer_context or {}), **_serializer_context(team, user, request, method="PATCH")}
+    serializer = FeatureFlagSerializer(flag, data=data, partial=partial, context=context)
     serializer.is_valid(raise_exception=True)
     saved = serializer.save()
     if saved.has_encrypted_payloads:
@@ -283,6 +312,17 @@ def user_can_edit_flag(flag: FeatureFlag, *, team: Team, user: Any) -> bool:
     if not isinstance(user, User) or user.is_anonymous:
         return False
     return UserAccessControl(user=user, team=team).check_access_level_for_object(flag, "editor")
+
+
+def user_can_create_flags(*, team: Team, user: User) -> bool:
+    """Whether ``user`` may create a flag in this team — the resource-level counterpart of
+    ``user_can_edit_flag``, and the same check the feature flag API enforces on create.
+
+    A product that creates a flag as a side effect of its own write needs this, because the
+    write goes through ``create_flag``, which enforces no access control. Without it, editor
+    access to that product substitutes for flag access. Unlike ``user_can_edit_flag`` this takes
+    a real ``User``, so a caller holding an unknown principal narrows it before asking."""
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
 def flag_disable_requires_approval(team: Team) -> bool:

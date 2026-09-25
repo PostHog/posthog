@@ -15,6 +15,9 @@ pub const RUNS_DISCOVERED: &str = "seeder_runs_discovered_total";
 pub const BOUNDARY_ESTABLISHED: &str = "seeder_boundary_established_total";
 pub const BOUNDARY_CAS_LOST: &str = "seeder_boundary_cas_lost_total";
 pub const RUNS_WAITING_BOUNDARY: &str = "seeder_runs_waiting_boundary";
+/// Runs terminally failed during pinned-payload validation, labelled by `reason` (counter). For
+/// `uncovered_participation` the run's `error` column names the cohorts, why each cannot be seeded,
+/// and their dropped hashes.
 pub const RUN_VALIDATION_FAILURES: &str = "seeder_run_validation_failures_total";
 pub const TZ_FALLBACK: &str = "seeder_tz_fallback_total";
 pub const CONDITIONS_DROPPED: &str = "seeder_conditions_dropped_total";
@@ -105,6 +108,7 @@ pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_second
 pub const SCAN_RECEIVED_BYTES: &str = "seeder_scan_received_bytes_total";
 /// Decompressed bytes a scan cursor produced, labelled by `kind` (counter).
 pub const SCAN_DECODED_BYTES: &str = "seeder_scan_decoded_bytes_total";
+pub const CLICKHOUSE_PASSWORD_FALLBACK: &str = "seeder_clickhouse_password_fallback_total";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";
 pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";
@@ -121,7 +125,6 @@ pub const RUN_CHUNKS_REMAINING: &str = "seeder_run_chunks_remaining";
 pub const RUNS_WITHOUT_CHUNKS: &str = "seeder_runs_without_chunks";
 pub const WINDOW_DAYS_MISMATCH: &str = "seeder_window_days_mismatch_total";
 pub const RUNS_PLANNING_STAMPED: &str = "seeder_runs_planning_stamped_total";
-pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
 /// Reconcile dispatch attempts, labelled by bounded `outcome` and the run's `kind` (counter).
 pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
 /// Dispatch claims lost to a concurrent writer, labelled by the run's `kind` (counter).
@@ -169,6 +172,23 @@ pub const PERSONS_SCANNED: &str = "seeder_persons_scanned_total";
 pub const PERSON_SEEDS_PRODUCED: &str = "seeder_person_seeds_produced_total";
 pub const PERSON_NONMATCHERS_SKIPPED: &str = "seeder_person_nonmatchers_skipped_total";
 pub const PERSON_ROWS_SKIPPED: &str = "seeder_person_rows_skipped_total";
+/// Scanned persons the fold declined to seed because their leaf truths cannot move a participating
+/// cohort's verdict, labelled by `reason`. Distinct from [`PERSON_NONMATCHERS_SKIPPED`], which keeps
+/// counting only the all-false rows.
+///
+/// Counts the fold's share of the saving only, and **falls** when the scan filter is doing its job:
+/// a row ClickHouse drops never reaches the fold, so it increments neither this nor
+/// [`PERSONS_SCANNED`]. Read it beside [`PERSON_SCAN_FILTER`], which is what separates "this run
+/// cannot be filtered, so the fold prunes" from "the filter applied, so there was little left to
+/// prune". A run reading zero on both is a run that pruned nothing.
+pub const PERSON_ROWS_PRUNED: &str = "seeder_person_rows_pruned_total";
+/// The one `reason` [`PERSON_ROWS_PRUNED`] carries today. A second one joins `prime_zero_series`.
+pub const PRUNE_REASON_IRRELEVANT: &str = "irrelevant";
+/// Conditions decided from the run's cached vacuous verdict rather than by running the VM. Read
+/// against `persons_scanned × conditions` to see how much of the per-row VM cost is gone.
+pub const PERSON_CONDITIONS_SHORTCUT: &str = "seeder_person_conditions_shortcut_total";
+/// One per person chunk, labelled by what became of the run's key filter on it.
+pub const PERSON_SCAN_FILTER: &str = "seeder_person_scan_filter_total";
 pub const PERSON_HOGVM_ERRORS: &str = "seeder_person_hogvm_errors_total";
 pub const PERSON_BOUNDARIES_PLANNED: &str = "seeder_person_boundaries_planned_total";
 /// One run's person planning pass, end to end: the ClickHouse boundaries scan plus the Postgres

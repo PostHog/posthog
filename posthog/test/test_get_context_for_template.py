@@ -14,9 +14,16 @@ from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
+from posthog.stable_chunks import StableChunks
 from posthog.utils import get_context_for_template
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
+
+STABLE_CHUNKS = StableChunks(
+    imports={"@c/eAAAA": "static/index-S0000000000.js"},
+    preload_js_urls=("static/index-S0000000000.js",),
+    authenticated_preload_js_urls=("static/shell-S1111111111.js",),
+)
 
 
 class TestGetContextForTemplate(APIBaseTest):
@@ -135,3 +142,29 @@ class TestGetContextForTemplate(APIBaseTest):
             assert claims["email"]["value"] == self.user.email.lower()
             current_time = int(time.time())
             assert current_time < claims["email"]["expires_at"] <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS
+
+    @parameterized.expand(
+        [
+            ("opted in and logged in", True, True, ("static/index-S0000000000.js", "static/shell-S1111111111.js")),
+            ("opted in and anonymous", True, False, ("static/index-S0000000000.js",)),
+            ("not opted in", False, True, ()),
+        ]
+    )
+    def test_only_an_opted_in_browser_boots_through_the_import_map(
+        self, _name, opted_in, authenticated, expected_preload_js_urls
+    ):
+        request = RequestFactory().get("/?stable_chunks=1" if opted_in else "/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user if authenticated else AnonymousUser()
+
+        with mock.patch("posthog.stable_chunks._resolve_stable_chunks", return_value=STABLE_CHUNKS):
+            context = get_context_for_template("index.html", request)
+
+        assert context.get("stable_chunks", False) is opted_in
+        assert context["preload_js_urls"] == expected_preload_js_urls
+        if opted_in:
+            assert json.loads(context["stable_chunks_importmap"]) == {
+                "imports": {"@c/eAAAA": f"{context['js_url']}/static/index-S0000000000.js"}
+            }
+        else:
+            assert "stable_chunks_importmap" not in context

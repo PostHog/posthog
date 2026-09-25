@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 import time_machine
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
 
@@ -36,12 +36,13 @@ from posthog.dags.deletes import (
     manual_deletes_job,
     mark_deletions_verified,
     monthly_old_events_cleanup_job,
+    resolve_sweep_targets,
     run_deletes_after_manual_trigger,
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, TargetPlacement
+from posthog.models.deletion_targets import EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -288,6 +289,19 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     cluster.any_host(insert_plugin_log_entries).result()
     cluster.any_host(insert_person_distinct_id2).result()
 
+    # One embedded document for a deleted team and one for a kept team; the team's documents go with the team.
+    def insert_documents(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_posthog_document_embeddings_text_embedding_3_large_3072
+               (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            [
+                (team_id, "test", "doc", "text", str(UUID(int=team_id)), timestamp, timestamp, "text", [0.0] * 3072)
+                for team_id in (0, delete_count)
+            ],
+        )
+
+    cluster.any_host(insert_documents).result()
+
     def get_by_team(table: str, client: Client) -> dict[int, int]:
         result = client.execute(f"SELECT team_id, count(1) FROM {table} GROUP BY team_id")
         if not isinstance(result, list):
@@ -349,6 +363,14 @@ def test_full_job_team_deletes(cluster: ClickhouseCluster):
     # Check postconditions
     final_events = cluster.any_host(partial(get_by_team, "writable_events")).result()
     assert len(final_events) == event_count - delete_count, f"expected events data was not deleted"
+
+    final_documents = cluster.any_host(
+        partial(get_by_team, "distributed_posthog_document_embeddings_text_embedding_3_large_3072")
+    ).result()
+    # Other tests leave documents for their own teams in this table, so only the two inserted above are judged.
+    assert {team for team in final_documents if team in (0, delete_count)} == {delete_count}, (
+        "the deleted team's embedded documents survived"
+    )
 
     final_persons = cluster.any_host(partial(get_by_team, "person")).result()
     assert len(final_persons) == event_count - delete_count, f"expected person data was not deleted"
@@ -498,6 +520,59 @@ def test_full_job_adhoc_event_deletes(cluster: ClickhouseCluster):
     # Verify the temporary tables were cleaned up
     deletes_dict = AdhocEventDeletesDictionary(source=AdhocEventDeletesTable())
     assert not any(cluster.map_all_hosts(deletes_dict.exists).result().values())
+
+
+@pytest.mark.django_db
+def test_full_job_deletes_events_queued_in_postgres(cluster: ClickhouseCluster):
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    events = [(9000 + i, f"distinct_id_{i}", UUID(int=9000 + i), timestamp) for i in range(20)]
+    queued, kept = events[:5], events[5:]
+
+    def insert_events(client: Client) -> None:
+        client.execute("INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp) VALUES", events)
+
+    def surviving_uuids(client: Client) -> set[UUID]:
+        result = client.execute("SELECT uuid FROM writable_events WHERE team_id >= 9000 AND team_id < 9020")
+        return {row[0] for row in result} if isinstance(result, list) else set()
+
+    # The embedded text of an event lives under its uuid as document_id, and goes with the event. Each team
+    # also holds a document for an event nobody queued, which an arm that matched on team alone would take.
+    def insert_documents(client: Client) -> None:
+        client.execute(
+            """INSERT INTO writable_posthog_document_embeddings_text_embedding_3_large_3072
+               (team_id, product, document_type, rendering, document_id, timestamp, inserted_at, content, embedding) VALUES""",
+            [
+                (team_id, "test", "doc", "text", document_id, timestamp, timestamp, "text", [0.0] * 3072)
+                for team_id, _, uuid, _ in events
+                for document_id in (str(uuid), f"unqueued-{uuid}")
+            ],
+        )
+
+    def surviving_document_ids(client: Client) -> set[str]:
+        result = client.execute(
+            "SELECT document_id FROM distributed_posthog_document_embeddings_text_embedding_3_large_3072 WHERE team_id >= 9000 AND team_id < 9020"
+        )
+        return {row[0] for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_events).result()
+    cluster.any_host(insert_documents).result()
+    for team_id, _, uuid, _ in queued:
+        deletion = AsyncDeletion.objects.create(team_id=team_id, deletion_type=DeletionType.Event, key=str(uuid))
+        # The sweep only covers rows ingested before the request, so the request has to postdate the insert.
+        deletion.created_at = timestamp
+        deletion.save()
+
+    deletes_job.execute_in_process(
+        run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
+        resources={"cluster": cluster},
+    )
+
+    surviving = cluster.any_host(surviving_uuids).result()
+    assert surviving == {event[2] for event in kept}
+    assert cluster.any_host(surviving_document_ids).result() == {str(event[2]) for event in kept} | {
+        f"unqueued-{event[2]}" for event in events
+    }
+    assert not AsyncDeletion.objects.filter(deletion_type=DeletionType.Event, delete_verified_at__isnull=True).exists()
 
 
 @pytest.mark.django_db
@@ -960,7 +1035,7 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
 
         context = build_op_context()
         before = _count_unswept_rows(
-            context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+            context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
         )
         surviving = before["events"]
         assert surviving is not None and surviving >= 2, "the count cannot see rows the sweep has not removed yet"
@@ -973,14 +1048,18 @@ def test_the_post_sweep_count_reports_rows_the_sweep_left_behind(cluster: Clickh
         for _host, mutation in cluster.map_one_host_per_shard(runner).result().items():
             cluster.map_all_hosts(mutation.wait).result()
 
-        after = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        after = _count_unswept_rows(
+            context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+        )
         assert after["events"] == 0
 
         # A row ingested after its request was created is outside that request's scope, so it
         # must fail neither the delete nor the verification: counting it would let one tenant
         # that keeps ingesting backdated events block every tenant's deletions from being marked.
         cluster.any_host_by_role(insert_late_event, NodeRole.DATA).result()
-        late = _count_unswept_rows(context, cluster, dictionary, adhoc, DeleteConfig().verification_max_execution_time)
+        late = _count_unswept_rows(
+            context, cluster, PERSONAL_DATA_TARGETS, dictionary, adhoc, DeleteConfig().verification_max_execution_time
+        )
         assert late["events"] == 0, "a row inserted after its request's created_at must not count as unswept"
         assert cluster.any_host_by_role(count_late_event_rows, NodeRole.DATA).result() == 1, (
             "the created_at bound, not a delete, must be what hides the late row"
@@ -1046,6 +1125,7 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
             counts = _count_unswept_rows(
                 build_op_context(),
                 cluster,
+                PERSONAL_DATA_TARGETS,
                 dictionary,
                 adhoc,
                 DeleteConfig().verification_max_execution_time,
@@ -1059,26 +1139,124 @@ def test_a_target_on_another_cluster_is_also_counted_on_its_storage_table(cluste
         cluster.any_host(table.drop).result()
 
 
+@pytest.mark.django_db
+def test_a_skipped_target_keeps_its_rows_while_the_rest_are_swept(cluster: ClickhouseCluster):
+    # Seven ops resolve the sweep, and each one that misses the resolved list puts the run back to
+    # sweeping a target the config took out. Only a dispatched mutation shows that from the
+    # outside, so this asserts the one table that is skipped still holds its rows after a run that
+    # deleted from the others.
+    timestamp = (datetime.now() + timedelta(days=31)).replace(microsecond=0)
+    queued_uuid, unqueued_uuid = 7001, 7002
+
+    events = [(i, f"distinct_id_{i}", UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)]
+
+    def insert_events(client: Client) -> None:
+        client.execute(
+            "INSERT INTO writable_events (team_id, distinct_id, uuid, timestamp) VALUES",
+            events,
+        )
+
+    def insert_adhoc_event_deletes(client: Client) -> None:
+        client.execute(
+            "INSERT INTO adhoc_events_deletion (team_id, uuid, created_at) VALUES",
+            [(queued_uuid, UUID(int=queued_uuid), timestamp)],
+        )
+
+    def surviving_events(client: Client) -> set[tuple[int, UUID]]:
+        result = client.execute(
+            "SELECT team_id, uuid FROM events WHERE team_id IN %(teams)s AND _row_exists = 1",
+            {"teams": [queued_uuid, unqueued_uuid]},
+        )
+        return {(row[0], row[1]) for row in result} if isinstance(result, list) else set()
+
+    cluster.any_host(insert_events).result()
+    cluster.any_host(
+        partial(
+            insert_flag_evaluations,
+            [(i, f"distinct_id_{i}", UUID(int=i), UUID(int=i), timestamp) for i in (queued_uuid, unqueued_uuid)],
+        )
+    ).result()
+    cluster.any_host(insert_adhoc_event_deletes).result()
+
+    deletes_job.execute_in_process(
+        run_config={
+            "ops": {
+                "create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}},
+                "resolve_sweep_targets": {"config": {"skip_targets": ["sharded_flag_evaluations"]}},
+            }
+        },
+        resources={"cluster": cluster},
+    )
+
+    surviving = cluster.any_host(surviving_events).result()
+    assert (queued_uuid, UUID(int=queued_uuid)) not in surviving, "the swept target kept a queued uuid"
+    assert (unqueued_uuid, UUID(int=unqueued_uuid)) in surviving, "the sweep removed a uuid nobody queued"
+
+    flags = cluster.any_host(surviving_flag_evaluations).result()
+    assert (queued_uuid, UUID(int=queued_uuid), UUID(int=queued_uuid)) in flags, "the skipped target was swept anyway"
+
+
+@pytest.mark.parametrize(
+    "skip_targets,expected",
+    [
+        ([], ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]),
+        (["sharded_events_json"], ["sharded_events", "sharded_flag_evaluations"]),
+        (["events_json"], ["sharded_events", "sharded_flag_evaluations"]),
+        (["events_json", "sharded_flag_evaluations"], ["sharded_events"]),
+    ],
+    ids=["nothing_skipped", "by_storage_table", "by_read_table", "two_targets"],
+)
+def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets, expected) -> None:
+    # An operator reaches for this from whichever error is in front of them, which carries the
+    # storage table on a mutation and the read table on a survivor count. Accepting only one of the
+    # two would read as a working skip while the target kept being swept.
+    context = build_op_context(config={"skip_targets": skip_targets})
+
+    assert resolve_sweep_targets(context) == expected
+
+
+def test_events_json_is_skipped_by_default() -> None:
+    # The events cluster is not reliably reachable from the sweep, and a run that resolves it
+    # inconsistently reports an erasure it did not perform. Dropping the default would resume that
+    # sweep silently, because nothing else in a run says which targets it was supposed to reach.
+    assert resolve_sweep_targets(build_op_context()) == ["sharded_events", "sharded_flag_evaluations"]
+
+
+def test_an_unrecognised_skip_target_fails_the_run() -> None:
+    # A typo would otherwise widen the sweep back to every target, which is the dangerous
+    # direction: the run reports success having deleted from a table that was meant to be left
+    # alone, and the requests covering those rows are marked verified either way.
+    context = build_op_context(config={"skip_targets": ["sharded_event_json"]})
+
+    with pytest.raises(dagster.Failure, match="unknown skip_targets"):
+        resolve_sweep_targets(context)
+
+
 @pytest.mark.parametrize(
     "unswept",
-    [
-        {"events": 3},
-        # None is a count that completed no attempt. Marking on it is the mistake this gate
-        # exists to stop: unknown is not zero.
-        {"events": None},
-    ],
+    [{"events": 3}, {"events": None}],
+    ids=["rows_survived", "count_could_not_be_taken"],
 )
-def test_marking_is_refused_when_a_count_survives_or_cannot_complete(unswept: dict):
+def test_marking_proceeds_when_the_check_does_not_come_back_clean(unswept: dict):
+    # The count reads the whole events table, so an unknown answer is its ordinary outcome rather
+    # than a signal. Failing the run on either outcome stopped every request instead of the ones at
+    # risk, and the requests it stranded grew the dictionaries the next count had to read.
+    cluster = Mock()
+    cluster.any_host_by_role.return_value.result.return_value = []
+    cluster.any_host.return_value.result.return_value = None
+    dictionary = PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1)))
+
     with patch("posthog.dags.deletes._count_unswept_rows", return_value=unswept):
-        with pytest.raises(dagster.Failure) as excinfo:
-            mark_deletions_verified(
-                build_op_context(),
-                DeleteConfig(),
-                cast(ClickhouseCluster, None),
-                PendingDeletesDictionary(source=PendingDeletesTable(timestamp=datetime(2026, 9, 1))),
-                AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
-            )
-    assert "events" in str(excinfo.value)
+        resources = mark_deletions_verified(
+            build_op_context(),
+            [target.data_table for target in PERSONAL_DATA_TARGETS],
+            DeleteConfig(),
+            cluster,
+            dictionary,
+            AdhocEventDeletesDictionary(source=AdhocEventDeletesTable()),
+        )
+
+    assert resources.pending_deletions_dictionary is dictionary
 
 
 @pytest.mark.parametrize(

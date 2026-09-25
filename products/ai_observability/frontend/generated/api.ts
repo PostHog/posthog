@@ -31,14 +31,20 @@ import type {
     DatasetsListParams,
     DatasetsRevisionsListParams,
     EvaluationApi,
+    EvaluationBackfillApi,
+    EvaluationBackfillEstimateApi,
+    EvaluationBackfillRequestApi,
     EvaluationConfigApi,
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationDirectoryApi,
     EvaluationReportApi,
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
-    EvaluationRunsCreate200,
+    EvaluationRunResponseApi,
+    EvaluationsBackfillsListParams,
     EvaluationsListParams,
+    ExperimentReceiptApi,
+    ExperimentSubmissionApi,
     InstrumentationCheckActionApi,
     InstrumentationChecklistApi,
     LLMModelsListResponseApi,
@@ -71,6 +77,7 @@ import type {
     PaginatedDatasetItemReadListApi,
     PaginatedDatasetReadListApi,
     PaginatedDatasetRevisionReadListApi,
+    PaginatedEvaluationBackfillListApi,
     PaginatedEvaluationListApi,
     PaginatedEvaluationReportListApi,
     PaginatedEvaluationReportRunListApi,
@@ -119,6 +126,8 @@ import type {
     TraceReviewApi,
     TraceReviewCreateApi,
     TranslateRequestApi,
+    UploadReceiptApi,
+    UploadSubmissionApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -247,6 +256,71 @@ export const aiObservabilityInstrumentationChecklistRestoreCreate = async (
             body: JSON.stringify(instrumentationCheckActionApi),
         }
     )
+}
+
+export const getAiObservabilityOfflineExperimentsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/`
+}
+
+export const aiObservabilityOfflineExperimentsCreate = async (
+    projectId: string,
+    experimentSubmissionApi: ExperimentSubmissionApi,
+    options?: RequestInit
+): Promise<ExperimentReceiptApi> => {
+    return apiMutator<ExperimentReceiptApi>(getAiObservabilityOfflineExperimentsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSubmissionApi),
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsCompleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/complete/`
+}
+
+export const aiObservabilityOfflineExperimentsCompleteCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExperimentReceiptApi> => {
+    return apiMutator<ExperimentReceiptApi>(getAiObservabilityOfflineExperimentsCompleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsFailCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/fail/`
+}
+
+export const aiObservabilityOfflineExperimentsFailCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ExperimentReceiptApi> => {
+    return apiMutator<ExperimentReceiptApi>(getAiObservabilityOfflineExperimentsFailCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/upload/`
+}
+
+export const aiObservabilityOfflineExperimentsUploadCreate = async (
+    projectId: string,
+    id: string,
+    uploadSubmissionApi: UploadSubmissionApi,
+    options?: RequestInit
+): Promise<UploadReceiptApi> => {
+    return apiMutator<UploadReceiptApi>(getAiObservabilityOfflineExperimentsUploadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadSubmissionApi),
+    })
 }
 
 export const getDatasetItemsListUrl = (projectId: string, params: DatasetItemsListParams) => {
@@ -743,8 +817,8 @@ export const evaluationRunsCreate = async (
     projectId: string,
     evaluationRunRequestApi: EvaluationRunRequestApi,
     options?: RequestInit
-): Promise<EvaluationRunsCreate200> => {
-    return apiMutator<EvaluationRunsCreate200>(getEvaluationRunsCreateUrl(projectId), {
+): Promise<EvaluationRunResponseApi> => {
+    return apiMutator<EvaluationRunResponseApi>(getEvaluationRunsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -794,6 +868,127 @@ export const evaluationsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(evaluationApi),
     })
+}
+
+export const getEvaluationsBackfillsListUrl = (
+    projectId: string,
+    evaluationId: string,
+    params?: EvaluationsBackfillsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${evaluationId}/backfills/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${evaluationId}/backfills/`
+}
+
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const evaluationsBackfillsList = async (
+    projectId: string,
+    evaluationId: string,
+    params?: EvaluationsBackfillsListParams,
+    options?: RequestInit
+): Promise<PaginatedEvaluationBackfillListApi> => {
+    return apiMutator<PaginatedEvaluationBackfillListApi>(
+        getEvaluationsBackfillsListUrl(projectId, evaluationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getEvaluationsBackfillsCreateUrl = (projectId: string, evaluationId: string) => {
+    return `/api/projects/${projectId}/evaluations/${evaluationId}/backfills/`
+}
+
+/**
+ * Create a backfill: freeze the conditions, count the units, start the walk.
+ */
+export const evaluationsBackfillsCreate = async (
+    projectId: string,
+    evaluationId: string,
+    evaluationBackfillRequestApi: EvaluationBackfillRequestApi,
+    options?: RequestInit
+): Promise<EvaluationBackfillApi> => {
+    return apiMutator<EvaluationBackfillApi>(getEvaluationsBackfillsCreateUrl(projectId, evaluationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationBackfillRequestApi),
+    })
+}
+
+export const getEvaluationsBackfillsRetrieveUrl = (projectId: string, evaluationId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluations/${evaluationId}/backfills/${id}/`
+}
+
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const evaluationsBackfillsRetrieve = async (
+    projectId: string,
+    evaluationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvaluationBackfillApi> => {
+    return apiMutator<EvaluationBackfillApi>(getEvaluationsBackfillsRetrieveUrl(projectId, evaluationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsBackfillsCancelCreateUrl = (projectId: string, evaluationId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluations/${evaluationId}/backfills/${id}/cancel/`
+}
+
+/**
+ * Stop a running backfill. Evaluations already dispatched still finish.
+ */
+export const evaluationsBackfillsCancelCreate = async (
+    projectId: string,
+    evaluationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvaluationBackfillApi> => {
+    return apiMutator<EvaluationBackfillApi>(getEvaluationsBackfillsCancelCreateUrl(projectId, evaluationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getEvaluationsBackfillsEstimateCreateUrl = (projectId: string, evaluationId: string) => {
+    return `/api/projects/${projectId}/evaluations/${evaluationId}/backfills/estimate/`
+}
+
+/**
+ * Count what a backfill over the given window would evaluate, without creating one.
+ */
+export const evaluationsBackfillsEstimateCreate = async (
+    projectId: string,
+    evaluationId: string,
+    evaluationBackfillRequestApi: EvaluationBackfillRequestApi,
+    options?: RequestInit
+): Promise<EvaluationBackfillEstimateApi> => {
+    return apiMutator<EvaluationBackfillEstimateApi>(
+        getEvaluationsBackfillsEstimateCreateUrl(projectId, evaluationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(evaluationBackfillRequestApi),
+        }
+    )
 }
 
 export const getEvaluationsRetrieveUrl = (projectId: string, id: string) => {

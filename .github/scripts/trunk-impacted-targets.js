@@ -154,8 +154,9 @@ const SEMGREP = 'semgrep'
 const CARGO_LOCK = 'cargo-lock'
 
 // The nodejs lane on its own, for files whose only reader is the ingestion
-// suite or an image built purely from nodejs/ sources. The rust and proto
-// rules also use it to name that lane without dragging in the frontend.
+// suite or an image built from nodejs/ sources and native bindings that claim
+// this lane already. The rust and proto rules also use it to name that lane
+// without dragging in the frontend.
 const NODE = 'node'
 
 // Suites that run the backend and the frontend together: E2E, Hog, and the
@@ -277,7 +278,8 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/container-images-ci.yml', FULLSTACK],
     ['.github/workflows/cd-sandbox-base-image.yml', FULLSTACK],
     ['.github/workflows/ci-recording-rasterizer-container.yml', FULLSTACK],
-    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources only.
+    // The ml-mirror-image-scrub sidecar is built from nodejs/ sources and the replay-anonymizer addon,
+    // and a change to that native binding claims the node lane too (NATIVE_BINDING_CONSUMER_LANES).
     ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', NODE],
     // The skills build renders templates that import product Python, and the
     // embedded-payload job runs the services/mcp generator that writes into
@@ -595,7 +597,8 @@ const TRIPWIRE_RULES = [
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
-    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources, and the
+    // Dockerfile.ml-mirror-image-scrub only from nodejs/ sources and the
+    // replay-anonymizer addon, whose changes already claim the node lane, and the
     // playwright and sandbox images host suites that run both language
     // families. Everything else at the root, the unified app image included,
     // backs E2E, hobby, and production, which is the app-image radius; no
@@ -608,6 +611,10 @@ const TRIPWIRE_RULES = [
     ['Dockerfile*', APP_IMAGE],
     ['.dockerignore', APP_IMAGE],
     ['proto/**', PROTO],
+    // The checked-in python stubs. They sit under packages/, which the
+    // directory rules read as frontend, but every importer is python under
+    // posthog/.
+    ['packages/personhog-proto/**', PYTHON],
     ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
     ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
@@ -648,6 +655,9 @@ const TRIPWIRE_RULES = [
     // owners.yaml is the fallback every path resolves through when no nearer
     // file claims it. A product's own owners.yaml is not here: it keeps its
     // product lane.
+    ['packages/owners-yaml/**', OWNERSHIP],
+    // Transitional: branches that predate the move still carry the resolver at tools/owners,
+    // where the tools/ fallback rule would give it the Python lanes only.
     ['tools/owners/**', OWNERSHIP],
     ['owners.yaml', OWNERSHIP],
     // The quarantine list covers the pytest, jest, and playwright suites at
@@ -666,7 +676,6 @@ const TRIPWIRE_RULES = [
     ['bin/deploy-hobby', HOBBY],
     ['bin/upgrade-hobby', HOBBY],
     ['bin/migrate-storage-hobby', HOBBY],
-    ['bin/migrate-session-recordings-hobby', HOBBY],
     // Called by the hobby storage-migration scripts above, so it has to share
     // their lane.
     ['bin/migrate-minio-to-seaweedfs', HOBBY],
@@ -684,6 +693,7 @@ const TRIPWIRE_RULES = [
     ['bin/posthog-node', APP_IMAGE],
     ['bin/temporal-django-worker', APP_IMAGE],
     ['bin/granian_metrics.py', APP_IMAGE],
+    ['bin/granian_shared_socket.py', APP_IMAGE],
     ['bin/start-backend', APP_IMAGE],
     ['bin/start-frontend', APP_IMAGE],
     // The schema and taxonomy codegen pipeline, which turns
@@ -1501,7 +1511,10 @@ const RUST_DETERMINATOR = 'rust:determinator'
 // nodejs/package.json is the only dependent of the two binding packages
 // (@posthog/hogvm-node, @posthog/replay-anonymizer) today,
 // and the test suite re-derives that from pnpm-workspace.yaml so a second
-// dependent fails there rather than silently going unclaimed here.
+// dependent fails there rather than silently going unclaimed here. The
+// image-scrub sidecar under nodejs/src/ingestion loads the replay-anonymizer
+// addon too, built from the crate rather than installed from the package, and
+// it sits in this same lane.
 const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 
 // Every target this script can emit. A widening decision names this set instead
@@ -1749,8 +1762,8 @@ function addAppImageLanes(targets, context) {
 // The nodejs half takes the node domain rather than the javascript one because
 // the stubs land only in nodejs/src/common/generated; no frontend or services
 // package imports them. The python half cannot narrow below every python lane:
-// the stubs are checked into posthog/, which is py:core, and py:core covers
-// every product lane by construction.
+// posthog/personhog_client imports the stubs, that is py:core, and py:core
+// covers every product lane by construction.
 // stubDir names the checked-in stub directory when it differs from the tree
 // name; the consistency test reads it. ingestion's node stubs land in
 // nodejs/src/common/generated/ingestion-worker, not .../ingestion.

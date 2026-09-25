@@ -1,5 +1,5 @@
 import { parseFilterGroup } from '../sampling/compile-rules'
-import { type CompiledRetentionRule, type CompiledRetentionRuleSet, VALID_RETENTION_DAYS } from './evaluate-retention'
+import { type CompiledRetentionRule, type CompiledRetentionRuleSet, isValidRetentionDays } from './evaluate-retention'
 
 /**
  * Defensive cap on enabled retention rules compiled (and thus scanned per record) for one team.
@@ -10,6 +10,9 @@ import { type CompiledRetentionRule, type CompiledRetentionRuleSet, VALID_RETENT
  * maximum the API may enforce at write time.
  */
 export const MAX_ENABLED_RETENTION_RULES = 100
+
+/** Record kind a retention rule applies to. Log rules and span rules live in separate Django models. */
+export type RetentionRuleSource = 'logs' | 'spans'
 
 export type RetentionRuleRow = {
     id: string
@@ -25,10 +28,7 @@ export function compileRetentionRuleSet(rows: RetentionRuleRow[]): CompiledReten
         const retentionDays = config.retention_days
         // Skip rows the API validator would have rejected — robustness against legacy or
         // hand-crafted rows. A `true` boolean is not accepted (typeof true === 'boolean').
-        if (typeof retentionDays !== 'number' || !Number.isInteger(retentionDays)) {
-            continue
-        }
-        if (!VALID_RETENTION_DAYS.has(retentionDays)) {
+        if (typeof retentionDays !== 'number' || !isValidRetentionDays(retentionDays)) {
             continue
         }
         // parseFilterGroup bounds depth/breadth and pre-compiles regex leaves; returns null for

@@ -69,6 +69,12 @@ const HARNESS_ROWS: HarnessRow[] = [
     { category: 'Cowork', total_calls: 800, errors: 8, error_rate_pct: 1, sessions: 120 },
     { category: 'Claude.ai', total_calls: 400, errors: 12, error_rate_pct: 3, sessions: 80 },
     { category: 'Other', total_calls: 200, errors: 10, error_rate_pct: 5, sessions: 50 },
+    { category: 'PostHog CLI', total_calls: 125, errors: 5, error_rate_pct: 4, sessions: 20 },
+    { category: 'Windsurf', total_calls: 90, errors: 0, error_rate_pct: 0, sessions: 15 },
+    { category: 'Replit', total_calls: 70, errors: 0, error_rate_pct: 0, sessions: 12 },
+    { category: 'Lovable', total_calls: 50, errors: 1, error_rate_pct: 2, sessions: 10 },
+    { category: 'Kiro', total_calls: 30, errors: 0, error_rate_pct: 0, sessions: 6 },
+    { category: 'Notion', total_calls: 10, errors: 0, error_rate_pct: 0, sessions: 2 },
 ]
 
 const MODEL_ROWS: ModelRow[] = [
@@ -280,7 +286,16 @@ export const ShareByHarnessNarrow: Story = {
     ),
 }
 
+export const ShareByHarnessExpandedNarrow: Story = {
+    ...ShareByHarnessNarrow,
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all harnesses' }))
+    },
+}
+
 export const ShareByHarnessLoading: Story = {
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
     render: withTheme((theme) => <HarnessBarChart rows={[]} loading theme={theme} />),
 }
 
@@ -304,6 +319,10 @@ export const ShareByModel: Story = {
 }
 
 export const ShareByModelExpandedNarrow: Story = {
+    parameters: { testOptions: { snapshotTargetSelector: '.LemonModal', waitForSelector: '.LemonModal' } },
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: 'Show all models' }))
+    },
     decorators: [modelPagesDecorator],
     render: () => (
         <div className="w-80">
@@ -401,5 +420,9 @@ export const OverviewUnknownModels: Story = {
             },
         }),
     ],
-    render: () => <MCPAnalyticsDashboardOverview />,
+    render: () => (
+        <div className="w-[960px]">
+            <MCPAnalyticsDashboardOverview />
+        </div>
+    ),
 }

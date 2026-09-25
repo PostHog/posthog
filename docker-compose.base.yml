@@ -29,6 +29,8 @@ services:
                         path /i/v0/ai
                         path /i/v0/ai/
                         path /i/v0/ai/*
+                        path /i/v1/ai/events
+                        path /i/v1/ai/events/
                     }
 
                     @capture {
@@ -378,6 +380,7 @@ services:
             KAFKA_TOPIC: 'events_plugin_ingestion'
             KAFKA_ERROR_TRACKING_TOPIC: 'ingestion-errortracking-main'
             KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
@@ -402,6 +405,7 @@ services:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'session_recording_snapshot_item_events'
             KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: recordings
 
@@ -416,11 +420,23 @@ services:
             ADDRESS: '0.0.0.0:3000'
             KAFKA_TOPIC: 'events_plugin_ingestion_ai'
             KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             # `ai` mode produces to the AI lane as its main topic (no $ai_* divert needed),
             # matching the production capture-ai deployment.
             CAPTURE_MODE: ai
             RUST_LOG: 'info,rdkafka=warn'
+            # v1 sink for `/i/v1/ai/events` (Django's capture_ai_internal). The sink config
+            # requires every topic var; `ai` mode only produces to the AI topic.
+            CAPTURE_V1_SINKS: 'msk'
+            CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: 'kafka:9092'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: 'events_plugin_ingestion_ai'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL: 'events_plugin_ingestion_ai'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW: 'events_plugin_ingestion_ai'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ: 'events_plugin_ingestion_dlq'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION: 'ingestion-errortracking-main'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP: 'heatmaps_ingestion'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: 'ingestion-clientwarnings-main-1'
 
     capture-logs:
         image: ghcr.io/posthog/posthog/capture-logs:master

@@ -15,7 +15,7 @@ cross the boundary through sibling facade submodules (``sandbox``, ``warm``,
 their data results.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -53,6 +53,18 @@ class TaskDTO:
     created_by_id: int | None = None
     task_number: int | None = None
     slug: str = ""
+
+
+@dataclass(frozen=True)
+class StreamNotificationDelivery:
+    """Where a server-originated stream notification landed.
+
+    ``live`` reached the run's Redis stream, so connected threads show the frame now. ``persisted``
+    reached the run's S3 log, so a thread loaded after the stream expires replays it too.
+    """
+
+    live: bool
+    persisted: bool
 
 
 @dataclass(frozen=True)
@@ -204,6 +216,11 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskCreateResponseDTO(TaskDetailDTO):
+    run_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -382,6 +399,9 @@ class TaskLatestRunSummaryDTO:
     status: str | None
     environment: str | None
     mode: Literal["interactive", "background"]
+    pr_url: str | None = None
+    pr_state: str | None = None
+    task_summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -389,7 +409,7 @@ class TaskSummaryDTO:
     """The HTTP summary representation of a task.
 
     Mirrors exactly the fields ``TaskSummarySerializer`` emits. ``latest_run`` carries the
-    most-recent run's status, environment, and mode (or ``None`` when the task has no runs).
+    most-recent run's status, environment, mode and pull request (or ``None`` when the task has no runs).
     """
 
     id: UUID
@@ -434,6 +454,7 @@ class TaskRunResult:
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
+    run_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -582,12 +603,14 @@ class TaskRunDetailDTO:
     log_url: str | None
     error_message: str | None
     output: dict | None
+    task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    scheduled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -648,6 +671,73 @@ class TaskRunSandboxConnectionDTO:
     connection_token: str | None = None
     # Query-param name the transport token travels under (provider-specific).
     sandbox_token_param: str = "_modal_connect_token"
+
+
+SPACE_SETUP_SCOPES = (
+    "task:write",
+    "canvas:write",
+    "hog_flow:write",
+    # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.
+    "person:read",
+    "group:read",
+    "integration:read",
+    "query:read",
+    "data_catalog:read",
+    "insight:read",
+    "dashboard:read",
+    "feature_flag:read",
+    "experiment:read",
+    "error_tracking:read",
+    "session_recording:read",
+    "event_definition:read",
+    "property_definition:read",
+    "project:read",
+    "organization:read",
+    "survey:read",
+)
+
+
+class SpaceSetupInProgressError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class SpaceGoalRequest:
+    """The metric a goal space is set up to move."""
+
+    statement: str
+    period: Literal["day", "week", "month"] = "week"
+    direction: Literal["at_least", "at_most"] = "at_least"
+    target: str | None = None
+    deadline: date | None = None
+    insight_short_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceFeatureRequest:
+    """The feature a feature space is set up around."""
+
+    name: str
+    description: str = ""
+    flag_key: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupRequest:
+    """What the space setup task should set the space up for. Exactly one of ``goal`` and
+    ``feature`` is set, matching ``kind``."""
+
+    kind: Literal["goal", "feature"]
+    goal: SpaceGoalRequest | None = None
+    feature: SpaceFeatureRequest | None = None
+    repository: str | None = None
+
+
+@dataclass(frozen=True)
+class SpaceSetupStartedDTO:
+    """The setup task that now owns the channel's context generation marker."""
+
+    task_id: UUID
 
 
 @dataclass(frozen=True)

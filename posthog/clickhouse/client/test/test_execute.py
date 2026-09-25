@@ -1,9 +1,19 @@
 from ipaddress import IPv4Address, IPv6Address
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.hogql.query_stats import query_stats_scope
+
+from posthog.clickhouse.client.connection import (
+    ClickHouseClient,
+    ClickHouseUser,
+    ProxyClient,
+    Workload,
+    get_default_clickhouse_workload_type,
+)
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
@@ -107,6 +117,82 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
         sync_execute("SELECT 1", flush=False)
 
     assert llm_analytics_slots.call_count == expected_slots
+
+
+def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
+    return SimpleNamespace(progress=SimpleNamespace(rows=rows, elapsed_ns=elapsed_ns))
+
+
+class _FakeNativeClient(ClickHouseClient):
+    # Nothing here connects, so disconnect() only clears last_query.
+    def __init__(self, fails: str | None = None, last_query: SimpleNamespace | None = None) -> None:
+        super().__init__(host="localhost")
+        self.last_query = last_query
+        self._fails = fails
+
+    def execute(self, *args: Any, **kwargs: Any) -> list[tuple[int]]:
+        if self._fails == "connect":
+            self.disconnect()
+            raise ValueError("Connection refused")
+        self.last_query = _fake_query_info(rows=7, elapsed_ns=3_000_000)
+        if self._fails == "kill":
+            self.disconnect()
+            raise ValueError("Memory limit (for query) exceeded")
+        return [(1,)]
+
+
+def _proxy_client() -> ProxyClient:
+    summary = {"read_rows": "7", "elapsed_ns": "3000000"}
+    http_client = SimpleNamespace(query=lambda **kwargs: SimpleNamespace(summary=summary, result_set=[(1,)]))
+    return ProxyClient(http_client)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "make_client,raises,tags,expected,expected_workload",
+    [
+        (_FakeNativeClient, False, {}, (7, 3.0), "default"),
+        (_FakeNativeClient, False, {"kind": "celery"}, (7, 3.0), "OFFLINE"),
+        (
+            _FakeNativeClient,
+            False,
+            {"kind": "celery", "id": "posthog.tasks.tasks.process_query_task"},
+            (7, 3.0),
+            "ONLINE",
+        ),
+        (lambda: _FakeNativeClient(fails="kill"), True, {}, (7, 3.0), "default"),
+        # Counting the previous query's progress would charge this query with another query's rows.
+        (
+            lambda: _FakeNativeClient(fails="connect", last_query=_fake_query_info(rows=99, elapsed_ns=1)),
+            True,
+            {},
+            (0, 0.0),
+            None,
+        ),
+        (_proxy_client, False, {}, (7, 3.0), "default"),
+    ],
+    ids=[
+        "ok",
+        "celery_resolves_to_offline",
+        "app_query_task_resolves_to_online",
+        "killed_by_the_server",
+        "connect_failed",
+        "http_client",
+    ],
+)
+def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, expected, expected_workload):
+    with patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool, tags_context(**tags):
+        pool.return_value.__enter__.return_value = make_client()
+        with query_stats_scope() as stats:
+            if raises:
+                with pytest.raises(ValueError):
+                    sync_execute("SELECT 1", flush=False)
+            else:
+                sync_execute("SELECT 1", flush=False)
+
+    assert (stats.rows_read, stats.duration_ms) == expected
+    if expected_workload == "default":
+        expected_workload = get_default_clickhouse_workload_type().value
+    assert stats.workload() == expected_workload
 
 
 @pytest.mark.parametrize(

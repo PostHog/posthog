@@ -2,15 +2,13 @@ from typing import Optional, cast
 
 import requests
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
@@ -20,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -74,7 +73,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.APPS_FLYER,
+            name=ExternalDataSourceType.APPSFLYER,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports and raw event data into the PostHog Data warehouse.
@@ -84,7 +83,7 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
 Raw data tables (installs, in-app events, uninstalls, retargeting conversions, ad revenue and the Protect360 fraud reports) and the Master API report need an AppsFlyer subscription that covers them. Protect360 is a separate add-on. AppsFlyer limits raw data to the last 90 days.""",
             iconPath="/static/services/appsflyer.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsflyer",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -124,7 +123,7 @@ Raw data tables (installs, in-app events, uninstalls, retargeting conversions, a
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

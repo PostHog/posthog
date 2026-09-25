@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useCallback, useRef } from 'react'
+import { CSSProperties, ReactNode, useCallback, useMemo, useRef } from 'react'
 import { List, useListRef } from 'react-window'
 
 import { LemonTag } from '@posthog/lemon-ui'
@@ -10,14 +10,24 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { cn } from 'lib/utils/css-classes'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
+import type { ErrorScope } from '../../errorCorrelation'
+import type { SpanErrorBadge } from '../../spanErrorsLogic'
 import { formatDuration } from '../../TraceWaterfallView'
 import type { TracingOrderBy, TracingOrderDirection } from '../../tracingFiltersLogic'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
-import { ResizableColumnSpec } from '../TableColumns/columnWidths'
 import { TableCell } from '../TableColumns/TableCell'
 import { TableHeaderCell } from '../TableColumns/TableHeaderCell'
 import { ResizableColumns, useResizableColumns } from '../TableColumns/useResizableColumns'
+import {
+    SpanColumnConfig,
+    spanAttributeValue,
+    spanColumnKey,
+    spanColumnLabel,
+    spanColumnSortKey,
+    toSpanColumnSpecs,
+} from './spanColumns'
+import { SpanErrorsBadge } from './SpanErrorsBadge'
 import { SpanRowActions } from './SpanRowActions'
 
 const ROW_HEIGHT = 36
@@ -25,17 +35,6 @@ const HEADER_HEIGHT = 32
 // Trigger the next page once the bottom of the rendered window is within this many rows of the end.
 const LOAD_MORE_THRESHOLD = 10
 
-// Default column widths (px), in render order. Anyone can drag a column wider or narrower from here.
-const SPAN_COLUMNS: ResizableColumnSpec[] = [
-    { key: 'timestamp', width: 215 },
-    { key: 'name', width: 320, grow: true },
-    { key: 'service', width: 200 },
-    { key: 'kind', width: 90 },
-    { key: 'duration', width: 90 },
-    { key: 'status', width: 80 },
-    { key: 'traceId', width: 140 },
-    { key: 'actions', width: 130 },
-]
 // pinned: identifies stored column widths — renaming resets everyone's widths
 const TABLE_KEY = 'spans'
 
@@ -49,6 +48,14 @@ interface SortProps {
     onSort: (column: TracingOrderBy) => void
 }
 
+/** Badges rows that hit errors. Absent when the feature is off, and then no column. */
+export interface SpanErrors {
+    /** What each row badges, by span uuid. A row the map does not hold carries no badge. */
+    badges: Map<string, SpanErrorBadge>
+    /** The tier travels with the click so the drawer opens on the scope the badge just named. */
+    onShow: (span: Span, scope: ErrorScope) => void
+}
+
 interface VirtualizedSpanListProps extends SortProps {
     dataSource: Span[]
     loading: boolean
@@ -57,18 +64,23 @@ interface VirtualizedSpanListProps extends SortProps {
     hasMoreToLoad?: boolean
     onLoadMore?: () => void
     emptyState?: ReactNode
+    spanErrors?: SpanErrors
+    spanColumns: SpanColumnConfig[]
 }
 
 interface SpanRowProps {
     dataSource: Span[]
+    spanColumns: SpanColumnConfig[]
     widths: Record<string, number>
     onRowClick: (span: Span) => void
+    spanErrors: SpanErrors | undefined
 }
 
 /** Header cell wired to the shared resize handle. `sort` marks the column as server-sortable. */
 function SpanHeaderCell({
     columnKey,
     label,
+    resizeLabel,
     widths,
     columns,
     sort,
@@ -76,13 +88,18 @@ function SpanHeaderCell({
     columnKey: string
     /** Omit for a column with no heading, e.g. row actions. */
     label?: string
+    /** Names the column to assistive tech on the resize handle when it has no visible heading. */
+    resizeLabel?: string
     widths: Record<string, number>
     columns: ResizableColumns
     sort?: { column: TracingOrderBy } & SortProps
 }): JSX.Element {
     const active = sort ? sort.orderBy === sort.column : false
     return (
-        <TableHeaderCell width={widths[columnKey]} resize={columns.resizeHandleProps(columnKey, label ?? columnKey)}>
+        <TableHeaderCell
+            width={widths[columnKey]}
+            resize={columns.resizeHandleProps(columnKey, label ?? resizeLabel ?? columnKey)}
+        >
             {sort ? (
                 <button
                     type="button"
@@ -103,12 +120,19 @@ function SpanHeaderCell({
 }
 
 function SpanRowHeader({
+    spanColumns,
     widths,
     columns,
+    showSpanErrors,
     orderBy,
     orderDirection,
     onSort,
-}: { widths: Record<string, number>; columns: ResizableColumns } & SortProps): JSX.Element {
+}: {
+    spanColumns: SpanColumnConfig[]
+    widths: Record<string, number>
+    columns: ResizableColumns
+    showSpanErrors: boolean
+} & SortProps): JSX.Element {
     const shared = { widths, columns }
     const sortProps = { orderBy, orderDirection, onSort }
     return (
@@ -117,56 +141,31 @@ function SpanRowHeader({
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: HEADER_HEIGHT }}
         >
-            <SpanHeaderCell
-                {...shared}
-                columnKey="timestamp"
-                label="Timestamp"
-                sort={{ column: 'timestamp', ...sortProps }}
-            />
-            <SpanHeaderCell {...shared} columnKey="name" label="Name" />
-            <SpanHeaderCell {...shared} columnKey="service" label="Service" />
-            <SpanHeaderCell {...shared} columnKey="kind" label="Kind" />
-            <SpanHeaderCell
-                {...shared}
-                columnKey="duration"
-                label="Duration"
-                sort={{ column: 'duration', ...sortProps }}
-            />
-            <SpanHeaderCell {...shared} columnKey="status" label="Status" />
-            <SpanHeaderCell {...shared} columnKey="traceId" label="Trace ID" />
+            {spanColumns.map((column) => {
+                const sortKey = spanColumnSortKey(column)
+                const key = spanColumnKey(column)
+                return (
+                    <SpanHeaderCell
+                        key={key}
+                        {...shared}
+                        columnKey={key}
+                        label={spanColumnLabel(column)}
+                        sort={sortKey ? { column: sortKey, ...sortProps } : undefined}
+                    />
+                )
+            })}
+            {/* The error badge needs no heading; its tooltip says what the count means. */}
+            {showSpanErrors && <SpanHeaderCell {...shared} columnKey="spanErrors" resizeLabel="Errors" />}
             {/* Row actions need no heading. */}
             <SpanHeaderCell {...shared} columnKey="actions" />
         </div>
     )
 }
 
-function SpanRow({
-    span,
-    widths,
-    onClick,
-}: {
-    span: Span
-    widths: Record<string, number>
-    onClick: () => void
-}): JSX.Element {
-    const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
-
-    return (
-        <div
-            className="flex items-center cursor-pointer border-b border-border hover:bg-surface-primary-hover"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: ROW_HEIGHT }}
-            onClick={onClick}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onClick()
-                }
-            }}
-            role="button"
-            tabIndex={0}
-        >
-            <TableCell width={widths.timestamp}>
+function spanCellContent(column: SpanColumnConfig, span: Span): JSX.Element | null {
+    switch (column.type) {
+        case 'timestamp':
+            return (
                 <span className="font-mono">
                     <TZLabel
                         time={span.timestamp}
@@ -176,8 +175,9 @@ function SpanRow({
                         showSeconds
                     />
                 </span>
-            </TableCell>
-            <TableCell width={widths.name}>
+            )
+        case 'name':
+            return (
                 <span className="flex items-center gap-2 truncate">
                     <span className="truncate">{span.name}</span>
                     {isRootSpan(span) && (
@@ -186,18 +186,86 @@ function SpanRow({
                         </LemonTag>
                     )}
                 </span>
-            </TableCell>
-            <TableCell width={widths.service}>
-                <LemonTag>{span.service_name}</LemonTag>
-            </TableCell>
-            <TableCell width={widths.kind}>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</TableCell>
-            <TableCell width={widths.duration}>{formatDuration(span.duration_nano)}</TableCell>
-            <TableCell width={widths.status}>
-                <LemonTag type={status.type}>{status.label}</LemonTag>
-            </TableCell>
-            <TableCell width={widths.traceId}>
-                <span className="font-mono">{span.trace_id.substring(0, 16)}...</span>
-            </TableCell>
+            )
+        case 'service':
+            return <LemonTag>{span.service_name}</LemonTag>
+        case 'kind':
+            return <>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</>
+        case 'duration':
+            return <>{formatDuration(span.duration_nano)}</>
+        case 'status': {
+            const status = STATUS_CODE_LABELS[span.status_code] ?? {
+                label: String(span.status_code),
+                type: 'default' as const,
+            }
+            return <LemonTag type={status.type}>{status.label}</LemonTag>
+        }
+        case 'traceId':
+            return <span className="font-mono">{span.trace_id.substring(0, 16)}...</span>
+        case 'attribute': {
+            const value = spanAttributeValue(span, column.attributeKey)
+            // Empty rather than a placeholder, so a column added for one service is not noise on the rest.
+            return value ? (
+                <span className="font-mono" title={value}>
+                    {value}
+                </span>
+            ) : null
+        }
+    }
+}
+
+function SpanRow({
+    span,
+    spanColumns,
+    widths,
+    spanErrors,
+    onClick,
+}: {
+    span: Span
+    spanColumns: SpanColumnConfig[]
+    widths: Record<string, number>
+    spanErrors: SpanErrors | undefined
+    onClick: () => void
+}): JSX.Element {
+    const errorBadge = spanErrors?.badges.get(span.uuid)
+
+    return (
+        <div
+            className="flex items-center cursor-pointer border-b border-border hover:bg-surface-primary-hover"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: ROW_HEIGHT }}
+            onClick={onClick}
+            // Only a key press on the row itself opens it. A press on a button inside the row
+            // bubbles here too, and taking it would cancel that button's own click.
+            onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
+                    e.preventDefault()
+                    onClick()
+                }
+            }}
+            role="button"
+            tabIndex={0}
+        >
+            {spanColumns.map((column) => {
+                const key = spanColumnKey(column)
+                return (
+                    <TableCell key={key} width={widths[key]}>
+                        {spanCellContent(column, span)}
+                    </TableCell>
+                )
+            })}
+            {spanErrors && (
+                <TableCell width={widths.spanErrors}>
+                    {errorBadge && (
+                        <SpanErrorsBadge
+                            tier={errorBadge.tier}
+                            errorCount={errorBadge.count}
+                            alsoInSession={errorBadge.alsoInSession}
+                            onClick={() => spanErrors.onShow(span, errorBadge.tier)}
+                        />
+                    )}
+                </TableCell>
+            )}
             <TableCell width={widths.actions}>
                 <SpanRowActions span={span} onViewTrace={onClick} />
             </TableCell>
@@ -210,7 +278,9 @@ function SpanListRow({
     index,
     style,
     dataSource,
+    spanColumns,
     widths,
+    spanErrors,
     onRowClick,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -222,7 +292,13 @@ function SpanListRow({
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div {...ariaAttributes} style={style} data-index={index} data-row-key={span.uuid}>
-            <SpanRow span={span} widths={widths} onClick={() => onRowClick(span)} />
+            <SpanRow
+                span={span}
+                spanColumns={spanColumns}
+                widths={widths}
+                spanErrors={spanErrors}
+                onClick={() => onRowClick(span)}
+            />
         </div>
     )
 }
@@ -235,6 +311,8 @@ export function VirtualizedSpanList({
     hasMoreToLoad = false,
     onLoadMore,
     emptyState = 'No spans found',
+    spanErrors,
+    spanColumns,
     orderBy,
     orderDirection,
     onSort,
@@ -243,7 +321,11 @@ export function VirtualizedSpanList({
     const lastVisibleRangeRef = useRef<{ startIndex: number; stopIndex: number } | null>(null)
 
     const listRef = useListRef(null)
-    const columns = useResizableColumns(TABLE_KEY, SPAN_COLUMNS)
+    // The dependency is the boolean, not `spanErrors`: that object gets a new identity every time
+    // error counts arrive, which would break the specs identity useResizableColumns caches on.
+    const showSpanErrors = !!spanErrors
+    const specs = useMemo(() => toSpanColumnSpecs(spanColumns, { showSpanErrors }), [spanColumns, showSpanErrors])
+    const columns = useResizableColumns(TABLE_KEY, specs)
 
     const handleRowsRendered = useCallback(
         (
@@ -296,8 +378,10 @@ export function VirtualizedSpanList({
                             {/* eslint-disable-next-line react/forbid-dom-props */}
                             <div style={{ width: rowWidth }}>
                                 <SpanRowHeader
+                                    spanColumns={spanColumns}
                                     widths={widths}
                                     columns={columns}
+                                    showSpanErrors={showSpanErrors}
                                     orderBy={orderBy}
                                     orderDirection={orderDirection}
                                     onSort={onSort}
@@ -308,7 +392,7 @@ export function VirtualizedSpanList({
                                     rowCount={dataSource.length}
                                     rowHeight={ROW_HEIGHT}
                                     rowComponent={SpanListRow}
-                                    rowProps={{ dataSource, widths, onRowClick }}
+                                    rowProps={{ dataSource, spanColumns, widths, spanErrors, onRowClick }}
                                     onRowsRendered={handleRowsRendered}
                                     listRef={listRef}
                                 />

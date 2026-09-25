@@ -59,6 +59,22 @@ class TestExperimentSavedMetricService(APIBaseTest):
                 },
                 "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
             ),
+            (
+                "conversion_window_on_exposure_start_retention",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "retention",
+                    "start_event": {"kind": "ExperimentExposureNode"},
+                    "completion_event": {"kind": "EventsNode", "event": "purchase"},
+                    "retention_window_start": 0,
+                    "retention_window_end": 7,
+                    "retention_window_unit": "day",
+                    "start_handling": "first_seen",
+                    "conversion_window": 14,
+                    "conversion_window_unit": "day",
+                },
+                "a conversion window cannot be combined with an experiment exposure start",
+            ),
         ]
     )
     def test_create_saved_metric_validates_query(

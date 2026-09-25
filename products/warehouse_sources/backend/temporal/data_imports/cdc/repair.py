@@ -4,7 +4,8 @@ Recovery counterpart of ``broken.mark_cdc_broken``: once the change-stream resou
 recreated (the safety net dropped the slot, or someone dropped it on the source database),
 repair recreates the engine-side resources against the stored CDC config, resets every
 active CDC schema to snapshot mode so it re-syncs from current table state, clears the
-``cdc_broken`` markers, and resumes the paused schedules.
+``cdc_broken`` markers, and resumes the paused schedules. The new slot starts on buffered
+ingress, so a repaired legacy source comes back buffered.
 
 WAL between the old slot's last confirmed position and the new slot's consistent point is
 gone — the re-snapshot covers current rows, but intermediate changes in that gap (including
@@ -26,6 +27,7 @@ Safeguards, in order:
 from __future__ import annotations
 
 import typing
+import datetime as dt
 
 import structlog
 
@@ -38,6 +40,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 
 logger = structlog.get_logger(__name__)
@@ -99,26 +102,51 @@ def _repair_locked(source: ExternalDataSource) -> int:
         raise CDCRepairError("There are no active CDC schemas on this source to repair.")
 
     _require_broken_evidence(source, adapter, cdc_schemas)
-    _cancel_running_cdc_jobs(source, cdc_schemas, log)
+    _mark_repair_in_progress(source, cdc_schemas)
+
+    # Every CDC table, including those with sync off: the new slot cannot replay what the dead one
+    # lost, so a table turned back on later must re-snapshot too.
+    all_cdc_schemas = list(
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC
+        ).exclude(deleted=True)
+    )
+    all_cdc_schema_ids = [schema.id for schema in all_cdc_schemas]
+    _cancel_running_cdc_jobs(source, all_cdc_schemas, log)
 
     # Reset schemas before touching the slot (same ordering as the extraction activity's
     # slot-invalidation recovery): if recreation fails below, a re-run repeats idempotently
     # and no schema keeps streaming across the gap unnoticed. Deferred runs are dropped —
     # they reference WAL from the dead slot and the re-snapshot supersedes them. The
     # `cdc_broken` markers deliberately survive this step: they are the retry gate.
-    for schema in cdc_schemas:
+    for schema_id in all_cdc_schema_ids:
         update_sync_type_config_keys(
-            schema.id,
+            schema_id,
             source.team_id,
             updates={"cdc_mode": "snapshot", "reset_pipeline": True},
             removes=["cdc_last_log_position", "cdc_deferred_runs"],
             extra_model_fields={"initial_sync_complete": False},
         )
 
+    # Before the new slot exists, so no change it captures can be purged, and a failure here leaves
+    # the slot missing, which is the evidence a retry needs.
+    for schema_id in all_cdc_schema_ids:
+        purge_buffer_prefix(source.team_id, str(schema_id), log, strict=True)
+
     default_schema = (source.job_inputs or {}).get("schema")
-    resource_fields = adapter.recreate_slot(
-        source, tables=[cdc_qualified_table_name(schema, default_schema) for schema in cdc_schemas]
-    )
+    try:
+        resource_fields = adapter.recreate_slot(
+            source, tables=[cdc_qualified_table_name(schema, default_schema) for schema in cdc_schemas]
+        )
+    except Exception as e:
+        # A missing grant on the source database is the customer's to fix, so it must reach them as
+        # advice instead of a raw engine error captured into error tracking. The schemas are already
+        # back in snapshot mode and the broken markers still stand, so a repair re-run after the fix
+        # lands picks up from here.
+        customer_message = adapter.customer_fixable_error_message(e)
+        if customer_message is None:
+            raise
+        raise CDCRepairError(customer_message) from e
 
     source.job_inputs = {**(source.job_inputs or {}), **resource_fields}
     source.status = ExternalDataSource.Status.RUNNING
@@ -129,9 +157,9 @@ def _repair_locked(source: ExternalDataSource) -> int:
     # Only now that the new slot exists and the schedules are resumed: clear the broken
     # evidence. A failure before this point leaves the markers for the retry gate; a
     # failure inside this loop leaves some markers, which also re-opens the gate.
-    for schema in cdc_schemas:
+    for schema_id in all_cdc_schema_ids:
         update_sync_type_config_keys(
-            schema.id,
+            schema_id,
             source.team_id,
             removes=["cdc_broken", "cdc_extraction_paused"],
             extra_model_fields={"latest_error": None},
@@ -141,6 +169,18 @@ def _repair_locked(source: ExternalDataSource) -> int:
 
     log.info("cdc_repair_complete", schemas_reset=len(cdc_schemas))
     return len(cdc_schemas)
+
+
+def _mark_repair_in_progress(source: ExternalDataSource, cdc_schemas: list[ExternalDataSchema]) -> None:
+    """Leave a marker on schemas that have none, so a repair allowed by a live probe alone keeps
+    its retry evidence once the new slot exists. Cleared with the other markers when repair ends."""
+    marker = {"reason": "repair_in_progress", "at": dt.datetime.now(tz=dt.UTC).isoformat()}
+
+    def _mark(config: dict[str, typing.Any]) -> None:
+        config.setdefault("cdc_broken", marker)
+
+    for schema in cdc_schemas:
+        update_sync_type_config_keys(schema.id, source.team_id, mutate=_mark)
 
 
 def _require_broken_evidence(

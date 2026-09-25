@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
@@ -16,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -37,6 +38,7 @@ from products.experiments.backend.temporal.recalc_fingerprint import compute_rec
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
+    _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
     _store_result,
     _update_recalculation_progress_sync,
@@ -47,6 +49,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defined]
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
 _calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
+_cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
 
 
 def _discover(recalculation_id: str):
@@ -928,7 +931,7 @@ class TestCalculateActivity(BaseTest):
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
-        assert row.query_id == f"experiment_metric_recalc_{recalc.id}_m1"
+        assert row.query_id == f"experiment_metric_recalc_{recalc.id}_m1_attempt01"
 
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the
@@ -1242,6 +1245,30 @@ class TestCalculateActivity(BaseTest):
         assert row.error_message is not None
         assert len(row.error_message) <= 2000
 
+    def test_cancel_metric_query_tags_its_queries(self):
+        # The kill runs in its own thread, so it inherits none of the calc body's tags. Untagged sync_execute
+        # calls raise in local dev, which makes the kill fail silently there.
+        exp = self._experiment(flag_key="cancel-tags", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        seen: dict = {}
+
+        def _capture(team_id: int, client_query_id: str) -> None:
+            seen["args"] = (team_id, client_query_id)
+            seen["tags"] = get_query_tags().model_copy()
+
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+            patch("products.experiments.backend.temporal.recalculation_logic.cancel_query_on_cluster", _capture),
+        ):
+            _cancel_raw(str(recalc.id), "m1", 3)
+
+        assert seen["args"] == (self.team.id, f"experiment_metric_recalc_{recalc.id}_m1_attempt03")
+        assert (seen["tags"].team_id, seen["tags"].product, seen["tags"].feature) == (
+            self.team.id,
+            Product.EXPERIMENTS,
+            Feature.CACHE_WARMUP,
+        )
+
 
 @pytest.mark.django_db(transaction=True)
 class TestMissingRecalcRow:
@@ -1271,6 +1298,24 @@ class TestMissingRecalcRow:
 
 
 class TestCalculateActivityCancellation:
+    @contextmanager
+    def _patched_boundaries(self, body, cancel_query):
+        with (
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
+                body,
+            ),
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync", cancel_query
+            ),
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities._CANCEL_KILL_RETRY_INTERVAL_SECONDS",
+                0.001,
+            ),
+            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
+        ):
+            yield
+
     @pytest.mark.parametrize("cancellations", [1, 2])
     @pytest.mark.parametrize("body_fails", [False, True])
     async def test_cancellation_drains_the_body_before_propagating(self, cancellations: int, body_fails: bool) -> None:
@@ -1287,13 +1332,7 @@ class TestCalculateActivityCancellation:
                 raise RuntimeError("calculation failed during cleanup")
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
-        with (
-            patch(
-                "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
-                _slow_body,
-            ),
-            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
-        ):
+        with self._patched_boundaries(_slow_body, AsyncMock()):
             task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
             await started.wait()
             try:
@@ -1313,6 +1352,7 @@ class TestCalculateActivityCancellation:
         started = asyncio.Event()
         release = asyncio.Event()
         body_finished = asyncio.Event()
+        cancel_query = AsyncMock()
 
         async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
             started.set()
@@ -1321,11 +1361,7 @@ class TestCalculateActivityCancellation:
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
         with (
-            patch(
-                "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
-                _slow_body,
-            ),
-            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
+            self._patched_boundaries(_slow_body, cancel_query),
             patch(
                 "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 0
             ),
@@ -1337,9 +1373,64 @@ class TestCalculateActivityCancellation:
                 with pytest.raises(asyncio.CancelledError, match="original cancellation"):
                     await asyncio.wait_for(task, timeout=5)
                 assert not body_finished.is_set()
+                assert cancel_query.await_count == 1
             finally:
                 release.set()
                 await asyncio.wait_for(body_finished.wait(), timeout=5)
+
+    async def _cancel_during_body(self, kills_until_query_dies: int = 1) -> dict:
+        started = asyncio.Event()
+        query_died = asyncio.Event()
+        observed: dict = {
+            "body_finished": False,
+            "cancel_calls": 0,
+            "cancel_args": None,
+            "cancelled_before_body_finished": None,
+        }
+
+        async def _slow_body(*args: object, **kwargs: object) -> MetricRecalculationResult:
+            started.set()
+            await query_died.wait()
+            observed["body_finished"] = True
+            return MetricRecalculationResult(metric_uuid="m1", success=True)
+
+        async def _fake_cancel_query(recalculation_id: str, metric_uuid: str, attempt: int) -> None:
+            observed["cancel_calls"] += 1
+            observed["cancel_args"] = (recalculation_id, metric_uuid, attempt)
+            observed["cancelled_before_body_finished"] = not observed["body_finished"]
+            if observed["cancel_calls"] == kills_until_query_dies:
+                query_died.set()
+
+        with (
+            self._patched_boundaries(_slow_body, _fake_cancel_query),
+            patch(
+                "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 1
+            ),
+        ):
+            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            await started.wait()
+            task.cancel()
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        return observed
+
+    async def test_cancellation_kills_the_running_clickhouse_query_first(self) -> None:
+        # Without the kill the drain waits out the query's full max_execution_time, and ClickHouse keeps reading
+        # for an attempt whose result nothing will use.
+        observed = await self._cancel_during_body()
+
+        assert observed["cancel_args"] == ("r1", "m1", 1)
+        assert observed["cancelled_before_body_finished"] is True
+
+    async def test_cancellation_retries_the_kill_when_the_first_one_misses(self) -> None:
+        # A cancel that lands during the body's Postgres phase kills before ClickHouse registers the query, so
+        # the first kill finds nothing.
+        observed = await self._cancel_during_body(kills_until_query_dies=2)
+
+        assert observed["cancel_calls"] == 2
+        assert observed["body_finished"] is True
 
 
 @contextmanager

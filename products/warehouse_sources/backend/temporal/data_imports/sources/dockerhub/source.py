@@ -1,30 +1,34 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.dockerhub import (
     DockerhubResumeConfig,
+    check_endpoint_access,
     dockerhub_source,
+    format_incremental_start,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import (
     DOCKERHUB_ENDPOINTS,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
     DockerhubSourceConfig,
@@ -60,13 +64,15 @@ class DockerhubSource(ResumableSource[DockerhubSourceConfig, DockerhubResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DOCKERHUB,
+            name=ExternalDataSourceType.DOCKERHUB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Docker Hub",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Docker Hub username and a personal access token to pull your container repositories and tags into the PostHog Data warehouse.
+            caption="""Enter your Docker Hub username and a personal access token to pull your container repositories, tags and organization activity into the PostHog Data warehouse.
 
 You can create a personal access token with **Read** access under **Account settings → Personal access tokens** in [Docker Hub](https://app.docker.com/settings/personal-access-tokens). To import an organization's repositories instead of your own, set the namespace field to the organization name.
+
+The member, group and audit log tables read organization data, so they need the namespace to be an organization and the token to belong to one of its owners.
 """,
             iconPath="/static/services/dockerhub.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dockerhub",
@@ -124,21 +130,21 @@ You can create a personal access token with **Read** access under **Account sett
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — the Hub management API exposes no server-side
-        # updated_after/since filter on repositories or tags, so there is no incremental cursor.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # Only the audit log takes a server-side time filter, so it is the one endpoint with an
+        # incremental cursor. Merge only: append would duplicate the boundary rows that each
+        # incremental window re-reads.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("audit_logs",))
+
+    def get_endpoint_permissions(
+        self,
+        config: DockerhubSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        return check_endpoint_access(
+            config.username, config.personal_access_token, _namespace_for_config(config), endpoints
+        )
 
     def validate_credentials(
         self,
@@ -147,8 +153,9 @@ You can create a personal access token with **Read** access under **Account sett
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # Both endpoints read from the same namespace with the same token, so a single login +
-        # namespace probe validates access to every schema.
+        # Source creation only has to prove the token is genuine and the namespace exists. Per-table
+        # access is reported by `get_endpoint_permissions`, so one missing org scope does not block
+        # a source that only wants repositories and tags.
         return validate_credentials(config.username, config.personal_access_token, _namespace_for_config(config))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DockerhubResumeConfig]:
@@ -170,4 +177,7 @@ You can create a personal access token with **Read** access under **Account sett
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            incremental_start=format_incremental_start(inputs.db_incremental_field_last_value)
+            if inputs.should_use_incremental_field
+            else None,
         )

@@ -10,11 +10,14 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    build_actionability_prompt,
     build_fix_verification_prompt,
     build_initial_research_prompt,
     build_report_presentation_prompt,
     build_signal_investigation_prompt,
+    build_supersede_prompt,
 )
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -110,14 +113,14 @@ class TestBuildInitialResearchPrompt:
             resolved_report_title="fix(funnel): drop off after step 2",
             resolved_report_summary="Users were falling out of the funnel.",
         )
-        assert "## Previously resolved report" in prompt
+        assert "## Previously closed report" in prompt
         assert "fix(funnel): drop off after step 2" in prompt
         assert "Users were falling out of the funnel." in prompt
 
     def test_resolved_report_context_absent_by_default(self):
         signal = _make_signal({})
         prompt = build_initial_research_prompt(signal, 1)
-        assert "## Previously resolved report" not in prompt
+        assert "## Previously closed report" not in prompt
 
     # The steering section is what carries a reviewer's dismissal reason into the stage that judges
     # whether to surface the topic again. A team that left no notes renders nothing, so a quiet
@@ -208,20 +211,9 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
-    # Chart and metric rollouts are independent: a team can receive live impact measurements
-    # without enabling free-form report charts, or vice versa.
-    def test_chart_guidance_and_schema_field_only_present_when_enabled(self):
-        off = build_report_presentation_prompt(2, charts_enabled=False)
-        on = build_report_presentation_prompt(2, charts_enabled=True)
-        assert "Attaching charts" not in off
-        assert "Attaching charts" in on
-        # The schema field is dropped when disabled and present when enabled.
-        assert '"charts"' not in off
-        assert '"charts"' in on
-
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
-        off = build_report_presentation_prompt(2, charts_enabled=True, metrics_enabled=False)
-        on = build_report_presentation_prompt(2, charts_enabled=False, metrics_enabled=True)
+        off = build_report_presentation_prompt(2, metrics_enabled=False)
+        on = build_report_presentation_prompt(2, metrics_enabled=True)
 
         assert "Measuring impact" not in off
         assert '"metrics"' not in off
@@ -246,8 +238,8 @@ class TestBuildReportPresentationPrompt:
         assert "and `ActionsBar`" in on
         assert "bar or line response does not supply the whole-window total" in on
         assert "must set `aggregationAxisFormat` to exactly the same value" in on
-        assert "Attaching charts" not in on
-        assert '"charts"' not in on
+        assert "Attaching charts" in on
+        assert '"charts"' in on
 
     # A DataVisualizationNode carrying `display` but no `chartSettings` stores and validates
     # cleanly, then draws every row at a single x position instead of a series. The guidance is
@@ -255,17 +247,24 @@ class TestBuildReportPresentationPrompt:
     # SQL-backed chart the pipeline authors renders wrong in the reader's inbox with nothing
     # reporting a failure. The scout channel guards the same instruction in its own example.
     def test_chart_guidance_names_the_axes_a_sql_graph_needs(self):
-        on = build_report_presentation_prompt(2, charts_enabled=True)
+        on = build_report_presentation_prompt(2)
         assert "chartSettings.xAxis.column" in on
         assert "chartSettings.yAxis[].column" in on
 
-    def test_previous_charts_context_only_rendered_when_enabled(self):
+    # The research turn already fetches every pull request URL it needs, and the presentation
+    # turn is the only place that decides whether the summary carries them. Without this section
+    # a summary cites a bare `#1234`, which costs the reader a GitHub search and, across
+    # repositories, resolves to the wrong pull request.
+    def test_summary_guidance_requires_linked_pull_requests(self):
+        on = build_report_presentation_prompt(2)
+        assert PULL_REQUEST_LINK_RULE in on
+        assert PLAIN_TEXT_FIELDS_RULE in on
+
+    def test_previous_charts_context_rendered_when_present(self):
         chart = _make_chart()
-        on = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=True)
-        off = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=False)
+        on = build_report_presentation_prompt(1, previous_charts=[chart])
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
-        assert "Charts this report already shows" not in off
 
     def test_previous_metric_context_omits_legacy_comparison(self):
         metric = ReportMetric.model_validate(
@@ -345,3 +344,25 @@ class TestReportPresentationOutputCharts:
 
         assert parsed.charts == []
         assert parsed.summary == "Signups fell 60% over the week."
+
+
+class TestOwnPullRequestCarveOut:
+    _PR = "https://github.com/PostHog/posthog/pull/7"
+
+    def test_actionability_prompt_exempts_the_report_own_pr(self):
+        # On a re-research the in-flight check finds the draft PR this report opened last pass. Read
+        # as somebody else's work it makes the report already_addressed, and superseding never fires.
+        prompt = build_actionability_prompt(2, own_pr_url=self._PR)
+        assert self._PR in prompt
+        assert "never counts as `already_addressed`" in prompt
+
+    def test_actionability_prompt_says_nothing_without_a_pr(self):
+        prompt = build_actionability_prompt(2)
+        assert "already_addressed`" in prompt  # the general guidance survives
+        assert "github.com" not in prompt
+
+    def test_supersede_prompt_names_the_pr_and_the_summary_it_was_built_from(self):
+        prompt = build_supersede_prompt(self._PR, "the previous summary")
+        assert self._PR in prompt
+        assert "the previous summary" in prompt
+        assert "obsolete_pr_urls" in prompt

@@ -11,6 +11,7 @@ from syrupy.extensions.json import JSONSnapshotExtension
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import get_required_model_flag
 from products.tasks.backend.facade.model_catalogue import GatewayModel, available_model_choices
+from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import ReasoningEffort, RuntimeAdapter
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -37,6 +38,10 @@ def _resolved_catalog() -> dict[str, Any]:
     """
     return {
         "reasoning_efforts": list(model_catalog.REASONING_EFFORTS),
+        "runtimes": [
+            {"runtime": option.runtime, "runtime_adapter": option.runtime_adapter, "label": option.label}
+            for option in model_catalog.RUNTIME_OPTIONS
+        ],
         "runtime_adapters": {
             adapter: {
                 "provider": model_catalog.PROVIDER_BY_RUNTIME_ADAPTER[adapter],
@@ -45,7 +50,13 @@ def _resolved_catalog() -> dict[str, Any]:
                     model_catalog.FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(adapter, ())
                 ),
                 "models": {
-                    model_id: list(model_catalog.reasoning_efforts_for(adapter, model_id))
+                    model_id: {
+                        "reasoning_efforts": list(model_catalog.reasoning_efforts_for(adapter, model_id)),
+                        "cost_multiplier": model_catalog.cost_multiplier_label(model_id),
+                        "supports_1m_context": model_catalog.supports_1m_context(model_id),
+                        "supports_fast_mode": model_catalog.supports_fast_mode(model_id),
+                        "offered": model_catalog.is_offered_model(model_id),
+                    }
                     for model_id in model_catalog.models_for_runtime_adapter(adapter)
                 },
             }
@@ -55,6 +66,11 @@ def _resolved_catalog() -> dict[str, Any]:
             {"runtime_adapter": adapter, "prefix": prefix, "reasoning_efforts": list(efforts)}
             for adapter, prefix, efforts in model_catalog.FAMILY_REASONING_EFFORTS
         ],
+        "reasoning_effort_labels": dict(model_catalog.REASONING_EFFORT_LABELS),
+        "capability_ladders": {
+            adapter: [{"model": notch.model, "effort": notch.effort} for notch in ladder]
+            for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items()
+        },
     }
 
 
@@ -93,6 +109,44 @@ def test_every_catalog_effort_is_a_known_reasoning_effort() -> None:
     assert used <= known, f"catalog names efforts the ReasoningEffort enum lacks: {sorted(used - known)}"
 
 
+def test_reasoning_effort_enum_covers_the_catalog() -> None:
+    assert set(model_catalog.REASONING_EFFORTS) <= {effort.value for effort in ReasoningEffort}
+
+
+def test_every_effort_has_a_label() -> None:
+    assert set(model_catalog.REASONING_EFFORT_LABELS) == set(model_catalog.REASONING_EFFORTS), (
+        "a depth with no label renders as its raw id in every picker"
+    )
+
+
+def test_every_ladder_rung_is_one_a_run_can_actually_use() -> None:
+    # A surface filters the ladder against what the gateway serves, which cannot hide a rung
+    # the catalog itself contradicts — that one reaches the picker and fails on send.
+    for adapter, ladder in model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER.items():
+        for notch in ladder:
+            assert notch.model in model_catalog.models_for_runtime_adapter(adapter), (
+                f"'{adapter}' ladder names '{notch.model}', which that adapter does not drive"
+            )
+            assert notch.effort in model_catalog.reasoning_efforts_for(adapter, notch.model), (
+                f"'{notch.model}' does not support '{notch.effort}', so that rung's run would be rejected"
+            )
+
+
+def test_every_runtime_adapter_has_a_capability_ladder() -> None:
+    assert set(model_catalog.CAPABILITY_LADDER_BY_RUNTIME_ADAPTER) == set(model_catalog.RUNTIME_ADAPTERS), (
+        "an adapter with no ladder leaves its picker without a Faster/Smarter slider"
+    )
+
+
+def test_runtime_options_agree_with_the_task_runtime_column() -> None:
+    assert list(Task.Runtime.values) == list(model_catalog.RUNTIMES)
+
+
+def test_every_runtime_adapter_is_offered_exactly_once() -> None:
+    offered = [option.runtime_adapter for option in model_catalog.RUNTIME_OPTIONS if option.runtime_adapter]
+    assert sorted(offered) == sorted(model_catalog.RUNTIME_ADAPTERS)
+
+
 @pytest.mark.parametrize(
     "adapter,model,expected",
     [
@@ -126,6 +180,38 @@ def test_default_model_is_one_the_catalog_serves() -> None:
             f"the default model for '{adapter}' is not in its catalog, so a run that pins no model "
             f"would resolve to one validation rejects"
         )
+
+
+def test_cost_baseline_is_a_model_the_catalog_prices() -> None:
+    assert model_catalog.cost_for_model(model_catalog.COST_BASELINE_MODEL) is not None, (
+        f"the cost baseline '{model_catalog.COST_BASELINE_MODEL}' carries no cost, so every multiplier "
+        f"raises and no picker can render"
+    )
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("claude-sonnet-5", "1×"),
+        ("claude-opus-5", "2.5×"),
+        ("anthropic/claude-opus-5", "2.5×"),
+        ("gpt-5.6-sol", "≈2.8×"),
+        ("zai-org/glm-5.3-flash", "≈0.06×"),
+        ("gpt-5", None),
+        ("claude-imaginary-9", None),
+    ],
+    ids=[
+        "baseline_is_one",
+        "input_and_output_agree",
+        "provider_qualified_id",
+        "diverging_rates_are_approximate",
+        "cheap_model_keeps_two_decimals",
+        "unpriced_model",
+        "unknown_model",
+    ],
+)
+def test_cost_multiplier_reads_against_the_baseline(model: str, expected: str | None) -> None:
+    assert model_catalog.cost_multiplier_label(model) == expected
 
 
 def test_labels_are_set_only_where_the_derived_name_is_wrong() -> None:
@@ -173,16 +259,9 @@ class TestAvailableModelChoices:
         assert [c.label for c in choices] == ["DeepSeek V4 Flash", "GLM-5.3 Flash", "Kimi K3"]
 
 
-def test_every_gated_model_resolves_to_its_catalog_flag() -> None:
+def test_every_model_resolves_to_its_catalog_flag() -> None:
     # The gate and the pickers read one field now, so this fails if a row gains an
     # access_flag the entitlement check cannot see, whichever spelling the caller sends.
-    gated = [model for model in model_catalog.MODELS if model.access_flag]
-    assert gated, "the catalog gates no model, so this guard proves nothing"
-
-    for model in gated:
+    for model in model_catalog.MODELS:
         assert get_required_model_flag(model.id) == model.access_flag
         assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
-
-    for model in model_catalog.MODELS:
-        if model.access_flag is None:
-            assert get_required_model_flag(model.id) is None

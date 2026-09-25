@@ -8,6 +8,7 @@ import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -41,6 +42,11 @@ export function IntegrationChoice({
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    // A project member can create an integration, but only a project admin can overwrite one. An
+    // OAuth connect upserts on the provider account id, so a member who picks an account that is
+    // already connected goes through the provider's whole flow and then gets a 403 at the callback.
+    // Setup-modal kinds report the same error inside the modal, so they stay open to members.
+    const integrationManagementRestriction = useIntegrationManagementRestriction()
     const kind = integration
 
     // Identifies this specific picker. Several IntegrationChoice pickers can share a kind (a
@@ -123,6 +129,7 @@ export function IntegrationChoice({
                 label: integrationsOfKind?.length
                     ? `Connect to a different integration for ${kindName}`
                     : `Connect to ${kindName}`,
+                disabledReason: integrationManagementRestriction ?? undefined,
             }
 
     const button = (

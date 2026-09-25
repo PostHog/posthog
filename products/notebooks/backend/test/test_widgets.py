@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import uuid4
@@ -15,6 +16,7 @@ from django.utils import timezone
 import httpx
 from anthropic import APIStatusError
 from parameterized import parameterized
+from rest_framework.exceptions import PermissionDenied
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -28,16 +30,22 @@ from products.canvas.backend.notebook_integration import (
     _strip_legacy_frame_bridge,
     validate_notebook_canvas_source,
 )
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,
     GeneratedWidgetVersion,
     Notebook,
     NotebookNodeRun,
+    NotebookRun,
     NotebookWidgetInstance,
+    NotebookWidgetSnapshot,
 )
 from products.notebooks.backend.presentation.widget_serializers import WidgetGenerateRequestSerializer
-from products.notebooks.backend.presentation.widget_throttles import WidgetFrameBurstThrottle
+from products.notebooks.backend.presentation.widget_throttles import WidgetFrameBurstThrottle, WidgetSnapshotThrottle
+from products.notebooks.backend.tasks.widget_snapshots import cleanup_widget_snapshots
 from products.notebooks.backend.widget_generation import (
     WIDGET_MODEL_MAX_TOKENS,
     WIDGET_MODEL_TEMPERATURE,
@@ -64,9 +72,11 @@ from products.notebooks.backend.widget_models import (
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
     MAX_WIDGET_PROMPT_LENGTH,
 )
+from products.notebooks.backend.widget_snapshots import WidgetSnapshots
 from products.notebooks.backend.widgets import (
     JOB_STALE_AFTER,
     MAX_FRAME_BYTES,
+    WidgetConflictError,
     WidgetError,
     WidgetInputInspection,
     WidgetRateLimitError,
@@ -177,6 +187,9 @@ class TestWidgetGeneration(SimpleTestCase):
             invalid_stream,
             valid_stream,
         ]
+        invalid_stream.response.headers = {"x-request-id": "generation-first-attempt"}
+        valid_stream.response.headers = {"x-request-id": "generation-retry"}
+        request_ids: list[str | None] = []
 
         source = generate_widget_source(
             team_id=42,
@@ -185,9 +198,11 @@ class TestWidgetGeneration(SimpleTestCase):
             schemas=[{"name": "locations_df", "columns": [{"name": "lat", "type": "float64"}]}],
             input_names=["locations_df"],
             client=client,
+            request_ids=request_ids,
         )
 
         assert source.title == "Interactive globe"
+        assert request_ids == ["generation-first-attempt", "generation-retry"]
         assert source.source == "export default function Canvas() { return <div>Ready</div> }"
         assert client.with_options.call_args.kwargs["max_retries"] == 0
         assert client.messages.create.call_count == 2
@@ -362,6 +377,8 @@ class TestWidgetGeneration(SimpleTestCase):
         client.with_options.return_value = client
         stream = completion_stream(content)
         client.messages.create.return_value = stream
+        stream.response.headers = {"x-request-id": "security-review"}
+        request_ids: list[str | None] = []
 
         review = review_widget_source(
             team_id=42,
@@ -369,9 +386,11 @@ class TestWidgetGeneration(SimpleTestCase):
             source="export default function Widget() { return <div /> }",
             input_names=["public_df"],
             client=client,
+            request_ids=request_ids,
         )
 
         assert review.severity == expected_severity
+        assert request_ids == ["security-review"]
         assert len(review.findings) == expected_findings
         assert review.review_version == WIDGET_SECURITY_REVIEW_VERSION
         request = client.messages.create.call_args.kwargs
@@ -387,11 +406,11 @@ class TestWidgetGeneration(SimpleTestCase):
         assert "public_df" in request["messages"][0]["content"]
         stream.close.assert_called_once()
 
-    def test_generate_request_defaults_to_the_balanced_model(self) -> None:
+    def test_generate_request_defaults_to_sonnet_5(self) -> None:
         serializer = WidgetGenerateRequestSerializer(data={"prompt": "Render a globe", "generation_id": str(uuid4())})
 
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["model"] == DEFAULT_WIDGET_MODEL
+        assert serializer.validated_data["model"] == "claude-sonnet-5"
 
     def test_generate_request_rejects_an_unlisted_model(self) -> None:
         serializer = WidgetGenerateRequestSerializer(
@@ -481,13 +500,19 @@ class TestWidgetGeneration(SimpleTestCase):
                     '<PythonV2 nodeId="source" returnVariable="locations_df" />\n\n'
                     '<SQLV2 nodeId="summary" returnVariable="summary_df" />\n\n'
                     '<Query nodeId="saved" returnVariable="saved_df" />\n\n'
+                    '<Insight nodeId="insight" dataframeQuery="SELECT 1" />\n\n'
                     '<Widget nodeId="globe" prompt="Render a globe" />\n\n'
                     '<PythonV2 nodeId="later" returnVariable="future_df" />'
                 )
             ),
         )
 
-        assert infer_widget_inputs(notebook, "globe") == ["locations_df", "summary_df", "future_df"]
+        assert infer_widget_inputs(notebook, "globe") == [
+            "locations_df",
+            "summary_df",
+            "insight_df",
+            "future_df",
+        ]
 
     @parameterized.expand([("generated_widget", "GeneratedWidget"), ("genui", "GenUI")])
     def test_rejects_removed_widget_tags(self, _name: str, tag_name: str) -> None:
@@ -604,14 +629,310 @@ class TestWidgetData(APIBaseTest):
         assert version is not None
         return version
 
-    def test_inspection_uses_latest_successful_run_and_authorizes_it(self) -> None:
+    @parameterized.expand(
+        [
+            ("preview", {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 3}, [[2]]),
+            ("null_envelope", None, [[]]),
+            ("non_object_envelope", [], [[]]),
+            ("null_preview", {"types": [["lat", "float64"]], "first_page": None, "row_count": 3}, [[2]]),
+        ]
+    )
+    def test_dashboard_snapshot_keeps_rows_and_version_after_the_kernel_stops(
+        self, _name: str, envelope: Any, expected_rows: list[list[int]]
+    ) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run(value=1)
+        run.envelope = envelope
+        run.save(update_fields=["envelope"])
+        authorize = MagicMock()
+        snapshots = WidgetSnapshots(self.notebook, authorize)
+        with patch(
+            "products.notebooks.backend.widgets.fetch_sql_v2_page",
+            side_effect=lambda *args, **kwargs: {
+                "rows": [[1]] if kwargs["offset"] == 0 else [[2], [3]],
+                "row_count": 3,
+            },
+        ) as fetch:
+            snapshot = snapshots.capture(self.NODE_ID, version.id)
+        assert fetch.call_args.kwargs == {"offset": 1, "limit": 500}
+        self._run(value=99)
+        with patch(
+            "products.notebooks.backend.widgets.fetch_sql_v2_page", side_effect=AssertionError("must not use kernel")
+        ):
+            saved = snapshots.get(snapshot.id)
+            frame = snapshots.read_frame(saved, self.INPUT_NAME, 1, 1)
+        assert saved.version_id == version.id
+        assert frame["rows"] == expected_rows
+        assert frame["nextOffset"] == 2
+        assert str(frame["runId"]) == str(run.id)
+        authorize.assert_called_with(run)
+        assert snapshots.read_frame(saved, self.INPUT_NAME, 0, 1)["nextOffset"] == 1
+        assert snapshots.read_frame(saved, self.INPUT_NAME, 2, 1)["nextOffset"] is None
+        assert snapshots.read_frame(saved, self.INPUT_NAME, 3, 1)["rows"] == []
+
+    def test_dashboard_refresh_uses_only_its_completed_notebook_run(self) -> None:
+        version = self._pinned_version(self._mapping())
+        parent = NotebookRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id, notebook=self.notebook, user=self.user, status=NotebookRun.Status.DONE
+        )
+        run = self._run(value=1)
+        run.notebook_run = parent
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["notebook_run", "envelope"])
+        self._run(value=99)
+        snapshots = WidgetSnapshots(self.notebook, lambda _run: None)
+        snapshot = snapshots.capture(self.NODE_ID, version.id, parent.id)
+        assert snapshots.read_frame(snapshot, self.INPUT_NAME, 0, 10)["rows"] == [[1]]
+        parent.status = NotebookRun.Status.FAILED
+        parent.save(update_fields=["status"])
+        with self.assertRaises(WidgetConflictError):
+            snapshots.capture(self.NODE_ID, version.id, parent.id)
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 1
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    def test_snapshot_creation_pins_metadata_and_rejects_changed_inputs(self, _flag: MagicMock) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        run = self._run()
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/"
+        payload = {"node_id": self.NODE_ID, "version_id": str(version.id)}
+        with patch(
+            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            return_value=[SimpleNamespace(artifact_url="https://example.com/widget.html", build_hash="a" * 64)],
+        ):
+            response = self.client.post(path, payload)
+        assert response.status_code == 201
+        assert response.json()["version_id"] == str(version.id)
+        assert response.json()["frame_names"] == [self.INPUT_NAME]
+        assert response.json()["build_hash"] == "a" * 64
+        snapshot_id = response.json()["id"]
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._authorize_widget_run",
+            side_effect=PermissionDenied(),
+        ):
+            assert self.client.get(f"{path}{snapshot_id}/").status_code == 403
+        instance.input_bindings = {self.INPUT_NAME: {"source": "other_df"}}
+        instance.save(update_fields=["input_bindings"])
+        response = self.client.post(path, {**payload, "previous_snapshot_id": snapshot_id})
+        assert response.status_code == 409
+        assert response.json()["code"] == "snapshot_inputs_changed"
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 1
+
+    def test_incomplete_dashboard_snapshot_does_not_publish_partial_results(self) -> None:
+        version = self._pinned_version(self._mapping())
+        self._run()
+        with patch("products.notebooks.backend.widgets.fetch_sql_v2_page", return_value={"rows": []}):
+            with self.assertRaises(WidgetConflictError):
+                WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
+        assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    @patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[])
+    def test_dashboard_publication_attaches_results_atomically(self, *_mocks: MagicMock) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/publish/"
+        payload = {
+            "node_id": self.NODE_ID,
+            "version_id": str(version.id),
+            "dashboard_id": dashboard.id,
+            "name": "Results",
+        }
+
+        with patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=False):
+            assert self.client.post(path, payload).status_code == 400
+        assert not NotebookWidgetSnapshot.objects.for_team(self.team.id).exists()
+        assert not dashboard.tiles.exists()
+
+        response = self.client.post(path, payload)
+        assert response.status_code == 201, response.json()
+        snapshot_id = response.json()["id"]
+        tile = dashboard.tiles.get()
+        assert tile.widget is not None
+        assert tile.widget.config == {"notebookShortId": self.notebook.short_id, "snapshotId": snapshot_id}
+        assert tile.widget.name == "Results"
+
+        parent = NotebookRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id, notebook=self.notebook, user=self.user, status=NotebookRun.Status.DONE
+        )
+        run.notebook_run = parent
+        run.envelope["first_page"] = [[2]]
+        run.save(update_fields=["notebook_run", "envelope"])
+        refresh = {
+            "node_id": self.NODE_ID,
+            "version_id": str(version.id),
+            "tile_id": tile.id,
+            "previous_snapshot_id": snapshot_id,
+            "notebook_run_id": str(parent.id),
+        }
+        response = self.client.post(path, refresh)
+        assert response.status_code == 201, response.json()
+        tile.widget.refresh_from_db()
+        assert tile.widget.config["snapshotId"] == response.json()["id"]
+        assert self.client.post(path, refresh).status_code == 409
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
+        tile.widget.refresh_from_db()
+        assert tile.widget.config["snapshotId"] == response.json()["id"]
+
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_dashboard = Dashboard.objects.create(team=other_team)
+        other_widget = DashboardWidget.objects.for_team(other_team.id).create(
+            team_id=other_team.id, widget_type="notebook_widget", config=tile.widget.config
+        )
+        other_tile = DashboardTile.objects.create(team_id=other_team.id, dashboard=other_dashboard, widget=other_widget)
+        assert self.client.post(path, {**payload, "dashboard_id": other_dashboard.id}).status_code == 404
+        assert self.client.post(path, {**refresh, "tile_id": other_tile.id}).status_code == 404
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@example.com", level=OrganizationMembership.Level.MEMBER)
+        AccessControl.objects.create(
+            resource="dashboard", resource_id=str(dashboard.id), team=self.team, access_level="viewer"
+        )
+        self.client.force_login(viewer)
+        assert self.client.post(path, payload).status_code == 403
+        assert self.client.post(path, {**refresh, "previous_snapshot_id": response.json()["id"]}).status_code == 403
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).count() == 2
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    def test_snapshot_frame_endpoint_checks_query_access_and_notebook_ownership(self, _flag: MagicMock) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"types": [["lat", "float64"]], "first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        snapshot = WidgetSnapshots(self.notebook, lambda _run: None).capture(self.NODE_ID, version.id)
+        path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/{snapshot.id}/frames/{self.INPUT_NAME}/"
+        assert self.client.get(path).status_code == 200
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=False
+        ):
+            assert self.client.get(path).status_code == 404
+        with patch(
+            "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._has_query_access",
+            return_value=False,
+        ):
+            assert self.client.get(path).status_code == 403
+        other = Notebook.objects.create(team=self.team, created_by=self.user)
+        assert self.client.get(path.replace(self.notebook.short_id, other.short_id)).status_code == 404
+        run.delete()
+        metadata_path = path.split("frames/")[0]
+        assert self.client.get(metadata_path).status_code == 200
+        response = self.client.get(path)
+        assert response.status_code == 409
+        assert response.json()["code"] == "snapshot_source_missing"
+        fresh_run = self._run()
+        fresh_run.envelope = {"types": [["lat", "float64"]], "first_page": [[2]], "row_count": 1}
+        fresh_run.save(update_fields=["envelope"])
+        response = self.client.post(
+            metadata_path.replace(f"{snapshot.id}/", ""),
+            {"node_id": self.NODE_ID, "version_id": str(version.id), "previous_snapshot_id": str(snapshot.id)},
+        )
+        assert response.status_code == 201, response.json()
+        assert self.client.get(path.replace(str(snapshot.id), response.json()["id"])).json()["rows"] == [[2]]
+        snapshot.team = Team.objects.create(organization=self.organization, name="Other project")
+        snapshot.save(update_fields=["team_id"])
+        assert self.client.get(path).status_code == 404
+
+    def test_snapshot_cleanup_keeps_copied_tiles_and_recent_snapshots(self) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        snapshots = WidgetSnapshots(self.notebook, lambda _run: None)
+        referenced, orphan, recent = [snapshots.capture(self.NODE_ID, version.id) for _ in range(3)]
+        NotebookWidgetSnapshot.objects.for_team(self.team.id).filter(id__in=[referenced.id, orphan.id]).update(
+            created_at=timezone.now() - timedelta(days=8)
+        )
+        tiles = []
+        for _ in range(2):
+            dashboard = Dashboard.objects.create(team=self.team)
+            widget = DashboardWidget.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                widget_type="notebook_widget",
+                config={"notebookShortId": self.notebook.short_id, "snapshotId": str(referenced.id)},
+            )
+            tiles.append(DashboardTile.objects.create(team_id=self.team.id, dashboard=dashboard, widget=widget))
+        cleanup_widget_snapshots()
+        assert set(NotebookWidgetSnapshot.objects.for_team(self.team.id).values_list("id", flat=True)) == {
+            referenced.id,
+            recent.id,
+        }
+        tiles[0].delete()
+        cleanup_widget_snapshots()
+        assert NotebookWidgetSnapshot.objects.for_team(self.team.id).filter(id=referenced.id).exists()
+        tiles[1].deleted = True
+        tiles[1].save(update_fields=["deleted"])
+        cleanup_widget_snapshots()
+        assert list(NotebookWidgetSnapshot.objects.for_team(self.team.id).values_list("id", flat=True)) == [recent.id]
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
+    @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
+    @patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[])
+    def test_dashboard_refresh_does_not_share_the_snapshot_creation_bucket(self, *_mocks: MagicMock) -> None:
+        version = self._pinned_version(self._mapping())
+        run = self._run()
+        run.envelope = {"first_page": [[1]], "row_count": 1}
+        run.save(update_fields=["envelope"])
+        dashboard = Dashboard.objects.create(team=self.team)
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/publish/"
+        payload = {"node_id": self.NODE_ID, "version_id": str(version.id), "dashboard_id": dashboard.id}
+        cache.clear()
+        with (
+            patch.object(WidgetSnapshotThrottle, "rate", "1/hour"),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+        ):
+            response = self.client.post(url, payload)
+            assert response.status_code == 201, response.json()
+            assert self.client.post(url, payload).status_code == 429
+            parent = NotebookRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id, notebook=self.notebook, user=self.user, status=NotebookRun.Status.DONE
+            )
+            run.notebook_run = parent
+            run.save(update_fields=["notebook_run"])
+            refresh = self.client.post(
+                url,
+                {
+                    "node_id": self.NODE_ID,
+                    "version_id": str(version.id),
+                    "tile_id": dashboard.tiles.get().id,
+                    "previous_snapshot_id": response.json()["id"],
+                    "notebook_run_id": str(parent.id),
+                },
+            )
+            assert refresh.status_code == 201, refresh.json()
+
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_inspection_uses_latest_successful_run_and_authorizes_it(self, _name: str, unrun_sibling: bool) -> None:
         self._run(value=1)
         latest = self._run(value=2)
         authorize = MagicMock()
+        inputs = [self.INPUT_NAME]
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            inputs.append("unrun_df")
+            with self.assertRaises(WidgetError) as error:
+                inspect_widget_inputs(self.notebook, inputs, authorize)
+            assert error.exception.code == "input_not_ready"
 
-        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize)
+        inspection = inspect_widget_inputs(self.notebook, inputs, authorize, skip_unready=unrun_sibling)
 
-        assert inspection.resolved_inputs[0].run == latest
+        assert [(item.name, item.run) for item in inspection.resolved_inputs] == [(self.INPUT_NAME, latest)]
         assert inspection.contract[0]["columns"] == [
             {"name": "lat", "type": "float64"},
             {"name": "label", "type": "string"},
@@ -871,6 +1192,7 @@ class TestWidgetData(APIBaseTest):
             prompt_delta="Make it lighter",
             model="claude-sonnet-4-6",
             generator_version="4",
+            generation_cost_usd=Decimal("0.123456"),
             input_contract=initial_version.input_contract,
             schema_hash="",
             security_review_severity=GeneratedWidgetVersion.SecurityReviewSeverity.HIGH,
@@ -959,6 +1281,7 @@ class TestWidgetData(APIBaseTest):
         assert len(history_response.json()["results"]) == 1
         assert history_response.json()["results"][0]["build_hash"] == "b" * 64
         assert history_response.json()["results"][0]["security_review"]["severity"] == "high"
+        assert history_response.json()["results"][0]["generation_cost_usd"] == "0.123456"
 
     def test_active_generation_hides_a_transient_preview_error(self) -> None:
         instance = self._mapping()
@@ -1009,8 +1332,16 @@ class TestWidgetData(APIBaseTest):
             version_id=version.canvas_source_version_id,
         )
 
-    def test_generate_endpoint_infers_available_dataframes(self) -> None:
+    @parameterized.expand([("all_ready", False), ("unrun_sibling", True)])
+    def test_generate_endpoint_infers_available_dataframes(self, _name: str, unrun_sibling: bool) -> None:
         latest = self._run()
+        if unrun_sibling:
+            self.notebook.content = markdown_content(
+                f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+                f'<Widget nodeId="{self.NODE_ID}" prompt="Render a globe" />\n\n'
+                '<SQLV2 nodeId="unrun" code="SELECT 1" returnVariable="unrun_df" />'
+            )
+            self.notebook.save(update_fields=["content"])
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
         result = WidgetStatus(
             lifecycle_status="building",
@@ -1039,7 +1370,8 @@ class TestWidgetData(APIBaseTest):
             )
 
         assert response.status_code == 202
-        assert generate.call_args.kwargs["inspection"].resolved_inputs[0].run == latest
+        inputs = generate.call_args.kwargs["inspection"].resolved_inputs
+        assert [(item.name, item.run) for item in inputs] == [(self.INPUT_NAME, latest)]
         assert generate.call_args.kwargs["operation"] == "regenerate"
 
     @parameterized.expand(
@@ -1136,6 +1468,56 @@ class TestWidgetData(APIBaseTest):
         assert start_workflow.call_count == 2
         assert job.status == GeneratedWidgetGenerationJob.Status.QUEUED
         assert job.error_code is None
+
+    @parameterized.expand([("direct", False), ("bound", True)])
+    def test_improvement_requires_existing_inputs_and_preserves_slots(self, _name: str, bound: bool) -> None:
+        instance = self._mapping()
+        version = self._pinned_version(instance)
+        slot = "points" if bound else self.INPUT_NAME
+        version.input_contract[0]["slot"] = slot
+        if bound:
+            version.input_contract[0]["sourceName"] = "original_df"
+            instance.input_bindings = {slot: {"source": self.INPUT_NAME}}
+            instance.save(update_fields=["input_bindings"])
+        version.save(update_fields=["input_contract"])
+        self.notebook.content = markdown_content(
+            f'<PythonV2 nodeId="source" returnVariable="{self.INPUT_NAME}" />\n\n'
+            '<SQLV2 nodeId="unrun" returnVariable="unrun_df" code="SELECT 1" />\n\n'
+            f'<Widget nodeId="{self.NODE_ID}" />'
+        )
+        self.notebook.save(update_fields=["content"])
+        url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.NODE_ID}/generate/"
+        request = {
+            "prompt": "Use a darker background",
+            "generation_id": str(uuid4()),
+            "generation_operation": "improve",
+            "expected_current_version_id": str(version.id),
+        }
+        with (
+            patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
+            patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as workflow,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(url, data=request, format="json")
+            assert response.status_code == 409
+            assert response.json()["code"] == "input_not_ready"
+            assert not GeneratedWidgetGenerationJob.objects.for_team(self.team.id).exists()
+            workflow.assert_not_called()
+
+            run = self._run()
+            response = self.client.post(url, data=request, format="json")
+
+        assert response.status_code == 202
+        job = GeneratedWidgetGenerationJob.objects.for_team(self.team.id).get()
+        required = next(item for item in job.input_contract if item["slot"] == slot)
+        assert required == {
+            **version.input_contract[0],
+            "sourceName": self.INPUT_NAME,
+            "runId": str(run.id),
+            "totalRowCount": 150,
+        }
+        assert "unrun_df" not in [item["slot"] for item in job.input_contract]
+        workflow.assert_called_once()
 
     def test_improvement_rejects_a_stale_current_version_before_creating_a_job(self) -> None:
         self._mapping()
@@ -1329,6 +1711,8 @@ class TestWidgetData(APIBaseTest):
         assert error.exception.code == "generation_id_conflict"
 
     def test_generation_identifier_is_scoped_to_the_team(self) -> None:
+        self._run()
+        inspection = inspect_widget_inputs(self.notebook, [self.INPUT_NAME], authorize_run=lambda _run: None)
         generation_id = uuid4()
         other_team = Team.objects.create(organization=self.organization)
         other_notebook = Notebook.objects.create(
@@ -1373,7 +1757,7 @@ class TestWidgetData(APIBaseTest):
                 node_id=self.NODE_ID,
                 prompt="Make it lighter",
                 user_id=self.user.id,
-                inspection=WidgetInputInspection(resolved_inputs=[]),
+                inspection=inspection,
                 model="claude-sonnet-4-6",
                 generation_id=generation_id,
                 operation=GeneratedWidgetVersion.Operation.IMPROVE,
@@ -1597,8 +1981,13 @@ class TestWidgetData(APIBaseTest):
         publication_id = uuid4()
         events: list[str] = []
 
-        def perform_review(**_kwargs: object) -> WidgetSecurityReview:
+        def perform_generation(*, request_ids: list[str | None], **_kwargs: object) -> GeneratedWidgetSource:
+            request_ids.append("generation")
+            return GeneratedWidgetSource(title="Lighter globe", source=source)
+
+        def perform_review(*, request_ids: list[str | None], **_kwargs: object) -> WidgetSecurityReview:
             events.append("review")
+            request_ids.append("review")
             return security_review
 
         def prepare_source(**_kwargs: object) -> MagicMock:
@@ -1606,9 +1995,17 @@ class TestWidgetData(APIBaseTest):
             return MagicMock()
 
         with (
+            self.settings(AI_GATEWAY_URL="http://gateway.test/v1", AI_GATEWAY_API_KEY="test-gateway-key"),
+            patch.object(
+                httpx.Client,
+                "get",
+                return_value=httpx.Response(
+                    200, json={"cost_usd": "0.05"}, request=httpx.Request("GET", "http://gateway.test")
+                ),
+            ),
             patch(
                 "products.notebooks.backend.widget_generation.generate_widget_source",
-                return_value=GeneratedWidgetSource(title="Lighter globe", source=source),
+                side_effect=perform_generation,
             ),
             patch(
                 "products.notebooks.backend.widget_generation.review_widget_source",
@@ -1650,6 +2047,7 @@ class TestWidgetData(APIBaseTest):
         assert version.security_review_model == WIDGET_SECURITY_REVIEW_MODEL
         assert version.security_review_version == "1"
         assert version.security_reviewed_at is not None
+        assert version.generation_cost_usd == Decimal("0.120000")
         review.assert_called_once()
         assert review.call_args.kwargs["team_id"] == self.team.id
         assert review.call_args.kwargs["trace_id"] == f"notebook-widget-security-review-{job.id}"

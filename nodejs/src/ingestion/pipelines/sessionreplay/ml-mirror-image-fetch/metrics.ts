@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/schema'
+import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 
 import type { RepublishReason, UrlDropReason, UrlSkipReason } from './collected-urls-record'
 import type { AttemptOutcome } from './fetch-runner'
@@ -651,5 +651,26 @@ export class RetryDelayMetrics {
     }
     public static observeWait(waitSeconds: number): void {
         this.waitSeconds.observe(waitSeconds)
+    }
+}
+
+export class ImageFetchPoolMetrics {
+    private static readonly waitSeconds = new Histogram({
+        name: 'ml_image_fetch_pool_wait_seconds',
+        help: 'Time a candidate waited in the pod candidate pool before a fetch worker took it',
+        buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20, 40],
+    })
+    private static readonly refillWaitSeconds = new Histogram({
+        name: 'ml_image_fetch_pool_refill_wait_seconds',
+        help: 'Time a consumer waited for room in its pool window before it read its next batch. outcome=timeout means the wait reached its cap',
+        labelNames: ['outcome'],
+        buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 30],
+    })
+
+    public static observeWait(waitSeconds: number): void {
+        this.waitSeconds.observe(waitSeconds)
+    }
+    public static observeRefillWait(outcome: 'room' | 'timeout', waitSeconds: number): void {
+        this.refillWaitSeconds.labels(outcome).observe(waitSeconds)
     }
 }

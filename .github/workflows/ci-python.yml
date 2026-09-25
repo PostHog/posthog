@@ -26,10 +26,31 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
+    # Fork and Dependabot runs get no secret; the queue always runs everything anyway.
+    # The step fails open, because this telemetry must not turn a passing workflow red.
+    dynamic-ci-filter:
+        name: Trunk Dynamic CI (Learning Mode)
+        if: >-
+            github.event_name == 'pull_request' &&
+            github.repository == 'PostHog/posthog' &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        steps:
+            - name: Ask Trunk which jobs this diff needs
+              continue-on-error: true
+              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              with:
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run python checks
         # Set job outputs to values from filter step
@@ -44,6 +65,7 @@ jobs:
             query_perf: ${{ steps.filter.outputs.query_perf || 'true' }}
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
+            api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -101,11 +123,19 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
-                        # A hand-edit to the generated taxonomy JSON must reach the drift check
+                        # A hand-edit to either generated taxonomy output must reach the drift check
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
+                        - 'services/mcp/src/lib/trace-property-allowlist.generated.ts'
+                        # Same for the generated object-tag registries
+                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
+                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
+                        - 'packages/owners-yaml/**'
+                        # Transitional: branches that predate the move still carry the resolver
+                        # at tools/owners.
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
@@ -134,6 +164,9 @@ jobs:
                         - 'uv.lock'
                         - .github/workflows/ci-python.yml
                       owners:
+                        - 'packages/owners-yaml/**'
+                        # Transitional: branches that predate the move still carry the resolver
+                        # at tools/owners.
                         - 'tools/owners/**'
                         - 'pyproject.toml'
                         - 'uv.lock'
@@ -155,6 +188,19 @@ jobs:
                         - 'bin/**'
                         - 'pyproject.toml'
                         - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      # The lib/api.ts ratchet compares the hand-rolled URL builder with
+                      # the generated clients, so either side moving can create new debt.
+                      api_ratchet:
+                        - 'frontend/src/lib/api.ts'
+                        - 'frontend/src/lib/api-ratchet-baseline.txt'
+                        - 'frontend/src/generated/core/api.ts'
+                        - 'products/*/frontend/generated/api.ts'
+                        - 'tools/hogli-commands/hogli_commands/api_ratchet.py'
+                        # The generated rule block is compared against the generator, so
+                        # editing it by hand has to reach the drift check.
+                        - '.semgrep/rules/devex/prefer-codegen-api-namespaced.yaml'
+                        - 'hogli.yaml'
                         - .github/workflows/ci-python.yml
 
     code-quality:
@@ -239,13 +285,21 @@ jobs:
               run: |
                   echo "::add-matcher::.github/mypy-problem-matcher.json"
 
+            - name: Compute mypy cache prefix
+              id: mypy-cache-key
+              shell: bash
+              run: |
+                  python_version=$(python -c 'import platform; print(platform.python_version())')
+                  mypy_version=$(python -c 'from importlib.metadata import version; print(version("mypy"))')
+                  echo "prefix=mypy-v3-${{ runner.os }}-${{ runner.arch }}-${python_version}-${mypy_version}-${{ hashFiles('uv.lock', '**/pyproject.toml', '**/mypy.ini') }}" >> "$GITHUB_OUTPUT"
+
             - name: Restore mypy cache
+              id: mypy-cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
-                  restore-keys: |
-                      mypy-cache-${{ runner.os }}-3.12-mypy2-
+                  key: ${{ steps.mypy-cache-key.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  restore-keys: ${{ steps.mypy-cache-key.outputs.prefix }}-
 
             - name: Check static typing
               shell: bash -e {0}
@@ -254,11 +308,11 @@ jobs:
               run: mypy --version && mypy --cache-fine-grained .
 
             - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
+              if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
@@ -274,6 +328,11 @@ jobs:
               run: |
                   python3 bin/build-taxonomy-json.py --check
 
+            - name: Check if the generated object-tag registries are up to date
+              shell: bash
+              run: |
+                  python3 bin/build-object-tags-registry.py --check
+
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
             # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
@@ -281,6 +340,10 @@ jobs:
             - name: Check cyclomatic complexity of changed files
               if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
               shell: bash
+              # A very large diff overflows the 128 KiB cap on a single environment entry, so the
+              # runner cannot start this step at all. The findings are warn-only, so losing them
+              # on such a PR is not worth failing the job for.
+              continue-on-error: true
               env:
                   # Space-separated, from paths-filter (list-files: escape) — the PR
                   # files API, so no git-diff plumbing to drift from what the PR changed.
@@ -340,8 +403,29 @@ jobs:
                   - name: Run owners resolver tests
                     shell: bash
                     run: |
-                        [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
-                        pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                        [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
+                        pytest packages/owners-yaml/tests -v --junitxml=junit-owners.xml
+
+                  # A wheel in an empty venv cannot import anything else from the monorepo, so a
+                  # new import of host code fails here instead of for users of the published package.
+                  - name: Check the owners package runs outside the monorepo
+                    shell: bash
+                    run: |
+                        [ "$RUN_OWNERS" = "true" ] || { echo "the owners package is unchanged — skipping"; exit 0; }
+                        scratch=$(mktemp -d)
+                        uv build packages/owners-yaml --wheel --out-dir "$scratch/dist"
+                        uv venv "$scratch/venv"
+                        uv pip install --python "$scratch/venv/bin/python" "$scratch"/dist/*.whl
+                        repo="$scratch/repo"
+                        mkdir -p "$repo/billing"
+                        printf 'version: 1\nowners: team-platform\ngithub_org: example\n' > "$repo/owners.yaml"
+                        printf 'version: 1\nowners: team-billing\n' > "$repo/billing/owners.yaml"
+                        touch "$repo/billing/invoices.py"
+                        "$scratch/venv/bin/owners" lint --repo-root "$repo"
+                        # Capture first. `grep -q` on a pipe exits at the first match, the CLI then
+                        # writes to a closed pipe and exits 1, and pipefail fails the step.
+                        resolved=$("$scratch/venv/bin/owners" who --repo-root "$repo" billing/invoices.py)
+                        grep -q 'team-billing' <<<"$resolved"
 
                   - name: Run query-performance-ai tests
                     shell: bash
@@ -375,6 +459,13 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
+                  - name: Run granian shared socket tests
+                    shell: bash
+                    # The bin_scripts filter includes uv.lock, so every granian upgrade runs this.
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -397,13 +488,60 @@ jobs:
                   if-no-files-found: ignore
                   path: junit-dependency-detection.xml
 
+            - name: Upload test results for granian shared socket
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: junit-results-granian-shared-socket
+                  if-no-files-found: ignore
+                  path: junit-granian-shared-socket.xml
+
+    api-ratchet:
+        needs: changes
+        # Its own filter output, so an api.ts-only pull request pays for this job
+        # instead of the repo-wide code-quality one.
+        if: needs.changes.outputs.api_ratchet == 'true' && github.event_name != 'push'
+        name: lib/api.ts codegen ratchet
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  # So `HEAD^1` (the pull request's base commit) resolves below, letting
+                  # the ratchet tell a builder a schema change merely exposed apart from
+                  # one this branch actually added.
+                  fetch-depth: 2
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            # Skip on unrebased branches: the command may not be registered yet.
+            - name: Ratchet product paths in lib/api.ts
+              env:
+                  API_RATCHET_BASE: HEAD^1
+              run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/api_ratchet.py ]; then
+                      echo "hogli lint:api-ratchet not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  ./bin/hogli lint:api-ratchet
+
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always
     # runs and reports success, allowing PRs to merge.
     python_tests:
-        needs: [changes, code-quality]
+        needs: [changes, code-quality, api-ratchet]
         name: Python code quality checks
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:
@@ -412,6 +550,13 @@ jobs:
                   # Block cancelled too: outputs are empty then, so the exit below would report green.
                   if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
                     echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+
+                  # Checked before the no-Python-changes exit below: the ratchet has its
+                  # own filter, so it can run on a pull request that touches no Python.
+                  if [[ "${{ needs.api-ratchet.result }}" != "success" && "${{ needs.api-ratchet.result }}" != "skipped" ]]; then
+                    echo "lib/api.ts codegen ratchet did not succeed (result: ${{ needs.api-ratchet.result }})."
                     exit 1
                   fi
 

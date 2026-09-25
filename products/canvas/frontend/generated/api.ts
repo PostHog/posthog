@@ -42,6 +42,7 @@ import type {
     CanvasStateEntryApi,
     CanvasStateResponseApi,
     CanvasStateSetApi,
+    CanvasStateValueResponseApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasViewResponseApi,
@@ -52,6 +53,7 @@ import type {
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
+    CanvasesStateValueRetrieveParams,
     CanvasesVersionsRetrieveParams,
     PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
@@ -341,11 +343,11 @@ export const getCanvasesEditCreateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Publish per-file edits against the canvas's current source project.
+ * Publish file edits against the canvas's current source project.
  *
- * Diff-aware alternative to sending the complete project: each operation
- * sets a file's content or (content null) deletes it, applied to the head
- * the caller read. `expected_current_version_id` is mandatory here —
+ * Diff-aware alternative to sending the complete project: operations
+ * replace text inside a file, write, delete, or rename files, applied in
+ * order to the head the caller read. `expected_current_version_id` is mandatory here —
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */
@@ -704,6 +706,44 @@ export const canvasesStateSet = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasStateSetApi),
+    })
+}
+
+export const getCanvasesStateValueRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: CanvasesStateValueRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/state/value/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/state/value/`
+}
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ */
+export const canvasesStateValueRetrieve = async (
+    projectId: string,
+    id: string,
+    params: CanvasesStateValueRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasStateValueResponseApi> => {
+    return apiMutator<CanvasStateValueResponseApi>(getCanvasesStateValueRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

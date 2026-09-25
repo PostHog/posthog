@@ -18,14 +18,16 @@ def block_if_team_over_quota(
     thread_ts: str,
     slack_user_id: str,
     context: str,
+    post_denial: bool = True,
 ) -> bool:
     """Refuse a Slack-bot turn when the team is over its AI credits quota.
 
     The user-facing denial message lives in ``products.slack_app.backend.api``
     next to the Slack-posting helpers, while the quota lookup lives here so
     activity modules can compose both without each one re-importing
-    ``ee.billing``. Returns True when the team was blocked and a denial was
-    posted.
+    ``ee.billing``. Returns True when the team was blocked. Pass
+    ``post_denial=False`` for a turn nobody asked PostHog for, so the refusal
+    stops the run without a message in the thread.
     """
     from products.slack_app.backend.api import post_quota_exhausted_denial
 
@@ -38,14 +40,15 @@ def block_if_team_over_quota(
     ):
         return False
 
-    post_quota_exhausted_denial(
-        integration=integration,
-        slack=slack,
-        channel=channel,
-        thread_ts=thread_ts,
-        slack_user_id=slack_user_id,
-        context=context,
-    )
+    if post_denial:
+        post_quota_exhausted_denial(
+            integration=integration,
+            slack=slack,
+            channel=channel,
+            thread_ts=thread_ts,
+            slack_user_id=slack_user_id,
+            context=context,
+        )
     return True
 
 

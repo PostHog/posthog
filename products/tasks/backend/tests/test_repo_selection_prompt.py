@@ -6,6 +6,7 @@ from asgiref.sync import async_to_sync
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
+    PINNED_REPOSITORY_REASON,
     _build_repo_selection_prompt,
     _routing_rules_block,
     select_repository,
@@ -62,6 +63,18 @@ def test_routing_rules_block_orders_filters_and_lowercases(team) -> None:
     assert block == "1. First rule → `acme/a`\n2. Second rule → `acme/b`"
 
 
+def test_prompt_labels_candidate_visibility() -> None:
+    prompt = _build_repo_selection_prompt(
+        "ctx", ["acme/a", "acme/b", "acme/c"], visibility={"acme/a": True, "acme/b": False}
+    )
+
+    assert "1. `acme/a` (private)" in prompt
+    assert "2. `acme/b` (public)" in prompt
+    assert "3. `acme/c` (visibility unknown)" in prompt
+    assert "**Source privacy.**" in prompt
+    assert "source privacy rule" in prompt
+
+
 def test_prompt_text_caps_over_long_legacy_rules() -> None:
     rule = RepoRoutingRule(rule_text="term " * 100)
     assert len(rule.prompt_text) == RepoRoutingRule.MAX_RULE_TEXT_LENGTH
@@ -75,11 +88,16 @@ def test_routing_rules_block_empty_when_no_rules_match(team) -> None:
     assert _routing_rules_block(team.id, ["acme/a"]) is None
 
 
-def test_select_repository_renders_team_rules_into_prompt() -> None:
+def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> None:
     result = RepoSelectionResult(repository="acme/b", reason="rule match")
     session = MagicMock()
     session.end = AsyncMock()
     start = AsyncMock(return_value=(session, result))
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [
+        {"full_name": "Acme/A", "private": True},
+        {"full_name": "acme/b"},
+    ]
 
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
@@ -93,7 +111,7 @@ def test_select_repository_renders_team_rules_into_prompt() -> None:
             1,
             "which repo?",
             origin_product=Task.OriginProduct.SLACK,
-            github=MagicMock(),
+            github=github,
             candidate_repos=["acme/a", "acme/b"],
         )
 
@@ -101,3 +119,60 @@ def test_select_repository_renders_team_rules_into_prompt() -> None:
     prompt = start.call_args.kwargs["prompt"]
     assert "Team routing rules" in prompt
     assert "1. Support app asks → `acme/b`" in prompt
+    assert "1. `acme/a` (private)" in prompt
+    assert "2. `acme/b` (visibility unknown)" in prompt
+
+
+@pytest.mark.parametrize(
+    "pinned,expected_repository",
+    [("Acme/B", "acme/b"), (" acme/b ", "acme/b"), ("acme/gone", None)],
+)
+def test_pinned_repository_answers_without_running_the_agent(pinned: str, expected_repository: str | None) -> None:
+    start = AsyncMock()
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}.MultiTurnSession.start", start),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+            pinned_repository=pinned,
+        )
+
+    assert selected.repository == expected_repository
+    if expected_repository:
+        assert selected.reason == PINNED_REPOSITORY_REASON
+    else:
+        assert "acme/gone" in selected.reason
+    start.assert_not_awaited()
+
+
+def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a"}),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a"],
+            pinned_repository="acme/b",
+        )
+
+    assert selected.repository is None

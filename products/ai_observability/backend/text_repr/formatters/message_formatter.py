@@ -32,6 +32,7 @@ from .constants import (
     SAMPLING_REDUCTION_FACTOR,
     SPECIAL_BLOCK_TYPES,
 )
+from .otel_parts import flatten_parts_message
 from .tool_formatter import format_tools
 
 
@@ -39,6 +40,7 @@ class FormatterOptions(TypedDict, total=False):
     """Options for formatting text representations."""
 
     truncated: bool  # Use truncation for long content (default: True)
+    preserve_generation_output: bool  # Keep answers intact while truncating input history for judges
     truncate_buffer: int  # Chars to show at start/end (default: 1000)
     include_markers: bool  # Use interactive markers vs plain text (default: True)
     collapsed: bool  # Show full hierarchy vs summary (default: False)
@@ -321,6 +323,16 @@ def extract_tool_calls_from_content(content: Any) -> list[ToolCall]:
     return tool_calls
 
 
+def _string_type(msg: dict[str, Any]) -> str | None:
+    """The value under `type` when it is a string, else None.
+
+    Customer payloads record any JSON value there, and the membership tests below hash what they
+    are given. An unhashable value such as a dict raises `TypeError` against a frozenset.
+    """
+    msg_type = msg.get("type")
+    return msg_type if isinstance(msg_type, str) else None
+
+
 def safe_extract_text(content: Any) -> str:
     """
     Safely extract text from various content formats.
@@ -345,7 +357,7 @@ def safe_extract_text(content: Any) -> str:
             text_parts: list[str] = []
             for i, item in enumerate(content):
                 if isinstance(item, dict):
-                    item_type = item.get("type")
+                    item_type = _string_type(item)
                     # Try both "text" and "content" keys (tool_result uses "content")
                     text_value = item.get("text") or item.get("content")
 
@@ -387,7 +399,7 @@ def _is_special_block(block: Any) -> bool:
     if not isinstance(block, dict):
         return False
 
-    block_type = block.get("type")
+    block_type = _string_type(block)
     if block_type in SPECIAL_BLOCK_TYPES:
         return True
 
@@ -422,7 +434,7 @@ def _format_special_block(block: dict) -> str | None:
         if not tool_input and "partial_json" in block:
             try:
                 tool_input = json.loads(block["partial_json"])
-            except (json.JSONDecodeError, ValueError):
+            except (TypeError, ValueError):
                 pass
 
         return format_single_tool_call(tool_name, tool_input)
@@ -503,7 +515,11 @@ def _is_responses_item(msg: dict[str, Any]) -> bool:
     to be keyed by `type` and carries nothing but tool calls.
     """
     item_type = msg.get("type")
-    return bool(item_type) and item_type not in PLAIN_TEXT_BLOCK_TYPES and CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg)
+    if not item_type or not CHAT_COMPLETIONS_MESSAGE_KEYS.isdisjoint(msg):
+        return False
+    # Only a string can name a plain-text block, so any other type is a malformed item whose
+    # recorded payload is still worth rendering.
+    return not isinstance(item_type, str) or item_type not in PLAIN_TEXT_BLOCK_TYPES
 
 
 def _format_call_signature(msg: dict[str, Any]) -> str:
@@ -561,7 +577,7 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
     `content` alone drops every tool call, tool result, and reasoning summary in the conversation
     while still printing its header.
     """
-    item_type = msg.get("type")
+    item_type = _string_type(msg)
 
     if item_type in RESPONSES_TOOL_CALL_TYPES:
         lines, _ = truncate_content(_format_call_signature(msg), options)
@@ -615,6 +631,103 @@ def _extract_responses_output_items(value: Any) -> list[Any] | None:
     return output if isinstance(output, list) else None
 
 
+def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    """Format what sits under a message header: its Responses item or content, then its tool calls."""
+    lines: list[str] = []
+
+    responses_lines = _format_responses_item(msg, options)
+    content = msg.get("content", "")
+    if responses_lines is not None:
+        lines.extend(responses_lines)
+    elif content:
+        text_content = extract_text_content(content)
+        if text_content:
+            content_lines, _ = truncate_content(text_content, options)
+            lines.extend(content_lines)
+
+    tool_calls = msg.get("tool_calls", [])
+    if tool_calls:
+        lines.append("")
+        lines.extend(format_tool_calls(tool_calls))
+
+    return lines
+
+
+def _flatten_parts_messages(messages: list[Any]) -> Iterable[Any]:
+    for msg in messages:
+        if isinstance(msg, dict):
+            yield from flatten_parts_message(msg)
+        else:
+            yield msg
+
+
+def _safe_format_message_body(msg: dict[str, Any], options: FormatterOptions | None) -> list[str]:
+    try:
+        return _format_message_body(msg, options)
+    except RenderBudgetExceeded:
+        raise
+    except Exception:
+        # Customer payloads can break any shape assumption in the body formatters, so one
+        # malformed message degrades to its own repr and the rest of the trace still renders.
+        body_lines, _ = truncate_content(safe_extract_text(msg), options)
+        return body_lines
+
+
+def _normalize_output_messages(choices: list[Any]) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+
+        # The Responses API can send its items at the top level of the array, with no `role`
+        # and no `content`. Pass those straight to `format_messages_array`, which knows their
+        # shapes, rather than dropping them for failing the role check below.
+        if _is_responses_item(choice):
+            messages.append(choice)
+            continue
+
+        # Extract message from choice
+        # Handle both OpenAI format (choice.message) and Anthropic format (choice is the message)
+        message = choice.get("message")
+        if not message or not isinstance(message, dict):
+            # Anthropic/direct format - choice IS the message
+            if "role" in choice or "content" in choice:
+                message = choice
+            else:
+                continue
+
+        # Normalize tool_calls - extract from content if present
+        tool_calls = message.get("tool_calls", [])
+        content = message.get("content", "")
+        content_tool_calls = extract_tool_calls_from_content(content)
+        if content_tool_calls:
+            tool_calls = content_tool_calls
+
+        # Create normalized message
+        normalized_message = {
+            "role": message.get("role", "assistant"),
+            "content": content,
+            "tool_calls": tool_calls,
+        }
+        # Defer parts expansion until the budgeted renderer consumes each message.
+        if "parts" in message:
+            normalized_message["parts"] = message["parts"]
+        messages.append(normalized_message)
+
+    return messages
+
+
+def has_message_content(messages: list[Any], *, is_output: bool = False) -> bool:
+    if is_output:
+        messages = _normalize_output_messages(messages)
+    return any(
+        line.strip()
+        for msg in _flatten_parts_messages(messages)
+        if isinstance(msg, dict)
+        for line in _safe_format_message_body(msg, {"truncated": False, "include_markers": False})
+    )
+
+
 def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
     """
     Format an array of message objects without header.
@@ -630,37 +743,25 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
         List of formatted lines (no header, starts directly with messages)
     """
     lines = FormatterLines(options)
+    needs_separator = False
 
-    for i, msg in enumerate(messages):
+    for i, msg in enumerate(_flatten_parts_messages(messages)):
+        # Add separator between messages (but not after the last one)
+        if needs_separator:
+            lines.append("")
+            lines.append("-" * 80)
+        needs_separator = isinstance(msg, dict)
         if not isinstance(msg, dict):
             continue
 
         # SDKs record non-string roles, which crash `.upper()`.
         role = str(msg.get("role") or msg.get("type") or "unknown")
-        content = msg.get("content", "")
-        tool_calls = msg.get("tool_calls", [])
 
         lines.append("")
         lines.append(f"[{i + 1}] {role.upper()}")
         lines.append("")
 
-        responses_lines = _format_responses_item(msg, options)
-        if responses_lines is not None:
-            lines.extend(responses_lines)
-        elif content:
-            text_content = extract_text_content(content)
-            if text_content:
-                content_lines, _ = truncate_content(text_content, options)
-                lines.extend(content_lines)
-
-        if tool_calls:
-            lines.append("")
-            lines.extend(format_tool_calls(tool_calls))
-
-        # Add separator between messages (but not after the last one)
-        if i < len(messages) - 1:
-            lines.append("")
-            lines.append("-" * 80)
+        lines.extend(_safe_format_message_body(msg, options))
 
     return lines
 
@@ -730,44 +831,7 @@ def format_output_messages(
 
     # Output choices (most common format)
     if choices and isinstance(choices, list) and len(choices) > 0:
-        # Extract messages from choices
-        messages = []
-        for choice in choices:
-            if not isinstance(choice, dict):
-                continue
-
-            # The Responses API can send its items at the top level of the array, with no `role`
-            # and no `content`. Pass those straight to `format_messages_array`, which knows their
-            # shapes, rather than dropping them for failing the role check below.
-            if _is_responses_item(choice):
-                messages.append(choice)
-                continue
-
-            # Extract message from choice
-            # Handle both OpenAI format (choice.message) and Anthropic format (choice is the message)
-            message = choice.get("message")
-            if not message or not isinstance(message, dict):
-                # Anthropic/direct format - choice IS the message
-                if "role" in choice or "content" in choice:
-                    message = choice
-                else:
-                    continue
-
-            # Normalize tool_calls - extract from content if present
-            tool_calls = message.get("tool_calls", [])
-            content = message.get("content", "")
-            content_tool_calls = extract_tool_calls_from_content(content)
-            if content_tool_calls:
-                tool_calls = content_tool_calls
-
-            # Create normalized message
-            normalized_message = {
-                "role": message.get("role", "assistant"),
-                "content": content,
-                "tool_calls": tool_calls,
-            }
-            messages.append(normalized_message)
-
+        messages = _normalize_output_messages(choices)
         if messages:
             lines.append("")
             lines.append("OUTPUT:")

@@ -1,11 +1,13 @@
 import json
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team
 
@@ -129,6 +131,93 @@ class TestAgentProxyCallback(TestCase):
         response = self._post({"kind": "heartbeat"}, token=self._token())
         self.assertEqual(response.status_code, 400)
 
+    def test_budget_steer_capture_uses_token_identity_and_stable_event_id(self) -> None:
+        body = self._body(
+            kind="budget_steer",
+            agent_active=False,
+            sequence=7,
+            timestamp="2026-01-01T00:00:06.000Z",
+            stage="critical",
+            mode="publish",
+            delivered=True,
+            spent_usd=7,
+            cap_usd=10,
+            threshold_spent_usd=6.5,
+            threshold_at="2026-01-01T00:00:00.000Z",
+            delivered_at="2026-01-01T00:00:05.000Z",
+            run_id="spoofed-run",
+        )
+        token = self._token()
+        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as capture:
+            responses = [self._post(body, token=token), self._post(body, token=token)]
+
+        self.assertTrue(all(response.status_code == 200 and response.json()["dispatched"] for response in responses))
+        expected = {
+            "team_id": self.team.id,
+            "event_uuid": str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{self.task_run.id}:7")),
+            "timestamp": "2026-01-01T00:00:06+00:00",
+            "properties": {
+                "team_id": self.team.id,
+                "task_id": str(self.task.id),
+                "run_id": str(self.task_run.id),
+                "stage": "critical",
+                "mode": "publish",
+                "delivered": True,
+                "spent_usd": 7.0,
+                "cap_usd": 10.0,
+                "threshold_spent_usd": 6.5,
+                "threshold_at": "2026-01-01T00:00:00.000Z",
+                "delivered_at": "2026-01-01T00:00:05.000Z",
+            },
+        }
+        self.assertEqual([call.kwargs["kwargs"] for call in capture.call_args_list], [expected, expected])
+
+    @parameterized.expand(
+        [
+            ("missing_sequence", {"sequence": None}),
+            ("invalid_stage", {"stage": "other"}),
+            ("negative_spend", {"spent_usd": -1}),
+        ]
+    )
+    def test_invalid_budget_steer_is_rejected(self, _name: str, overrides: dict[str, Any]) -> None:
+        body = self._body(
+            kind="budget_steer",
+            agent_active=False,
+            sequence=7,
+            stage="warn",
+            mode="wrap_up",
+            delivered=True,
+            spent_usd=5,
+            cap_usd=10,
+        )
+        body.update(overrides)
+        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as capture:
+            response = self._post(body, token=self._token())
+        self.assertEqual(response.status_code, 400)
+        capture.assert_not_called()
+
+    def test_budget_steer_dispatch_failure_can_retry(self) -> None:
+        body = self._body(
+            kind="budget_steer",
+            agent_active=False,
+            sequence=7,
+            stage="warn",
+            mode="wrap_up",
+            delivered=True,
+            spent_usd=5,
+            cap_usd=10,
+        )
+        with patch(
+            "products.tasks.backend.logic.stream.budget_steer.current_app.send_task",
+            side_effect=[RuntimeError("down"), None],
+        ) as dispatch:
+            response = self._post(body, token=self._token())
+            retried = self._post(body, token=self._token())
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(retried.status_code, 200)
+        self.assertTrue(retried.json()["dispatched"])
+        self.assertEqual(dispatch.call_args_list[0], dispatch.call_args_list[1])
+
     def test_heartbeat_dispatches_when_active(self) -> None:
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
             response = self._post(self._body(kind="heartbeat", agent_active=True), token=self._token())
@@ -160,21 +249,39 @@ class TestAgentProxyCallback(TestCase):
         self.assertTrue(response.json()["dispatched"])
         signal_milestone.assert_called_once_with(milestone)
 
-    def test_awaiting_input_dispatches_for_interactive_run(self) -> None:
+    @parameterized.expand([("omitted", None), ("completed", True), ("idle_resume", False)])
+    def test_awaiting_input_dispatches_for_interactive_run(self, _name: str, turn_completed: bool | None) -> None:
         run = self.task.create_run(mode="interactive")
-        with patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify:
+        body = self._body(kind="awaiting_input", agent_active=False)
+        if turn_completed is not None:
+            body["turn_completed"] = turn_completed
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             response = self._post(
-                self._body(kind="awaiting_input", agent_active=False),
+                body,
                 token=self._token(run),
                 run_id=str(run.id),
             )
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["dispatched"])
-        notify.assert_called_once()
+        self.assertEqual(response.json()["dispatched"], turn_completed is not False)
+        signal_turn_completed.assert_called_once()
+        if turn_completed is False:
+            notify.assert_not_called()
+        else:
+            notify.assert_called_once()
+        self.assertEqual(
+            (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before,
+            int(turn_completed is False),
+        )
 
     def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(self) -> None:
         with (
-            patch("products.tasks.backend.agent_proxy_callback.notify_task_run_turn_completed") as notify,
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
             patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
         ):
             response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())

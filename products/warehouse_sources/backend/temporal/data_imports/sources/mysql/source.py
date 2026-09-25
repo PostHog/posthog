@@ -5,9 +5,11 @@ from sshtunnel import BaseSSHTunnelForwarderError
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -16,10 +18,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_mysql_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
@@ -104,7 +102,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.MY_SQL,
+            name=ExternalDataSourceType.MYSQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
             keywords=["sql", "mariadb", "rds", "aws rds", "amazon rds", "aurora"],
@@ -310,6 +308,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # is a deterministic config mismatch, not the transient connection-drop that 2013
             # usually signals — so match only the stable SSL token, never the generic 2013 text.
             "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
+            # MySQL error 3159 (ER_SECURE_TRANSPORT_REQUIRED): the server runs with
+            # `require_secure_transport=ON` but the source has SSL turned off, so every connect is
+            # rejected before auth. Match the locale-independent code, as the message is translated
+            # on non-English servers.
+            "(3159,": "Your MySQL server only accepts encrypted connections, but SSL is turned off for this source. Set 'Use SSL?' to Yes in your source settings, then re-enable the sync.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
@@ -450,6 +453,15 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # the rare case where it exhausts that budget so Temporal's own activity retry
             # can recover it rather than surfacing it as error-tracking noise.
             "TiProxy fails to connect to TiDB",
+            # Vitess/PlanetScale vtgate error 1105 raised while a streaming query is in flight:
+            # vtgate's own gRPC client to the backend vttablet was already closing (a tablet
+            # swap during a failover, reparent, or health-check-triggered pool recycle) when the
+            # query's RPC was submitted. Same transient, self-healing class as `code = Unavailable`
+            # and "reparent operation in progress" above, but hits mid-stream — a path with no
+            # in-process retry wrapper of its own — so there's nothing to backstop; this entry is
+            # the only classification. Match the stable gRPC-go message, excluding the volatile
+            # keyspace/shard/tablet-type target prefix that precedes it.
+            "grpc: the client connection is closing",
         }
 
     def reconcile_schema_metadata(

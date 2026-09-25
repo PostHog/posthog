@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
-import { LemonSearchableSelect, LemonSegmentedButton, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -12,6 +12,8 @@ import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
+
+import { ConfigureHomeDashboardPicker } from './ConfigureHomeDashboardPicker'
 
 type HomepageMode = 'launchpad' | 'search' | 'default_dashboard'
 
@@ -36,9 +38,8 @@ function getHomepageMode(
 export function HomepageConfiguration(): JSX.Element {
     const { homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { setHomepage } = useActions(sceneLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
 
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
@@ -54,18 +55,8 @@ export function HomepageConfiguration(): JSX.Element {
     const activeMode = pendingMode ?? currentMode
     const showDashboardPicker = activeMode === 'default_dashboard'
 
-    const projectDefaultDashboardId = currentTeam?.primary_dashboard ?? null
-
     const homepageDisplayTitle = homepage ? homepage.customTitle || homepage.title : 'Launchpad'
     const homepageSubtitle = isUsingProjectDefault ? 'Default' : isUsingNewTabHomepage ? 'Search' : null
-
-    const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
-        { value: null, label: 'No default dashboard / show the "new tab" page' },
-        ...nameSortedDashboards.map((dashboard) => ({
-            value: dashboard.id,
-            label: dashboard.name || 'Untitled',
-        })),
-    ]
 
     const homepageIcon = homepage?.iconType
     const homepageIconElement = iconForType(
@@ -113,6 +104,7 @@ export function HomepageConfiguration(): JSX.Element {
                                 setPendingMode(null)
                                 setHomepage(newTabHomepage)
                             } else if (newValue === 'default_dashboard') {
+                                loadDashboardsIfNeeded()
                                 const dashboardId = currentTeam?.primary_dashboard
                                 if (dashboardId) {
                                     setPendingMode(null)
@@ -173,34 +165,7 @@ export function HomepageConfiguration(): JSX.Element {
                                 This dashboard opens by default for everyone who has not set a custom homepage.
                             </p>
                         </div>
-                        <LemonSearchableSelect<number | null>
-                            className="w-full"
-                            fullWidth
-                            options={projectDefaultDashboardOptions}
-                            value={projectDefaultDashboardId}
-                            searchPlaceholder="Search dashboards…"
-                            searchInputDataAttr="configure-home-modal-default-dashboard-search"
-                            data-attr="configure-home-modal-set-default-dashboard-select"
-                            onChange={(dashboardId) => {
-                                posthog.capture('homepage configure default dashboard changed')
-                                updateCurrentTeam({ primary_dashboard: dashboardId ?? null })
-                                if (dashboardId) {
-                                    setPendingMode(null)
-                                    setHomepage({
-                                        id: `homepage-dashboard-${dashboardId}`,
-                                        pathname: urls.dashboard(dashboardId),
-                                        search: '',
-                                        hash: '',
-                                        title: 'Default dashboard',
-                                        iconType: 'dashboard',
-                                        sceneId: Scene.Dashboard,
-                                        sceneKey: `dashboard-${dashboardId}`,
-                                        sceneParams: emptySceneParams,
-                                    })
-                                }
-                            }}
-                            disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
-                        />
+                        <ConfigureHomeDashboardPicker onSelect={() => setPendingMode(null)} />
                     </section>
                 )}
             </div>

@@ -13,13 +13,23 @@ import { initKeaTests } from '~/test/init'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
+import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
+import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
+
+jest.mock('../../utils/artifactUpload', () => ({
+    uploadRunAttachments: jest.fn(),
+    uploadStagedTaskAttachments: jest.fn(),
+}))
 
 const buildTask = (overrides: Partial<Task> = {}): Task => ({
     id: 'task-1',
@@ -45,6 +55,7 @@ describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
     let runBody: Record<string, any> | null
+    let cancelledWarmRuns: string[]
     let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     const myConfigResponse = (resolved: Record<string, any> | null): Record<string, any> => ({
@@ -61,6 +72,7 @@ describe('taskTrackerSceneLogic', () => {
         localStorage.clear()
         createBody = null
         runBody = null
+        cancelledWarmRuns = []
         useMocks({
             get: {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
@@ -78,6 +90,10 @@ describe('taskTrackerSceneLogic', () => {
                     runBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
                 },
+                '/api/projects/:team/tasks/:taskId/runs/:id/cancel/': ({ params }) => {
+                    cancelledWarmRuns.push(params.id as string)
+                    return [200, {}]
+                },
             },
         })
         initKeaTests()
@@ -94,6 +110,76 @@ describe('taskTrackerSceneLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toolEvents?.unmount()
+    })
+
+    describe('file attachments', () => {
+        let attachments: ReturnType<typeof composerAttachmentsLogic.build>
+
+        beforeEach(() => {
+            attachments = composerAttachmentsLogic({ attachmentsKey: 'scene' })
+            attachments.mount()
+            attachments.actions.addFiles([new File(['a'], 'rows.csv')])
+        })
+
+        afterEach(() => {
+            attachments.unmount()
+        })
+
+        // With no warm lease the create must give up warm reuse, which it does by leaving `branch` off.
+        it('stages the files on the cold task and attaches them to its run', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockResolvedValue(['art-1'])
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(createBody).not.toHaveProperty('branch')
+            expect(uploadStagedTaskAttachments).toHaveBeenCalledWith('997', 'new-task', [expect.any(File)])
+            expect(runBody?.pending_user_artifact_ids).toEqual(['art-1'])
+            expect(attachments.values.attachments).toEqual([])
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('keeps the files staged and never starts the run when the upload fails', async () => {
+            ;(uploadStagedTaskAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(runBody).toBeNull()
+            expect(attachments.values.attachments).toHaveLength(1)
+            expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('hands a leased warm run back when the upload to it fails', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            const warm = taskWarmLogic({ panelId: undefined })
+            warm.mount()
+            warm.actions.setWarmLease({ key: 'k', taskId: 'warm-task', runId: 'warm-run' })
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(cancelledWarmRuns).toEqual(['warm-run'])
+            warm.unmount()
+        })
+    })
+
+    it('still offers a warm run its branch when nothing is attached', async () => {
+        router.actions.push('/tasks/new')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Summarize a sample funnel' })
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(createBody).toHaveProperty('branch', null)
+        expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
+        expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
     it.each([
@@ -319,6 +405,24 @@ describe('taskTrackerSceneLogic', () => {
             { targetId: 'insight-1:activation-1', tools: ['create_insight'] },
         ])
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    // The backend strips `pending_user_message` and echoes the stripped text. An optimistic bubble that keeps
+    // the trailing whitespace never matches that echo, so the first message rendered twice.
+    it('sends and echoes the first message without surrounding whitespace', async () => {
+        logic.mount()
+        logic.actions.setNewTaskData({ description: '  do the thing \n' })
+        logic.actions.submitNewTask()
+        const streamKey = logic.values.activeCreation!.streamKey
+        expect(runStreamLogic({ streamKey }).values.threadItems).toEqual([
+            expect.objectContaining({ type: 'human_message', text: 'do the thing' }),
+        ])
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ description: 'do the thing' })
+        expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
+        expect(logic.values.newTaskData.description).toBe('')
     })
 
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
@@ -586,6 +690,66 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
     })
 
+    // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
+    it.each(['global', 'runner'])('keeps a repository hidden by a %s override out of requests', async (scope) => {
+        useMocks({
+            get: {
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
+                },
+            },
+        })
+        const overrides = composerOverrideLogic()
+        overrides.mount()
+        overrides.actions.registerComposerOverride('new-workflow', { hideRepositorySelector: scope === 'global' })
+        if (scope === 'runner') {
+            logic = taskTrackerSceneLogic({ panelId: 'btw', composerOverride: { hideRepositorySelector: true } })
+        }
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ repositoryConfig: { integrationId: 7, repository: 'acme/widgets' } })
+
+        await expectLogic(logic, () => {
+            logic.actions.setNewTaskData({ description: 'draft a welcome sequence' })
+        }).toDispatchActions(['noteDraft'])
+
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ repository: null, github_integration: null })
+
+        overrides.unmount()
+    })
+
+    it('keeps runner composer settings independent of scene overrides', () => {
+        const overrides = composerOverrideLogic()
+        const headlines = welcomeOverrideLogic()
+        overrides.mount()
+        headlines.mount()
+        overrides.actions.registerComposerOverride('scene', { placeholder: 'Edit this notebook' })
+        headlines.actions.registerHeadlines('scene', ['Make changes'])
+        logic.mount()
+        const panel = taskTrackerSceneLogic({
+            panelId: 'btw',
+            composerOverride: { placeholder: 'Ask a side question...', hideRepositorySelector: true },
+            welcomeHeadlines: ['What would you like to know?'],
+        })
+        panel.mount()
+
+        expect(panel.values.effectiveComposerOverride).toEqual({
+            placeholder: 'Ask a side question...',
+            hideRepositorySelector: true,
+        })
+        expect(panel.values.displayHeadline).toBe('What would you like to know?')
+        expect(logic.values.effectiveComposerOverride).toEqual({ placeholder: 'Edit this notebook' })
+        expect(logic.values.displayHeadline).toBe('Make changes')
+
+        panel.unmount()
+        expect(logic.values.effectiveComposerOverride).toEqual({ placeholder: 'Edit this notebook' })
+        headlines.unmount()
+        overrides.unmount()
+    })
+
     // An embedded instance (e.g. Max's side panel runner) keeps the run in place instead of navigating the
     // host to `/tasks/:id`, and must never have its `activeCreation` cleared by unrelated main-app
     // navigation. Guards against either guard (`props.panelId` in `submitNewTask` / `urlToAction`) being
@@ -631,6 +795,7 @@ describe('taskTrackerSceneLogic', () => {
                     log_url: null,
                     error_message: null,
                     output: null,
+                    task_summary: null,
                     state: {},
                     artifacts: [],
                     created_at: '2026-01-01T00:00:00Z',

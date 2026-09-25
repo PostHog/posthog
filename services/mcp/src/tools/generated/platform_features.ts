@@ -629,7 +629,6 @@ const OrganizationEnforce2faSchema = () => {
             read_only_mcp_access: true,
             is_ai_data_processing_approved: true,
             is_ai_training_opted_in: true,
-            default_experiment_stats_method: true,
             default_anonymize_ips: true,
             default_role_id: true,
         }).shape
@@ -638,7 +637,7 @@ const OrganizationEnforce2faSchema = () => {
             .describe('Organization ID. If omitted, targets the active organization.')
             .optional(),
         enforce_2fa: PartialUpdateBody.shape['enforce_2fa']
-            .unwrap()
+            .nonoptional()
             .describe(
                 'Set to true to require every organization member to have 2FA enabled; false to lift the requirement. Applies org-wide and takes effect immediately.'
             ),
@@ -787,7 +786,9 @@ const organizationsList = (): ToolBase<
 
 const RoleGetSchema = () => {
     const RolesRetrieveParams = orvalSchemas.RolesRetrieveParams()
-    return RolesRetrieveParams.omit({ organization_id: true })
+    return RolesRetrieveParams.omit({ organization_id: true }).extend({
+        id: RolesRetrieveParams.shape['id'].describe('Required. The role id from roles-list.'),
+    })
 }
 
 const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => ({
@@ -806,9 +807,11 @@ const roleGet = (): ToolBase<ReturnType<typeof RoleGetSchema>, Schemas.Role> => 
 const RoleMembersListSchema = () => {
     const RolesRoleMembershipsListParams = orvalSchemas.RolesRoleMembershipsListParams()
     const RolesRoleMembershipsListQueryParams = orvalSchemas.RolesRoleMembershipsListQueryParams()
-    return RolesRoleMembershipsListParams.omit({ organization_id: true }).extend(
-        RolesRoleMembershipsListQueryParams.shape
-    )
+    return RolesRoleMembershipsListParams.omit({ organization_id: true })
+        .extend(RolesRoleMembershipsListQueryParams.shape)
+        .extend({
+            role_id: RolesRoleMembershipsListParams.shape['role_id'].describe('Required. The role id from roles-list.'),
+        })
 }
 
 const roleMembersList = (): ToolBase<

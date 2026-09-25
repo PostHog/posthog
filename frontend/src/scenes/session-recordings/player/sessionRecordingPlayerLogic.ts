@@ -34,6 +34,7 @@ import {
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
@@ -96,7 +97,7 @@ export const PLAYBACK_SPEEDS = [0.5, 1, 1.5, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
 export const ONE_SECOND_MS = 1000
 // A failed frame load is usually transient, so the frame gets a few more chances before the player
-// falls back to the app document.
+// shows its error.
 const MAX_PLAYER_FRAME_LOAD_RETRIES = 2
 const PLAYER_FRAME_RETRY_DELAY_MS = 1000
 
@@ -145,6 +146,172 @@ export interface Player {
 // on the missing head. Detect that state so a seek can re-init the replayer instead of failing.
 function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean {
     return !!replayer && !replayer.iframe?.contentDocument?.head
+}
+
+interface RenderedScrollDiagnostic {
+    rendered_doc_scroll_y: number | null
+    rendered_doc_scroll_x: number | null
+    rendered_max_scroll_y: number | null
+    rendered_max_scroll_x: number | null
+    rendered_scrolled_element_count: number | null
+    rendered_top_scroll_node_id: number | null
+    rendered_top_scroll_y: number | null
+    rendered_scroll_samples: string | null
+}
+
+const EMPTY_RENDERED_SCROLL: RenderedScrollDiagnostic = {
+    rendered_doc_scroll_y: null,
+    rendered_doc_scroll_x: null,
+    rendered_max_scroll_y: null,
+    rendered_max_scroll_x: null,
+    rendered_scrolled_element_count: null,
+    rendered_top_scroll_node_id: null,
+    rendered_top_scroll_y: null,
+    rendered_scroll_samples: null,
+}
+
+// The offset between two browsers starts small and grows as playback proceeds, so a single first-frame
+// reading would miss it. Sample across the timeline instead: throttle to one reading per interval and
+// cap the total, so diffing the two browsers' samples by playhead time shows the offset accumulate.
+const RENDERED_SAMPLE_INTERVAL_MS = 2000
+const RENDERED_SAMPLE_MAX = 40
+
+interface RenderedSampleCache {
+    renderedSampleCount?: number
+    lastRenderedSampleAt?: number
+    // Playhead buckets already sampled, so the 40-sample budget spreads across the whole recording
+    // instead of being spent in the first ~78s of playback by the wall-clock throttle alone.
+    renderedSamplePlayheadBuckets?: Set<number>
+    droppedFrames?: number
+    frameCount?: number
+    maxFrameTime?: number
+}
+
+// Reads the scroll offsets the player actually rendered in the replay iframe. The event-derived
+// 'recording anchor diagnostic' proves two browsers receive identical scroll events; this reads the
+// resulting DOM, so a browser that restores a nested scroll container to a different offset from the
+// same events shows up as a different rendered_top_scroll_y. Node ids come from the rrweb mirror, so
+// they line up with primary_scroll_node_id in the event-side diagnostic.
+function readRenderedScroll(replayer: Replayer | undefined): RenderedScrollDiagnostic {
+    try {
+        const doc = replayer?.iframe?.contentDocument
+        if (!doc) {
+            return EMPTY_RENDERED_SCROLL
+        }
+        const mirror = (replayer as unknown as { getMirror?: () => { getId?: (node: Node) => number } }).getMirror?.()
+        const docEl = doc.scrollingElement || doc.documentElement
+
+        const scrolled: { id: number; y: number; x: number; sh: number; ch: number }[] = []
+        const all = doc.querySelectorAll('*')
+        for (let i = 0; i < all.length; i++) {
+            const el = all[i] as HTMLElement
+            const y = el.scrollTop
+            const x = el.scrollLeft
+            if (y > 0 || x > 0) {
+                scrolled.push({ id: mirror?.getId?.(el) ?? -1, y, x, sh: el.scrollHeight, ch: el.clientHeight })
+            }
+        }
+        scrolled.sort((a, b) => b.y - a.y)
+        const top = scrolled[0]
+
+        return {
+            rendered_doc_scroll_y: docEl?.scrollTop ?? null,
+            rendered_doc_scroll_x: docEl?.scrollLeft ?? null,
+            rendered_max_scroll_y: scrolled.reduce((m, s) => Math.max(m, s.y), 0),
+            rendered_max_scroll_x: scrolled.reduce((m, s) => Math.max(m, s.x), 0),
+            rendered_scrolled_element_count: scrolled.length,
+            rendered_top_scroll_node_id: top ? top.id : null,
+            rendered_top_scroll_y: top ? top.y : null,
+            // Bounded so the payload stays small on pages with many scroll containers
+            rendered_scroll_samples: JSON.stringify(scrolled.slice(0, 12)),
+        }
+    } catch {
+        return EMPTY_RENDERED_SCROLL
+    }
+}
+
+// A recorded scroll replayed with behavior:'smooth' is neutralized to instant when the OS asks for
+// reduced motion, so a viewer with this setting on cannot reproduce the drift.
+function prefersReducedMotion(): boolean | null {
+    try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    } catch {
+        return null
+    }
+}
+
+// TODO: temporary diagnostic for the cross-browser rendered-scroll investigation. Emits one sample per
+// interval, tagged with the playhead so the two browsers' samples line up in time. The runtime fields
+// (speed, skip-inactivity, reduced-motion, frame timing) explain why the offset is per-viewer rather
+// than per-browser. Remove this and readRenderedScroll once the cause is found.
+function captureRenderedScrollSample(args: {
+    replayer: Replayer | undefined
+    recordingId: string
+    timestamp: number | undefined
+    rrwebPlayerTime: number | null | undefined
+    recordingDurationMs: number | undefined
+    speed: number | undefined
+    skippingInactivity: boolean | undefined
+    cache: RenderedSampleCache
+}): void {
+    const { replayer, recordingId, timestamp, rrwebPlayerTime, recordingDurationMs, speed, skippingInactivity, cache } =
+        args
+    try {
+        if ((cache.renderedSampleCount ?? 0) >= RENDERED_SAMPLE_MAX) {
+            return
+        }
+        // Reading scroll before the replay iframe document exists yields an empty sample that would
+        // still burn a slot; skip without counting so the first real frame gets sampled instead.
+        if (!replayer || isReplayerDocumentUnavailable(replayer)) {
+            return
+        }
+        // Reserve one sample per playhead bucket so coverage spans the whole recording, not just the start.
+        const playheadBucket =
+            rrwebPlayerTime != null && recordingDurationMs && recordingDurationMs > 0
+                ? Math.max(
+                      0,
+                      Math.min(
+                          RENDERED_SAMPLE_MAX - 1,
+                          Math.floor((rrwebPlayerTime / recordingDurationMs) * RENDERED_SAMPLE_MAX)
+                      )
+                  )
+                : null
+        if (playheadBucket !== null) {
+            cache.renderedSamplePlayheadBuckets ??= new Set()
+            if (cache.renderedSamplePlayheadBuckets.has(playheadBucket)) {
+                return
+            }
+        }
+        const nowMs = performance.now()
+        if (
+            cache.lastRenderedSampleAt !== undefined &&
+            nowMs - cache.lastRenderedSampleAt < RENDERED_SAMPLE_INTERVAL_MS
+        ) {
+            return
+        }
+        cache.lastRenderedSampleAt = nowMs
+        cache.renderedSampleCount = (cache.renderedSampleCount ?? 0) + 1
+        if (playheadBucket !== null) {
+            cache.renderedSamplePlayheadBuckets?.add(playheadBucket)
+        }
+        posthog.capture('recording anchor diagnostic rendered', {
+            recording_id: recordingId,
+            is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
+            sample_index: cache.renderedSampleCount,
+            rrweb_player_time: rrwebPlayerTime ?? null,
+            current_timestamp: timestamp ?? null,
+            // Runtime knobs that explain a per-viewer, not per-browser, difference
+            player_speed: speed ?? null,
+            skipping_inactivity: skippingInactivity ?? null,
+            prefers_reduced_motion: prefersReducedMotion(),
+            dropped_frames: cache.droppedFrames ?? null,
+            frame_count: cache.frameCount ?? null,
+            max_frame_time_ms: cache.maxFrameTime ?? null,
+            ...readRenderedScroll(replayer),
+        })
+    } catch {
+        // diagnostics must never break playback
+    }
 }
 
 export enum SessionRecordingPlayerMode {
@@ -565,8 +732,6 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
-    hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
-    playableSnapshotsByWindowId: Record<number, eventWithTime[]> // sessionRecordingDataCoordinatorLogic
     recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
@@ -1092,7 +1257,8 @@ export interface sessionRecordingPlayerLogicMeta {
             isSkippingInactivity: boolean,
             isSkippingToMatchingEvent: boolean,
             snapshotsLoaded: boolean,
-            snapshotsLoading: boolean
+            snapshotsLoading: boolean,
+            playerFrameDocumentFailed: boolean
         ) =>
             | SessionPlayerState.READY
             | SessionPlayerState.BUFFER
@@ -1105,11 +1271,11 @@ export interface sessionRecordingPlayerLogicMeta {
         currentPlayerTime: (currentTimestamp: number | undefined, sessionPlayerData: SessionPlayerData) => number
         currentPlayerTimeSeconds: (currentPlayerTime: number) => number
         toRRWebPlayerTime: (
-            playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
+            sessionPlayerData: SessionPlayerData,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => (timestamp: number) => number | undefined
         fromRRWebPlayerTime: (
-            playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
+            sessionPlayerData: SessionPlayerData,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => (time?: number | undefined) => number | undefined
         jumpTimeMs: (speed: number) => number
@@ -1220,8 +1386,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'fullyLoaded',
                 'trackedWindow',
                 'recordingTooLargeToPlay',
-                'hasOversizedMutations',
-                'playableSnapshotsByWindowId',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -1497,7 +1661,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         playingState: [
-            SessionPlayerState.PLAY as SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
+            // The first syncPlayerState plays whatever this default holds, so a player that opts out
+            // of autoplay has to start paused. An unset autoPlay keeps the playing default.
+            (props.autoPlay === false ? SessionPlayerState.PAUSE : SessionPlayerState.PLAY) as
+                | SessionPlayerState.PLAY
+                | SessionPlayerState.PAUSE,
             {
                 setPlay: () => SessionPlayerState.PLAY,
                 setPause: () => SessionPlayerState.PAUSE,
@@ -1702,6 +1870,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 s.isSkippingToMatchingEvent,
                 s.snapshotsLoaded,
                 s.snapshotsLoading,
+                s.playerFrameDocumentFailed,
             ],
             (
                 playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
@@ -1711,9 +1880,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 isSkippingInactivity: boolean,
                 isSkippingToMatchingEvent: boolean,
                 snapshotsLoaded: boolean,
-                snapshotsLoading: boolean
+                snapshotsLoading: boolean,
+                playerFrameDocumentFailed: boolean
             ) => {
                 switch (true) {
+                    // The frame failure stays out of playerError, because playback clears that whenever it buffers.
+                    case playerFrameDocumentFailed:
+                        return SessionPlayerState.ERROR
                     case isScrubbing:
                         // If scrubbing, playingState takes precedence
                         return playingState
@@ -1766,15 +1939,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
-            (s) => [s.playableSnapshotsByWindowId, s.currentSegment],
-            (playableSnapshotsByWindowId: Record<number, eventWithTime[]>, currentSegment: RecordingSegment | null) => {
+            (s) => [s.sessionPlayerData, s.currentSegment],
+            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
                 return (timestamp: number): number | undefined => {
                     if (!currentSegment || !currentSegment.windowId) {
                         return
                     }
 
-                    // The replayer's time base is the first event it was fed, so use the filtered set
-                    const snapshots = playableSnapshotsByWindowId[currentSegment.windowId]
+                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
                     if (!snapshots?.length) {
                         return
                     }
@@ -1786,13 +1958,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         fromRRWebPlayerTime: [
-            (s) => [s.playableSnapshotsByWindowId, s.currentSegment],
-            (playableSnapshotsByWindowId: Record<number, eventWithTime[]>, currentSegment: RecordingSegment | null) => {
+            (s) => [s.sessionPlayerData, s.currentSegment],
+            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
                 return (time?: number): number | undefined => {
                     if (time === undefined || !currentSegment?.windowId) {
                         return
                     }
-                    const snapshots = playableSnapshotsByWindowId[currentSegment.windowId]
+                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
                     if (!snapshots?.length) {
                         return
                     }
@@ -2336,17 +2508,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         playerFrameDocumentLoadFailed: ({ iframe }) => {
+            // The load timeout and a late load event both fire after the player gave up, and the viewer
+            // already has the error, so the failure is reported once per player.
+            if (values.playerFrameLoadStopped) {
+                return
+            }
             const report = {
                 sessionRecordingId: props.sessionRecordingId,
                 attempt: values.playerFrameLoadFailures,
                 ...getPlayerFrameLoadDiagnostics(iframe),
             }
-            // A load retried while offline fails again, and the app-document fallback needs no network, so
-            // an offline browser gets that fallback now. A connection can stay away for the rest of the
-            // session, and a viewer whose snapshots are loaded already must not wait for it.
+            // A load retried while offline fails again, and a connection can stay away for the rest of the
+            // session. An offline browser stops retrying at once, so the viewer sees the error instead of a
+            // blank player that waits for the network.
             if (values.playerFrameDocumentFailed || !navigator.onLine) {
                 actions.stopRetryingPlayerFrameLoad()
-                // The app-document fallback hides the failure from the viewer, so the only sign of it is the report.
                 posthog.captureException(new Error('Replay player frame loaded without its mount node'), {
                     feature: 'session-recording-player-frame',
                     ...report,
@@ -2407,8 +2583,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 !values.rootFrame ||
                 windowId === undefined ||
-                !values.playableSnapshotsByWindowId[windowId] ||
-                values.playableSnapshotsByWindowId[windowId].length < 2
+                !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
+                values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
             ) {
                 actions.setPlayer(null)
                 return
@@ -2422,7 +2598,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            const canvasPlugin = CanvasReplayerPlugin(values.playableSnapshotsByWindowId[windowId], (error) =>
+            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
                 posthog.captureException(error)
             )
             plugins.push(canvasPlugin)
@@ -2488,7 +2664,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // the config.onError callback only covers its async internal errors. Without this
                     // catch the throw escapes the listener and the player buffers forever.
                     try {
-                        const replayer = new Replayer(values.playableSnapshotsByWindowId[windowId], config)
+                        const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
                         const iframeCleanups: (() => void)[] = []
 
                         replayer.on('fullsnapshot-rebuilded', () => {
@@ -2637,7 +2813,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.player || values.player.windowId !== segment.windowId) {
                 // Only reinitialize if we have valid data for this segment's window
                 const canReinit =
-                    segment.windowId !== undefined && values.playableSnapshotsByWindowId[segment.windowId]?.length >= 2
+                    segment.windowId !== undefined &&
+                    values.sessionPlayerData.snapshotsByWindowId[segment.windowId]?.length >= 2
 
                 if (canReinit) {
                     values.player?.replayer?.pause()
@@ -2766,6 +2943,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.groupedAssetErrors = null
             cache.rrwebWarningSummary = null
             cache.rrwebWarningCount = 0
+            cache.renderedSampleCount = 0
+            cache.renderedSamplePlayheadBuckets = new Set()
+            cache.lastRenderedSampleAt = undefined
             if (cache.diagnosticsFlushTimer) {
                 clearTimeout(cache.diagnosticsFlushTimer)
                 cache.diagnosticsFlushTimer = null
@@ -2818,7 +2998,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             if (values.currentSegment?.windowId !== undefined) {
-                const allSnapshots = values.playableSnapshotsByWindowId[values.currentSegment?.windowId] ?? []
+                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
                 // NOTE: not `push(...array)` — spreading an unbounded snapshot array into a call
                 // blows the argument stack (RangeError) on very large recordings
                 for (const event of findNewEvents(allSnapshots, currentEvents)) {
@@ -3272,6 +3452,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentTimestamp(newTimestamp)
 
+                // Flag-gated so only targeted viewers run the DOM read; everyone else skips the block entirely
+                if (
+                    props.mode !== SessionRecordingPlayerMode.Preview &&
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_BROWSER_SCROLL_BUG]
+                ) {
+                    captureRenderedScrollSample({
+                        replayer: values.player?.replayer,
+                        recordingId: props.sessionRecordingId,
+                        timestamp: newTimestamp,
+                        rrwebPlayerTime,
+                        recordingDurationMs: values.sessionPlayerData?.durationMs,
+                        speed: values.speed,
+                        skippingInactivity: values.isSkippingInactivity,
+                        cache,
+                    })
+                }
+
                 // Throttled position update for loading scheduler (every 5s)
                 if (shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)) {
                     cache.lastPlaybackPositionUpdate = newTimestamp
@@ -3593,13 +3790,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
-        hasOversizedMutations: (detected: boolean) => {
-            if (detected) {
-                posthog.capture('recording player skipped oversized mutations', {
-                    watchedSessionId: values.sessionRecordingId,
-                })
-            }
-        },
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
