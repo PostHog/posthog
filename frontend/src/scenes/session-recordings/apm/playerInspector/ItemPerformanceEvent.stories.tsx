@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
 import { CapturedNetworkRequest } from 'posthog-js'
 
@@ -151,6 +153,41 @@ export const NoResponseRecorded: Story = {
             time_origin: '1726567602079',
             timestamp: 1726568460938,
         } as unknown as PerformanceEvent,
+    },
+}
+
+// With capture off the tabs have no content, but they hold the only prompt that tells a person
+// how to turn capture on. teamLogic seeds the team from `getAppContext().current_team`.
+export const NetworkCaptureDisabled: Story = {
+    args: {
+        item: {
+            entry_type: 'resource',
+            initiator_type: 'fetch',
+            method: 'GET',
+            name: 'https://api.company.com/v1/counts',
+            start_time: 858859,
+            end_time: 859613,
+            duration: 754,
+            response_status: 200,
+            time_origin: '1726567602079',
+            timestamp: 1726568460938,
+        } as unknown as PerformanceEvent,
+    },
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        const originalTeam = appContext?.current_team
+        if (appContext) {
+            appContext.current_team = {
+                ...MOCK_DEFAULT_TEAM,
+                capture_performance_opt_in: false,
+                session_recording_network_payload_capture_config: { recordHeaders: false, recordBody: false },
+            }
+        }
+        return () => {
+            if (appContext) {
+                appContext.current_team = originalTeam ?? null
+            }
+        }
     },
 }
 
