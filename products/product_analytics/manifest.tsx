@@ -220,7 +220,6 @@ export const manifest: ProductManifest = {
             category: 'Schema',
             iconType: 'event_definition',
             href: urls.schemaManagement(),
-            flag: FEATURE_FLAGS.SCHEMA_MANAGEMENT,
         },
         {
             path: 'SQL variables',
