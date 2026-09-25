@@ -465,6 +465,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
 
                     const [response] = await Promise.all([
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         api.get(`${values.advancedActivityLogsBaseUrl}/?${params}`),
                         ensureActivityDescribersLoaded(),
                     ])
@@ -477,6 +478,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             null as AvailableFilters | null,
             {
                 loadAvailableFilters: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(`${values.advancedActivityLogsBaseUrl}/available_filters/`)
                     return response
                 },
@@ -489,6 +491,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadExports: async () => {
                     const params = new URLSearchParams()
                     params.append('context_path', '/advanced_activity_logs/')
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use exportsList() from '~/generated/core/api' instead.
                     const response = await api.get(`api/projects/${values.currentTeamIdStrict}/exports/?${params}`)
                     return response.results || []
                 },
@@ -779,6 +782,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     item_ids: values.filters.item_ids,
                 }
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use advancedActivityLogsExportCreate() from 'products/platform_features/frontend/generated/api' instead.
                 await api.create(`api/projects/${values.currentProjectId}/advanced_activity_logs/export/`, {
                     format,
                     filters: filtersToExport,

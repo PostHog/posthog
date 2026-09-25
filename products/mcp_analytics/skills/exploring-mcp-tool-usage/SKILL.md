@@ -21,7 +21,7 @@ skill — that answers what they choose.
 
 When the question asks for an MCP failure rate or percentage, call `posthog:metric-list` before any typed tool or SQL recipe and look for `mcp_tool_call_fail_pct`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` for the canonical headline. If the user also asks which tool or harness drives failures, answer the headline first, then use the per-tool workflows below for a noncanonical breakdown. If no governed metric matches, say so and label the derived rate noncanonical.
 
-Every per-tool tool here is gated behind the `mcp-analytics` flag, takes a
+Every per-tool tool here takes a
 `toolName` (the effective tool name — resolved server-side, so pass the name the
 agent actually invokes — **except `posthog:query-mcp-tool-failures`**, which
 matches `$exception` events and so takes the raw registered `$mcp_tool_name`)
@@ -95,9 +95,8 @@ Then offer a natural follow-up from the menu — e.g. after
   returns the raw `$mcp_tool_name`, not the inner tool of a wrapper call)
 - Any custom breakdown
 
-`posthog:execute-sql` is also the fallback when the `mcp-analytics` flag is off —
-every tool in the table above is gated behind it, `execute-sql` is not. Query
-`$mcp_tool_call` directly; the schema and recipes are in
+`posthog:execute-sql` is also the fallback when the tools in the table above aren't
+in your tool list. Query `$mcp_tool_call` directly; the schema and recipes are in
 [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 
 ## Related skills

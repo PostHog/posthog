@@ -1666,6 +1666,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         assureVisibility: async ({ projectTreeRef, expandIfHidden }, breakpoint) => {
             if (projectTreeRef) {
+                const starredRef = projectTreeDataLogic.values.starredNavigationRef
+                if (
+                    !expandIfHidden &&
+                    props.key === 'navbar-files' &&
+                    starredRef &&
+                    matchesRefType(starredRef.type, projectTreeRef.type) &&
+                    starredRef.ref === projectTreeRef.ref
+                ) {
+                    return
+                }
                 if (projectTreeRef.type === 'insight' && !expandIfHidden && !isProjectTreeActive(props, values)) {
                     return
                 }
