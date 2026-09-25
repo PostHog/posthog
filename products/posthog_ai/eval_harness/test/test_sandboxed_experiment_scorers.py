@@ -1,8 +1,9 @@
-"""Unit tests for the grading logic the metric-schema-discovery eval uses.
+"""Unit tests for the grading logic the experiments evals use.
 
 Exercises ``FirstUpdateMetricShape`` and the metric-shape validators from
-``products/posthog_ai/evals/experiments/scorers.py`` directly, lightweight as it's
-given hand-built metric dicts and synthetic ACP log lines, no sandboxed stack.
+``products/posthog_ai/evals/experiments/scorers.py``, and the setup-inference checks from
+``setup_scorers.py``, directly, lightweight as it's given hand-built metric dicts and
+synthetic ACP log lines, no sandboxed stack.
 """
 
 from __future__ import annotations
@@ -16,6 +17,15 @@ from products.posthog_ai.evals.experiments.scorers import (
     FirstUpdateMetricShape,
     validate_ratio_revenue_metric,
     validate_retention_metric,
+)
+from products.posthog_ai.evals.experiments.setup_scorers import (
+    BUCKETING_DEFAULT,
+    BUCKETING_PERSIST_OR_DEVICE_ID,
+    CreatedExperiment,
+    bucketing_fits,
+    closing_texts,
+    primary_metric_matches,
+    windows_without_unit,
 )
 
 
@@ -194,3 +204,129 @@ def test_first_update_no_metrics_array() -> None:
     score = _score(_output(_tool_call("c1", "experiment-update", {"name": "renamed"})))
     assert score.score == 0.0
     assert "no metrics array" in score.metadata["reason"]
+
+
+def _created(**overrides) -> CreatedExperiment:
+    fields: dict = {
+        "experiment_id": 1,
+        "new_experiment_count": 1,
+        "inline_primary": (),
+        "inline_secondary": (),
+        "linked_primary": (),
+        "linked_secondary": (),
+        "linked_saved_metric_ids": (),
+        "running_time_calculation": {},
+        "ensure_experience_continuity": False,
+        "bucketing_identifier": "distinct_id",
+        "new_flag_ids": (7,),
+        "experiment_flag_id": 7,
+    }
+    return CreatedExperiment(**(fields | overrides))
+
+
+@pytest.mark.parametrize(
+    "mode,continuity,bucketing,expected_pass",
+    [
+        (BUCKETING_DEFAULT, False, "distinct_id", True),
+        (BUCKETING_DEFAULT, True, "distinct_id", False),
+        (BUCKETING_DEFAULT, False, "device_id", False),
+        (BUCKETING_PERSIST_OR_DEVICE_ID, True, "distinct_id", True),
+        (BUCKETING_PERSIST_OR_DEVICE_ID, False, "device_id", True),
+        (BUCKETING_PERSIST_OR_DEVICE_ID, False, "distinct_id", False),
+    ],
+)
+def test_bucketing_fits(mode: str, continuity: bool, bucketing: str, expected_pass: bool) -> None:
+    created = _created(ensure_experience_continuity=continuity, bucketing_identifier=bucketing)
+    assert bucketing_fits(created, mode)[0] is expected_pass
+
+
+_FUNNEL = {
+    "metric_type": "funnel",
+    "series": [{"kind": "EventsNode", "event": "$pageview"}, {"kind": "EventsNode", "event": "signed_up"}],
+}
+_REVENUE = {
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "checkout_completed", "math": "sum", "math_property": "revenue"},
+}
+
+
+@pytest.mark.parametrize(
+    "metric,expected_problems",
+    [
+        (_FUNNEL, 0),
+        (_FUNNEL | {"conversion_window": 7}, 1),
+        (_FUNNEL | {"conversion_window": 7, "conversion_window_unit": "day"}, 0),
+        (_REVENUE | {"conversion_window": 14}, 1),
+        (_retention(), 0),
+        (_retention(conversion_window=7), 1),
+        (_retention(conversion_window=7, conversion_window_unit="day"), 0),
+    ],
+)
+def test_windows_without_unit(metric: dict, expected_problems: int) -> None:
+    assert len(windows_without_unit([metric])) == expected_problems
+
+
+@pytest.mark.parametrize(
+    "metric,spec,expected_pass",
+    [
+        (_FUNNEL, {"metric_types": ["funnel"], "event": "signed_up"}, True),
+        (_FUNNEL, {"metric_types": ["funnel"], "event": "signed_up", "requires_window": True}, False),
+        (
+            _FUNNEL | {"conversion_window": 7, "conversion_window_unit": "day"},
+            {"metric_types": ["funnel"], "event": "signed_up", "requires_window": True},
+            True,
+        ),
+        (_FUNNEL, {"metric_types": ["funnel"], "event": "$pageview"}, False),
+        (_REVENUE, {"metric_types": ["mean"], "math": "sum", "math_property": "revenue"}, True),
+        (
+            _REVENUE | {"source": _REVENUE["source"] | {"math": "total"}},
+            {"metric_types": ["mean"], "math": "sum"},
+            False,
+        ),
+        (_retention(), {"metric_types": ["retention"]}, True),
+        (_retention(), {"metric_types": ["funnel", "mean"], "event": "uploaded_file"}, False),
+    ],
+)
+def test_primary_metric_matches(metric: dict, spec: dict, expected_pass: bool) -> None:
+    assert primary_metric_matches(metric, spec) is expected_pass
+
+
+def _assistant(*blocks: dict) -> dict:
+    return {"role": "assistant", "content": list(blocks)}
+
+
+def _text(text: str) -> dict:
+    return {"type": "text", "text": text}
+
+
+def _tool(name: str) -> dict:
+    return {"type": "tool_use", "name": name}
+
+
+_SUMMARY = "Bucketing: default. Primary metric: upgraded_plan funnel."
+_SIGN_OFF = "Left everything as a draft."
+
+
+@pytest.mark.parametrize(
+    "messages,expected",
+    [
+        ([_assistant(_text(_SUMMARY))], [_SUMMARY]),
+        (
+            [
+                _assistant(_text(_SUMMARY), _tool("mcp__posthog-code-tools__show_actions")),
+                _assistant(_text(_SIGN_OFF), _tool("mcp__posthog-code-tools__finish")),
+            ],
+            [_SUMMARY, _SIGN_OFF],
+        ),
+        (
+            [
+                _assistant(_text("Creating it now."), _tool("mcp__posthog__exec")),
+                _assistant(_text(_SUMMARY)),
+            ],
+            [_SUMMARY],
+        ),
+        ([_assistant(_tool("mcp__posthog__exec"))], []),
+    ],
+)
+def test_closing_texts(messages: list[dict], expected: list[str]) -> None:
+    assert closing_texts(messages) == expected

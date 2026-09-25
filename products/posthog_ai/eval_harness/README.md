@@ -63,24 +63,25 @@ python -m products.posthog_ai.eval_harness.harness --provider modal
 python -m products.posthog_ai.eval_harness.harness --list
 ```
 
-| Flag                              | Meaning                                                                          |
-| --------------------------------- | -------------------------------------------------------------------------------- |
-| `--eval <substr>`                 | Only run cases whose name contains the substring.                                |
-| `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                           |
-| `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                               |
-| `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.  |
-| `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                               |
-| `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.    |
-| `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                    |
-| `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.  |
-| `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only. |
-| `--create-db`                     | Rebuild the eval test database instead of reusing it.                            |
-| `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.        |
-| `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.   |
-| `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).  |
-| `--list`                          | Print the discovered suite ids (with their kinds) and exit.                      |
+| Flag                              | Meaning                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `--eval <substr>`                 | Only run cases whose name contains the substring.                                                 |
+| `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                                            |
+| `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                                                |
+| `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.                   |
+| `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                                                |
+| `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.                     |
+| `--mcp-flag <flag_key>`           | Turn a feature flag on in the MCP server, which resolves every flag to off otherwise. Repeatable. |
+| `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                                     |
+| `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.                   |
+| `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                  |
+| `--create-db`                     | Rebuild the eval test database instead of reusing it.                                             |
+| `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                         |
+| `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                    |
+| `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                   |
+| `--list`                          | Print the discovered suite ids (with their kinds) and exit.                                       |
 
-Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
+Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--mcp-flag`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
@@ -96,7 +97,7 @@ hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude
 ```
 
 Both runs use the same six prompts and Braintrust history key.
-The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
+The experiment metadata records `skill_delivery` and `mcp_flags`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 

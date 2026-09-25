@@ -584,6 +584,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
             "agent_model": self.ctx.agent_model,
             "agent_runtime": self.ctx.agent_runtime,
             "skill_delivery": self.ctx.skill_delivery,
+            "mcp_flags": list(self.ctx.mcp_flags),
         }
 
 

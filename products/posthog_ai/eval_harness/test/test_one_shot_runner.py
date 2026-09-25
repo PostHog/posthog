@@ -73,6 +73,7 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         agent_model="claude-test",
         agent_runtime="claude",
         skill_delivery="bundled",
+        mcp_flags=(),
         reasoning_effort=None,
         case_filter=case_filter,
         demo_data=None,
