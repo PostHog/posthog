@@ -16,6 +16,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
+import { buildAiEventSpans, isAiEventSpan } from '../../aiEventSpans'
 import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
@@ -27,6 +28,7 @@ import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 import { SpanLogsTab } from './SpanLogsTab'
 import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
+import { traceAiEventsLogic } from './traceAiEventsLogic'
 import { TraceErrorsTab } from './TraceErrorsTab'
 import { TraceIdentityChips } from './TraceIdentityChips'
 
@@ -70,7 +72,7 @@ export function TraceDrawer({
     isOpen,
     traceId,
     ts,
-    spans,
+    spans: realSpans,
     identity,
     sessionId,
     showErrorsTab,
@@ -85,6 +87,12 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
+    const { aiEvents } = useValues(traceAiEventsLogic({ traceId }))
+    // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
+    const spans = useMemo(() => {
+        const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)
+        return aiEventSpans.length > 0 ? [...realSpans, ...aiEventSpans] : realSpans
+    }, [realSpans, aiEvents])
     // Waterfall|inspector split. Persisted so a user's preferred split sticks across traces;
     // desiredSize is null until the first drag, leaving the responsive default (w-2/5) in place.
     // One props object feeds both the value-read and the <Resizer>, so the logicKey can't desync.
@@ -242,7 +250,10 @@ export function TraceDrawer({
                                                   <TraceErrorsTab
                                                       key={inspectedSpan.span_id}
                                                       traceId={inspectedSpan.trace_id}
-                                                      spanId={inspectedSpan.span_id}
+                                                      // A synthetic AI row has no OTel span id, so it scopes to the trace.
+                                                      spanId={
+                                                          isAiEventSpan(inspectedSpan) ? null : inspectedSpan.span_id
+                                                      }
                                                       timestamp={rootSpan?.timestamp ?? inspectedSpan.timestamp ?? ts}
                                                       sessionId={sessionId}
                                                       initialScope={errorsScope}
