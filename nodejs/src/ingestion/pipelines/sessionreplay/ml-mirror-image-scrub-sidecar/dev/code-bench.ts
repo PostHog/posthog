@@ -86,6 +86,8 @@ interface Sample {
     box: [number, number, number, number]
     /** Modules along the code's long side, including zxing's quiet zone. */
     modules: number
+    /** The code's long side in source px before any rotation, which is the length `modules` spans. */
+    codeSide: number
 }
 
 async function renderCode(code: (typeof CODES)[number], side: number): Promise<{ png: Buffer; modules: number }> {
@@ -109,6 +111,7 @@ async function makeSample(
 ): Promise<Sample | null> {
     const side = Math.round(Math.min(frame.width, frame.height) * fraction)
     let { png, modules } = await renderCode(code, side)
+    const upright = await sharp(png).metadata()
     if (degradation === 'rotate') {
         png = await sharp(png).rotate(8, { background: '#ffffff' }).png().toBuffer()
     }
@@ -140,6 +143,7 @@ async function makeSample(
         png: encoded,
         box: [left, top, left + cw!, top + ch!],
         modules,
+        codeSide: Math.max(upright.width!, upright.height!),
     }
 }
 
@@ -250,7 +254,7 @@ async function main(): Promise<void> {
                 width: Math.ceil((b.width * src.W) / w),
                 height: Math.ceil((b.height * src.H) / h),
             }))
-            const codeSideAtZxing = Math.max(s.box[2] - s.box[0], s.box[3] - s.box[1]) * fx * (w / src.W)
+            const codeSideAtZxing = s.codeSide * fx * (w / src.W)
             results.push({
                 file: s.file,
                 frame: s.frame.name,

@@ -304,12 +304,14 @@ async function writeComposites(): Promise<void> {
                         const left = c * cellW
                         const top = r * cellH
                         layers.push({ input: piece, left, top })
+                        const renderedScaleX = pw / p.width
+                        const renderedScaleY = ph / p.height
                         faces.push({
                             box: [
-                                Math.round(left + fx0 - cropLeft),
-                                Math.round(top + fy0 - cropTop),
-                                Math.round(left + p.face[2] * scale - cropLeft),
-                                Math.round(top + p.face[3] * scale - cropTop),
+                                Math.round(left + p.face[0] * renderedScaleX - cropLeft),
+                                Math.round(top + p.face[1] * renderedScaleY - cropTop),
+                                Math.round(left + p.face[2] * renderedScaleX - cropLeft),
+                                Math.round(top + p.face[3] * renderedScaleY - cropTop),
                             ],
                         })
                     }
