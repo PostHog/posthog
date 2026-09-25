@@ -51,10 +51,10 @@ class CreatedMatchAlertWithWebhook(_McpToolScorer):
 
 
 class EstimatedBeforeBackfill(_McpToolScorer):
-    """A successful estimate, and no backfill create unless an estimate came first and its cap was passed.
+    """A successful estimate and no backfill create.
 
-    A create is not required: the tool asks the agent to get the person's agreement first, so stopping
-    after the estimate to ask is correct.
+    Nobody in the sandbox can agree to the quoted cost, and the tool requires that agreement first, so the
+    right move is to estimate and stop to ask.
     """
 
     def _name(self) -> str:
@@ -62,15 +62,13 @@ class EstimatedBeforeBackfill(_McpToolScorer):
 
     def _score(self, parser: LogParser, seed: dict[str, Any], expected: dict[str, Any]) -> Score:
         estimates = [c for c in parser.get_tool_calls("vision-scanners-backfills-estimate") if not c.is_error]
-        creates = parser.get_tool_calls("vision-scanners-backfills-create")
+        creates = [c.call_id for c in parser.get_tool_calls("vision-scanners-backfills-create")]
         if not estimates:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No successful estimate"})
-        first_estimate = min(c.position for c in estimates)
-        blind = [c.call_id for c in creates if c.position < first_estimate or "max_total_credits" not in c.input]
         return Score(
             name=self._name(),
-            score=0.0 if blind else 1.0,
-            metadata={"estimates": len(estimates), "creates": len(creates), "blind_creates": blind},
+            score=0.0 if creates else 1.0,
+            metadata={"estimates": len(estimates), "unagreed_creates": creates},
         )
 
 
