@@ -1,23 +1,30 @@
-import { Platform } from "react-native";
+import { colors as brand } from "@posthog/brand/colors";
 
 export const colors = {
-  bg: "#F4F3EE",
-  bgDeep: "#ECEAE3",
-  ink: "#1C1B18",
-  inkSoft: "#5B5952",
-  inkMute: "#9A978E",
-  line: "rgba(28, 27, 24, 0.08)",
+  // posthog.com's tan and ink; the brand package only ships the chromatic set.
+  bg: "#EEEFE9",
+  bgDeep: "#E4E6DE",
+  ink: "#151515",
+  inkSoft: "#4F5150",
+  inkMute: "#8F918D",
+  line: "rgba(21, 21, 21, 0.08)",
   glass: "rgba(255, 255, 255, 0.55)",
-  accent: "#D9755B",
-  danger: "#C24A3A",
-  ok: "#4F8A5B",
-  dark: "#1C1B18",
-  darkText: "#F4F3EE",
-  code: "rgba(28, 27, 24, 0.05)",
+  accent: brand.tangerine.core,
+  danger: brand.coral.core,
+  ok: brand.green.core,
+  dark: "#151515",
+  darkText: "#EEEFE9",
+  code: "rgba(21, 21, 21, 0.05)",
 };
 
+// RoundHog is the brand face; each weight is its own registered family.
 export const fonts = {
-  serif: Platform.select({ ios: "Georgia", default: "serif" }),
+  sans: "RoundHog",
+  sansMedium: "RoundHog-Medium",
+  sansSemi: "RoundHog-SemiBold",
+  sansBold: "RoundHog-Bold",
+  sansItalic: "RoundHog-Italic",
+  serif: "RoundHog-SemiBold",
   mono: "JetBrainsMono-Regular",
   monoMedium: "JetBrainsMono-Medium",
 };

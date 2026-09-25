@@ -8,6 +8,7 @@ import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useAuth } from "@/lib/auth";
+import { useRepo } from "@/lib/repo";
 import { useSessions } from "@/lib/session";
 import { colors } from "@/lib/theme";
 
@@ -22,9 +23,11 @@ function AuthGate() {
   const segments = useSegments();
   const router = useRouter();
 
+  const hydrateRepo = useRepo((s) => s.hydrate);
   useEffect(() => {
     hydrate();
-  }, [hydrate]);
+    hydrateRepo();
+  }, [hydrate, hydrateRepo]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -41,6 +44,11 @@ export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     "JetBrainsMono-Regular": require("../../assets/fonts/JetBrainsMono-Regular.ttf"),
     "JetBrainsMono-Medium": require("../../assets/fonts/JetBrainsMono-Medium.ttf"),
+    RoundHog: require("../../assets/fonts/RoundHog.ttf"),
+    "RoundHog-Medium": require("../../assets/fonts/RoundHog-Medium.ttf"),
+    "RoundHog-SemiBold": require("../../assets/fonts/RoundHog-SemiBold.ttf"),
+    "RoundHog-Bold": require("../../assets/fonts/RoundHog-Bold.ttf"),
+    "RoundHog-Italic": require("../../assets/fonts/RoundHog-Italic.ttf"),
   });
   const reconnect = useSessions((s) => s.reconnect);
 

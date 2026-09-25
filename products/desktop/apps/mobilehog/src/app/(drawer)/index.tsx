@@ -1,7 +1,17 @@
 import { useRouter } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
+import {
+  ActionSheetIOS,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import {
+  KeyboardStickyView,
+  useReanimatedKeyboardAnimation,
+} from "react-native-keyboard-controller";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
@@ -13,7 +23,9 @@ import {
   createAndRunTask,
   useDefaultRepository,
   useInvalidateTasks,
+  useRepositories,
 } from "@/lib/queries";
+import { useRepo } from "@/lib/repo";
 import { colors, fonts } from "@/lib/theme";
 
 export default function NewChatScreen() {
@@ -21,10 +33,38 @@ export default function NewChatScreen() {
   const insets = useSafeAreaInsets();
   const userName = useAuth((s) => s.session?.userName ?? "");
   const repository = useDefaultRepository();
+  const repositories = useRepositories();
+  const setRepository = useRepo((s) => s.setRepository);
+
+  const pickRepository = (): void => {
+    const options = repositories.data ?? [];
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: "Repository",
+        options: [...options, "No repository", "Cancel"],
+        cancelButtonIndex: options.length + 1,
+      },
+      (index) => {
+        if (index < options.length) setRepository(options[index]);
+        else if (index === options.length) setRepository(null);
+      },
+    );
+  };
   const invalidateTasks = useInvalidateTasks();
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Keep the greeting centred in the space the keyboard leaves. The reported
+  // height covers the bottom inset too, which the composer already occupied.
+  const keyboard = useReanimatedKeyboardAnimation();
+  const bottomInset = insets.bottom;
+  const hero = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: Math.min(0, keyboard.height.value + bottomInset) / 2,
+      },
+    ],
+  }));
 
   const send = async (text: string): Promise<void> => {
     setSending(true);
@@ -50,18 +90,24 @@ export default function NewChatScreen() {
   return (
     <DrawerScene>
       <ChatHeader showNewChat={false} />
-      <View style={styles.center}>
+      <Animated.View style={[styles.center, hero]}>
         <Logomark />
         <Text style={styles.greeting}>
           {userName ? `${userName} returns!` : "G'day"}
         </Text>
-        {repository.data ? (
-          <Text style={styles.repo}>{repository.data}</Text>
-        ) : repository.isLoading ? null : (
-          <Text style={styles.repo}>No GitHub repo connected</Text>
+        {repository.isLoading ? null : (
+          <Pressable
+            onPress={pickRepository}
+            hitSlop={10}
+            style={({ pressed }) => pressed && { opacity: 0.5 }}
+          >
+            <Text style={styles.repo}>
+              {repository.data ?? "Choose a repository"}
+            </Text>
+          </Pressable>
         )}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-      </View>
+      </Animated.View>
       <KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
         <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
           <Composer
@@ -95,6 +141,7 @@ const styles = StyleSheet.create({
   repo: { fontFamily: fonts.mono, fontSize: 12, color: colors.inkMute },
   error: {
     color: colors.danger,
+    fontFamily: fonts.sans,
     fontSize: 13,
     textAlign: "center",
     marginTop: 8,

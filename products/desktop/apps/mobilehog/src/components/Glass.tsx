@@ -40,6 +40,7 @@ interface GlassButtonProps {
   onPress: () => void;
   size?: number;
   disabled?: boolean;
+  tint?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -48,6 +49,7 @@ export function GlassCircleButton({
   onPress,
   size = 46,
   disabled,
+  tint,
   style,
 }: GlassButtonProps) {
   return (
@@ -55,6 +57,7 @@ export function GlassCircleButton({
       {({ pressed }) => (
         <Glass
           interactive
+          tint={tint}
           style={[
             styles.circle,
             {
