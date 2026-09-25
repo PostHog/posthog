@@ -60,6 +60,18 @@ def increment_checks_skipped(source: str, reason: str) -> None:
     ).add(1)
 
 
+def increment_notifications_muted(source: str, reason: str) -> None:
+    """Announcements a mute held back.
+
+    The alert still transitioned, so this is the only signal that a person was not told. A
+    rising count with no matching unmute announcement means mutes are swallowing alerts.
+    """
+    get_metric_meter({"source": source, "reason": reason}).create_counter(
+        "alerts_platform_notifications_muted_total",
+        "Announcements held by a mute, by reason",
+    ).add(1)
+
+
 def increment_state_transition(source: str, from_state: str, to_state: str) -> None:
     get_metric_meter({"source": source, "from": from_state, "to": to_state}).create_counter(
         "alerts_platform_state_transitions_total",

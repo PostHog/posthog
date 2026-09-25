@@ -463,14 +463,15 @@ class TestDemandDiscovery(APIBaseTest):
                 snooze_until=snooze_until,
             )
 
-    def test_only_enabled_due_and_unsuppressed_configurations_become_keys(self) -> None:
+    def test_only_enabled_due_and_unbroken_configurations_become_keys(self) -> None:
         self._configuration(minutes_ago=1, name="due")
         self._configuration(minutes_ago=-1, name="not yet due")
         self._configuration(minutes_ago=1, enabled=False, name="disabled")
         self._alert(self._configuration(minutes_ago=2, name="broken"), state=PlatformAlert.State.BROKEN)
+        # Excluding a muted alert here would stop its state tracking reality for the whole snooze.
         self._alert(
             self._configuration(minutes_ago=3, name="snoozed"),
-            state=PlatformAlert.State.SNOOZED,
+            state=PlatformAlert.State.NOT_FIRING,
             snooze_until=self.tick + dt.timedelta(hours=1),
         )
         # Two rows on one configuration, neither suppressing on its own. Written as a lookup across
@@ -482,7 +483,7 @@ class TestDemandDiscovery(APIBaseTest):
 
         discovered = demand.discover_demand(self.tick.isoformat())
 
-        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(4), self._key(1)]}
+        assert discovered.batch_keys_by_source == {SourceKind.LOGS: [self._key(4), self._key(3), self._key(1)]}
 
     def test_configurations_due_in_one_minute_share_one_key(self) -> None:
         self._configuration(minutes_ago=1, name="first")

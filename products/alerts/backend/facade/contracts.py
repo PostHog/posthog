@@ -146,9 +146,11 @@ class CheckOutcomeReason(StrEnum):
     """
 
     EVALUATED = "evaluated"
-    QUIET_HOURS = "quiet_hours"
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
+    # Mute reasons: a muted check is evaluated, so these label a held announcement, not a skip.
+    SNOOZE = "snooze"
+    QUIET_HOURS = "quiet_hours"
 
 
 @frozen

@@ -22,7 +22,6 @@ async def alerts_platform_record_outcomes_activity(inputs: SourceOutcomeInputs) 
     """Records one batch's decisions. Returns how many reached the tables."""
     # Imported in the activity body, not at module scope: a Django model import trips Temporal's
     # workflow sandbox, and the worker registration that reaches this module runs through one.
-    from posthog.models import Team
     from posthog.sync import database_sync_to_async_pool
 
     from products.alerts.backend.facade.platform_alerts import record_outcomes
@@ -31,15 +30,7 @@ async def alerts_platform_record_outcomes_activity(inputs: SourceOutcomeInputs) 
         return 0
 
     def _record() -> int:
-        timezone = Team.objects.filter(id=inputs.team_id).values_list("timezone", flat=True).first()
-        if timezone is None:
-            return 0
-        return record_outcomes(
-            inputs.team_id,
-            inputs.outcomes,
-            dt.datetime.fromisoformat(inputs.cutoff),
-            team_timezone=timezone,
-        )
+        return record_outcomes(inputs.team_id, inputs.outcomes, dt.datetime.fromisoformat(inputs.cutoff))
 
     recorded = await database_sync_to_async_pool(_record)()
     safe_record(increment_outcomes_recorded, recorded)
