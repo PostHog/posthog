@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { AnyPropertyFilter, Breadcrumb, TeamPublicType, TeamType } from '~/types'
 
 import {
+    hogFlowsBatchJobsCancelCreate,
     hogFlowsBatchJobsCreate,
     hogFlowsBatchJobsList,
     hogFlowsCreate,
@@ -850,6 +851,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                                 : ONE_TIME_RRULE,
                         starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
                         timezone: values.effectiveTimezone,
+                        // The wizard has no variables step, so keep any overrides the old schedule carried.
+                        ...(values.broadcast?.schedules?.[0]?.variables
+                            ? { variables: values.broadcast.schedules[0].variables }
+                            : {}),
                     }
                     await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
                     for (const id of oldScheduleIds) {
@@ -884,17 +889,39 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.moveToDraftFinished()
                 return
             }
+            const projectId = String(values.currentProjectId)
+            const broadcastId = values.broadcastId
             try {
                 // The scheduler skips a draft flow; the schedule stays so the wizard shows its timing.
-                const draft = await hogFlowsPartialUpdate(String(values.currentProjectId), values.broadcastId, {
-                    status: 'draft',
-                })
+                const draft = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'draft' })
                 actions.setStep('review')
                 actions.saveBroadcastFinished(draft)
-                lemonToast.success('Broadcast moved to draft')
             } catch (error: any) {
                 lemonToast.error(
                     `Couldn't move the broadcast to draft: ${error?.detail || error?.message || 'unknown error'}`
+                )
+                actions.moveToDraftFinished()
+                return
+            }
+            try {
+                // A run the scheduler started before the stop landed is still live, so stop it too.
+                const jobs = await hogFlowsBatchJobsList(projectId, broadcastId)
+                const started = jobs.filter((job) => ['waiting', 'queued', 'active'].includes(job.status ?? ''))
+                for (const job of started) {
+                    await hogFlowsBatchJobsCancelCreate(projectId, broadcastId, job.id)
+                }
+                if (started.length) {
+                    lemonToast.warning(
+                        'A send had just started, so it was cancelled. Any emails it already sent are not recalled.'
+                    )
+                } else {
+                    lemonToast.success('Broadcast moved to draft')
+                }
+            } catch (error: any) {
+                lemonToast.error(
+                    `The broadcast is a draft, but a send that had just started couldn't be cancelled: ${
+                        error?.detail || error?.message || 'unknown error'
+                    }`
                 )
             }
             actions.moveToDraftFinished()
