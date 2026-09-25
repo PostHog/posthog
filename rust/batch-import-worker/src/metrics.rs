@@ -13,6 +13,7 @@ pub const TEMP_BUCKET_READ_DURATION_SECONDS: &str =
 pub const STAGED_PLAINTEXT_CEILING_TRIPPED: &str =
     "batch_import_staged_plaintext_ceiling_tripped_total";
 pub const PART_CLEANUP_TOTAL: &str = "batch_import_part_cleanup_total";
+pub const COMMIT_PAUSE_TOTAL: &str = "batch_import_commit_pause_total";
 
 use metrics::{counter, gauge, histogram};
 
@@ -64,4 +65,12 @@ pub fn staged_plaintext_ceiling_tripped() {
 /// A failed cleanup leaks only transient storage (reclaimed by job cleanup / bucket TTL).
 pub fn part_cleanup(outcome: &'static str) {
     counter!(PART_CLEANUP_TOTAL, "outcome" => outcome).increment(1);
+}
+
+/// Count a job paused by a failed sink commit, by the classified failure reason
+/// ("quota", "rate_limited", ...) or "unclassified" when the sink attached none.
+/// The capture sink also counts its failures on `capture_batch_requests_total`, but that
+/// counts requests: this counts the pause the user sees, across every sink.
+pub fn commit_pause(reason: &'static str) {
+    counter!(COMMIT_PAUSE_TOTAL, "reason" => reason).increment(1);
 }

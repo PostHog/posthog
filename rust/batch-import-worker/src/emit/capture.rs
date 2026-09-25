@@ -13,7 +13,9 @@ use posthog_rs::{Client, Error as PosthogError, Event};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::{Emitter, Transaction};
+use crate::error::UserError;
+
+use super::{Emitter, SinkFailure, SinkFailureReason, Transaction};
 
 pub struct CaptureEmitter {
     client: Client,
@@ -166,11 +168,21 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
                 // can carry thousands of events. `reason` lets alerting exclude expected
                 // quota (402) drops and act on transport/server/bad_request failures.
                 let reason = failure_reason(&e);
-                counter!("capture_batch_events_total", "outcome" => "failure", "reason" => reason)
+                let label = reason.metric_label();
+                counter!("capture_batch_events_total", "outcome" => "failure", "reason" => label)
                     .increment(batch_count as u64);
-                counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => reason)
+                counter!("capture_batch_requests_total", "outcome" => "failure", "reason" => label)
                     .increment(1);
-                return Err(Error::msg(format!("capture batch failed: {e}")));
+                // A paused job shows the user whichever message the chain carries, so the
+                // reasons a user can act on name the action here.
+                let failure = Error::from(SinkFailure {
+                    reason,
+                    message: format!("capture batch failed: {e}"),
+                });
+                return Err(match reason.user_message() {
+                    Some(message) => failure.context(UserError::new(message)),
+                    None => failure,
+                });
             }
         }
 
@@ -187,21 +199,21 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
     }
 }
 
-/// Maps a posthog-rs capture error to a bounded `&'static str` failure reason for
-/// metrics. The split is what makes worker-side alerting actionable: `quota` (HTTP
-/// 402) is expected billing enforcement and is excluded from alerts, while
-/// transport / server / bad_request failures are real ingestion problems. The
-/// `_` arm is required because `posthog_rs::Error` is `#[non_exhaustive]`.
-fn failure_reason(err: &PosthogError) -> &'static str {
+/// Maps a posthog-rs capture error to a bounded failure reason. The split is what makes
+/// worker-side alerting actionable: `quota` (HTTP 402) is expected billing enforcement and
+/// is excluded from alerts, while transport / server / bad_request failures are real
+/// ingestion problems. The same split also selects the message a paused job shows the user.
+/// The `_` arm is required because `posthog_rs::Error` is `#[non_exhaustive]`.
+fn failure_reason(err: &PosthogError) -> SinkFailureReason {
     match err {
-        PosthogError::BillingLimitExceeded(_) => "quota", // 402
-        PosthogError::BadRequest(_) => "bad_request",     // 400 / 413 (malformed / oversize)
-        PosthogError::ServerError { .. } => "server_error", // 5xx
-        PosthogError::RateLimit => "rate_limited",        // 429
-        PosthogError::Unauthorized => "unauthorized",     // 401
-        PosthogError::Connection(_) => "transport",       // network / unexpected status
-        PosthogError::Serialization(_) => "serialization", // local encode failure
-        _ => "other",
+        PosthogError::BillingLimitExceeded(_) => SinkFailureReason::Quota, // 402
+        PosthogError::BadRequest(_) => SinkFailureReason::BadRequest, // 400 / 413 (malformed / oversize)
+        PosthogError::ServerError { .. } => SinkFailureReason::ServerError, // 5xx
+        PosthogError::RateLimit => SinkFailureReason::RateLimited,    // 429
+        PosthogError::Unauthorized => SinkFailureReason::Unauthorized, // 401
+        PosthogError::Connection(_) => SinkFailureReason::Transport,  // network / unexpected status
+        PosthogError::Serialization(_) => SinkFailureReason::Serialization, // local encode failure
+        _ => SinkFailureReason::Other,
     }
 }
 
@@ -562,11 +574,8 @@ mod tests {
         let txn = make_transaction(&client);
 
         let result = txn.commit_write().await;
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("capture batch failed"));
+        let err = result.unwrap_err();
+        assert!(format!("{err:#}").contains("capture batch failed"));
         mock.assert();
     }
 
@@ -584,11 +593,21 @@ mod tests {
         let txn = make_transaction(&client);
 
         let result = txn.commit_write().await;
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
+        let err = result.unwrap_err();
+        let err_msg = format!("{err:#}");
         assert!(
             err_msg.contains("Billing Limit Exceeded"),
             "expected billing error, got: {err_msg}"
+        );
+        // The pause the user sees is built from these two: the reason counts the pause,
+        // the user message tells them the org is over its limit.
+        assert_eq!(
+            err.downcast_ref::<SinkFailure>().map(|f| f.reason),
+            Some(SinkFailureReason::Quota)
+        );
+        assert_eq!(
+            err.downcast_ref::<UserError>().map(|u| u.msg.as_str()),
+            SinkFailureReason::Quota.user_message()
         );
         mock.assert();
     }
@@ -752,7 +771,11 @@ mod tests {
             (PosthogError::NotInitialized, "other"),
         ];
         for (err, expected) in cases {
-            assert_eq!(failure_reason(err), *expected, "reason for {err:?}");
+            assert_eq!(
+                failure_reason(err).metric_label(),
+                *expected,
+                "reason for {err:?}"
+            );
         }
     }
 
