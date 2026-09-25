@@ -72,13 +72,6 @@ export const DEFAULT_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
 // never expires is a row the sweep can never reclaim.
 export const MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
 
-// The ceiling on the deprecated integer field. It stays where it is because a bare number cannot be
-// trusted to be minutes: the values above it are second counts in a field that takes minutes, so
-// `604800` means seven days rather than 420. Honoring those to the full ceiling would credit a
-// week-long sequence with a conversion nearly a year later. A duration string cannot be misread, so
-// only that form earns the higher ceiling.
-export const MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
-
 // Substituting our window for the configured one changes what the workflow's conversion rate measures,
 // so it must not be silent: a clamped run reports over the cap, not over the window it asked for.
 const counterConversionWindowClamped = new Counter({
@@ -106,11 +99,7 @@ function conversionWindowMinutes(hogFlow: HogFlow): number {
         // then fall back: measuring over the fallback window beats measuring over a window nobody can read.
         counterConversionWindowInvalid.inc()
     }
-    const legacyMinutes = hogFlow.conversion?.window_minutes
-    if (!legacyMinutes || legacyMinutes <= 0) {
-        return DEFAULT_CONVERSION_WINDOW_MINUTES
-    }
-    return clampWindow(legacyMinutes, MAX_LEGACY_WINDOW_MINUTES)
+    return DEFAULT_CONVERSION_WINDOW_MINUTES
 }
 
 function clampWindow(minutes: number, ceiling: number): number {
