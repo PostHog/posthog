@@ -540,9 +540,17 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "'from'" in response.json()["detail"], response.json()
 
-    def test_web_editor_template_link_survives_stage_draft_and_publish(self):
-        # The web editor copies a Library template's body into the step and keeps its id in
-        # template_uuid. The body the user then edits must win, and the id must reach live intact.
+    def _publish(self, flow_id: str):
+        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+            mock_count.side_effect = Exception("count service down")
+            preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert preview.status_code == 200, preview.json()
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+        )
+
+    def _stage_linked_web_edit(self, body_edit: dict) -> tuple[str, MessageTemplate]:
         template = self._create_library_template()
         create = self._post_flow(_email_action()["config"], mcp=False)
         assert create.status_code == 201, create.json()
@@ -552,28 +560,37 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
 
         linked_step = _email_action()
         linked_step["config"]["template_uuid"] = str(template.id)
-        linked_step["config"]["inputs"]["email"]["value"]["subject"] = "Edited after insert"
+        linked_step["config"]["inputs"]["email"]["value"].update(body_edit)
         staged = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
             {"actions": [_trigger_action(), linked_step], "stage_draft": True},
         )
         assert staged.status_code == 200, staged.json()
+        return flow_id, template
 
-        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
-            mock_count.side_effect = Exception("count service down")
-            preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
-        assert preview.status_code == 200, preview.json()
-        publish = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
-        )
+    def test_web_draft_save_with_template_uuid_and_body_publishes_both_to_live(self):
+        flow_id, template = self._stage_linked_web_edit({"subject": "Edited after insert"})
+
+        publish = self._publish(flow_id)
         assert publish.status_code == 200, publish.json()
 
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.draft is None
-        live_config = next(a for a in flow.actions if a["id"] == "email_1")["config"]
+        live_config = next(a for a in HogFlow.objects.get(pk=flow_id).actions if a["id"] == "email_1")["config"]
         assert live_config["template_uuid"] == str(template.id)
         assert live_config["inputs"]["email"]["value"]["subject"] == "Edited after insert"
+
+    def test_web_save_does_not_refill_a_cleared_linked_step_from_its_template(self):
+        # A web save sends the whole email, so an empty body is one the user cleared. The link is
+        # provenance only on this path: publish reports the missing body, even once the template is
+        # gone, instead of refilling it or failing on a template id the user never typed.
+        flow_id, template = self._stage_linked_web_edit({"subject": "", "text": "", "html": "", "design": None})
+
+        draft_value = _stored_email_value(HogFlow.objects.get(pk=flow_id), from_draft=True)
+        assert [draft_value.get(key) for key in ("subject", "text", "html", "design")] == ["", "", "", None]
+
+        MessageTemplate.objects.filter(pk=template.pk).update(deleted=True)
+        publish = self._publish(flow_id)
+        assert publish.status_code == 400, publish.json()
+        assert publish.json()["detail"] == "Missing values for 'subject', either 'text' or 'html'."
 
     def test_lenient_web_save_skips_unresolvable_template_reference(self):
         # Web drafts (and internal re-saves) stay storable mid-edit: a dangling reference is
