@@ -16,6 +16,13 @@ from typing import Literal
 
 CohortRestrictionBlocker = Literal["group_aggregation", "holdout", "super_groups", "no_groups"]
 
+# Flag-level settings the flags service evaluates before, or instead of, the release conditions.
+# A holdout returns `holdout-<id>` to its share, legacy super groups short-circuit the same way,
+# and `early_exit` returns false on a failed rollout instead of falling through to a later set.
+EVALUATED_BEFORE_RELEASE_CONDITIONS: frozenset[str] = frozenset(
+    {"holdout", "holdout_groups", "super_groups", "early_exit"}
+)
+
 
 def restrict_groups_to_cohort(
     current_filters: dict,

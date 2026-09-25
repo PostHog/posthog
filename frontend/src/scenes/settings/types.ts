@@ -337,6 +337,12 @@ export type Setting = {
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
 
     /**
+     * Shows the setting only to organization admins and owners.
+     * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
+     */
+    organizationAdminOnly?: boolean
+
+    /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),
      * but will still appear when viewing its specific section directly
      */
