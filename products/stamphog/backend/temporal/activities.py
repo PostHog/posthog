@@ -89,6 +89,7 @@ from products.stamphog.backend.models import PullRequest, PullRequestAudience, R
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
+    OVERLAP_WAIT_ALLOWANCE,
     PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
     REVIEWER_TIMEOUT_SECONDS,
     RUN_REVIEW_TIMEOUT,
@@ -187,7 +188,8 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
 
 # aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
 STAMPHOG_AI_PRODUCT = "aio_stamphog"
-# The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
+# The cap bounds what a leaked token can spend; the TTL must outlive the review activity, which is
+# RUN_REVIEW_TIMEOUT plus OVERLAP_WAIT_ALLOWANCE when it overlaps the context fetch.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
 _MINT_ATTEMPTS = 4
@@ -719,7 +721,7 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     return {"in_flight": in_flight}
 
 
-def _sandbox_deadline() -> float:
+def _sandbox_deadline(allowance_seconds: float = 0.0) -> float:
     """Monotonic time the sandbox phase has to finish by, measured from Temporal's own clock.
 
     Temporal starts RUN_REVIEW_TIMEOUT when it hands the activity task to the worker, which can be
@@ -729,7 +731,7 @@ def _sandbox_deadline() -> float:
     activity itself does not have. A missing ``started_time`` falls back to the full budget, which
     is the behaviour of a worker that is not queueing.
     """
-    budget = RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
+    budget = RUN_REVIEW_TIMEOUT.total_seconds() + allowance_seconds - SANDBOX_PHASE_RESERVE_SECONDS
     try:
         elapsed = (datetime.now(UTC) - activity.info().started_time).total_seconds()
     except Exception:
@@ -954,7 +956,7 @@ def run_review_in_sandbox(input: RunReviewInSandboxInput) -> dict:
     stored merge base, and the review waits for release_review_sandbox, which comes after the
     pre-check and the bot wait. A pre-check verdict or a failed workflow releases it without a review.
     """
-    deadline = _sandbox_deadline()
+    deadline = _sandbox_deadline(OVERLAP_WAIT_ALLOWANCE.total_seconds() if input.overlap else 0.0)
     run = _load_run(input)
 
     # A newer relevant delivery for the same PR may have superseded this run while it queued — even
@@ -985,6 +987,7 @@ def run_review_in_sandbox(input: RunReviewInSandboxInput) -> dict:
 
     client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
+    scrub_tokens = [token]
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     environment, gateway = _reviewer_environment(run)
@@ -1043,6 +1046,9 @@ def run_review_in_sandbox(input: RunReviewInSandboxInput) -> dict:
                     if waited is None or (waited.output or {}).get("sandbox_go") == "abandon":
                         return {"skipped": "released"}
                     run = waited
+                    # The wait can outlast the cached installation token's remaining lifetime.
+                    token = client._get_installation_token()
+                    scrub_tokens.append(token)
                 output = run.output or {}
                 # The context fetch stores the merge base, but it keeps going without one, because
                 # familiarity only degrades. The shallow checkout cannot diff without it, so read it again.
@@ -1100,7 +1106,7 @@ def run_review_in_sandbox(input: RunReviewInSandboxInput) -> dict:
             _merge_run_output(
                 run,
                 {
-                    "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
+                    "reviewer_raw": scrub_credentials(result.stdout, *scrub_tokens, gateway_token),
                     "reviewer_exit_code": result.exit_code,
                     "timings_ms": timer.timings_ms,
                     "engine_timings_ms": parse_engine_timings(result.stdout),
@@ -1112,7 +1118,7 @@ def run_review_in_sandbox(input: RunReviewInSandboxInput) -> dict:
                 # This message reaches run.error, so keep the stderr in the worker log only.
                 activity.logger.error(
                     f"Reviewer exited with code {result.exit_code} for run {run.id}: "
-                    f"{scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+                    f"{scrub_credentials(result.stderr, *scrub_tokens, gateway_token)[:500]}"
                 )
                 raise RuntimeError(f"reviewer exited with code {result.exit_code}")
         except Exception as exc:

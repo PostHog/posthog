@@ -23,6 +23,7 @@ from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     FETCH_CONTEXT_TIMEOUT,
     MARK_FAILED_TIMEOUT,
+    OVERLAP_WAIT_ALLOWANCE,
     POST_VERDICT_TIMEOUT,
     PRE_GATES_TIMEOUT,
     RUN_REVIEW_TIMEOUT,
@@ -88,7 +89,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                     workflow.execute_activity(
                         run_review_in_sandbox,
                         RunReviewInSandboxInput(review_run_id=input.review_run_id, team_id=input.team_id, overlap=True),
-                        start_to_close_timeout=RUN_REVIEW_TIMEOUT,
+                        start_to_close_timeout=RUN_REVIEW_TIMEOUT + OVERLAP_WAIT_ALLOWANCE,
                         retry_policy=SANDBOX_RETRY_POLICY,
                     )
                 )

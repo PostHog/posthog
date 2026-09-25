@@ -74,6 +74,11 @@ FETCH_CONTEXT_TIMEOUT = timedelta(minutes=5)
 # Two engine pre-check runs and one short LLM call, each capped at 30 seconds, plus the token mint.
 PRE_GATES_TIMEOUT = timedelta(minutes=3)
 RUN_REVIEW_TIMEOUT = timedelta(minutes=30)
+# Extra time for an overlapping sandbox activity, which starts beside the context fetch and waits for
+# it, the pre-check and the bot wait (up to ten 30s polls) before its review. Added to the activity
+# timeout and to the sandbox deadline, so the waits do not shrink the reviewer's budget. The total
+# stays under the per-run gateway token TTL (_REVIEWER_TOKEN_TTL_SECONDS), minted at activity start.
+OVERLAP_WAIT_ALLOWANCE = timedelta(minutes=20)
 
 # Ceilings for the steps inside the review activity. They add up to more than RUN_REVIEW_TIMEOUT on
 # purpose: each one caps a step that should never take that long, while the shared deadline in

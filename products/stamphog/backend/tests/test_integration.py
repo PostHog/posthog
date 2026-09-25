@@ -41,6 +41,7 @@ from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
+    RunReviewInSandboxInput,
     StamphogReviewInput,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -515,7 +516,7 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
     # otherwise provision successfully and run the reviewer again.
     stamphog_chain.sandbox_class.create_error = None
     with pytest.raises(SandboxPhaseError):
-        _run_activity(run_review_in_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+        _run_activity(run_review_in_sandbox, RunReviewInSandboxInput(review_run_id=str(run.id), team_id=team.id))
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
 
 
