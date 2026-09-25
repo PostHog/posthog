@@ -32,8 +32,8 @@ hand-pick which tables sync or set non-default sync types per table.
 | `data-warehouse-source-connect-link`                   | **Preferred for credentials** — get a secure browser/OAuth link so the user authenticates without pasting secrets in chat |
 | `data-warehouse-source-setup`                          | **Preferred to create** — one call: validate creds, discover tables, apply sync defaults, create the source               |
 | `external-data-sources-wizard`                         | Discover which source types exist and what fields each needs (advanced flow)                                              |
-| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow)                                |
-| `external-data-sources-create`                         | Advanced create — requires a `schemas` array built from the db-schema response                                            |
+| `external-data-sources-db-schema`                      | Validate credentials and list tables with available sync methods per table (advanced flow; not available over MCP)        |
+| `external-data-sources-create`                         | Advanced create — takes a `schemas` array of the tables to sync; it discovers the tables itself                           |
 | `external-data-sources-check-cdc-prerequisites-create` | Postgres CDC pre-flight check (optional, only for Postgres CDC)                                                           |
 | `external-data-sources-webhook-info-retrieve`          | Check if a source supports webhooks and whether one has been registered                                                   |
 | `external-data-sources-create-webhook-create`          | Register a webhook with the external service after source creation                                                        |
@@ -110,8 +110,31 @@ Notes specific to this path:
 
 ## Advanced: hand-pick tables (three-step flow)
 
-Use this when the user wants to choose exactly which tables sync or set non-default sync types. Don't try to shortcut
-to `external-data-sources-create` — you need the db-schema response to build a valid `schemas` payload.
+Use this when the user wants to choose exactly which tables sync or set non-default sync types. The db-schema
+response lists the sync methods and incremental fields each table supports, so build the `schemas` payload from it
+when you can reach it.
+
+**`external-data-sources-db-schema` is not exposed over MCP** (`enabled: false` in
+`products/warehouse_sources/mcp/tools.yaml`), so an MCP agent cannot complete this flow. Steps 1 to 3 below record
+the API contract for the in-app wizard and for direct API callers.
+
+Over MCP, hand-pick the tables with `external-data-sources-create`, which is exposed. It runs its own discovery and
+rejects any name it did not find ("Schemas given do not exist in source"), so a `schemas` array of the names the
+user chose is enough without a db-schema call. Read each table's supported sync methods with
+`external-data-schemas-incremental-fields-create` afterwards, then set them with
+`external-data-schemas-partial-update`.
+
+Do not stand in for that with one-step setup plus `external-data-schemas-partial-update`. It does not reach the same
+end state:
+
+- Setup enables every discovered table and starts an import for each one straight away. A later `partial-update`
+  pauses the next sync. It does not stop the run already going and it does not remove the rows it imported, so the
+  tables the user did not want are already in the warehouse. A source syncs free for its first seven days, so the
+  cost arrives later, once those tables keep their 6h cadence.
+- Setup can register a remote webhook. A schema update does not remove it.
+- Over MCP, CDC has to be set at create time. `external-data-sources-enable-cdc-create` is not exposed either, and
+  `partial-update` checks only the team flag and a primary key, so it can store `sync_type: "cdc"` on a source with
+  no replication slot. That table then stops getting fresh rows, and the error surfaces only when the sync runs.
 
 ```text
          ┌────────────────────┐
@@ -139,8 +162,33 @@ field definitions. The response is a dict keyed by source type. Each entry descr
 
 - `name` — the canonical source_type string you'll pass to later calls (e.g. `"Postgres"`, `"Stripe"`, `"Hubspot"`).
 - `caption` — human-readable description.
-- `fields` — the config fields needed (host, port, database, api_key, client_id/secret, ...). Each has `name`,
-  `type` (input, password, switch, select, file-upload), and `required`.
+- `fields` — the config fields needed (host, port, database, api_key, client_id/secret, ...). Each has a `name`, a
+  `type`, and usually a `required` flag.
+  - Read `type` from the response. New source types add new values, so do not assume a fixed list.
+    Current values are `text`, `password`, `textarea`, `number`, `email`, `url`, `time`, `search`, `select`,
+    `oauth`, `oauth-account-select`, `switch-group`, `file-upload`, and `ssh-tunnel`.
+  - A separate boolean `secret` marks an input field that holds a sensitive value. The `type` does not tell you
+    this, so a `text` or a `textarea` field can carry `secret: true`.
+  - Other fields are sensitive by type and carry no `secret` flag. A `password` field is always sensitive. A
+    `file-upload` field is always sensitive, whatever the uploaded file holds. An `ssh-tunnel` field declares no
+    child fields, but its `password`, `passphrase` and `private_key` values are sensitive.
+  - Collect every sensitive field through `data-warehouse-source-connect-link`, never in chat. The connect page
+    returns a `credential_id` that `data-warehouse-source-setup` and `external-data-sources-create` both accept in
+    `payload`. `external-data-sources-db-schema` does not accept it — that call reads the raw values. So the
+    advanced flow cannot discover tables from a stored credential. Prefer the one-step setup for any source that
+    declares a sensitive field.
+  - `switch-group` and `select` options nest their own `fields` array. These are branches, not extra fields. Only
+    the chosen option's fields apply to a `select`, and a `switch-group`'s fields apply only when the group is on.
+    Ask for the active branch alone. Prompting for a Snowflake `private_key` when the user picked password auth is
+    the usual way this goes wrong.
+  - Only a `select` whose options declare their own `fields` becomes a container in the payload. That one carries
+    the chosen option under `selection`, with the branch's fields beside it. A plain select takes its value
+    directly — MySQL `using_ssl` is a scalar boolean — and a `multiple` select takes a `string[]`. Wrapping either
+    of those in a `selection` object makes the converter fail. A `switch-group` always carries `enabled`.
+  - Do not flatten a container to the top level. Flattening is not always an error, which is what makes it
+    dangerous. `"auth_type": "keypair"` with the branch fields beside it parses as the default `password` branch,
+    and a `region` value with no `use_custom_region` container parses as the group turned off. Both create the
+    source on the wrong branch with no message that says so.
 - `featured`, `unreleasedSource` — use to gauge readiness. Skip sources marked `unreleasedSource: true` unless the
   user explicitly asked for a preview.
 
@@ -154,11 +202,16 @@ source setup page rather than trying to collect tokens in chat. OAuth is about _
 flows; OAuth sources still use polling bulk sync, not webhooks.
 
 Gather the required credentials from the user. Never ask for more fields than the wizard entry says are required —
-asking for an unnecessary `port` when the source doesn't need one confuses users.
+asking for an unnecessary `port` when the source doesn't need one confuses users. Gather the sensitive fields
+through `data-warehouse-source-connect-link`, not in chat — see the field rules above for which ones those are.
 
 ### Step 2 — Validate credentials and discover tables
 
-Call `external-data-sources-db-schema` with `source_type` plus all credential fields. This does two things at once:
+Call `external-data-sources-db-schema` with `source_type` plus all credential fields. This call reads raw values
+and is not exposed over MCP, so an MCP agent skips this step and passes the table names straight to
+`external-data-sources-create`, which discovers the tables itself.
+
+It does two things at once:
 
 1. Validates the credentials against the live source. Returns 400 with a `message` if anything is wrong (bad host,
    wrong password, permission denied). Show the error verbatim — it's often actionable ("password authentication
@@ -258,6 +311,10 @@ Call `external-data-sources-create` with:
 }
 ```
 
+The example passes credentials inline because that is what the REST endpoint accepts. Prefer
+`{"credential_id": <id>}` in `payload` instead — `create` resolves a stored credential, so the raw password never
+has to reach the chat.
+
 Rules for the `schemas` array:
 
 - Every table returned by db-schema should be included, even ones the user doesn't want (set `should_sync: false`).
@@ -325,14 +382,19 @@ If the user wants near-real-time replication from Postgres:
    It returns `{valid, errors[]}` listing anything missing (wal_level, replication slot, publication, permissions).
 2. If `valid: false`, present the errors and ask the user to fix on the Postgres side. Don't try to create a CDC
    source that will immediately fail.
-3. Once prerequisites pass, proceed to db-schema and create. Set `sync_type: "cdc"` on the tables that need it, and
-   include `primary_key_columns` for each (CDC requires them).
+3. Once prerequisites pass, create the source with `cdc_enabled: true` in the `payload` — that is what provisions
+   the replication slot and publication — and set `sync_type: "cdc"` plus `primary_key_columns` on the tables that
+   need it. Create refuses a `cdc` table when the payload leaves CDC off, so do not add it afterwards with
+   `external-data-schemas-partial-update`: that call stores the value and provisions nothing.
 
 ## Important notes
 
-- **Always validate creds with db-schema before create.** The create endpoint will accept invalid creds and then fail
+- **Always validate creds before create.** The create endpoint will accept invalid creds and then fail
   asynchronously — the source appears in the list with status `Error` and no tables. Skipping the validation step
-  just pushes the failure into the background.
+  just pushes the failure into the background. Direct API callers validate with db-schema. Over MCP that tool is not
+  exposed, so lean on the create paths: the one-step setup validates the credentials server-side before it creates
+  anything, and `external-data-sources-create` discovers the tables against the live source and returns a 400
+  without leaving a source behind when that fails.
 - **Present the table list before creating.** Large databases may have hundreds of tables. Don't auto-select them all
   — row counts and relevance matter for billing. Let the user opt in explicitly.
 - **Don't invent schemas.** Every entry in the `schemas` array must correspond to a real table from the db-schema
@@ -348,9 +410,11 @@ If the user wants near-real-time replication from Postgres:
 - **Prefer the secure connect-link for any credentials.** Use `data-warehouse-source-connect-link` so the user
   authenticates in their browser — the connect page renders the source's full connection form (OAuth and credential
   options alike) and stores the result without creating the source. Don't collect OAuth tokens or database passwords
-  in chat; pass the `credential_id` reference to setup — source creation always happens through setup, not the UI.
-  (An already-connected OAuth integration can also be passed directly via its id key, e.g.
-  `{"hubspot_integration_id": 123}`.)
+  in chat; pass the `credential_id` reference to whichever create path you are on. Both accept it:
+  `data-warehouse-source-setup` for the one-step path, which enables every discovered table, and
+  `external-data-sources-create` for the advanced path, which takes a `schemas` array. Do not reach for setup when
+  the user picked specific tables — it would enable all of them. (An already-connected OAuth integration can also be
+  passed directly via its id key, e.g. `{"hubspot_integration_id": 123}`.)
 - **Webhooks are a separate step after create.** Setting `sync_type: "webhook"` on a schema doesn't register the
   webhook — the `create-webhook` call does. Always follow create → create-webhook → webhook-info for webhook-type
   schemas, and never leave a webhook schema dangling without registration (it just won't receive events).
