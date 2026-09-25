@@ -462,6 +462,21 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         # every CDC schema — editor on the source isn't enough when a table is locked below it.
         self._assert_can_write_schemas(cdc_schemas)
         cdc_schema_ids = [schema.id for schema in cdc_schemas]
+        # The bulk update below bypasses update_should_sync, which is what pauses a table's schedule, so
+        # without this every former CDC table keeps syncing, and billing, on its old schedule. It runs
+        # first: a failed pause then fails the request while CDC still reads as enabled, so a retry
+        # repeats the whole disable instead of returning already_disabled.
+        try:
+            for schema_id in cdc_schema_ids:
+                pause_external_data_schedule(str(schema_id))
+        except Exception as e:
+            base.capture_exception(e, {"source_id": str(instance.id)})
+            return Response(
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                data={
+                    "message": "Couldn't pause the table syncs, so CDC is still on. Try disabling it again in a minute."
+                },
+            )
         running_jobs = ExternalDataJob.objects.filter(
             pipeline_id=instance.pk,
             team_id=instance.team_id,
@@ -530,14 +545,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                     job_inputs.pop(key, None)
             instance.job_inputs = job_inputs
             instance.save(update_fields=["job_inputs", "updated_at"])
-
-        # The bulk update above bypasses update_should_sync, which is what pauses a table's schedule.
-        # Without this, every former CDC table keeps syncing, and billing, on its old schedule.
-        for schema_id in cdc_schema_ids:
-            try:
-                pause_external_data_schedule(str(schema_id))
-            except Exception as e:
-                base.capture_exception(e, {"source_id": str(instance.id), "schema_id": str(schema_id)})
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
