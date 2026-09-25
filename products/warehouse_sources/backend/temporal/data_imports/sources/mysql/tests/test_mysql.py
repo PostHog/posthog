@@ -2104,6 +2104,19 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "(3159, 'Connections using insecure transport are prohibited while --require_secure_transport=ON.')",
+            "OperationalError: (3159, 'Connections using insecure transport are prohibited while "
+            "--require_secure_transport=ON.')",
+        ],
+    )
+    def test_secure_transport_required_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Secure-transport-required error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "is blocked because of many connection errors",
             # MariaDB phrasing (suggests mariadb-admin) — what we actually observed in the wild.
             "OperationalError: (1129, \"Host '172.31.4.130' is blocked because of many connection "

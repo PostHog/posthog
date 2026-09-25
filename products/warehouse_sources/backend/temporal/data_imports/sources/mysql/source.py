@@ -308,6 +308,11 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # is a deterministic config mismatch, not the transient connection-drop that 2013
             # usually signals — so match only the stable SSL token, never the generic 2013 text.
             "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
+            # MySQL error 3159 (ER_SECURE_TRANSPORT_REQUIRED): the server runs with
+            # `require_secure_transport=ON` but the source has SSL turned off, so every connect is
+            # rejected before auth. Match the locale-independent code, as the message is translated
+            # on non-English servers.
+            "(3159,": "Your MySQL server only accepts encrypted connections, but SSL is turned off for this source. Set 'Use SSL?' to Yes in your source settings, then re-enable the sync.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
