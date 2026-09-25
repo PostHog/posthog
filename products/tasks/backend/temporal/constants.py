@@ -122,6 +122,10 @@ CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 # Upper bound on how many CI rounds the orchestrator will dispatch.
 MAX_CI_REPETITIONS = 3
 
+# Smallest gap between the PR checks a follow-up message can ask for. A burst of messages
+# rides the check already armed, so asking repeatedly costs one GitHub round trip per window.
+CI_ON_DEMAND_CHECK_COOLDOWN = timedelta(minutes=2)
+
 # Long-lived SSE relay activity timeout. The relay reconnects internally on
 # transient failures; this is the outer cap.
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)

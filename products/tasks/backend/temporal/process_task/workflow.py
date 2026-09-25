@@ -211,6 +211,10 @@ class ResumedSandboxState:
     end_of_turn_received: Optional[bool] = None
     last_turn_succeeded: bool = False
     last_agent_heartbeat_at: Optional[str] = None
+    # ISO8601 anchor of the CI follow-up countdown, and whether a check a follow-up message
+    # asked for is still waiting to run. None / False on payloads written before these existed.
+    ci_follow_up_anchor_time: Optional[str] = None
+    ci_check_requested: bool = False
     sandbox_ttl_expires_at: Optional[str] = None
     sandbox_ttl_snapshot_taken: bool = False
     first_command_dispatched_recorded: bool = False
@@ -320,6 +324,7 @@ class _BabysitDispatch:
 # workers should import them directly from `products.tasks.backend.temporal.constants`.
 from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
+    CI_ON_DEMAND_CHECK_COOLDOWN,
     DEFAULT_CI_MESSAGE,
     IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
     INACTIVITY_TIMEOUT,
@@ -417,6 +422,20 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 _PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS = "tasks-delivered-pr-timeout-status"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
+
+# The CI follow-up countdown restarted on any activity, so a user who watched a run and
+# asked it to fix CI kept deferring the one message that names the failing checks. Gates the
+# agent-only countdown anchor and the check a follow-up message arms, both of which schedule
+# timers differently from pre-rollout histories. Same two-step deprecate-then-delete cleanup
+# lifecycle as the patches above.
+_PATCH_ID_CI_FOLLOW_UP_TRACKS_AGENT = "tasks-ci-follow-up-tracks-agent"
+
+
+def _ci_follow_up_tracks_agent() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_CI_FOLLOW_UP_TRACKS_AGENT)
+
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
@@ -527,6 +546,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
+        # Anchors the CI follow-up countdown. Only the agent's own activity moves it, so a
+        # user watching the run cannot defer the check that names the failing checks.
+        self._ci_follow_up_anchor_time: Optional[datetime] = None
+        # Someone messaged the run, so check the PR on the next loop pass instead of waiting
+        # the countdown out. `_ci_check_armed_at` bounds how often that can be asked for.
+        self._ci_check_requested: bool = False
+        self._ci_check_armed_at: Optional[datetime] = None
         # Start of the continue_as_new chain, carried across continuations so the
         # wall-clock cap measures the whole chain rather than restarting per run.
         # None on the first execution, where workflow.info().start_time is the anchor.
@@ -658,8 +684,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._active_followup_task = asyncio.create_task(self._dispatch_followup(followup))
         return True
 
+    def _arm_ci_check_on_interaction(self) -> None:
+        """Ask the loop to check the PR now, because someone just messaged the run.
+
+        A follow-up message carries no CI detail, so a user who asks a run to fix CI has
+        nothing to act on until the countdown fires. Arming a check instead of writing the
+        countdown anchor means the agent's own heartbeats cannot swallow the request.
+        """
+        if self._context is None or not (self.context.create_pr and self.context.pr_loop_enabled):
+            return
+        now = workflow.now()
+        if self._ci_check_armed_at is not None and now - self._ci_check_armed_at < CI_ON_DEMAND_CHECK_COOLDOWN:
+            return
+        self._ci_check_armed_at = now
+        self._ci_check_requested = True
+
     async def _dispatch_followup(self, followup: PendingFollowup) -> None:
         self._last_active_time = workflow.now()
+        self._arm_ci_check_on_interaction()
         self._first_user_message_received = True
         if self._should_skip_followup(followup.message, followup.artifact_ids):
             workflow.logger.warning(
@@ -739,9 +781,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining)
         return TaskEvent.MAX_DURATION_REACHED
 
-    async def _wait_for_ci_follow_up(self):
-        if self._last_active_time:
-            elapsed = workflow.now() - self._last_active_time
+    async def _wait_for_ci_follow_up(self, *, tracks_agent: bool):
+        anchor: Optional[datetime] = self._last_active_time
+        if tracks_agent:
+            if self._ci_check_requested:
+                return TaskEvent.CI_FOLLOW_UP
+            if self._ci_follow_up_anchor_time is None:
+                # First arming of the countdown. Anchoring it here means a later wake-up
+                # measures the same deadline rather than starting a fresh window.
+                self._ci_follow_up_anchor_time = workflow.now()
+            anchor = self._ci_follow_up_anchor_time
+        if anchor:
+            elapsed = workflow.now() - anchor
             remaining = CI_FOLLOW_UP_DELAY - elapsed
             if remaining.total_seconds() > 0:
                 workflow.logger.info(
@@ -846,7 +897,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.QUOTA_RECHECK
 
-    def _describe_wait(self, *, warm_idle: bool, ci_follow_up_scheduled: bool, inactivity_timeout: timedelta) -> str:
+    def _describe_wait(
+        self,
+        *,
+        warm_idle: bool,
+        ci_follow_up_scheduled: bool,
+        inactivity_timeout: timedelta,
+        ci_anchor: Optional[datetime],
+    ) -> str:
         """Human-readable summary of what the loop is blocked on, for the Temporal UI.
 
         The loop blocks on bare `workflow.sleep` timers (CI follow-up, inactivity), which render
@@ -860,8 +918,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return f"⏳ Waiting for the agent to finish or send an update (inactivity timeout {timeout_min}m)."
 
         next_check = CI_FOLLOW_UP_DELAY
-        if self._last_active_time:
-            remaining = CI_FOLLOW_UP_DELAY - (workflow.now() - self._last_active_time)
+        if ci_anchor:
+            remaining = CI_FOLLOW_UP_DELAY - (workflow.now() - ci_anchor)
             if remaining > timedelta(0):
                 next_check = remaining
         next_min = max(1, round(next_check.total_seconds() / 60))
@@ -898,11 +956,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if self._end_of_turn_received is False and not testing_override_active:
             inactivity_timeout = max(inactivity_timeout, timedelta(seconds=IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS))
 
+        # Short-circuited so runs without a CI loop keep the patch marker out of their history.
+        ci_follow_up_tracks_agent = ci_follow_up_scheduled and _ci_follow_up_tracks_agent()
+
         workflow.set_current_details(
             self._describe_wait(
                 warm_idle=warm_idle,
                 ci_follow_up_scheduled=ci_follow_up_scheduled,
                 inactivity_timeout=inactivity_timeout,
+                ci_anchor=self._ci_follow_up_anchor_time if ci_follow_up_tracks_agent else self._last_active_time,
             )
         )
 
@@ -920,7 +982,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if self._sandbox_deadline_snapshot_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_sandbox_deadline()))
         if ci_follow_up_scheduled:
-            possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
+            possible_events.append(
+                asyncio.create_task(self._wait_for_ci_follow_up(tracks_agent=ci_follow_up_tracks_agent))
+            )
         if not warm_idle and self._self_driving_quota_recheck_scheduled():
             possible_events.append(asyncio.create_task(self._wait_for_quota_recheck()))
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
@@ -1203,8 +1267,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         return CIFollowUpDecision.FIRE
 
-    async def _dispatch_ci_follow_up(self) -> None:
-        self._ci_repetitions += 1
+    def _rearm_expired_ci_anchor(self) -> None:
+        """Restart an already-expired countdown after a check somebody asked for.
+
+        A requested check leaves the automated countdown alone, so that a message cannot
+        postpone it. An expired anchor is the exception: the next loop pass would run an
+        automated check at once, which polls GitHub in a tight loop and can retire the CI
+        loop on a run whose agent has not opened its pull request yet.
+        """
+        now = workflow.now()
+        if self._ci_follow_up_anchor_time is None or now - self._ci_follow_up_anchor_time >= CI_FOLLOW_UP_DELAY:
+            self._ci_follow_up_anchor_time = now
+
+    async def _dispatch_ci_follow_up(self, *, consume_budget: bool = True) -> None:
+        # A check someone asked for does not spend the autonomous budget: those rounds bound
+        # what the run does unattended, and spending them on requests would leave an attended
+        # run no longer watching CI.
+        if consume_budget:
+            self._ci_repetitions += 1
         pending = self._pending_babysit
         if pending is None:
             ci_message = self.context.ci_prompt or DEFAULT_CI_MESSAGE
@@ -1215,6 +1295,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra_instructions=self.context.ci_prompt,
             )
         self._last_active_time = workflow.now()
+        self._ci_follow_up_anchor_time = self._last_active_time
         await self._send_followup_to_sandbox(ci_message, [], user_originated=False)
         if pending is not None:
             # Record only what the prompt rendered; items past the render caps stay unrecorded
@@ -1349,14 +1430,26 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         timeout_event = event
                         break
                     case TaskEvent.CI_FOLLOW_UP:
+                        # Gated on the same patch as the timer: a pre-rollout history replays
+                        # the legacy wait, where a flag set at dispatch would otherwise steer
+                        # the budget and the NO_PR exit down a path that history never took.
+                        on_demand = self._ci_check_requested and _ci_follow_up_tracks_agent()
+                        self._ci_check_requested = False
                         workflow.logger.info(
                             "CI follow-up event triggered",
-                            extra={"run_id": self.context.run_id, "repetitions": self._ci_repetitions},
+                            extra={
+                                "run_id": self.context.run_id,
+                                "repetitions": self._ci_repetitions,
+                                "on_demand": on_demand,
+                            },
                         )
                         _deprecate_ci_follow_up_pr_context_patch()
                         follow_up_result = await self._should_run_ci_follow_up()
                         if (
                             not self._ci_resume_snapshot_created
+                            # A requested check runs right after a message, with the agent about
+                            # to work; snapshotting there only adds latency to the reply.
+                            and not on_demand
                             # Both terminal outcomes end the CI loop, so a resume snapshot here is
                             # wasted — the teardown pass snapshots the same case with pruning.
                             and follow_up_result not in (CIFollowUpDecision.NO_PR, CIFollowUpDecision.TERMINAL)
@@ -1373,18 +1466,26 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             case CIFollowUpDecision.FIRE:
                                 workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
                                 self._ci_resume_snapshot_created = False
-                                await self._dispatch_ci_follow_up()
+                                await self._dispatch_ci_follow_up(consume_budget=not on_demand)
                             case CIFollowUpDecision.NO_PR | CIFollowUpDecision.TERMINAL:
-                                # No PR will ever appear — stop the CI loop entirely.
-                                self._ci_repetitions = MAX_CI_REPETITIONS
+                                # No PR will ever appear — stop the CI loop entirely. A
+                                # requested check can land before the agent has opened the PR,
+                                # so only the timer may conclude that none is coming.
+                                if follow_up_result is CIFollowUpDecision.TERMINAL or not on_demand:
+                                    self._ci_repetitions = MAX_CI_REPETITIONS
                             case CIFollowUpDecision.SKIP:
                                 # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
                                 # Without this, _wait_for_ci_follow_up returns immediately
-                                # whenever last_active_time is older than the delay, and the
-                                # workflow tight-loops calling GET /repos/.../pulls/{n}.
-                                self._last_active_time = workflow.now()
+                                # whenever the anchor is older than the delay, and the
+                                # workflow tight-loops calling GET /repos/.../pulls/{n}. A
+                                # requested check runs once per request, so it needs no bound.
+                                if not on_demand:
+                                    self._last_active_time = workflow.now()
+                                    self._ci_follow_up_anchor_time = self._last_active_time
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
+                        if on_demand:
+                            self._rearm_expired_ci_anchor()
                     case TaskEvent.SANDBOX_TTL_APPROACHING:
                         self._sandbox_ttl_snapshot_taken = True
                         deadline_started_at = workflow.now()
@@ -1967,6 +2068,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 last_agent_heartbeat_at=(
                     self._last_agent_heartbeat_at.isoformat() if self._last_agent_heartbeat_at else None
                 ),
+                ci_follow_up_anchor_time=(
+                    self._ci_follow_up_anchor_time.isoformat() if self._ci_follow_up_anchor_time else None
+                ),
+                ci_check_requested=self._ci_check_requested,
                 sandbox_ttl_expires_at=(
                     self._sandbox_ttl_expires_at.isoformat() if self._sandbox_ttl_expires_at else None
                 ),
@@ -2009,6 +2114,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._last_agent_heartbeat_at = (
             datetime.fromisoformat(resumed.last_agent_heartbeat_at) if resumed.last_agent_heartbeat_at else None
         )
+        self._ci_follow_up_anchor_time = (
+            datetime.fromisoformat(resumed.ci_follow_up_anchor_time) if resumed.ci_follow_up_anchor_time else None
+        )
+        self._ci_check_requested = resumed.ci_check_requested
         self._sandbox_ttl_expires_at = (
             datetime.fromisoformat(resumed.sandbox_ttl_expires_at) if resumed.sandbox_ttl_expires_at else None
         )
@@ -2540,6 +2649,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             while self._pending_permission_responses:
                 response = self._pending_permission_responses.pop(0)
                 self._last_active_time = workflow.now()
+                # Answering a prompt resumes the agent's own turn, so the CI check waits the
+                # same way it does for a heartbeat.
+                self._ci_follow_up_anchor_time = self._last_active_time
                 workflow.logger.info(
                     "Pending permission response received, sending to sandbox",
                     extra={
@@ -3437,6 +3549,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._heartbeat_received = True
         self._last_active_time = now
         self._last_agent_heartbeat_at = now
+        # The agent is working, so the CI check waits for it to go quiet.
+        self._ci_follow_up_anchor_time = now
 
     @temporalio.workflow.signal
     async def client_activity(self) -> None:
