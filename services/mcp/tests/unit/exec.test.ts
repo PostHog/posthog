@@ -2443,6 +2443,89 @@ describe('exec tool', () => {
             })
         })
 
+        // A parameter that switches on a discriminator rejects both a selector it does
+        // not have and a field the selected branch does not have. Neither rejection says
+        // what the parameter does take, so the caller guesses again. These lock in the
+        // vocabulary riding along with the rejection.
+        describe('a parameter whose shape a discriminator selects', () => {
+            const selectorSchema = z.object({
+                query: z.discriminatedUnion('kind', [
+                    z.object({ kind: z.literal('events'), limit: z.number().optional() }).strict(),
+                    z.object({ kind: z.literal('event_properties'), event_name: z.string() }).strict(),
+                ]),
+            })
+
+            const formatFor = (input: unknown): string => {
+                const result = selectorSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('read-data-schema', result.error!, input, selectorSchema)
+            }
+
+            it('names the selectors the parameter accepts, which zod reports as a bare invalid input', () => {
+                expect(formatFor({ query: { kind: 'event_definitions' } })).toBe(
+                    'Invalid input for "read-data-schema": parameter "query.kind" must be one of: events, event_properties'
+                )
+            })
+
+            it('names the fields the selected branch accepts alongside the key it refused', () => {
+                expect(formatFor({ query: { kind: 'events', search: 'purchase' } })).toBe(
+                    'Invalid input for "read-data-schema": unexpected property: search; "query" with "kind": "events" accepts {"kind": ..., "limit": ...}'
+                )
+            })
+
+            it('describes the branch the caller selected, not another one', () => {
+                const message = formatFor({ query: { kind: 'event_properties', event_name: 'purchase', search: 'x' } })
+
+                expect(message).toContain('"event_name": ...')
+                expect(message).not.toContain('"limit": ...')
+            })
+
+            it('stays quiet when the caller selected a branch the schema does not have', () => {
+                // The selector is the thing to fix, and the rejection above already names it.
+                const message = formatFor({ query: { kind: 'cohorts', search: 'x' } })
+
+                expect(message).not.toContain('accepts')
+            })
+
+            // Every property filter in the generated query tools pins `type` to the same value
+            // on each branch, so a key that merely holds a constant must not be read as the
+            // selector: it maps every branch onto one value and describes whichever came last.
+            it('picks the key whose value varies, not a constant every branch shares', () => {
+                const sharedConstantSchema = z.object({
+                    query: z.discriminatedUnion('kind', [
+                        z.object({ type: z.literal('filter'), kind: z.literal('events'), limit: z.number() }).strict(),
+                        z
+                            .object({
+                                type: z.literal('filter'),
+                                kind: z.literal('event_properties'),
+                                event_name: z.string(),
+                            })
+                            .strict(),
+                    ]),
+                })
+                const input = { query: { type: 'filter', kind: 'events', search: 'x' } }
+                const result = sharedConstantSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('some-tool', result.error!, input, sharedConstantSchema)
+
+                expect(message).toContain('"kind": "events"')
+                expect(message).toContain('"limit": ...')
+                expect(message).not.toContain('"event_name": ...')
+            })
+
+            it('names the fields of a plain object parameter too', () => {
+                const plainSchema = z.object({ query: z.object({ limit: z.number().optional() }).strict() })
+                const input = { query: { search: 'x' } }
+                const result = plainSchema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                expect(formatInputValidationError('some-tool', result.error!, input, plainSchema)).toBe(
+                    'Invalid input for "some-tool": unexpected property: search; "query" accepts {"limit": ...}'
+                )
+            })
+        })
+
         // A caller that omits an identifier usually never held one, so a rejection
         // naming only the field sends it back to retry the same empty call. These
         // lock in that the field's own description rides along with the rejection.

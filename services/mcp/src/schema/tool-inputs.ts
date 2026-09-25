@@ -888,11 +888,17 @@ const READ_DATA_SCHEMA_KIND_ALIASES: Record<string, { kind: string; entity?: str
 
 /** Names callers use for the seven reads' own fields. */
 const normalizeReadDataSchemaFields = normalizeParamAliases({
-    event_name: ['event', 'eventName', 'event_names'],
-    property_name: ['property', 'propertyName', 'property_key'],
+    event_name: ['event', 'eventName', 'event_names', 'eventNames'],
+    property_name: ['property', 'propertyName', 'property_key', 'property_names', 'propertyNames'],
     entity: ['entity_type', 'entityType', 'group_type', 'groupType'],
     action_id: ['action', 'actionId'],
 })
+
+/** The fields a caller sends as a list when it wants several reads in one call. */
+const READ_DATA_SCHEMA_ONE_PER_CALL: Record<string, string> = {
+    event_name: 'event',
+    property_name: 'property',
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -901,10 +907,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Applies the field aliases, unwraps a single-element list, and reads numbers out of strings. */
 function normalizeQueryFields(source: Record<string, unknown>): Record<string, unknown> {
     const fields = { ...(normalizeReadDataSchemaFields(source) as Record<string, unknown>) }
-    // A one-event list means that event. A longer list needs one call per event, so leave it for
-    // the schema to reject rather than answer about an event the caller did not pick.
-    if (Array.isArray(fields['event_name']) && fields['event_name'].length === 1) {
-        fields['event_name'] = fields['event_name'][0]
+    // A one-entry list means that one entry. A longer list needs one call per entry, so leave it
+    // for the schema to reject rather than answer about an entry the caller did not pick.
+    for (const name of Object.keys(READ_DATA_SCHEMA_ONE_PER_CALL)) {
+        const value = fields[name]
+        if (Array.isArray(value) && value.length === 1) {
+            fields[name] = value[0]
+        }
     }
     for (const name of ['action_id', 'limit', 'offset']) {
         if (fields[name] !== undefined) {
@@ -947,10 +956,14 @@ function inferKind(fields: Record<string, unknown>): string | undefined {
  * named nothing this tool understands gets the events list only when it sent no other field —
  * otherwise it is asking about something else and deserves to hear so.
  *
+ * A list of several events or properties is refused here rather than at the schema, so the
+ * caller hears that each one needs its own call instead of hearing that a field it never sent
+ * is missing.
+ *
  * Same `z.preprocess` seam as `normalizeParamAliases`, and transparent to JSON Schema output
  * for the same reason: the advertised shape stays the wrapped one.
  */
-function normalizeReadDataSchemaInput(input: unknown): unknown {
+function normalizeReadDataSchemaInput(input: unknown, ctx: z.RefinementCtx): unknown {
     if (!isRecord(input)) {
         return input
     }
@@ -979,7 +992,10 @@ function normalizeReadDataSchemaInput(input: unknown): unknown {
     // A kind this tool does not have (`properties`, `property_values`) still leaves the fields,
     // and they name one read on their own.
     const named = alias?.kind ?? (rawKind !== undefined && READ_DATA_SCHEMA_KINDS.has(rawKind) ? rawKind : undefined)
-    let kind = named ?? inferKind(fields)
+    // `events` is the kind a caller reaches for when it means "the taxonomy", so one that also
+    // named an event, action, or entity is asking about that one thing and its field decides the
+    // read. Every other named kind is specific enough to keep.
+    let kind = named === undefined || named === 'events' ? (inferKind(fields) ?? named) : named
     // Only a call that named no kind at all falls back to the event list, and only when every
     // field it did send is one this tool has. Anything else is asking about something else.
     if (kind === undefined && rawKind === undefined) {
@@ -997,6 +1013,17 @@ function normalizeReadDataSchemaInput(input: unknown): unknown {
     if (kind !== 'events') {
         delete fields['limit']
         delete fields['offset']
+    }
+    for (const [name, subject] of Object.entries(READ_DATA_SCHEMA_ONE_PER_CALL)) {
+        // Only several subjects earn this message. An empty list names no subject to split
+        // across calls, so it keeps the schema's own type complaint.
+        if (Array.isArray(fields[name]) && fields[name].length > 1) {
+            ctx.addIssue({
+                code: 'custom',
+                path: ['query', name],
+                message: `this read takes one ${subject} per call, so send a separate call for each ${subject}`,
+            })
+        }
     }
     return { query: { ...fields, kind } }
 }
