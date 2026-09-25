@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
 
+from products.engineering_analytics.backend.facade.contracts import FrictionGroup
 from products.engineering_analytics.backend.logic.friction import (
     MIN_PULL_REQUESTS,
     FrictionScorer,
@@ -107,6 +108,18 @@ class TestFrictionScore(SimpleTestCase):
         for item in items:
             assert sum(share.score for share in item.groups) == pytest.approx(item.score)
             assert item.rank_low <= item.rank <= item.rank_high
+
+    def test_unqueued_pull_requests_count_as_no_queue_friction(self) -> None:
+        rows = [_pr("always_queued", 500 + i, queue_seconds=2 * 3600.0) for i in range(4)]
+        rows += [_pr("once_queued", 600, queue_seconds=2 * 3600.0)]
+        rows += [_pr("once_queued", 601 + i, queue_seconds=None, kickout_count=None) for i in range(3)]
+
+        queue = {
+            item.author: next(share.score for share in item.groups if share.group == FrictionGroup.QUEUE)
+            for item in FrictionScorer(rows).score()
+        }
+
+        assert queue["once_queued"] < queue["always_queued"]
 
     @parameterized.expand(
         [

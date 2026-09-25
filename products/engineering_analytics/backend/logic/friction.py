@@ -1,8 +1,8 @@
 """Friction scores: how much the dev loop put each author through, as a multiple of the typical author.
 
 A friction score counts only what happened to the author: failures they did not cause and re-runs that
-failed again, waits on reviewers, the merge queue, and their own rework. It never counts how much or how
-fast someone ships, so volume and speed cannot move it (SPEC §2).
+failed again, waits on reviewers, the merge queue, and their own rework. It is a mean per pull request, so
+shipping more or faster does not raise it (SPEC §2).
 
 Every figure comes from the per-PR friction view (``views/pr_friction.py``). Each metric applies a curve
 to each pull request, then an author's value is the mean over their pull requests, pulled toward the
@@ -94,10 +94,9 @@ def _ci_wait_minutes(pr: PullRequestFriction) -> float:
     return sum(max(0.0, seconds - CI_WAIT_FREE_SECONDS) for seconds in pr.ci_wait_seconds) / 60
 
 
-def _queue_minutes(pr: PullRequestFriction) -> float | None:
-    if pr.queue_seconds is None:
-        return None
-    return max(0.0, pr.queue_seconds - QUEUE_FREE_SECONDS) / 60
+def _queue_minutes(pr: PullRequestFriction) -> float:
+    # A pull request that never entered the queue met no queue friction, so it still counts, as zero.
+    return max(0.0, (pr.queue_seconds or 0.0) - QUEUE_FREE_SECONDS) / 60
 
 
 def _optional(value: int | None) -> float | None:
@@ -141,7 +140,7 @@ METRICS: tuple[FrictionMetric, ...] = (
         group=FrictionGroup.QUEUE,
         weight=1.5,
         external=True,
-        value=lambda pr: _optional(pr.kickout_count),
+        value=lambda pr: pr.kickout_count or 0,
     ),
     FrictionMetric(
         key="own_red", group=FrictionGroup.REWORK, weight=1, external=False, value=lambda pr: pr.own_red_count
@@ -291,7 +290,7 @@ _FRICTION_SELECT = f"""
         futile_rerun_count, ci_wait_seconds, first_approval_wait_seconds, pushes_after_approval, queue_seconds,
         kickout_count
     FROM {pr_friction.VIEW_NAME}
-    WHERE NOT is_bot AND __REPO__
+    WHERE NOT is_bot AND author != '' AND __REPO__
 """
 
 _TEAM_MEMBERS_SELECT = """
