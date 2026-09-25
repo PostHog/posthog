@@ -521,6 +521,21 @@ tools:
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
         enabled: false
+    tags-destroy:
+        operation: tags_destroy
+        enabled: false
+    tags-list:
+        operation: tags_list
+        enabled: false
+    tags-merge-create:
+        operation: tags_merge_create
+        enabled: false
+    tags-partial-update:
+        operation: tags_partial_update
+        enabled: false
+    tags-usage-list:
+        operation: tags_usage_list
+        enabled: false
     uploaded-media-create:
         operation: uploaded_media_create
         enabled: false

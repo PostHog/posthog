@@ -4208,6 +4208,71 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface TaggedItemApi {
+    readonly tag: string
+}
+
+export interface PaginatedTaggedItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaggedItemApi[]
+}
+
+export interface PatchedTagRenameRequestApi {
+    /**
+     * The tag's new name. It is trimmed and lowercased, and must not match another tag in the project.
+     * @maxLength 255
+     */
+    name?: string
+}
+
+/**
+ * How many objects of each kind carry this tag, keyed by object kind (for example 'ticket', 'dashboard', 'insight'). Kinds with no objects are omitted.
+ */
+export type TagUsageApiCountsByType = { [key: string]: number }
+
+export interface TagUsageApi {
+    /** Unique identifier of the tag. */
+    id: string
+    /** The tag's name, always lowercase and trimmed. */
+    name: string
+    /** How many objects of each kind carry this tag, keyed by object kind (for example 'ticket', 'dashboard', 'insight'). Kinds with no objects are omitted. */
+    counts_by_type: TagUsageApiCountsByType
+    /** How many objects carry this tag in total, across all kinds. */
+    total_count: number
+}
+
+export interface TagErrorApi {
+    /** Why the request was rejected. */
+    detail: string
+}
+
+export interface TagMergeRequestApi {
+    /** Unique identifier of the tag to keep. Every object tagged with this tag moves onto it. */
+    into_id: string
+}
+
+export interface TagMergeResponseApi {
+    /** Unique identifier of the tag that was kept. */
+    id: string
+    /** Name of the tag that was kept. */
+    name: string
+    /** How many objects moved onto the kept tag. Objects that already carried both tags are not counted. */
+    moved_count: number
+}
+
+export interface PaginatedTagUsageListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TagUsageApi[]
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */
@@ -5549,6 +5614,18 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type TagsListParams = {
+    limit?: number
+    offset?: number
+    search?: string
+}
+
+export type TagsUsageListParams = {
+    limit?: number
+    offset?: number
+    search?: string
+}
 
 export type UploadedMediaListParams = {
     /**

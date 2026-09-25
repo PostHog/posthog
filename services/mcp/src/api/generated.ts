@@ -66931,6 +66931,31 @@ export namespace Schemas {
       results: Table[];
     }
 
+    /**
+     * How many objects of each kind carry this tag, keyed by object kind (for example 'ticket', 'dashboard', 'insight'). Kinds with no objects are omitted.
+     */
+    export type TagUsageCountsByType = {[key: string]: number};
+
+    export interface TagUsage {
+      /** Unique identifier of the tag. */
+      id: string;
+      /** The tag's name, always lowercase and trimmed. */
+      name: string;
+      /** How many objects of each kind carry this tag, keyed by object kind (for example 'ticket', 'dashboard', 'insight'). Kinds with no objects are omitted. */
+      counts_by_type: TagUsageCountsByType;
+      /** How many objects carry this tag in total, across all kinds. */
+      total_count: number;
+    }
+
+    export interface PaginatedTagUsageList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TagUsage[];
+    }
+
     export interface TaggedItem {
       readonly tag: string;
     }
@@ -77101,6 +77126,14 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+    }
+
+    export interface PatchedTagRenameRequest {
+      /**
+         * The tag's new name. It is trimmed and lowercased, and must not match another tag in the project.
+         * @maxLength 255
+         */
+      name?: string;
     }
 
     export interface TaggerModelConfigurationWrite {
@@ -95767,6 +95800,25 @@ export namespace Schemas {
     export interface SurveySummarizeRequest {
       /** When true, bypass cached summaries and regenerate. Defaults to false. */
       force_refresh?: boolean;
+    }
+
+    export interface TagError {
+      /** Why the request was rejected. */
+      detail: string;
+    }
+
+    export interface TagMergeRequest {
+      /** Unique identifier of the tag to keep. Every object tagged with this tag moves onto it. */
+      into_id: string;
+    }
+
+    export interface TagMergeResponse {
+      /** Unique identifier of the tag that was kept. */
+      id: string;
+      /** Name of the tag that was kept. */
+      name: string;
+      /** How many objects moved onto the kept tag. Objects that already carried both tags are not counted. */
+      moved_count: number;
     }
 
     export interface TaggerCreate {
@@ -114783,6 +114835,12 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    };
+
+    export type TagsUsageListParams = {
     limit?: number;
     offset?: number;
     search?: string;

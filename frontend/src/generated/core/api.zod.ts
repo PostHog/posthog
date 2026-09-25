@@ -1097,6 +1097,28 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ * Rename a tag on every object that carries it.
+ */
+export const tagsPartialUpdateBodyNameMax = 255
+
+export const TagsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tagsPartialUpdateBodyNameMax)
+        .optional()
+        .describe("The tag's new name. It is trimmed and lowercased, and must not match another tag in the project."),
+})
+
+/**
+ * Move every object tagged with this tag onto another tag, then drop this one.
+ */
+export const TagsMergeCreateBody = /* @__PURE__ */ zod.object({
+    into_id: zod
+        .uuid()
+        .describe('Unique identifier of the tag to keep. Every object tagged with this tag moves onto it.'),
+})
+
+/**
  *
  *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
  *

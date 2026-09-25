@@ -243,6 +243,7 @@ surveyActivity projects/{}/surveys/activity
 surveyActivity projects/{}/surveys/{}/activity
 surveys projects/{}/surveys
 surveysResponsesCount projects/{}/surveys/responses_count
+tags projects/{}/tags
 task projects/{}/tasks/{}
 taskRun projects/{}/tasks/{}/runs/{}
 taskRuns projects/{}/tasks/{}/runs

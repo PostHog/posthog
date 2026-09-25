@@ -17,6 +17,7 @@ from posthog.api.tagged_item import (
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
+from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 
@@ -466,3 +467,195 @@ class TestBulkUpdateTagsRequestValidation(SimpleTestCase):
         tags = [f"Tag-{i % 20}" for i in range(BULK_UPDATE_TAGS_MAX_TAGS)]
         serializer = serializer_class(data={"ids": make_ids(BULK_UPDATE_TAGS_MAX_IDS), "action": "add", "tags": tags})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestTagManagement(APIBaseTest):
+    def _tags_url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/tags/{suffix}"
+
+    def _tag(self, name: str) -> Tag:
+        return Tag.objects.create(name=name, team_id=self.team.id)
+
+    def _ticket_with_tag(self, tag: Tag) -> Ticket:
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=str(uuid4()),
+            distinct_id=str(uuid4()),
+        )
+        ticket.tagged_items.create(tag_id=tag.id)
+        return ticket
+
+    def _dashboard_with_tag(self, tag: Tag) -> Dashboard:
+        dashboard = Dashboard.objects.create(team_id=self.team.id, name="a dashboard")
+        dashboard.tagged_items.create(tag_id=tag.id)
+        return dashboard
+
+    def test_usage_counts_objects_by_kind(self):
+        tag = self._tag("billing")
+        self._ticket_with_tag(tag)
+        self._ticket_with_tag(tag)
+        self._dashboard_with_tag(tag)
+        self._tag("unused")
+
+        response = self.client.get(self._tags_url("usage/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == [
+            {
+                "id": str(tag.id),
+                "name": "billing",
+                "counts_by_type": {"ticket": 2, "dashboard": 1},
+                "total_count": 3,
+            },
+            {"id": str(Tag.objects.get(name="unused").id), "name": "unused", "counts_by_type": {}, "total_count": 0},
+        ]
+
+    def test_usage_excludes_other_teams_tags(self):
+        other_team = Team.objects.create(organization=self.organization)
+        Tag.objects.create(name="other team tag", team=other_team)
+        self._tag("ours")
+
+        response = self.client.get(self._tags_url("usage/"))
+
+        assert [result["name"] for result in response.json()["results"]] == ["ours"]
+
+    def test_rename_follows_every_tagged_object(self):
+        tag = self._tag("bling")
+        ticket = self._ticket_with_tag(tag)
+
+        response = self.client.patch(self._tags_url(f"{tag.id}/"), {"name": "  Billing  "})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["name"] == "billing"
+        assert list(ticket.tagged_items.values_list("tag__name", flat=True)) == ["billing"]
+
+    def test_rename_onto_an_existing_name_is_rejected(self):
+        tag = self._tag("bling")
+        self._tag("billing")
+
+        response = self.client.patch(self._tags_url(f"{tag.id}/"), {"name": "billing"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Merge the two tags instead" in response.json()["attr"] or "Merge the two tags instead" in str(
+            response.json()
+        )
+        assert Tag.objects.get(id=tag.id).name == "bling"
+
+    @parameterized.expand([("blank", ""), ("whitespace only", "   ")])
+    def test_rename_to_a_blank_name_is_rejected(self, _name, new_name):
+        tag = self._tag("billing")
+
+        response = self.client.patch(self._tags_url(f"{tag.id}/"), {"name": new_name})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Tag.objects.get(id=tag.id).name == "billing"
+
+    def test_rename_writes_one_activity_entry(self):
+        tag = self._tag("bling")
+        for _ in range(3):
+            self._ticket_with_tag(tag)
+        ActivityLog.objects.filter(scope="Tag").delete()
+
+        self.client.patch(self._tags_url(f"{tag.id}/"), {"name": "billing"})
+
+        entries = ActivityLog.objects.filter(scope="Tag", item_id=str(tag.id))
+        assert entries.count() == 1
+        assert entries.get().activity == "updated"
+
+    def test_delete_removes_the_tag_from_every_object(self):
+        tag = self._tag("billing")
+        ticket = self._ticket_with_tag(tag)
+        dashboard = self._dashboard_with_tag(tag)
+
+        response = self.client.delete(self._tags_url(f"{tag.id}/"))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not Tag.objects.filter(id=tag.id).exists()
+        assert ticket.tagged_items.count() == 0
+        assert dashboard.tagged_items.count() == 0
+
+    def test_delete_writes_one_activity_entry(self):
+        tag = self._tag("billing")
+        for _ in range(3):
+            self._ticket_with_tag(tag)
+        ActivityLog.objects.filter(scope="Tag").delete()
+
+        self.client.delete(self._tags_url(f"{tag.id}/"))
+
+        entries = ActivityLog.objects.filter(scope="Tag", item_id=str(tag.id))
+        assert entries.count() == 1
+        assert entries.get().activity == "deleted"
+
+    def test_merge_moves_objects_and_drops_the_source_tag(self):
+        source = self._tag("bling")
+        target = self._tag("billing")
+        ticket = self._ticket_with_tag(source)
+
+        response = self.client.post(self._tags_url(f"{source.id}/merge/"), {"into_id": str(target.id)})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"id": str(target.id), "name": "billing", "moved_count": 1}
+        assert not Tag.objects.filter(id=source.id).exists()
+        assert list(ticket.tagged_items.values_list("tag__name", flat=True)) == ["billing"]
+
+    def test_merge_keeps_one_row_for_an_object_that_carries_both_tags(self):
+        source = self._tag("bling")
+        target = self._tag("billing")
+        ticket = self._ticket_with_tag(source)
+        ticket.tagged_items.create(tag_id=target.id)
+
+        response = self.client.post(self._tags_url(f"{source.id}/merge/"), {"into_id": str(target.id)})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["moved_count"] == 0
+        assert list(ticket.tagged_items.values_list("tag__name", flat=True)) == ["billing"]
+
+    def test_merge_moves_objects_of_every_kind(self):
+        source = self._tag("bling")
+        target = self._tag("billing")
+        ticket = self._ticket_with_tag(source)
+        dashboard = self._dashboard_with_tag(source)
+
+        self.client.post(self._tags_url(f"{source.id}/merge/"), {"into_id": str(target.id)})
+
+        assert list(ticket.tagged_items.values_list("tag__name", flat=True)) == ["billing"]
+        assert list(dashboard.tagged_items.values_list("tag__name", flat=True)) == ["billing"]
+
+    def test_merge_into_itself_is_rejected(self):
+        tag = self._tag("billing")
+
+        response = self.client.post(self._tags_url(f"{tag.id}/merge/"), {"into_id": str(tag.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Tag.objects.filter(id=tag.id).exists()
+
+    def test_merge_into_another_teams_tag_is_rejected(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_tag = Tag.objects.create(name="billing", team=other_team)
+        source = self._tag("bling")
+
+        response = self.client.post(self._tags_url(f"{source.id}/merge/"), {"into_id": str(other_tag.id)})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Tag.objects.filter(id=source.id).exists()
+
+    def test_merge_writes_one_activity_entry(self):
+        source = self._tag("bling")
+        target = self._tag("billing")
+        for _ in range(3):
+            self._ticket_with_tag(source)
+        ActivityLog.objects.filter(scope="Tag").delete()
+
+        self.client.post(self._tags_url(f"{source.id}/merge/"), {"into_id": str(target.id)})
+
+        entries = ActivityLog.objects.filter(scope="Tag", item_id=str(target.id))
+        assert entries.count() == 1
+        assert entries.get().activity == "merged"
+
+    def test_cannot_manage_another_teams_tag(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_tag = Tag.objects.create(name="billing", team=other_team)
+
+        assert self.client.patch(self._tags_url(f"{other_tag.id}/"), {"name": "renamed"}).status_code == 404
+        assert self.client.delete(self._tags_url(f"{other_tag.id}/")).status_code == 404
+        assert Tag.objects.filter(id=other_tag.id).exists()

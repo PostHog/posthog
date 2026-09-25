@@ -60,6 +60,8 @@ import type {
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedSCIMRequestLogApi,
+    PaginatedTagUsageListApi,
+    PaginatedTaggedItemListApi,
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
@@ -72,6 +74,7 @@ import type {
     PatchedProductIntroSeenApi,
     PatchedProjectBackwardCompatApi,
     PatchedProjectSecretAPIKeyApi,
+    PatchedTagRenameRequestApi,
     PatchedUserApi,
     ProductEnablementApi,
     ProductEnablementResultApi,
@@ -83,6 +86,11 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    TagMergeRequestApi,
+    TagMergeResponseApi,
+    TagUsageApi,
+    TagsListParams,
+    TagsUsageListParams,
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
     UploadedMediaApi,
@@ -2449,6 +2457,119 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getTagsListUrl = (projectId: string, params?: TagsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tags/`
+}
+
+export const tagsList = async (
+    projectId: string,
+    params?: TagsListParams,
+    options?: RequestInit
+): Promise<PaginatedTaggedItemListApi> => {
+    return apiMutator<PaginatedTaggedItemListApi>(getTagsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTagsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tags/${id}/`
+}
+
+/**
+ * Rename a tag on every object that carries it.
+ */
+export const tagsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTagRenameRequestApi?: PatchedTagRenameRequestApi,
+    options?: RequestInit
+): Promise<TagUsageApi> => {
+    return apiMutator<TagUsageApi>(getTagsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTagRenameRequestApi),
+    })
+}
+
+export const getTagsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tags/${id}/`
+}
+
+/**
+ * Remove a tag from every object that carries it.
+ */
+export const tagsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTagsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTagsMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tags/${id}/merge/`
+}
+
+/**
+ * Move every object tagged with this tag onto another tag, then drop this one.
+ */
+export const tagsMergeCreate = async (
+    projectId: string,
+    id: string,
+    tagMergeRequestApi: TagMergeRequestApi,
+    options?: RequestInit
+): Promise<TagMergeResponseApi> => {
+    return apiMutator<TagMergeResponseApi>(getTagsMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tagMergeRequestApi),
+    })
+}
+
+export const getTagsUsageListUrl = (projectId: string, params?: TagsUsageListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tags/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tags/usage/`
+}
+
+/**
+ * List the project's tags with the number of objects each one is on, by object kind.
+ */
+export const tagsUsageList = async (
+    projectId: string,
+    params?: TagsUsageListParams,
+    options?: RequestInit
+): Promise<PaginatedTagUsageListApi> => {
+    return apiMutator<PaginatedTagUsageListApi>(getTagsUsageListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -131,6 +131,7 @@ export type SettingId =
     | 'conversations-general'
     | 'conversations-imports'
     | 'conversations-notifications'
+    | 'conversations-tags'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
     | 'correlation-analysis'
