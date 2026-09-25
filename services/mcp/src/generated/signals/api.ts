@@ -16,6 +16,9 @@ export const SignalsReportsListParams = () => zod.object({
         ),
 })
 
+export const signalsReportsListQueryCountOnlyDefault = false
+export const signalsReportsListQueryIncludeSourceMetadataDefault = true
+
 export const SignalsReportsListQueryParams = () => zod.object({
     actionability: zod
         .string()
@@ -41,7 +44,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         ),
     count_only: zod
         .boolean()
-        .optional()
+        .default(signalsReportsListQueryCountOnlyDefault)
         .describe(
             'Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.'
         ),
@@ -59,9 +62,9 @@ export const SignalsReportsListQueryParams = () => zod.object({
         ),
     include_source_metadata: zod
         .boolean()
-        .optional()
+        .default(signalsReportsListQueryIncludeSourceMetadataDefault)
         .describe(
-            'Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Defaults to true.'
+            'Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

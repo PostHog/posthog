@@ -572,6 +572,20 @@ export const SignalsReportsRefreshMetricsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * Read which source products contributed signals to each given report, and which scout authored it. These values come from ClickHouse, so the inbox list skips them (`include_source_metadata=false`) and calls this after the rows render. Returns one entry per requested id. An id with no signals in this project gets empty values.
+ * @summary Get the source products and authoring scout of the reports on screen
+ */
+export const signalsReportsSourceMetadataCreateBodyReportIdsMax = 100
+
+export const SignalsReportsSourceMetadataCreateBody = /* @__PURE__ */ zod.object({
+    report_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(signalsReportsSourceMetadataCreateBodyReportIdsMax)
+        .describe('Reports to describe. At most 100 ids per call.'),
+})
+
+/**
  * Create a scout skill and its runnable config atomically. Give it a `display_name` — the label people read, kept exactly as written — and the scout's permanent skill name is generated from it, with a numeric suffix when that name is taken, so two scouts may share a label without sharing an identity. Pass `name` instead to pick that identifier yourself; any valid skill name works, since the config row is what makes a skill a scout. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing an explicit `name` for a different definition returns 409.
  * @summary Create a scout
  */

@@ -1532,6 +1532,65 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
 
 
+class SignalReportListQuerySerializer(serializers.Serializer):
+    count_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return the filtered total with an empty results page. Skips report ordering, "
+            "serialization, and decorative metadata lookups. Defaults to false."
+        ),
+    )
+    include_source_metadata = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass "
+            "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
+            "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
+            "Defaults to true."
+        ),
+    )
+
+
+# One list page, with room for a next page's ids that have not loaded yet.
+MAX_SOURCE_METADATA_REPORTS = 100
+
+
+class SignalReportSourceMetadataRequestSerializer(serializers.Serializer):
+    report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_SOURCE_METADATA_REPORTS,
+        help_text=f"Reports to describe. At most {MAX_SOURCE_METADATA_REPORTS} ids per call.",
+    )
+
+
+class SignalReportSourceMetadataSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Report id.")
+    source_products = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Distinct source products contributing signals to this report. Empty when it has none yet.",
+    )
+    scout_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="skill_name slug of the scout that authored this report, when scout-authored; null otherwise.",
+    )
+
+
+class SignalReportSourceMetadataResponseSerializer(serializers.Serializer):
+    reports = SignalReportSourceMetadataSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "One entry per requested id, in request order, duplicates removed. An id with no signals in "
+            "this project, including one that is not a report here, gets empty values."
+        ),
+    )
+
+
 class SignalReportMetricRefreshRequestSerializer(serializers.Serializer):
     report_ids = serializers.ListField(
         child=serializers.UUIDField(),

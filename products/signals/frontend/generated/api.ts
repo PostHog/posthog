@@ -84,6 +84,8 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSourceMetadataRequestApi,
+    SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
     SignalScoutConfigApi,
@@ -1180,6 +1182,27 @@ export const signalsReportsRefundSummaryRetrieve = async (
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsSourceMetadataCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/source_metadata/`
+}
+
+/**
+ * Read which source products contributed signals to each given report, and which scout authored it. These values come from ClickHouse, so the inbox list skips them (`include_source_metadata=false`) and calls this after the rows render. Returns one entry per requested id. An id with no signals in this project gets empty values.
+ * @summary Get the source products and authoring scout of the reports on screen
+ */
+export const signalsReportsSourceMetadataCreate = async (
+    projectId: string,
+    signalReportSourceMetadataRequestApi: SignalReportSourceMetadataRequestApi,
+    options?: RequestInit
+): Promise<SignalReportSourceMetadataResponseApi> => {
+    return apiMutator<SignalReportSourceMetadataResponseApi>(getSignalsReportsSourceMetadataCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportSourceMetadataRequestApi),
     })
 }
 

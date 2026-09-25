@@ -191,15 +191,17 @@ describe('reportListLogic', () => {
     })
 
     // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
-    // must then fill in from one HogQL query, and a refresh must not ask again for resolved rows.
+    // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
     describe('lazy source line', () => {
         let logic: ReturnType<typeof reportListLogic.build>
         let includeSourceMetadata: (string | null)[]
         let queriedReportIds: string[][]
+        let scoutName: string
 
         beforeEach(async () => {
             includeSourceMetadata = []
             queriedReportIds = []
+            scoutName = 'signals-scout-support'
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
@@ -224,10 +226,19 @@ describe('reportListLogic', () => {
                     },
                 },
                 post: {
-                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                        const { query } = (await request.json()) as { query: { query: string } }
-                        queriedReportIds.push(['scouted', 'no-signals'].filter((id) => query.query.includes(`'${id}'`)))
-                        return [200, { results: [['scouted', ['signals_scout'], 'signals-scout-support']] }]
+                    '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
+                        const { report_ids } = (await request.json()) as { report_ids: string[] }
+                        queriedReportIds.push(report_ids)
+                        return [
+                            200,
+                            {
+                                reports: report_ids.map((id) =>
+                                    id === 'scouted'
+                                        ? { id, source_products: ['signals_scout'], scout_name: scoutName }
+                                        : { id, source_products: [], scout_name: null }
+                                ),
+                            },
+                        ]
                     },
                 },
             })
@@ -243,7 +254,7 @@ describe('reportListLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('fills the source line after the rows load, once per report', async () => {
+        it('fills the source line after the rows load and refreshes it with the rows', async () => {
             expect(includeSourceMetadata).toEqual(['false'])
             expect(queriedReportIds).toEqual([['scouted', 'no-signals']])
             expect(
@@ -253,10 +264,14 @@ describe('reportListLogic', () => {
                 { id: 'no-signals', source_products: [], scout_name: null },
             ])
 
+            scoutName = 'signals-scout-billing'
             logic.actions.refresh()
             await expectLogic(logic).toFinishAllListeners()
-            expect(queriedReportIds).toHaveLength(1)
-            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-support')
+            expect(queriedReportIds).toEqual([
+                ['scouted', 'no-signals'],
+                ['scouted', 'no-signals'],
+            ])
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
         })
     })
 

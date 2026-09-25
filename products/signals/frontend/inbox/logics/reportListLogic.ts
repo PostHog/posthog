@@ -1,9 +1,10 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -12,7 +13,10 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
-import { signalsReportsRefreshMetricsCreate } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsRefreshMetricsCreate,
+    signalsReportsSourceMetadataCreate,
+} from 'products/signals/frontend/generated/api'
 import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
@@ -32,7 +36,6 @@ import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from 
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
-import { fetchReportSourceMeta, ReportSourceMeta } from '../utils/reportSourceMeta'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
@@ -41,6 +44,9 @@ import { prCiStatusLogic } from './prCiStatusLogic'
 const PAGE_SIZE = 50
 // The refresh endpoint's own id cap per call.
 const METRIC_REFRESH_PAGE_SIZE = 20
+
+/** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
+export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
 
 /** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
@@ -164,11 +170,11 @@ export interface reportListLogicValues {
     loadedQueryKey: string | null
     pageLoadFailed: boolean
     primarySectionKey: InboxReportSectionKey
+    reportSourceMeta: Record<string, ReportSourceMeta>
     reports: SignalReport[]
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
-    reportSourceMeta: Record<string, ReportSourceMeta>
     staleMetricReportIds: string[]
     totalCount: number | null
 }
@@ -418,7 +424,7 @@ export const reportListLogic = kea<reportListLogicType>([
         refreshReportMetrics: (reportIds: string[]) => ({ reportIds }),
         applyReportMetricSnapshots: (snapshots: SignalReportMetricSnapshotsApi[]) => ({ snapshots }),
         // Source products and scout come from ClickHouse, so the rows load without them and this
-        // fills them in once the page is on screen.
+        // fills them in once the page is on screen. Best effort: a failure leaves the source line empty.
         loadReportSourceMeta: (reportIds: string[]) => ({ reportIds }),
         applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => ({ meta }),
     }),
@@ -449,12 +455,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
-                    const response = await api.signalReports.list({
-                        ...params,
-                        offset: 0,
-                        limit: PAGE_SIZE,
-                        include_source_metadata: 'false',
-                    })
+                    const response = await api.signalReports.list({ ...params, offset: 0, limit: PAGE_SIZE })
                     return { ...response, requestParams: params, requestContext }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
@@ -465,7 +466,6 @@ export const reportListLogic = kea<reportListLogicType>([
                         ...params,
                         offset: current.length,
                         limit: PAGE_SIZE,
-                        include_source_metadata: 'false',
                     })
                     return {
                         ...response,
@@ -580,6 +580,8 @@ export const reportListLogic = kea<reportListLogicType>([
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
                     suggested_reviewers: suggestedReviewer,
+                    // Rows render from Postgres alone; `loadReportSourceMeta` fills the source line after.
+                    include_source_metadata: 'false',
                 }
             },
         ],
@@ -653,31 +655,49 @@ export const reportListLogic = kea<reportListLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // Announce this section's open pull requests so their CI state is resolved in one batch. Both
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
         loadReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
+            // A first page or a refresh asks again for every row, because a report gains sources as
+            // new signals land. The rows keep their previous values until the answer arrives.
             actions.loadReportSourceMeta(values.reports.map((report) => report.id))
         },
         loadMoreReportsSuccess: () => {
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
-            actions.loadReportSourceMeta(values.reports.map((report) => report.id))
+            actions.loadReportSourceMeta(
+                values.reports.map((report) => report.id).filter((id) => !(id in values.reportSourceMeta))
+            )
         },
-        // Only asks for rows it has not resolved yet, so a next page or a refresh queries just the
-        // new reports. Best effort: on failure the rows keep an empty source line.
+        // Skips the ids a request already in flight covers, so overlapping page loads do not repeat
+        // the ClickHouse query.
         loadReportSourceMeta: async ({ reportIds }) => {
-            const missing = reportIds.filter((id) => !(id in values.reportSourceMeta))
-            if (missing.length === 0) {
+            const inFlight: Set<string> = (cache.sourceMetaInFlight ??= new Set<string>())
+            const requested = reportIds.filter((id) => !inFlight.has(id))
+            if (requested.length === 0) {
                 return
             }
+            requested.forEach((id) => inFlight.add(id))
             try {
-                actions.applyReportSourceMeta(await fetchReportSourceMeta(missing))
-            } catch {
-                return
+                const response = await signalsReportsSourceMetadataCreate(String(ApiConfig.getCurrentProjectId()), {
+                    report_ids: requested,
+                })
+                actions.applyReportSourceMeta(
+                    Object.fromEntries(
+                        response.reports.map(({ id, source_products, scout_name }) => [
+                            id,
+                            { source_products: [...source_products], scout_name },
+                        ])
+                    )
+                )
+            } catch (error) {
+                posthog.captureException(error)
+            } finally {
+                requested.forEach((id) => inFlight.delete(id))
             }
         },
         // One page of ids per request, sent one after the other so a page open never fans out into
