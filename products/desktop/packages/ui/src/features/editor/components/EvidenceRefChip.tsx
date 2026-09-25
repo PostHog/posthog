@@ -6,10 +6,8 @@ import { getCloudUrlFromRegion } from "@posthog/shared";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  createContext,
   type MouseEvent,
   type ReactNode,
-  useContext,
   useEffect,
   useId,
   useRef,
@@ -67,11 +65,9 @@ import { useEvidencePreviewPrefetch } from "../useEvidencePreviewPrefetch";
 const SPARK_W = 100;
 const SPARK_H = 30;
 const SPARK_PAD = 2;
-// Surfaces with their own palette (the quick-ask panel) set
-// --evidence-spark-color; everywhere else PostHog's first data-viz color
-// applies, with a hex fallback because the tooltip portals outside the
-// theme root.
-const SPARK_COLOR = "var(--evidence-spark-color, var(--data-color-1, #1d4aff))";
+// PostHog's first data-viz color, with a hex fallback because the tooltip
+// portals outside the theme root.
+const SPARK_COLOR = "var(--data-color-1, #1d4aff)";
 
 /** Mini chart of the preview's primary series: a line for time series, columns for categories. */
 export function EvidenceSparkline({
@@ -432,21 +428,11 @@ interface EvidenceRefChipProps {
   children: ReactNode;
 }
 
-export const ReportReferenceNavigationContext = createContext<
-  ((reportId: string) => Promise<void>) | null
->(null);
-
 export function EvidenceRefChip(props: EvidenceRefChipProps) {
-  const openReport = useContext(ReportReferenceNavigationContext);
-  return props.target.kind === "report" && !openReport ? (
+  return props.target.kind === "report" ? (
     <InboxReportRefChip {...props} />
   ) : (
-    <EvidenceRefChipContent
-      {...props}
-      onOpenReport={
-        props.target.kind === "report" ? (openReport ?? undefined) : undefined
-      }
-    />
+    <EvidenceRefChipContent {...props} />
   );
 }
 

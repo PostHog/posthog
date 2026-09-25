@@ -110,6 +110,9 @@ INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAY
 # The family whose champion the serving manifest serves. The scoring sweep reads the manifest
 # from the deployment's own object store, so this is the only place the served family is chosen.
 INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
+# Scorer (products/signals/backend/ranking/scorer.py): report ids per ClickHouse vector read. A
+# larger call is paged at this size.
+INBOX_RANKING_SCORING_BATCH_SIZE = get_from_env("INBOX_RANKING_SCORING_BATCH_SIZE", 500, type_cast=int)
 # Shadow dag (products/signals/dags/inbox_ranking/shadow): how many daily scores partitions back
 # the read looks for a score that already existed when a list was served. A report is scored on
 # the day it is born, so this bounds how old a report can be and still be graded.
