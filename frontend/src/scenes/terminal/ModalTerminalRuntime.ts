@@ -15,7 +15,7 @@ export class ModalTerminalRuntime {
 
     constructor(
         private projectId: string,
-        private onOutput: (bytes: Uint8Array) => void,
+        private onOutput: (bytes: Uint8Array, onWritten: () => void) => void,
         private onClose: (message: string) => void
     ) {}
 
@@ -54,7 +54,11 @@ export class ModalTerminalRuntime {
                 }
                 const bytes = new Uint8Array(data)
                 this.output = (this.output + this.decoder.decode(bytes, { stream: true })).slice(-20_000)
-                this.onOutput(bytes)
+                this.onOutput(bytes, () => {
+                    if (!this.stopped && socket.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({ ack: bytes.byteLength }))
+                    }
+                })
             }
             socket.onerror = () => {
                 clearTimeout(timeout)

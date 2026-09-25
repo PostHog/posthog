@@ -232,7 +232,7 @@ class TestCSPMiddleware(APIBaseTest):
         response = self.client.get("/admin/")
         assert "frame-ancestors 'none'" not in response["Content-Security-Policy"]
         assert "connect-src 'self'" in response["Content-Security-Policy-Report-Only"]
-        assert "wss://*.modal.host/terminal" in response["Content-Security-Policy-Report-Only"]
+        assert "wss://*.modal.host/terminal" not in response["Content-Security-Policy-Report-Only"]
 
     @parameterized.expand(
         [
@@ -471,6 +471,27 @@ class TestNarrowedAppPolicy(SimpleTestCase):
 
 
 class TestViewManagedCsp(SimpleTestCase):
+    @parameterized.expand(
+        [("enabled", True, True), ("disabled", True, False), ("unknown", True, None), ("anonymous", False, True)]
+    )
+    def test_modal_connections_require_an_authenticated_terminal_flag(
+        self, _name: str, authenticated: bool, enabled: bool | None
+    ) -> None:
+        request = RequestFactory().get("/")
+        request.user = MagicMock(
+            is_authenticated=authenticated,
+            distinct_id="terminal-user",
+            email="user@example.com",
+            current_organization_id="org-1",
+        )
+        with patch(
+            "posthog.csp_middleware.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: enabled if key == "posthog-terminal" else False,
+        ):
+            response = CSPMiddleware(lambda _: HttpResponse("<html></html>", content_type="text/html"))(request)
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert ("wss://*.modal.host/terminal" in policy) == (authenticated and enabled is True)
+
     @parameterized.expand(
         [
             ("custom_policy", "/", False, "default-src 'self'", False),

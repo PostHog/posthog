@@ -141,6 +141,25 @@ def app_csp_header_name(request: HttpRequest) -> str:
     return "Content-Security-Policy-Report-Only"
 
 
+def terminal_csp_source(request: HttpRequest) -> str:
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return ""
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            "posthog-terminal",
+            str(user.distinct_id),
+            groups={"organization": str(user.current_organization_id)},
+            person_properties={"email": user.email} if user.email else {},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("csp.terminal_flag_check_failed_defaulting_off", exc_info=True)
+        return ""
+    return "wss://*.modal.host/terminal" if enabled else ""
+
+
 _WILDCARD_SOURCES = frozenset({"https://*.posthog.com", "https://*.i.posthog.com"})
 # The wildcard app policy and the admin policy report as v=2, through the default endpoint above. Reports
 # tagged v=3 came from a report-only shadow of the narrowed policy, so reusing 3 would mix the two in one query.
@@ -359,7 +378,7 @@ class CSPMiddleware:
                 # the rest of the API, and every other repository, out of reach of injected script.
                 # The terminal dock survives SPA navigation, so its connections need the document policy.
                 # Modal assigns opaque hosts, so the sandbox source restricts the protocol and path instead.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ wss://*.modal.host/terminal",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {terminal_csp_source(request)}".rstrip(),
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",

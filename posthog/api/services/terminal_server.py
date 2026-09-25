@@ -5,6 +5,7 @@ import signal
 import asyncio
 import termios
 from contextlib import suppress
+from pathlib import Path
 
 from tornado.iostream import PipeIOStream, StreamClosedError
 from tornado.web import Application, RequestHandler
@@ -17,15 +18,18 @@ class HealthHandler(RequestHandler):
 
 
 class TerminalHandler(WebSocketHandler):
+    OUTPUT_WINDOW_BYTES = 256 * 1024
     stream: PipeIOStream | None = None
     pid: int | None = None
     output_task: asyncio.Task[None] | None = None
     reap_task: asyncio.Task[None] | None = None
+    pending_output_bytes: int = 0
+    output_ready: asyncio.Event
 
     def check_origin(self, origin: str) -> bool:
         return origin == os.environ["TERMINAL_ORIGIN"]
 
-    async def open(self) -> None:
+    async def open(self, *args: str, **kwargs: str) -> None:
         # Modal's edge supplies this header only after it verifies the connect token.
         if not self.request.headers.get("X-Verified-User-Data"):
             self.close(1008, "Authentication required")
@@ -34,20 +38,27 @@ class TerminalHandler(WebSocketHandler):
             self.close(4409, "The terminal is already connected")
             return
         self.application.settings["terminal_connected"] = True
+        self.output_ready = asyncio.Event()
+        self.output_ready.set()
         pid, descriptor = pty.fork()
         if pid == 0:
-            os.chdir("/tmp/workspace")
-            os.execve(
-                "/bin/bash",
-                ["bash", "--noprofile", "--norc", "-i"],
-                {
-                    "PATH": os.environ["PATH"],
-                    "HOME": "/root",
-                    "TERM": "xterm-256color",
-                    "LANG": "C.UTF-8",
-                    "PS1": "\\u@modal:\\w \\$ ",
-                },
-            )
+            try:
+                Path("/tmp/workspace").mkdir(parents=True, exist_ok=True)
+                os.chdir("/tmp/workspace")
+                os.execve(
+                    "/bin/bash",
+                    ["bash", "--noprofile", "--norc", "-i"],
+                    {
+                        "PATH": os.environ["PATH"],
+                        "HOME": "/root",
+                        "TERM": "xterm-256color",
+                        "LANG": "C.UTF-8",
+                        "PS1": "\\u@modal:\\w \\$ ",
+                    },
+                )
+            finally:
+                # A failed shell launch must not return the forked child to the server loop.
+                os._exit(127)
         self.pid = pid
         self.stream = PipeIOStream(descriptor, max_buffer_size=1024 * 1024)
         self.output_task = asyncio.create_task(self._read_output())
@@ -56,7 +67,13 @@ class TerminalHandler(WebSocketHandler):
         assert self.stream is not None
         try:
             while True:
-                output = await self.stream.read_bytes(65536, partial=True)
+                await self.output_ready.wait()
+                output = await self.stream.read_bytes(
+                    min(65536, self.OUTPUT_WINDOW_BYTES - self.pending_output_bytes), partial=True
+                )
+                self.pending_output_bytes += len(output)
+                if self.pending_output_bytes >= self.OUTPUT_WINDOW_BYTES:
+                    self.output_ready.clear()
                 await self.write_message(output, binary=True)
         # After the shell exits, an inline PTY read can raise EIO instead of StreamClosedError.
         except (StreamClosedError, WebSocketClosedError, OSError):
@@ -69,6 +86,12 @@ class TerminalHandler(WebSocketHandler):
             payload = json.loads(message)
             if isinstance(payload, str):
                 await self.stream.write(payload.encode())
+            elif isinstance(payload, dict) and "ack" in payload:
+                acknowledged = payload["ack"]
+                if type(acknowledged) is not int or not (0 < acknowledged <= self.pending_output_bytes):
+                    raise ValueError("Invalid output acknowledgment")
+                self.pending_output_bytes -= acknowledged
+                self.output_ready.set()
             elif isinstance(payload, dict):
                 columns, rows = payload.get("columns"), payload.get("rows")
                 if (

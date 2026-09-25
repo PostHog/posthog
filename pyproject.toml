@@ -292,6 +292,7 @@ dev = [
     # Developer CLI
     "hogli",
     "libcst>=1.8.6,<2.0.0",
+    "tornado>=6.5.2,<7",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",

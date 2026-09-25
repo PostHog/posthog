@@ -77,6 +77,7 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
             null as ExperimentsConfig | null,
             {
                 loadExperimentsConfig: async (): Promise<ExperimentsConfig> => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsExperimentsConfigRetrieve() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.get(`api/projects/${values.currentTeamId}/experiments_config/`)
                 },
             },
@@ -104,6 +105,7 @@ export const experimentsConfigLogic = kea<experimentsConfigLogicType>([
     listeners(({ actions, values }) => ({
         updateExperimentsConfig: async ({ payload }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsExperimentsConfigPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.update(`api/projects/${values.currentTeamId}/experiments_config/`, payload)
             } catch (error: any) {
                 lemonToast.error(error.data?.detail || 'Failed to update experiment settings. Please try again.')

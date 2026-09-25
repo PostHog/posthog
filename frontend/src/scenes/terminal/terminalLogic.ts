@@ -388,6 +388,11 @@ export const terminalLogic = kea<terminalLogicType>([
                 actions.followFolder()
             }
         },
+        setRequestedFolder: ({ folder }) => {
+            if (folder !== null) {
+                actions.followFolder()
+            }
+        },
         answerConfirmation: ({ confirmation, approved }) => {
             if (values.confirmation === confirmation) {
                 cache.answerConfirmation?.(approved)
@@ -516,7 +521,7 @@ export const terminalLogic = kea<terminalLogicType>([
                 const disposables = cache.disposables
                 const runtime = new ModalTerminalRuntime(
                     String(projectId),
-                    (bytes) => cache.session?.view.write(bytes),
+                    (bytes, onWritten) => cache.session?.view.write(bytes, onWritten),
                     (message) => {
                         if (cache.modalRuntime === runtime && !disposables.isDisposed) {
                             actions.setError(message)

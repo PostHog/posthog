@@ -54,10 +54,14 @@ describe('ModalTerminalRuntime', () => {
                 .join('')
         ).toBe(input)
         const bytes = new TextEncoder().encode('hello 😀')
+        const sentBeforeOutput = socket.send.mock.calls.length
         socket.onmessage?.({ data: bytes.slice(0, 8).buffer })
         socket.onmessage?.({ data: bytes.slice(8).buffer })
         expect(runtime.read()).toBe('hello 😀')
         expect(output).toHaveBeenCalledTimes(2)
+        expect(socket.send).toHaveBeenCalledTimes(sentBeforeOutput)
+        output.mock.calls[0][1]()
+        expect(JSON.parse(socket.send.mock.calls.at(-1)![0])).toEqual({ ack: 8 })
         if (cleanup === 'conflict') {
             socket.onclose?.({ code: 4409 })
             await runtime.stop()
@@ -68,6 +72,9 @@ describe('ModalTerminalRuntime', () => {
         }
         socket.onmessage?.({ data: bytes.buffer })
         expect(output).toHaveBeenCalledTimes(2)
+        const sentBeforeCleanup = socket.send.mock.calls.length
+        output.mock.calls[1][1]()
+        expect(socket.send).toHaveBeenCalledTimes(sentBeforeCleanup)
         expect(socket.close).toHaveBeenCalled()
         expect(terminalDestroy).toHaveBeenCalledTimes(cleanup === 'stop' ? 1 : 0)
     })

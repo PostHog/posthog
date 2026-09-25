@@ -448,3 +448,5 @@ After a connection failure, click **Reconnect sandbox** to reconnect without del
 **Stop** destroys the sandbox and its files.
 The provider enforces a one-hour lifetime even if the browser closes or cleanup fails.
 Shell connections use sandbox-scoped Modal connect tokens over WebSockets.
+Only signed-in users with the terminal flag receive the CSP permission for Modal shell connections.
+The server pauses shell output until the browser acknowledges rendered data, keeping the pending output bounded.

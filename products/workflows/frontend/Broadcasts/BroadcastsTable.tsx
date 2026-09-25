@@ -47,7 +47,7 @@ export function BroadcastsTable(): JSX.Element {
             render: (_, item) => (
                 <div className="flex items-center gap-2">
                     <LemonTableLink
-                        to={isEligibleWorkflow(item) ? urls.workflow(item.id, 'workflow') : urls.broadcast(item.id)}
+                        to={urls.broadcast(item.id)}
                         title={item.name || 'Untitled broadcast'}
                         description={item.description}
                     />
@@ -55,7 +55,7 @@ export function BroadcastsTable(): JSX.Element {
                         <LemonTag
                             type="muted"
                             data-attr="broadcast-workflow-tag"
-                            title="A workflow with a batch trigger and one email. It opens in the workflow editor."
+                            title="A workflow with a batch trigger and one email, shown here as a broadcast."
                         >
                             Workflow
                         </LemonTag>
