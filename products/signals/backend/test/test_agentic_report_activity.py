@@ -35,6 +35,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    RESEARCH_TURN_POLL_SECONDS,
     ActionabilityAssessment,
     ActionabilityChoice,
     ActionabilityUpdate,
@@ -1189,6 +1190,43 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
         )
     else:
         log_exception.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_bounds_and_degrades_the_first_turn():
+    # The research call used to take poll_for_turn's default budget and had no degraded path, so
+    # one bad first turn discarded the whole report — every later signal included.
+    signals = _build_signals()[:1]
+    session = Mock()
+    session.task = Mock(id="research-task-id")
+    session.end = AsyncMock()
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="Reproduced in the onboarding module.",
+                actionability=ActionabilityChoice.NOT_ACTIONABLE,
+                already_addressed=False,
+            ),
+            ReportPresentationOutput(title="Onboarding drop", summary="Volume fell."),
+        ]
+    )
+    started: dict[str, object] = {}
+
+    async def _capture_start(*_args, **kwargs):
+        started.update(kwargs)
+        return session, kwargs["fallback_from_text"]("the agent answered in prose")
+
+    with (
+        patch("products.tasks.backend.facade.agents.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.task_run_artefacts.aappend_task_run_artefact", new_callable=AsyncMock),
+    ):
+        result = await run_multi_turn_research(signals, Mock(team_id=1), signal_report_id="report-id")
+
+    assert started["max_poll_seconds"] == RESEARCH_TURN_POLL_SECONDS
+    [finding] = result.effective_findings()
+    assert finding.signal_id == "sig-1"
+    assert finding.verified is False
+    assert finding.data_queried == "the agent answered in prose"
 
 
 @pytest.mark.asyncio

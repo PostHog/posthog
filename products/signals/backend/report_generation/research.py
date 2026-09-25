@@ -51,6 +51,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Per-turn poll budget for a research turn. A signal investigation reads code and runs MCP
+# queries, so it is the longest turn the fleet runs — but it is still one turn of a run whose
+# Temporal activity has to cover every signal plus the judgment turns. Stated here rather than
+# left to `poll_for_turn`'s default so the number is a research decision, and so a change to that
+# default cannot silently resize this stage. `poll_for_turn` leaves a turn early once its log goes
+# quiet, so a stalled turn does not spend this budget.
+RESEARCH_TURN_POLL_SECONDS = 20 * 60
+
 __all__ = [
     "ActionabilityAssessment",
     "ActionabilityChoice",
@@ -1036,6 +1044,27 @@ def _enforce_signal_id(finding: SignalFinding, expected_id: str) -> SignalFindin
     return finding
 
 
+def _finding_update_from_text(text: str, signal_id: str) -> SignalFindingUpdate:
+    """Degrade an unparseable first research turn into a partial, unverified finding.
+
+    The agent investigated the signal and answered, but the answer did not validate against the
+    envelope. Discarding it fails the whole report, including the signals it never got to. Keeping
+    the raw answer as the finding's `data_queried` costs the report its structure for one signal
+    and leaves the rest of the run — the later signals, the judgments, the title — intact. The
+    finding is `verified=False`, so nothing downstream reads it as confirmed.
+    """
+    return SignalFindingUpdate(
+        previous_finding_correct=False,
+        finding=SignalFinding(
+            signal_id=signal_id,
+            relevant_code_paths=[],
+            relevant_commit_hashes={},
+            data_queried=text,
+            verified=False,
+        ),
+    )
+
+
 def _resolve_finding_response(
     response: SignalFinding | SignalFindingUpdate,
     previous_finding: SignalFinding | None,
@@ -1149,6 +1178,8 @@ async def run_multi_turn_research(
         signal_report_id=signal_report_id,
         ai_stage=AI_STAGE_RESEARCH,
         internal=True,
+        max_poll_seconds=RESEARCH_TURN_POLL_SECONDS,
+        fallback_from_text=lambda text: _finding_update_from_text(text, signals[0].signal_id),
     )
 
     # start() returned the session, so any failure past this point must end it
