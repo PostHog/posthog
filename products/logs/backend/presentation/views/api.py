@@ -85,6 +85,7 @@ __all__ = [
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+MAX_ATTRIBUTE_KEYS = 100
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -212,6 +213,10 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
         help_text="Date range to search within. Defaults to last hour.",
+    )
+    keys = serializers.CharField(
+        required=False,
+        help_text="Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.",
     )
     serviceNames = serializers.ListField(
         child=serializers.CharField(),
@@ -1891,9 +1896,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except ValueError:
             offset = 0
 
+        attribute_keys = list(dict.fromkeys(k.strip() for k in request.GET.get("keys", "").split(",") if k.strip()))
+        if len(attribute_keys) > MAX_ATTRIBUTE_KEYS:
+            return Response(
+                {"error": f"At most {MAX_ATTRIBUTE_KEYS} keys are allowed."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         query = LogAttributesQuery(
             dateRange=dateRange,
             attributeType=attributeType,
+            attributeKeys=attribute_keys or None,
             search=search,
             searchValues=search_values,
             limit=limit,

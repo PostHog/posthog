@@ -80,6 +80,11 @@
             },
             "type": "array"
         },
+        "keys": {
+            "description": "Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.",
+            "minLength": 1,
+            "type": "string"
+        },
         "limit": {
             "description": "Max results (default: 100)",
             "maximum": 100,

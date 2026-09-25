@@ -7,11 +7,13 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 
 import { logsAttributesRetrieve } from '../../../generated/api'
 import { customFacetsLogic } from './customFacetsLogic'
-import { FACETS, FacetConfig, resolveFacets } from './facets'
+import { FACETS, FacetConfig, presenceProbeKeys, resolveFacets } from './facets'
 
-// Broad, filter-independent window for the "which resource attributes does this tenant emit" probe.
-// Cheap: keys-only group-by on the log_attributes aggregation table (no value scan).
-const PRESENCE_LOOKBACK = { date_from: '-90d' }
+// The curated keys the probe asks about. Asking for exact keys, rather than listing the top-N keys by
+// volume, keeps a facet from vanishing for tenants that emit many resource attributes.
+// No dateRange is sent: the generated client String()s object params, and the endpoint's default window
+// (the last 7 days) is the one we want anyway.
+const PRESENCE_KEYS = presenceProbeKeys(FACETS)
 
 export interface FacetPresenceLogicProps {
     id: string
@@ -92,8 +94,8 @@ export const facetPresenceLogic = kea<facetPresenceLogicType>([
                     }
                     const response = await logsAttributesRetrieve(String(values.currentTeamId), {
                         attribute_type: 'resource',
-                        dateRange: PRESENCE_LOOKBACK,
-                        limit: 100,
+                        keys: PRESENCE_KEYS.join(','),
+                        limit: PRESENCE_KEYS.length,
                     })
                     return response.results.map((r) => r.name)
                 },

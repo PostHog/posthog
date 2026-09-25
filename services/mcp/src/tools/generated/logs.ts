@@ -566,6 +566,7 @@ const logsAttributesList = (): ToolBase<
                 attribute_type: params.attribute_type,
                 dateRange: params.dateRange,
                 filterGroup: params.filterGroup,
+                keys: params.keys,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

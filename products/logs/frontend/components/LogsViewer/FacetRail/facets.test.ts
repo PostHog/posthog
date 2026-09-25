@@ -10,6 +10,7 @@ import {
     facetScopeSignature,
     filterFacetsByName,
     mergeSelectedIntoOptions,
+    presenceProbeKeys,
     resolveFacets,
 } from './facets'
 
@@ -311,6 +312,27 @@ describe('facets', () => {
             // alias list — resolveFacets must never drop or rewrite them the way it does resourceAttribute.
             const attributeFacet = buildCustomFacet('http.status_code', 'attribute')
             expect(resolveFacets([attributeFacet], [])).toEqual([attributeFacet])
+        })
+    })
+
+    describe('presenceProbeKeys', () => {
+        it('asks about every curated resource key and alias, once each', () => {
+            expect(presenceProbeKeys(CONFIGURED_FACETS)).toEqual([
+                'deployment.environment.name',
+                'deployment.environment',
+                'env',
+                'k8s.namespace.name',
+                'k8s.deployment.name',
+                'k8s.pod.name',
+                'k8s.node.name',
+                'host.name',
+            ])
+        })
+
+        // The probe and resolution must agree: any key the probe can report has to keep a facet.
+        it.each(presenceProbeKeys(CONFIGURED_FACETS))('a reported %s keeps a resource facet on it', (key) => {
+            const resolved = resolveFacets(CONFIGURED_FACETS, [key])
+            expect(resolved.some((f) => f.source.type === 'resourceAttribute' && f.source.key === key)).toBe(true)
         })
     })
 

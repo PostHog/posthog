@@ -31108,6 +31108,13 @@
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
+                "attributeKeys": {
+                    "description": "Only return these exact attribute keys. Used to check whether specific keys are present.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "attributeType": {
                     "type": "string"
                 },

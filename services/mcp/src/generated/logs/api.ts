@@ -5564,6 +5564,13 @@ export const LogsAttributesRetrieveQueryParams = () => zod.object({
         )
         .default(logsAttributesRetrieveQueryFilterGroupDefault)
         .describe('Property filters to narrow which logs are scanned for attributes.'),
+    keys: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.'
+        ),
     limit: zod
         .number()
         .min(1)

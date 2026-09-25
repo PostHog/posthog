@@ -2876,6 +2876,11 @@ export type LogsAttributesRetrieveParams = {
      */
     filterGroup?: _LogPropertyFilterApi[]
     /**
+     * Comma-separated attribute keys. When set, only these exact keys are returned, so you can check whether specific keys are present.
+     * @minLength 1
+     */
+    keys?: string
+    /**
      * Max results (default: 100)
      * @minimum 1
      * @maximum 100

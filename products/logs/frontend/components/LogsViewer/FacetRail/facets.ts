@@ -223,6 +223,18 @@ export const FACETS: FacetConfig[] = [
 ]
 
 /**
+ * Every resource-attribute key (current spelling and aliases) the given facets can resolve onto. These are
+ * the exact keys the presence probe asks the backend about, so the answer never depends on how many other
+ * keys the tenant emits.
+ */
+export function presenceProbeKeys(facets: FacetConfig[]): string[] {
+    const keys = facets.flatMap((facet) =>
+        facet.source.type === 'resourceAttribute' ? [facet.source.key, ...(facet.source.aliasKeys ?? [])] : []
+    )
+    return Array.from(new Set(keys))
+}
+
+/**
  * Resolve the configured facets against the resource-attribute keys a tenant actually emits.
  * Column facets always pass through. A resource-attribute facet is kept only if the tenant emits its
  * current key or one of its aliases, and its source is rewritten onto whichever spelling is present so
