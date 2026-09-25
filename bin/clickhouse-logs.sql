@@ -176,14 +176,14 @@ CREATE OR REPLACE TABLE trace_spans
 
     PROJECTION projection_index_team_span_id
     (
-        SELECT _part_offset
-        ORDER BY team_id, span_id
+        SELECT team_id, _part_offset
+        ORDER BY span_id
     ),
 
     PROJECTION projection_index_team_trace_id
     (
-        SELECT _part_offset
-        ORDER BY team_id, trace_id
+        SELECT team_id, _part_offset
+        ORDER BY trace_id
     ),
 
     INDEX idx_trace_id trace_id TYPE tokenbf_v1(10000, 5, 0) GRANULARITY 1,

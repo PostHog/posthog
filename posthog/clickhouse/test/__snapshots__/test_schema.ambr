@@ -9767,14 +9767,14 @@
   
       PROJECTION projection_index_team_span_id
       (
-          SELECT _part_offset
-          ORDER BY team_id, span_id
+          SELECT team_id, _part_offset
+          ORDER BY span_id
       ),
   
       PROJECTION projection_index_team_trace_id
       (
-          SELECT _part_offset
-          ORDER BY team_id, trace_id
+          SELECT team_id, _part_offset
+          ORDER BY trace_id
       )
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans', '{replica}-{shard}')
@@ -15393,14 +15393,14 @@
   
       PROJECTION projection_index_team_span_id
       (
-          SELECT _part_offset
-          ORDER BY team_id, span_id
+          SELECT team_id, _part_offset
+          ORDER BY span_id
       ),
   
       PROJECTION projection_index_team_trace_id
       (
-          SELECT _part_offset
-          ORDER BY team_id, trace_id
+          SELECT team_id, _part_offset
+          ORDER BY trace_id
       )
   )
   ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.trace_spans', '{replica}-{shard}')
