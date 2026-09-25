@@ -173,6 +173,8 @@ export interface PromptSentProperties {
   is_initial: boolean;
   execution_type: ExecutionType;
   prompt_length_chars: number;
+  /** Files the prompt carries, so the attachment paths stay measurable. */
+  attachment_count: number;
 }
 
 /** Sentiment captured by the thumbs under an agent turn. */

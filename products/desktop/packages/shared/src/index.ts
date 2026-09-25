@@ -340,6 +340,8 @@ export {
 } from "./session-events";
 export {
   type AgentSession,
+  type AttachmentRef,
+  type CloudArtifactRef,
   cycleModeOption,
   flattenSelectOptions,
   getConfigOptionByCategory,

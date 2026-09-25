@@ -5,12 +5,14 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
+import { resolveMessageAttachments } from "@posthog/core/sessions/promptContent";
 import { Button } from "@posthog/quill";
 import { Box, Flex, IconButton, Text, Tooltip } from "@radix-ui/themes";
 import clsx from "clsx";
-import type { Ref } from "react";
+import { type Ref, useMemo } from "react";
 import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
 import type { QueuedMessage } from "../../sessionStore";
+import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
 import { hasFileMentions, parseFileMentions } from "./parseFileMentions";
 
@@ -35,6 +37,10 @@ export function QueuedMessageView({
   isEditing = false,
   supportsNativeSteer = false,
 }: QueuedMessageViewProps) {
+  const { text, attachments } = useMemo(
+    () => resolveMessageAttachments(message.content, message.attachments ?? []),
+    [message.content, message.attachments],
+  );
   const steerTooltip = supportsNativeSteer
     ? "Inject this message into the current turn at the next tool boundary."
     : "Interrupt the current turn and resend with this message.";
@@ -67,10 +73,15 @@ export function QueuedMessageView({
           className="min-w-0 flex-1"
           contentClassName="font-medium text-[13px] text-gray-12"
         >
-          {hasFileMentions(message.content) ? (
-            parseFileMentions(message.content)
+          {attachments.length > 0 && (
+            <div className={text ? "mb-1.5" : ""}>
+              <UserMessageAttachments attachments={attachments} />
+            </div>
+          )}
+          {hasFileMentions(text) ? (
+            parseFileMentions(text)
           ) : (
-            <MarkdownRenderer content={message.content} />
+            <MarkdownRenderer content={text} />
           )}
         </CollapsibleMessageContent>
         <Flex align="center" gap="2" className="shrink-0">
