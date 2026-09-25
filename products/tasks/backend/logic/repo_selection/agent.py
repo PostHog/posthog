@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import logging
 from collections.abc import Callable, Iterable, Mapping
@@ -519,6 +520,12 @@ context and repo names alone.
 </jsonschema>"""
 
 
+def _names_repository(text: str, repo: str) -> bool:
+    # A longer name that starts with `repo` (`acme/api-client` for `acme/api`) is another repository.
+    # A dot that ends a sentence also ends the name, but a dot before a word (`acme/api.js`) does not.
+    return re.search(rf"(?<![\w.-]){re.escape(repo)}(?![\w-]|\.\w)", text, re.IGNORECASE) is not None
+
+
 def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
     """Read a selection out of an end turn that did not validate against `RepoSelectionResult`.
 
@@ -528,8 +535,7 @@ def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelect
     the caller keeps its own fallback. Never answer "no repository" from here — callers read that
     as a decision the agent made.
     """
-    lowered = text.lower()
-    named = {repo for repo in candidate_repos if repo.lower() in lowered}
+    named = {repo for repo in candidate_repos if _names_repository(text, repo)}
     if len(named) != 1:
         raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
     repository = named.pop()
