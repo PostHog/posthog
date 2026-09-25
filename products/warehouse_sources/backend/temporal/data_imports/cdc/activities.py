@@ -87,6 +87,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane 
     CDC_RESET_PENDING_KEY,
     cancel_running_sync,
     is_buffered_snapshot_enabled,
+    next_reset_generation,
     snapshot_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
@@ -133,6 +134,7 @@ def _merge_pending_reset(
     fields = dict(current) if isinstance(current, dict) else {}
     fields["clear_deferred_runs"] = clear_deferred_runs or bool(fields.get("clear_deferred_runs"))
     fields["awaiting_slot"] = awaiting_slot
+    fields["generation"] = next_reset_generation(fields)
     config[CDC_RESET_PENDING_KEY] = fields
     return fields
 
@@ -1664,9 +1666,14 @@ class CDCExtractActivity:
             return
 
         def _drop_finished_reset(config: dict[str, typing.Any]) -> None:
-            # Only the reset this run finished. A request that staged another one while the snapshot
-            # was starting keeps it, and a later run does that reset too.
-            if config.get(CDC_RESET_PENDING_KEY) == pending:
+            # Only the reset this run finished, told apart by its generation. A request that staged
+            # another one while the snapshot was starting keeps it, and a later run does that reset too.
+            current = config.get(CDC_RESET_PENDING_KEY)
+            if isinstance(current, dict) and isinstance(pending, dict):
+                finished = current.get("generation") == pending.get("generation")
+            else:
+                finished = current == pending
+            if finished:
                 config.pop(CDC_RESET_PENDING_KEY, None)
 
         self._update_schema_sync_type_config(schema, mutate=_drop_finished_reset)

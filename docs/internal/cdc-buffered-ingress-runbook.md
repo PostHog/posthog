@@ -61,6 +61,8 @@ The key stays until the schedule is unpaused, so a failed unpause is retried too
 A reset from slot-invalidation recovery marks the key `awaiting_slot` until the replacement slot exists, so no later run can unpause the table before capture has a point to resume from, and the table stays out of capture until then.
 Recovery clears the flag once the slot is back, and so does any read that succeeds, so a failure right after the recreation cannot leave the table waiting for good.
 A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
+They then start a capture run right away, and recreate the capture schedule if it is gone, so the reset does not wait for the next tick. A source that is marked broken, or whose capture is paused after a non-retryable error, is left alone: Repair CDC or resuming capture restarts it.
+Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
 The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.

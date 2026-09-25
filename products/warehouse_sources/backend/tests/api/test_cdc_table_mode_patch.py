@@ -45,6 +45,7 @@ _PATCH_TARGETS = {
     ),
     "cancel_external_data_workflow": "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
     "pause_external_data_schedule": "products.data_warehouse.backend.facade.api.pause_external_data_schedule",
+    "trigger_cdc_extraction_schedule": "products.data_warehouse.backend.facade.api.trigger_cdc_extraction_schedule",
     # The load queue lives in the warehouse-sources database, which these tests do not create. Left
     # real, the probe raises and a reset is handed to capture instead of being applied here.
     "has_queued_batches": (
@@ -216,6 +217,7 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
         mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]) as mock_cancel,
         mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]) as mock_pause,
         mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
+        mock.patch(_PATCH_TARGETS["trigger_cdc_extraction_schedule"]) as mock_trigger_capture,
         mock.patch(f"{_VIEW}.pause_external_data_schedule"),
         mock.patch(f"{_VIEW}.unpause_external_data_schedule") as mock_view_unpause,
     ):
@@ -228,7 +230,11 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
 
     assert response.status_code == 200, response.content
     schema.refresh_from_db()
-    assert schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "trigger": True}
+    assert schema.sync_type_config["cdc_reset_pending"] == {
+        "clear_deferred_runs": True,
+        "trigger": True,
+        "generation": 1,
+    }
     assert "reset_pipeline" not in schema.sync_type_config
     assert schema.sync_type_config["cdc_mode"] == "streaming"
     assert schema.initial_sync_complete is True
@@ -236,6 +242,7 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
     mock_pause.assert_called_once_with(str(schema.id))
     mock_view_unpause.assert_not_called()
     mock_trigger.assert_not_called()
+    mock_trigger_capture.assert_called_once_with(source)
 
 
 def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, client: HttpClient):
@@ -262,6 +269,7 @@ def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, c
         mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
         mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]),
         mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["trigger_cdc_extraction_schedule"]),
     ):
         response = client.post(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/resync")
 
@@ -271,6 +279,7 @@ def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, c
         "clear_deferred_runs": True,
         "trigger": True,
         "awaiting_slot": True,
+        "generation": 1,
     }
 
 

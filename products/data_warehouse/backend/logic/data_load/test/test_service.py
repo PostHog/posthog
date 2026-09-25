@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest_asyncio
 from asgiref.sync import async_to_sync, sync_to_async
@@ -38,6 +38,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     is_cdc_extraction_schedule_paused,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
+    trigger_cdc_extraction_schedule,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -577,3 +578,35 @@ def test_a_unpause_reraises_other_rpc_errors():
         pytest.raises(RPCError),
     ):
         async_to_sync(a_unpause_external_data_schedule)("some-schedule-id")
+
+
+@pytest.mark.parametrize(
+    "trigger_error, recreated",
+    [(None, False), (_not_found(), True)],
+)
+def test_triggering_capture_recreates_a_schedule_that_is_gone(trigger_error: RPCError | None, recreated: bool) -> None:
+    source = MagicMock(id=uuid.uuid4())
+
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=trigger_error) as trigger,
+        patch(f"{SERVICE}.sync_cdc_extraction_schedule") as sync_schedule,
+    ):
+        trigger_cdc_extraction_schedule(source)
+
+    assert trigger.call_args.kwargs["schedule_id"] == _get_cdc_extraction_schedule_id(str(source.id))
+    assert sync_schedule.call_args_list == ([call(source, create=True)] if recreated else [])
+
+
+def test_triggering_capture_raises_any_other_temporal_error() -> None:
+    source = MagicMock(id=uuid.uuid4())
+
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        patch(f"{SERVICE}.sync_cdc_extraction_schedule") as sync_schedule,
+        pytest.raises(RPCError),
+    ):
+        trigger_cdc_extraction_schedule(source)
+
+    sync_schedule.assert_not_called()

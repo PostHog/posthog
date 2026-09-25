@@ -11887,7 +11887,11 @@ class TestRepairCDC(APIBaseTest):
         # Only the CDC schema's run is cancelled — unrelated incremental syncs keep running.
         assert {c.args[0] for c in mock_cancel.call_args_list} == {"cdc-workflow-1"}
         cdc_schema.refresh_from_db()
-        assert cdc_schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "trigger": True}
+        assert cdc_schema.sync_type_config["cdc_reset_pending"] == {
+            "clear_deferred_runs": True,
+            "trigger": True,
+            "generation": 1,
+        }
         assert "reset_pipeline" not in cdc_schema.sync_type_config
         mock_pause_schedule.assert_called_once_with(str(cdc_schema.id))
         mock_unpause_schedule.assert_not_called()
