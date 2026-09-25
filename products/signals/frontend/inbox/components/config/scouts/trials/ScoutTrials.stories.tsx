@@ -31,12 +31,12 @@ const meta: Meta<typeof ScoutTrials> = {
             get: {
                 '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, id: 42, is_staff: true }],
                 '/api/projects/:team/signals/scout/configs/': () => [200, [trialFixtureConfig]],
-                '/api/projects/:team/signals/scout/configs/:config/trial-setup/': () => [200, trialFixtureSetup],
-                '/api/projects/:team/signals/scout/configs/:config/trial-history/': () => [
+                '/api/projects/:team/signals/scout/configs/:config/trial_setup/': () => [200, trialFixtureSetup],
+                '/api/projects/:team/signals/scout/configs/:config/trial_history/': () => [
                     200,
                     { results: [], has_more: false },
                 ],
-                '/api/projects/:team/signals/scout/configs/:config/trial-result/': ({ request }) => {
+                '/api/projects/:team/signals/scout/configs/:config/trial_result/': ({ request }) => {
                     const launchId = new URL(request.url).searchParams.get('launch_id')!
                     const submission = submissions.get(launchId)
                     return [
@@ -79,7 +79,7 @@ export const Running: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team/signals/scout/configs/:config/trial-result/': ({ request }) => [
+                '/api/projects/:team/signals/scout/configs/:config/trial_result/': ({ request }) => [
                     200,
                     {
                         ...trialFixtureResult,

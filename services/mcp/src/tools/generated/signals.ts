@@ -1796,7 +1796,7 @@ const scoutTrialGet = (): ToolBase<ReturnType<typeof ScoutTrialGetSchema>, Schem
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutTrialResult>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial-result/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_result/`,
             query: {
                 launch_id: params.launch_id,
             },

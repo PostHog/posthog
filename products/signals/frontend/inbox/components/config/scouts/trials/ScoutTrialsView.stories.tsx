@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { createTrialBatch, initialTrialVariants } from './scoutTrials'
 import { trialFixtureConfig, trialFixtureResult, trialFixtureSetup } from './scoutTrialsFixtures'
 import { ScoutTrialsView, ScoutTrialsViewProps } from './ScoutTrialsView'
+import { createTrialBatch, initialTrialVariants } from './scoutTrials'
 
 const noop = (): void => {}
 const variants = initialTrialVariants(trialFixtureSetup)

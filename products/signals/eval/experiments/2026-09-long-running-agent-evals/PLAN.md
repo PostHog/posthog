@@ -219,7 +219,7 @@ Private snapshots and transcripts stay outside both branches.
 
 ### Live trial operator script
 
-The implementation adds `POST /signals/scout/configs/{id}/trial/` and `GET /signals/scout/configs/{id}/trial-result/?launch_id=...` under the normal project API prefix.
+The implementation adds `POST /signals/scout/configs/{id}/trial/` and `GET /signals/scout/configs/{id}/trial_result/?launch_id=...` under the normal project API prefix.
 The matching MCP tools are `scout-trial-create` and `scout-trial-get`.
 Only operators with scout write and skill editor access can use them; sandbox tokens cannot manage comparisons.
 No skill/config copies or new tables are created.
@@ -339,8 +339,8 @@ Choose a supported scout, edit variant names, models, reasoning efforts, and opt
 The UI caps a comparison at 20 runs and uses the same launch, result, and task-cancel endpoints as the script.
 It adds no batch table or execution platform.
 
-`GET /signals/scout/configs/{id}/trial-setup/` reads source readiness and available model/effort choices without creating a snapshot.
-`GET /signals/scout/configs/{id}/trial-history/` lists the requesting operator's recent private runs.
+`GET /signals/scout/configs/{id}/trial_setup/` reads source readiness and available model/effort choices without creating a snapshot.
+`GET /signals/scout/configs/{id}/trial_history/` lists the requesting operator's recent private runs.
 Both enforce staff access in project 2 as well as existing scout permissions.
 
 The first launch saves starting context, and all remaining submissions share that context with independent private changes.
