@@ -3201,7 +3201,8 @@ def list_gap_suggestions_for_ticket(
     team_id: int,
     ticket_id: str,
 ) -> QuerySet[KnowledgeGapSuggestion]:
-    return KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).order_by("-created_at")
+    # `id` breaks created_at ties so paging over the list can't skip or repeat a suggestion.
+    return KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).order_by("-created_at", "id")
 
 
 @dataclass
