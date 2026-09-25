@@ -8,8 +8,6 @@ from django.test import SimpleTestCase, override_settings
 
 import requests
 from parameterized import parameterized
-from prometheus_client import REGISTRY
-from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.firecrawl.client import (
     MAX_SEARCH_LIMIT,
@@ -21,7 +19,6 @@ from posthog.egress.firecrawl.client import (
     search,
 )
 from posthog.egress.firecrawl.limiter import consume_firecrawl_sync, firecrawl_account_key
-from posthog.egress.firecrawl.observability import record_firecrawl_api_response
 from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority, resolve_policy
 
@@ -56,17 +53,6 @@ def _response(status: int, body: str) -> requests.Response:
     response = requests.models.Response()
     response.status_code = status
     response._content = body.encode()
-    return response
-
-
-def _response_with_rate_limit_headers(headers: dict[str, str], url: str) -> requests.Response:
-    response = requests.models.Response()
-    response.status_code = 200
-    response.headers = CaseInsensitiveDict(headers)
-    prepared = requests.models.PreparedRequest()
-    prepared.method = "GET"
-    prepared.url = url
-    response.request = prepared
     return response
 
 
@@ -151,30 +137,6 @@ class TestFirecrawlEgress(SimpleTestCase):
         # The policy reads settings through getattr defaults, which would swallow a renamed or
         # misspelled setting and quietly pin the budget to the code default forever.
         assert resolve_policy(firecrawl_account_key()).limits == ((7, 60.0), (11, 3600.0))
-
-    def test_record_response_keys_the_rate_limit_gauges_by_the_request_url(self) -> None:
-        # Firecrawl is the one domain whose gauge resource comes from the request url rather than a
-        # curated endpoint label. Losing that wiring silently freezes every gauge under "unknown"
-        # regardless of which endpoint was actually called.
-        record_firecrawl_api_response(
-            _response_with_rate_limit_headers(
-                {"X-RateLimit-Remaining": "7", "X-RateLimit-Limit": "60"},
-                "https://api.firecrawl.dev/v2/scrape",
-            ),
-            source="unit-test",
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "firecrawl_api_rate_limit_remaining", {"account": "default", "resource": "/v2/scrape"}
-            )
-            == 7
-        )
-        assert (
-            REGISTRY.get_sample_value(
-                "firecrawl_api_rate_limit_limit", {"account": "default", "resource": "/v2/scrape"}
-            )
-            == 60
-        )
 
 
 @override_settings(FIRECRAWL_API_KEY=_FAKE_API_KEY)

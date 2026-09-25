@@ -31,7 +31,13 @@ from posthog.models.scoping import team_scope
 @pytest.fixture(autouse=True)
 def _scout_team_scope(request: pytest.FixtureRequest):
     instance = getattr(request, "instance", None)
-    if instance is None or not hasattr(instance, "team") or instance.team is None:
+    # Per-test setup creates the team later; an inherited class team can refer to a rolled-back row.
+    if (
+        instance is None
+        or not getattr(instance, "CLASS_DATA_LEVEL_SETUP", True)
+        or not hasattr(instance, "team")
+        or instance.team is None
+    ):
         yield
         return
     with team_scope(instance.team.id):

@@ -1,7 +1,7 @@
-import threading
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from functools import partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -53,9 +53,7 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -66,13 +64,18 @@ from posthog.hogql_queries.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
 from posthog.hogql_queries.utils.utils import get_response_hogql
-from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
+from posthog.hogql_queries.validation.rules import (
+    DisallowUnsupportedDataWarehouseSettings,
+    RequireAtLeastOneSeries,
+    validate_series_fan_out,
+)
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
@@ -163,6 +166,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def __post_init__(self):
         self.update_hogql_modifiers()
         self.series = self.setup_series()
+
+    def single_flight_variant(self) -> str:
+        # A caller can pass its own execution time, which does not reach the cache key.
+        if self.hogql_settings is None:
+            return super().single_flight_variant()
+        return f"{super().single_flight_variant()}:max_execution_time={self.hogql_settings.max_execution_time}"
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -406,12 +415,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[QueryTags] = None,
         ):
             try:
-                if query_tags:
-                    query_tagging.update_tags(query_tags)
-
                 series_with_extra = self.series[index]
 
                 response = execute_hogql_query(
@@ -444,27 +449,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings_matrix[0] = self.timings.to_list(back_out_stack=False)
             self.timings.clear_timings()
 
-            # This exists so that we're not spawning threads during unit tests. We can't do
-            # this right now due to the lack of multithreaded support of Django
-            if len(queries) == 1 or settings.IN_UNIT_TESTING:
+            # A count of 0 or 1 needs no thread, and an empty series expansion produces 0 queries.
+            # IN_UNIT_TESTING keeps a test class on this path as well, because Django does not make
+            # the test transaction visible to another thread.
+            if len(queries) <= 1 or settings.IN_UNIT_TESTING:
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
-                jobs = [
-                    threading.Thread(
-                        target=run,
-                        args=(
-                            index,
-                            query,
-                            self.timings.clone_for_subquery(index),
-                            True,
-                            query_tagging.get_query_tags().model_copy(deep=True),
-                        ),
-                    )
-                    for index, query in enumerate(queries)
-                ]
-                [j.start() for j in jobs]  # type:ignore
-                [j.join() for j in jobs]  # type:ignore
+                run_in_parallel_threads(
+                    [
+                        partial(run, index, query, self.timings.clone_for_subquery(index), True)
+                        for index, query in enumerate(queries)
+                    ],
+                    thread_name_prefix="trends_series",
+                )
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
@@ -936,6 +934,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def setup_series(self) -> list[SeriesWithExtras]:
+        cohort_breakdown_expands = (
+            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+        )
+        validate_series_fan_out(self.query, cohort_breakdown_expands=cohort_breakdown_expands)
+
         series_with_extras = [
             SeriesWithExtras(
                 series=series,
@@ -947,11 +952,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             for index, series in enumerate(self.query.series)
         ]
 
-        if (
-            self.modifiers.inCohortVia != InCohortVia.LEFTJOIN_CONJOINED
-            and self.query.breakdownFilter is not None
-            and self.query.breakdownFilter.breakdown_type == "cohort"
-        ):
+        if cohort_breakdown_expands and self.query.breakdownFilter is not None:
             updated_series = []
             if isinstance(self.query.breakdownFilter.breakdown, list):
                 cohort_ids = self.query.breakdownFilter.breakdown

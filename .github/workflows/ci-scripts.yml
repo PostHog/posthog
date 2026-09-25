@@ -13,9 +13,11 @@ on:
             # trunk-impacted-targets.test.js reads proto/ and fails on a tree the
             # table does not declare, so adding one has to run these tests.
             - proto/**
-            # turbo-discover.test.js pins the Django segment table to these.
+            # turbo-discover.test.js pins the Django segment table to these, and checks
+            # that every path in the events_json list exists.
             - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
+            - .github/new-events-schema-targets.txt
             # The backend test selector and its verdict script gate ci-backend.
             - tools/snob_backend_test_selection_shadow.py
             - tools/test_snob_backend_test_selection_shadow.py
@@ -35,7 +37,7 @@ permissions:
 jobs:
     script-tests:
         name: .github/scripts unit tests
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
             # The tests take seconds, so a full checkout of the monorepo dominated
@@ -44,7 +46,7 @@ jobs:
             # against drift — trunk-impacted-targets.test.js walks proto/, rust/,
             # nodejs/ and every workspace package.json (the unanchored pattern
             # pulls each manifest without its source tree), and
-            # report_test_timings imports tools/owners and finds the root by
+            # report_test_timings imports the owners resolver and finds the root by
             # owners.yaml. A new test that reads another path must add it here.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -55,10 +57,11 @@ jobs:
                       /bin/report-jest-timings
                       /.depot/
                       /tools/
+                      /packages/owners-yaml/
                       /proto/
                       /rust/
                       /nodejs/
-                      /posthog/personhog_client/
+                      /packages/personhog-proto/
                       /.semgrep/
                       /frontend/bin/ci-report/
                       /products/README.md
@@ -83,10 +86,10 @@ jobs:
                   enable-cache: false
 
             # The preinstalled python3 runs these standalone tests, so no
-            # setup-python step. defusedxml + opentelemetry + tools/owners are
-            # report_test_timings.py's script deps.
+            # setup-python step. defusedxml + opentelemetry + the owners resolver are
+            # report_test_timings.py's script deps; coverage is coverage_report.py's.
             - name: Install pytest
-              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
+              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the

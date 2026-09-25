@@ -239,6 +239,35 @@ describe("ChannelFeedView", () => {
     expect(screen.getByText(task.title)).toBeInTheDocument();
   });
 
+  // The kickoff has to lead the feed in the shape of the view around it. It
+  // used to render as a card above the rows, whichever view was active, so the
+  // list view showed one card sitting on top of a list.
+  it.each([
+    ["cards" as const, true],
+    ["list" as const, false],
+  ])("shows a pending kickoff first, in the %s shape", (rowStyle, isCard) => {
+    const prompt = "Add a dark-mode toggle";
+    const { container } = render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          pending={[{ id: "pending-1", prompt }]}
+          rowStyle={rowStyle}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    const feed = container.textContent ?? "";
+    expect(feed).toContain(prompt);
+    expect(feed.indexOf(prompt)).toBeLessThan(feed.indexOf(task.title));
+    // Only the card puts a "New task" heading above the prompt.
+    expect(screen.queryByText("New task") !== null).toBe(isCard);
+  });
+
   it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {
     render(
       <Theme>

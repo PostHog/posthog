@@ -12,6 +12,7 @@ from posthog.models.organization import OrganizationMembership
 
 from ..facade import contracts
 from ..facade.contracts import PropertyAccessLevel
+from ..facade.user_access_control import RULE_RESOURCE_CHOICES
 from .access_control import ResolvedAccessSerializer
 
 _ACCESS_LEVEL_CHOICES = [(e.value, e.value) for e in PropertyAccessLevel]
@@ -274,4 +275,67 @@ class AccessControlPropertyRuleSerializer(serializers.Serializer):
 class AccessControlPropertyRulesResponseSerializer(serializers.Serializer):
     results = AccessControlPropertyRuleSerializer(
         many=True, help_text="The subject's property rules, sorted by property type and name."
+    )
+
+
+class AccessControlResolutionAcceptResponseSerializer(serializers.Serializer):
+    uses_most_specific_access_resolution = serializers.BooleanField(
+        help_text="Always true: the organization now resolves access with the most specific rule."
+    )
+
+
+class AccessControlRuleRequestSerializer(serializers.Serializer):
+    """The scope and level of one rule write. On its own it is the default rule, for everyone in the
+    project without a member or role rule of their own. The subclasses add the subject."""
+
+    resource = serializers.ChoiceField(
+        choices=RULE_RESOURCE_CHOICES,
+        help_text="The scope of the rule: `project` for the project itself (with the project id as `resource_id`), "
+        "a resource type such as `dashboard` for the whole resource type or for one object of it, or "
+        "`property_definition` for one person or event property.",
+    )
+    resource_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The object the rule applies to: the project id for a project rule, an object's primary key for "
+        "a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only "
+        "for a rule on a whole resource type.",
+    )
+    access_level = serializers.CharField(
+        allow_null=True,
+        help_text="The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` "
+        "for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, "
+        "so the subject falls back to the level it inherits.",
+    )
+
+
+class AccessControlMemberRuleRequestSerializer(AccessControlRuleRequestSerializer):
+    """A rule for one organization member."""
+
+    member_id = serializers.UUIDField(
+        help_text="The organization membership id, as `organization_membership_id` in the members endpoint.",
+    )
+
+
+class AccessControlRoleRuleRequestSerializer(AccessControlRuleRequestSerializer):
+    """A rule for every member of one role."""
+
+    role_id = serializers.UUIDField(help_text="The role id, as `role_id` in the roles endpoint.")
+
+
+class AccessControlStoredRuleSerializer(serializers.Serializer):
+    """One stored rule, the same shape for object, resource, project and property rules."""
+
+    resource = serializers.CharField(help_text="The rule's scope, as sent in the request.")
+    resource_id = serializers.CharField(
+        allow_null=True,
+        help_text="The object the rule applies to: the project id for a project rule, an object's primary key, or a "
+        "property definition id. Null for a resource-type rule.",
+    )
+    access_level = serializers.CharField(help_text="The stored level.")
+    member_id = serializers.UUIDField(
+        allow_null=True, help_text="The organization membership the rule is for. Null unless it is a member rule."
+    )
+    role_id = serializers.UUIDField(
+        allow_null=True, help_text="The role the rule is for. Null unless it is a role rule."
     )

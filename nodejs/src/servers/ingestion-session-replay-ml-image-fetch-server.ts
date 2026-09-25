@@ -8,7 +8,12 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
 } from '~/common/config/kafka-topics'
-import { KafkaConsumerV2, KafkaConsumerV2Config, RdKafkaConsumerOverrides } from '~/common/kafka/consumer/consumer-v2'
+import {
+    EachBatch,
+    KafkaConsumerV2,
+    KafkaConsumerV2Config,
+    RdKafkaConsumerOverrides,
+} from '~/common/kafka/consumer/consumer-v2'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
@@ -19,6 +24,7 @@ import {
     HttpConfigurationFetcher,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/configuration-policy'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { FetchCandidatePool } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-candidate-pool'
 import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
 import { KafkaFrontierDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-dead-letter-sink'
 import { FrontierPublisher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-publisher'
@@ -30,11 +36,12 @@ import {
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
+import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/pool-window-batch-handler'
 import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
-import { MlPrivacyRuntime } from '~/ingestion/pipelines/sessionreplay/ml-mirror/privacy/runtime'
+import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
@@ -54,6 +61,11 @@ import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 const STORE_BATCH_BUDGET_MS = 50_000
 const IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES = 102_400
 const IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES = 25_600
+/**
+ * The pool window paces a member in continuous-pool mode. This limit stays above that window at typical
+ * batch sizes, and it is the hard bound on a member's resident URLs and crash replay when batches are large.
+ */
+const POOL_MAX_BATCHES_IN_FLIGHT_PER_MEMBER = 4
 
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048
@@ -145,6 +157,12 @@ export function buildFetchRunner(
             requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
             maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
             seenTtlSeconds: config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
+            continuousPool: config.SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL
+                ? {
+                      refillRunnableUrls: config.SESSION_RECORDING_ML_IMAGE_FETCH_POOL_REFILL_RUNNABLE_URLS,
+                      maxQueuedUrlsPerOwner: config.SESSION_RECORDING_ML_IMAGE_FETCH_POOL_MAX_QUEUED_URLS_PER_MEMBER,
+                  }
+                : undefined,
         },
         publisher,
         topHogMetrics
@@ -162,9 +180,18 @@ export function buildImageFetchConsumerConfigs(
         autoCommit: true,
         autoOffsetStore: true,
         fetchBatchSize: config.SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE,
-        maxBackgroundTasks: 2,
+        maxBackgroundTasks: config.SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL
+            ? POOL_MAX_BATCHES_IN_FLIGHT_PER_MEMBER
+            : 2,
         backgroundTaskTimeoutMs: 240_000,
     }))
+}
+
+export function imageFetchBatchesPerPass(
+    config: IngestionSessionReplayMlMirrorServerConfig,
+    consumerCount: number
+): number {
+    return config.SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES ? consumerCount : 1
 }
 
 export function buildImageFetchConsumerOverrides(
@@ -184,13 +211,54 @@ export function buildImageFetchConsumerOverrides(
     }
 }
 
+export interface ImageFetchBatchHandlers {
+    handlers: EachBatch[]
+    /** Resolves once every batch started so far has settled, including pooled batches that the Kafka drain gave up on. */
+    waitForProcessing(): Promise<void>
+}
+
+export function buildImageFetchBatchHandlers(
+    consumerCount: number,
+    fetchConsumer: Pick<UrlFetchConsumer, 'handleBatch'>,
+    fetchRunner: { candidatePool?: Pick<FetchCandidatePool<unknown>, 'createOwner'> },
+    batchJoiner: Pick<ImageFetchBatchJoiner, 'handleBatch' | 'waitForProcessing'>
+): ImageFetchBatchHandlers {
+    const pool = fetchRunner.candidatePool
+    const pooledBatches = new Set<Promise<void>>()
+    const trackPooledBatch = (batch: Promise<void>): Promise<void> => {
+        pooledBatches.add(batch)
+        const forget = (): void => {
+            pooledBatches.delete(batch)
+        }
+        batch.then(forget, forget)
+        return batch
+    }
+    const handlers = Array.from({ length: consumerCount }, (): EachBatch => {
+        if (!pool) {
+            return (messages) => batchJoiner.handleBatch(messages)
+        }
+        return createPoolWindowBatchHandler(pool.createOwner(), (messages, admission) =>
+            trackPooledBatch(fetchConsumer.handleBatch(messages, Date.now(), admission))
+        )
+    })
+    return {
+        handlers,
+        waitForProcessing: async () => {
+            await batchJoiner.waitForProcessing()
+            await Promise.allSettled([...pooledBatches])
+        },
+    }
+}
+
 export async function shutdownImageFetchConsumers(
     consumers: Pick<KafkaConsumerV2, 'stopConsuming' | 'disconnect'>[],
-    batchJoiner: ImageFetchBatchJoiner
+    startedBatches: Pick<ImageFetchBatchHandlers, 'waitForProcessing'>,
+    fetchRunner?: Pick<FetchRunner, 'close'>
 ): Promise<void> {
     await Promise.allSettled(consumers.map((consumer) => consumer.stopConsuming()))
-    await batchJoiner.waitForProcessing()
+    await startedBatches.waitForProcessing()
     await Promise.allSettled(consumers.map((consumer) => consumer.disconnect()))
+    await fetchRunner?.close()
 }
 
 /**
@@ -199,7 +267,7 @@ export async function shutdownImageFetchConsumers(
  * It scales separately because fetching waits on network IO while scrubbing needs CPU and ML models.
  */
 export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerServer {
-    private privacy?: MlPrivacyRuntime
+    private keyManager?: MlKeyManager
     private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
     private topHog?: TopHog
@@ -237,15 +305,15 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
         await legacyCrawlHistory.validateAccess(Date.now())
         let crawlHistory =
             legacyCrawlHistory as import('~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history').CrawlHistoryStore
-        if (this.config.AI_RESEARCH_REPLAY_PRIVACY_TABLE) {
+        if (this.config.AI_RESEARCH_REPLAY_KEY_TABLE) {
             if (
                 !this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE ||
                 this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE === tableName
             ) {
                 throw new Error('ML v2 requires a separate image fetch history table')
             }
-            this.privacy = new MlPrivacyRuntime(this.config)
-            await this.privacy.start()
+            this.keyManager = new MlKeyManager(this.config)
+            await this.keyManager.start()
             const v2 = new DynamoDBCrawlHistory(
                 this.crawlHistoryClient,
                 this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE,
@@ -277,6 +345,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
             ? new KafkaFrontierDeadLetterSink(producer, deadLetterTopic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)
             : null
 
+        const fetchRunner = buildFetchRunner(this.config, publisher, topHogMetrics)
         const fetchConsumer = new UrlFetchConsumer(
             crawlHistory,
             publisher,
@@ -284,16 +353,26 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
             },
-            buildFetchRunner(this.config, publisher, topHogMetrics),
+            fetchRunner,
             deadLetters,
             topHogMetrics,
-            this.privacy?.kafka
+            this.keyManager?.kafka
         )
-        logger.info('🌐', 'ml_image_fetch_started', { dryRun })
+        logger.info('🌐', 'ml_image_fetch_started', {
+            dryRun,
+            continuousPool: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL,
+        })
 
         const consumerConfigs = buildImageFetchConsumerConfigs(this.config)
-        const batchJoiner = new ImageFetchBatchJoiner(consumerConfigs.length, (messages) =>
-            fetchConsumer.handleBatch(messages, Date.now())
+        const batchJoiner = new ImageFetchBatchJoiner(
+            imageFetchBatchesPerPass(this.config, consumerConfigs.length),
+            (messages) => fetchConsumer.handleBatch(messages, Date.now())
+        )
+        const batchHandlers = buildImageFetchBatchHandlers(
+            consumerConfigs.length,
+            fetchConsumer,
+            fetchRunner,
+            batchJoiner
         )
         const consumerOverrides = buildImageFetchConsumerOverrides(this.config, consumerConfigs.length)
         const consumers = consumerConfigs.map(
@@ -302,7 +381,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',
-            onShutdown: () => shutdownImageFetchConsumers(consumers, batchJoiner),
+            onShutdown: () => shutdownImageFetchConsumers(consumers, batchHandlers, fetchRunner),
             healthcheck: () => {
                 for (const consumer of consumers) {
                     const health = consumer.isHealthy()
@@ -313,9 +392,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
                 return new HealthCheckResultOk()
             },
         })
-        await Promise.all(
-            consumers.map((consumer) => consumer.connect((messages) => batchJoiner.handleBatch(messages)))
-        )
+        await Promise.all(consumers.map((consumer, index) => consumer.connect(batchHandlers.handlers[index])))
     }
 
     protected getCleanupResources(): CleanupResources {
@@ -323,7 +400,7 @@ export class IngestionSessionReplayMlImageFetchServer extends MlMirrorConsumerSe
             kafkaProducers: [],
             redisPools: [],
             additionalCleanup: async () => {
-                this.privacy?.stop()
+                this.keyManager?.stop()
                 this.crawlHistoryClient?.destroy()
                 try {
                     await this.topHog?.stop()

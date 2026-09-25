@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import (
     cloudflare_source,
     validate_credentials as validate_cloudflare_credentials,
@@ -51,7 +49,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.CLOUDFLARE,
+            name=ExternalDataSourceType.CLOUDFLARE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cloudflare",
             caption="""Enter your Cloudflare API token to pull your Cloudflare configuration, security, and usage data into the PostHog Data warehouse.
@@ -59,7 +57,7 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
 Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/profile/api-tokens) with read permissions for the areas you want to sync, such as Account Settings, Zone, DNS, Firewall Services, Logs, Workers, and Access. Zone tables are synced from every zone the token can read, and account tables from every account. Zones and accounts the token can't read are skipped.""",
             iconPath="/static/services/cloudflare.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudflare",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -117,18 +115,22 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        is_valid, status = validate_cloudflare_credentials(config.api_token)
-        if is_valid:
+        check = validate_cloudflare_credentials(config.api_token)
+        if check.is_valid:
             return True, None
 
-        if status is None or status == 429 or status >= 500:
+        if check.is_transient:
             return (
                 False,
                 "Couldn't reach Cloudflare to verify your API token. Try again in a moment.",
             )
+        # Naming Cloudflare's own reason matters more than naming a remedy: the token is refused
+        # for reasons permissions never explain, so guessing one sends people round in circles.
+        detail = f" Cloudflare said: {check.reason}." if check.reason else ""
         return (
             False,
-            "Your Cloudflare API token was rejected. Create a new token with read permissions in your Cloudflare dashboard, then reconnect.",
+            f"Cloudflare rejected your API token.{detail} Check the token is still active, isn't "
+            "restricted to IP addresses that exclude PostHog, and hasn't expired, then reconnect.",
         )
 
     def source_for_pipeline(self, config: CloudflareSourceConfig, inputs: SourceInputs) -> SourceResponse:

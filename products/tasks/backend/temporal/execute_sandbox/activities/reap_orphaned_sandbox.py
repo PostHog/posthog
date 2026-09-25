@@ -92,5 +92,5 @@ def reap_orphaned_sandbox(input: ReapOrphanedSandboxInput) -> ReapOrphanedSandbo
             cpu_usage_measured_at=cpu_usage_measured_at,
         )
 
-        TaskRun.update_state_atomic(input.run_id, remove_keys=[SANDBOX_ID_STATE_KEY])
+        TaskRun.clear_sandbox_connection_state_atomic(input.run_id, sandbox_id)
         return ReapOrphanedSandboxResult(reaped_sandbox_id=sandbox_id, destroy_succeeded=destroy_succeeded)

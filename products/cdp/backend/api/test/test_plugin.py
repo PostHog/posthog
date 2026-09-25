@@ -15,6 +15,7 @@ from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import FROZEN_POSTHOG_VERSION
@@ -22,7 +23,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
-from posthog.plugins.test.mock import mocked_plugin_requests_get
+from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -36,6 +37,8 @@ def mocked_plugin_reload(*args, **kwargs):
 
 @mock.patch("products.cdp.backend.models.plugin.reload_plugins_on_workers", side_effect=mocked_plugin_reload)
 @mock.patch("products.cdp.backend.api.plugin.requests.get", side_effect=mocked_plugin_requests_get)
+# `new=` keeps this out of every test signature (nothing here asserts on the commit lookup).
+@mock.patch("posthog.plugins.utils.github_request", new=mocked_plugin_github_request)
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestPluginAPI(APIBaseTest, QueryMatchingTest):
     maxDiff = None
@@ -1140,6 +1143,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].filters == {
             "source": "events",
             "bytecode": ["_H", 1, 29],
+            "bytecode_contract": RUNTIME_CONTRACT,
         }  # Assert the compiled bytecode for empty filter
         assert hog_function[0].hog == "return event"
         assert hog_function[0].enabled

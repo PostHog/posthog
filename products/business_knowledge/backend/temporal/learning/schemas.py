@@ -20,8 +20,9 @@ RejectionCode = Literal[
     "low_confidence",
     "already_completed",
     "learned_cap_reached",
+    "stale_candidate",
 ]
-LearningResult = Literal["knowledge_created", "no_knowledge", "ineligible"]
+LearningResult = Literal["knowledge_created", "no_knowledge", "ineligible", "superseded"]
 ExtractionRejectionCode = Literal["none", "case_specific", "not_useful", "unsupported", "low_confidence"]
 PromotionRejectionCode = Literal[
     "none",
@@ -30,6 +31,7 @@ PromotionRejectionCode = Literal[
     "unsupported",
     "already_known",
     "low_confidence",
+    "stale_candidate",
 ]
 
 
@@ -98,8 +100,17 @@ class PromotionDecision(BaseModel):
     useful: StrictBool
     supported_by_public_human_resolution: StrictBool
     missing_from_business_knowledge: StrictBool
+    contradicts_existing: StrictBool = False
+    conflicting_index: int | None = Field(default=None, ge=0)
     confidence: float = Field(ge=0, le=1)
     rejection_code: PromotionRejectionCode
+
+
+class ContradictionVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    is_contradiction: StrictBool
+    confidence: float = Field(ge=0, le=1)
 
 
 @frozen

@@ -20,6 +20,10 @@
       "types": "./dist/hoggies.d.ts",
       "import": "./dist/hoggies.js"
     },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.js"
+    },
     "./domain-types": {
       "types": "./dist/domain-types.d.ts",
       "import": "./dist/domain-types.js"
@@ -31,6 +35,10 @@
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
+    },
+    "./task-context": {
+      "types": "./dist/task-context.d.ts",
+      "import": "./dist/task-context.js"
     },
     "./deeplink": {
       "types": "./dist/deeplink.d.ts",
@@ -47,10 +55,6 @@
     "./mcp-sandbox-proxy": {
       "types": "./dist/mcp-sandbox-proxy.d.ts",
       "import": "./dist/mcp-sandbox-proxy.js"
-    },
-    "./quick-ask-shortcuts": {
-      "types": "./dist/quick-ask-shortcuts.d.ts",
-      "import": "./dist/quick-ask-shortcuts.js"
     },
     "./rich-output-prompt": {
       "types": "./dist/rich-output-prompt.d.ts",

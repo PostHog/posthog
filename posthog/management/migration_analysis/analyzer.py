@@ -16,6 +16,7 @@ from posthog.management.migration_analysis.operations import (
     CreateIndexConcurrentlyAnalyzer,
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
+    DropColumnConstraintsAnalyzer,
     DropForeignKeyAnalyzer,
     DropIndexConcurrentlyAnalyzer,
     ExtensionAnalyzer,
@@ -27,6 +28,7 @@ from posthog.management.migration_analysis.operations import (
     RunPythonAnalyzer,
     RunSQLAnalyzer,
     SafeAddIndexConcurrentlyAnalyzer,
+    SafeDropTableAnalyzer,
     SafeRemoveIndexConcurrentlyAnalyzer,
     SeparateDatabaseAndStateAnalyzer,
     ValidateConstraintAnalyzer,
@@ -107,6 +109,8 @@ class RiskAnalyzer:
         "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
         "ValidateConstraint": ValidateConstraintAnalyzer(),
         "DropForeignKey": DropForeignKeyAnalyzer(),
+        "DropColumnConstraints": DropColumnConstraintsAnalyzer(),
+        "SafeDropTable": SafeDropTableAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
         # Postgres extension installs are safe under live load. Sharing one
         # ExtensionAnalyzer instance across the named operations keeps the
@@ -280,8 +284,8 @@ class RiskAnalyzer:
         analyzer = self.ANALYZERS.get(op_type)
 
         if analyzer:
-            # Pass migration context to RunSQLAnalyzer for DROP TABLE validation
-            if op_type == "RunSQL" and hasattr(self, "migration") and hasattr(self, "loader"):
+            # Pass migration context to the drop analyzers so they can check the staging
+            if op_type in ("RunSQL", "SafeDropTable") and hasattr(self, "migration") and hasattr(self, "loader"):
                 return analyzer.analyze(op, migration=self.migration, loader=self.loader)  # type: ignore[call-arg]
             # Pass migration context to RenameModelAnalyzer for db_table check
             if op_type == "RenameModel" and hasattr(self, "migration"):

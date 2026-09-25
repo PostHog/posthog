@@ -1,6 +1,5 @@
 import { ParquetSchema } from '@dsnp/parquetjs'
 
-import { parseJSON } from '~/common/utils/json-parse'
 import {
     ReplayIndexEntry,
     ReplayIndexEntrySchema,
@@ -8,8 +7,8 @@ import {
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'
+import { MlDataKey, MlEncryptedEnvelope, encryptEnvelopeJson } from './keys/crypto'
 import { MlParquetSinkMetrics } from './metrics'
-import { MlDataKey, MlEncryptedEnvelope, encryptEnvelope } from './privacy/crypto'
 import { sessionStartTimestampFromUuidV7 } from './session-identifier-format'
 
 const DAY_MS = 86_400_000
@@ -113,6 +112,25 @@ export function replayIndexToParquetBuffer(records: Record<string, unknown>[]): 
     return parquetRecordsToBuffer(schema, records)
 }
 
+export function v3ReplayIndexByKind(
+    rows: MlBlockMetadataRow[]
+): Map<ReplayIndexEntry['kind'], Record<string, unknown>[]> {
+    const byKind = new Map<ReplayIndexEntry['kind'], Record<string, unknown>[]>()
+    const partitions = replayIndexPartitions(
+        rows.map((row) => ({
+            ...row,
+            session_start_ts_ms: sessionStartTimestampFromUuidV7(row.session_id) ?? undefined,
+        }))
+    )
+    for (const partitionRecords of partitions.values()) {
+        const kind = partitionRecords[0].kind as ReplayIndexEntry['kind']
+        const records = byKind.get(kind) ?? []
+        records.push(...partitionRecords)
+        byKind.set(kind, records)
+    }
+    return byKind
+}
+
 export interface EncryptedReplayIndex {
     kind: ReplayIndexEntry['kind']
     rowCount: number
@@ -131,9 +149,7 @@ export function encryptReplayIndex(row: MlBlockMetadataRow, key: MlDataKey): Enc
         return {
             kind,
             rowCount: records.length,
-            envelope: parseJSON(
-                encryptEnvelope(key, 'replay-index', Buffer.from(JSON.stringify(records)), kind).toString()
-            ) as MlEncryptedEnvelope,
+            envelope: encryptEnvelopeJson(key, 'replay-index', Buffer.from(JSON.stringify(records)), kind),
         }
     })
 }

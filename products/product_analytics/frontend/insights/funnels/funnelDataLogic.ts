@@ -30,7 +30,7 @@ import {
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
+import { FunnelExclusionSteps } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import type {
     AnyDataWarehouseNode,
@@ -66,8 +66,6 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
     InsightLogicProps,
-    InsightModel,
-    InsightType,
     StepOrderValue,
     TrendResult,
     FilterType,
@@ -177,20 +175,6 @@ function compareBreakdownsByColumnKey(
         )
     }
     return 0
-}
-
-function isFunnelsQueryOrLegacyFilter(
-    insightData: Partial<InsightModel> | null | undefined,
-    querySource: InsightQueryNode | null
-): boolean {
-    /**
-     * TODO: Remove legacy filter check once all tests are migrated to query-based format.
-     * There are still multiple tests relying on the legacy format in funnelDataLogic.test.ts.
-     */
-    if (insightData?.filters?.insight === InsightType.FUNNELS) {
-        return true
-    }
-    return isFunnelsQuery(querySource)
 }
 
 /**
@@ -450,7 +434,7 @@ export interface funnelDataLogicMeta {
         funnelVizType: (funnelsFilter: FunnelsFilter | null | undefined) => FunnelVizType
         aggregationTargetLabel: (
             querySource: FunnelsQuery | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         results: (
             insightData: Record<string, any>,
@@ -468,7 +452,6 @@ export interface funnelDataLogicMeta {
             querySource: FunnelsQuery | null
         ) => FunnelResultType
         steps: (
-            insightData: Record<string, any>,
             vizQuerySource:
                 | FunnelsQuery
                 | LifecycleQuery
@@ -528,7 +511,6 @@ export interface funnelDataLogicMeta {
             timeConversionResultsPrevious: FunnelsTimeConversionBins | null
         ) => HistogramGraphDatum[] | null
         hasFunnelResults: (
-            insightData: Record<string, any>,
             funnelsFilter: FunnelsFilter | null | undefined,
             steps: FunnelStepWithNestedBreakdown[],
             histogramGraphData: HistogramGraphDatum[] | null,
@@ -579,7 +561,7 @@ export interface funnelDataLogicMeta {
         }[]
         getFunnelsColorToken: (
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // insightVizDataLogic
             breakdownFilter: BreakdownFilter | null | undefined,
             querySource: FunnelsQuery | null,
             flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
@@ -807,14 +789,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }
 
                 // TODO: after hooking up data manager, check that we have a funnels result here
-                // We check both the legacy filter approach (insightData.filters.insight) and the new
-                // query-based approach (querySource.kind) because tests still use the legacy approach.
-                // This pattern matches the checks in the 'steps' and 'hasFunnelResults' selectors.
-                if (
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+                if (querySource && querySource.kind !== NodeKind.FunnelsQuery) {
                     return []
                 }
 
@@ -837,7 +812,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
         steps: [
             (s) => [
-                s.insightData,
                 s.vizQuerySource,
                 s.querySource,
                 s.breakdownFilter,
@@ -846,7 +820,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 s.isStepsFunnel,
             ],
             (
-                insightData: Record<string, any>,
                 _vizQuerySource:
                     | FunnelsQuery
                     | null
@@ -863,12 +836,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 isTimeToConvertFunnel: boolean | null,
                 isStepsFunnel: boolean | null
             ): FunnelStepWithNestedBreakdown[] => {
-                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
+                if (!isFunnelsQuery(querySource)) {
                     return []
                 }
 
                 // we need to check whether results are an array, since isTimeToConvertFunnel can be false,
-                // while still having "time-to-convert" results in insightData
+                // while the results are still "time-to-convert" shaped
                 if (!isTimeToConvertFunnel && Array.isArray(results) && results.length > 0) {
                     // STEPS compare: the runner returns both periods' steps as a flat tagged list.
                     // Reshape into one step per order with current+previous as nested bars. Trends
@@ -1184,16 +1157,15 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 timeConversionBinsToHistogramData(timeConversionResultsPrevious),
         ],
         hasFunnelResults: [
-            (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],
+            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource, s.stepNames],
             (
-                insightData: Record<string, any>,
                 funnelsFilter: FunnelsFilter | null | undefined,
                 steps: FunnelStepWithNestedBreakdown[],
                 histogramGraphData: HistogramGraphDatum[] | null,
                 querySource: FunnelsQuery | null,
                 stepNames: FunnelStepWithNestedBreakdown[]
             ) => {
-                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
+                if (!isFunnelsQuery(querySource)) {
                     return false
                 }
 

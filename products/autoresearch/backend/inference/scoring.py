@@ -190,6 +190,10 @@ def run_inference_for_pipeline(
         run_type=AutoresearchRun.RunType.INFERENCE,
         status=AutoresearchRun.Status.RUNNING,
         started_at=django_timezone.now(),
+        # Online validation discovers matured dates from these two keys instead of scanning
+        # the events table, validates against the horizon scored here rather than the
+        # pipeline's current one, and waits for a run that is still scoring the date.
+        metrics={"prediction_date": window.prediction_date.isoformat(), "horizon_days": pipeline.horizon_days},
     )
 
     try:
@@ -202,12 +206,14 @@ def run_inference_for_pipeline(
 
         run.status = AutoresearchRun.Status.COMPLETED
         run.rows_scored = emitted.rows_emitted
-        run.metrics = {
-            "score_distribution": emitted.score_distribution,
-            "stub": bool((model.model_recipe or {}).get("stub", False)),
-            "sandbox": bool(model.artifact_prefix),
-            "holdout_auc": scored.holdout_auc,
-        }
+        run.metrics.update(
+            {
+                "score_distribution": emitted.score_distribution,
+                "stub": bool((model.model_recipe or {}).get("stub", False)),
+                "sandbox": bool(model.artifact_prefix),
+                "holdout_auc": scored.holdout_auc,
+            }
+        )
         run.completed_at = django_timezone.now()
         run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
 
@@ -824,6 +830,21 @@ def _stable_seed(pipeline_id: str) -> int:
     return int(hashlib.sha256(pipeline_id.encode()).hexdigest()[:8], 16)
 
 
+def check_recipe_estimator(recipe: dict[str, Any]) -> None:
+    """Raise ``RecipeValidationError`` when the recipe's class and params cannot build an estimator.
+
+    Promotion calls this before a recipe-only champion is installed: the constructor is the
+    only place an unknown hyperparameter is refused, and a champion that fails there would fail
+    every scoring run instead of this one completion.
+    """
+    try:
+        _estimator_for(recipe, seed=0)
+    except RecipeValidationError:
+        raise
+    except Exception as exc:
+        raise RecipeValidationError(f"model_params cannot construct {recipe.get('model_class')!r}: {exc}") from exc
+
+
 def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     """
     Instantiate the recipe's allowlisted sklearn class. This is the one in-process importlib
@@ -840,8 +861,9 @@ def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     model_class = getattr(importlib.import_module(module_path), class_name)
     params = dict(recipe.get("model_params") or {})
     accepted = inspect.signature(model_class.__init__).parameters
-    if "random_state" in accepted:
-        params.setdefault("random_state", seed)
+    if "random_state" in accepted and params.get("random_state") is None:
+        # An explicit null would otherwise suppress the seed and make a retry refit differently.
+        params["random_state"] = seed
     if "n_jobs" in accepted:
         # The fit runs in the worker process; an agent's n_jobs=-1 would take every core it has.
         params["n_jobs"] = 1

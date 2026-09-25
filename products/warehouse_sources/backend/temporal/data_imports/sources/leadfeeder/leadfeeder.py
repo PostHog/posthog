@@ -17,11 +17,17 @@ dispatches between them on the resolved API-version pin:
   "work in progress") and warrant live verification before the source leaves alpha.
 """
 
+import logging
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
+from math import ceil
 from typing import Any, Optional
+
+from requests.exceptions import HTTPError
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -50,9 +56,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder
     LeadfeederEndpointConfig,
 )
 
+logger = logging.getLogger(__name__)
+
 LEADFEEDER_BASE_URL = "https://api.leadfeeder.com"
 PAGE_SIZE = 100  # JSON:API page[size] max is 100 (default 10)
 DEFAULT_LOOKBACK_DAYS = 365  # First-sync window when the user leaves start_date blank
+# One search reads at most the first 10,000 results, whichever generation serves it: the legacy API
+# documents "the total number of results is limited to the first 10000 leads", and the unified API
+# refuses the page past that offset with a 416 `offset_exceeded` instead of an empty page. At
+# PAGE_SIZE rows a page that is 100 pages, so a window holding more rows than this can only be read
+# in full by asking for narrower date ranges.
+MAX_PAGES_PER_WINDOW = 10_000 // PAGE_SIZE
+
+
+@frozen
+class _DateWindow:
+    start: str
+    end: str
+
 
 # Name the accounts fan-out parent uses; the framework injects the parent id into child rows under
 # `_accounts_id` (see make_parent_key_name), which the child data_map renames to `account_id`.
@@ -243,6 +264,90 @@ def _unified_accounts_endpoint() -> Endpoint:
     }
 
 
+def _is_offset_exceeded(error: HTTPError) -> bool:
+    """True when Leadfeeder rejects a page as beyond its max explorable search window.
+
+    The unified API's `meta.page_count` can report more pages than it will actually serve — an
+    account with enough web-visits/leads in the sync window pages past a fixed vendor-side depth
+    limit and gets a 416 `offset_exceeded` instead of an empty page. Retrying the same page can
+    never turn it into data, so it isn't a transient failure either.
+
+    The vendor names the condition in the error body; match it wherever the body carries it rather
+    than assuming one error envelope, since a JSON:API error is as likely to arrive wrapped in
+    `errors` as at the top level.
+    """
+    response = error.response
+    if response is None or response.status_code != 416:
+        return False
+    return "offset_exceeded" in response.text
+
+
+def _unified_child_endpoint(config: LeadfeederEndpointConfig, account_id: str, start: str, end: str) -> Endpoint:
+    """One account's slice of a fan-out endpoint, bounded to the `start`..`end` date window."""
+    params: dict[str, Any] = {**_unified_base_params(), "account_id": account_id}
+    child_endpoint: Endpoint = {"path": config.unified_path, "params": params, "data_selector": "data"}
+    if config.unified_method == "POST":
+        # Web visits are a POST search whose date window lives in the body, not the query string.
+        child_endpoint["method"] = "POST"
+        child_endpoint["json"] = {"start_date": start, "end_date": end}
+    else:
+        params["start_date"] = start
+        params["end_date"] = end
+    return child_endpoint
+
+
+def _split_window(start: str, end: str, parts: int) -> list[_DateWindow]:
+    """Cut a date window into at most `parts` day-aligned sub-windows, oldest first.
+
+    Returns an empty list when there is nothing narrower left to ask the vendor for: a single-day
+    window, or a bound that is not a plain yyyy-mm-dd date (a hand-typed start date, which the
+    vendor rejects on its own terms).
+    """
+    try:
+        first = date.fromisoformat(start)
+        last = date.fromisoformat(end)
+    except ValueError:
+        return []
+    days = (last - first).days + 1
+    if days < 2:
+        return []
+    window_days = ceil(days / max(2, min(parts, days)))
+    windows: list[_DateWindow] = []
+    cursor = first
+    while cursor <= last:
+        window_end = min(cursor + timedelta(days=window_days - 1), last)
+        windows.append(_DateWindow(start=cursor.isoformat(), end=window_end.isoformat()))
+        cursor = window_end + timedelta(days=1)
+    return windows
+
+
+def _unified_window_page_count(
+    client: ClientConfig,
+    name: str,
+    config: LeadfeederEndpointConfig,
+    account_id: str,
+    team_id: int,
+    job_id: str,
+    start: str,
+    end: str,
+) -> Optional[int]:
+    """How many pages the vendor reports for one account's window, read from `meta` before syncing it.
+
+    Asking first is what keeps a window the vendor cannot page through from being half read and then
+    read again: the rows are only fetched once the window is known to fit under the offset ceiling.
+    Returns None when the response carries no page count, which leaves the 416 handling as the only
+    signal that a window is too deep.
+    """
+    probe = _unified_child_endpoint(config, account_id, start, end)
+    probe["data_selector"] = "meta"
+    probe["paginator"] = PageNumberPaginator(base_page=1, page_param="page[num]", maximum_page=1)
+    for page in _unified_single_resource(client, name, probe, team_id, job_id, None):
+        for meta in page:
+            if isinstance(meta, dict) and isinstance(meta.get("page_count"), int):
+                return meta["page_count"]
+    return None
+
+
 def _unified_account_ids(client: ClientConfig, team_id: int, job_id: str) -> Iterator[str]:
     resource = _unified_single_resource(
         client,
@@ -306,24 +411,51 @@ def _unified_leadfeeder_source(
     )
     end = datetime.now(UTC).date().isoformat()
 
+    def _iter_account_window(account_id: str, window_start: str, window_end: str) -> Iterator[list[dict[str, Any]]]:
+        """Yield one account's rows for a date window, narrowing the window until the vendor serves it.
+
+        A window holding more rows than one search can read is split into shorter ones, each read in
+        full, so a busy account keeps every row instead of losing whatever sits past the ceiling.
+        """
+        page_count = _unified_window_page_count(
+            client, endpoint, config, account_id, team_id, job_id, window_start, window_end
+        )
+        if page_count is not None and page_count > MAX_PAGES_PER_WINDOW:
+            narrower = _split_window(window_start, window_end, ceil(page_count / MAX_PAGES_PER_WINDOW))
+            if narrower:
+                for window in narrower:
+                    yield from _iter_account_window(account_id, window.start, window.end)
+                return
+
+        try:
+            yield from _unified_single_resource(
+                client,
+                endpoint,
+                _unified_child_endpoint(config, account_id, window_start, window_end),
+                team_id,
+                job_id,
+                partial(_flatten_item, account_id=account_id),
+            )
+        except HTTPError as e:
+            if not _is_offset_exceeded(e):
+                raise
+            # The window reported fewer pages than it holds, so the vendor refused one mid-sync.
+            # Read it as halves rather than dropping the rest of it; the pages already yielded are
+            # fetched again, which merge dedupes on the primary key.
+            narrower = _split_window(window_start, window_end, 2)
+            if not narrower:
+                logger.warning(
+                    "leadfeeder: a single day holds more rows than the vendor will page through, "
+                    "so the rows past its limit are not synced",
+                    extra={"endpoint": endpoint, "day": window_start, "team_id": team_id},
+                )
+                return
+            for window in narrower:
+                yield from _iter_account_window(account_id, window.start, window.end)
+
     def _fanned() -> Iterator[list[dict[str, Any]]]:
         for account_id in _unified_account_ids(client, team_id, job_id):
-            child_params: dict[str, Any] = {**_unified_base_params(), "account_id": account_id}
-            child_endpoint: Endpoint = {
-                "path": config.unified_path,
-                "params": child_params,
-                "data_selector": "data",
-            }
-            if config.unified_method == "POST":
-                # Web visits are a POST search whose date window lives in the body, not the query string.
-                child_endpoint["method"] = "POST"
-                child_endpoint["json"] = {"start_date": start, "end_date": end}
-            else:
-                child_params["start_date"] = start
-                child_params["end_date"] = end
-            yield from _unified_single_resource(
-                client, endpoint, child_endpoint, team_id, job_id, partial(_flatten_item, account_id=account_id)
-            )
+            yield from _iter_account_window(account_id, start, end)
 
     # Partition only on a field confirmed present in the unified schema (visits' `started_at`). The
     # visitor-companies rows carry no confirmed top-level date, so leads sync unpartitioned here.

@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardType } from '~/types'
 
 import { ImageTileModal } from 'products/dashboards/frontend/components/ImageTile/ImageTileModal'
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -25,7 +25,7 @@ import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
 
-export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryBasedInsightModel> }): JSX.Element {
+export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JSX.Element {
     const {
         dashboardMode,
         canEditDashboard,
@@ -69,8 +69,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 isOpen={showSubscriptions}
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboard={dashboard}
-                isCreating={subscriptionId === 'new'}
-                subscriptionId={subscriptionId === 'new' ? null : subscriptionId}
+                subscriptionId={subscriptionId === 'new' ? undefined : subscriptionId}
             />
             <SharingModal
                 title="Dashboard permissions & sharing"

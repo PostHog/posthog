@@ -1,11 +1,14 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import {
-  DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
+  DESKTOP_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { useAuthStore } from "@posthog/ui/features/auth/store";
-import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import {
+  DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  useSidebarStore,
+} from "@posthog/ui/features/sidebar/sidebarStore";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -49,10 +52,6 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@posthog/ui/features/canvas/components/ChannelBackRow", () => ({
   ChannelBackRow: () => null,
 }));
-vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
-  ChannelsFab: () => null,
-}));
-
 // The row menu's spaces list reaches for a QueryClient the unit test has no
 // stack for. Stubbed at the module boundary, as ShellLayout.test.tsx does for
 // the same reason.
@@ -107,7 +106,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     pinned: false,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: null,
@@ -137,7 +136,7 @@ function renderSidebar() {
 
 beforeEach(() => {
   useSidebarStore.setState({
-    channelItemFilters: DEFAULT_CHANNEL_ITEM_FILTERS,
+    channelItemFilters: DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
     channelItemSort: DEFAULT_CHANNEL_ITEM_SORT,
     channelItemGrouping: DEFAULT_CHANNEL_ITEM_GROUPING,
   });
@@ -270,7 +269,12 @@ describe("ChannelSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Filter" }));
     await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Slack" }),
+      await screen.findByRole("menuitemcheckbox", { name: "Slack" }),
+    );
+    expect(screen.getByText("Filed from Slack")).toBeInTheDocument();
+    expect(screen.getByText("Started here")).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Desktop" }),
     );
     expect(screen.queryByText("Started here")).not.toBeInTheDocument();
 
@@ -301,7 +305,10 @@ describe("ChannelSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Filter" }));
     await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Slack" }),
+      await screen.findByRole("menuitemcheckbox", { name: "Slack" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Desktop" }),
     );
     expect(screen.queryByText("Started here")).not.toBeInTheDocument();
 

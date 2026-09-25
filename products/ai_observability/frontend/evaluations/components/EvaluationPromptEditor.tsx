@@ -25,11 +25,13 @@ export function EvaluationPromptEditor(): JSX.Element {
                         value={prompt}
                         onChange={setEvaluationPrompt}
                         placeholder={
-                            allowsNA
-                                ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the criteria doesn't apply.
+                            evaluation.output_type === 'numeric'
+                                ? 'Describe how to score the response. Return a numeric score within the configured bounds.'
+                                : allowsNA
+                                  ? `Write a prompt that evaluates the LLM generation and returns true, false, or N/A if the criteria doesn't apply.
 
 Example: Is this response mathematically accurate? Return true if correct, false if incorrect, or N/A if no math is involved.`
-                                : `Write a prompt that evaluates the LLM generation and returns true or false.
+                                  : `Write a prompt that evaluates the LLM generation and returns true or false.
 
 Example: Is this response helpful and accurate? Return true if yes, false if no.`
                         }
@@ -37,12 +39,18 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                         className="font-mono text-sm"
                         maxLength={2000}
                     />
-                    <div className="flex justify-between items-center text-sm text-muted">
+                    <div className="flex flex-wrap gap-2 justify-between items-center text-sm text-muted">
                         <div>{prompt.length}/2000 characters</div>
                         <div className="flex items-center gap-2">
                             <span>Expected output:</span>
                             <LemonTag type="completion">
-                                {allowsNA ? 'Boolean (true/false/NA)' : 'Boolean (true/false)'}
+                                {evaluation.output_type === 'numeric'
+                                    ? allowsNA
+                                        ? 'Number or N/A'
+                                        : 'Number'
+                                    : allowsNA
+                                      ? 'Boolean (true/false/NA)'
+                                      : 'Boolean (true/false)'}
                             </LemonTag>
                         </div>
                     </div>
@@ -55,7 +63,9 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                     <ul className="text-sm text-muted space-y-1 list-disc list-inside">
                         <li>Be specific about what you want to evaluate</li>
                         <li>
-                            {allowsNA ? (
+                            {evaluation.output_type === 'numeric' ? (
+                                <span>Describe the scoring scale and what each score means</span>
+                            ) : allowsNA ? (
                                 <>
                                     Clearly instruct to return <code>true</code>, <code>false</code>, or{' '}
                                     <code>N/A</code> when criteria doesn't apply

@@ -21,6 +21,15 @@ import type { Hit, McpProxyDetails } from "./proxy-tool";
 
 const MAX_COLLAPSED_ARGS_LENGTH = 120;
 
+const TERMINAL_SEQUENCES_RE =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control sequences must be matched to be stripped
+  /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])/g;
+const CONTROL_CHARS_RE = /\p{Cc}/gu;
+
+export function stripTerminalSequences(value: string): string {
+  return value.replace(TERMINAL_SEQUENCES_RE, "").replace(CONTROL_CHARS_RE, "");
+}
+
 /** Compact single-line JSON preview of tool arguments. Empty for no args. */
 export function formatArgsCompact(
   args: unknown,
@@ -50,12 +59,12 @@ export function formatArgsExpanded(args: unknown): string {
 }
 
 export function renderMcpToolCall(
-  piName: string,
+  displayName: string,
   args: unknown,
   theme: Theme,
   expanded: boolean,
 ): InstanceType<typeof Text> {
-  let text = theme.fg("toolTitle", theme.bold(piName));
+  let text = theme.fg("toolTitle", theme.bold(displayName));
   if (expanded) {
     const pretty = formatArgsExpanded(args);
     if (pretty) {
@@ -180,11 +189,12 @@ function renderSearchResult(
 function renderCallOutput(
   server: string,
   tool: string,
+  title: string | undefined,
   content: ReadonlyArray<{ type: string; text?: string }>,
   theme: Theme,
   expanded: boolean,
 ): string {
-  const header = `${theme.fg("toolTitle", theme.bold(server))} ${theme.fg("muted", "\u2192")} ${theme.fg("dim", tool)}`;
+  const header = `${theme.fg("toolTitle", theme.bold(server))} ${theme.fg("muted", "\u2192")} ${theme.fg("dim", title ? stripTerminalSequences(title) : tool)}`;
   const text = content
     .map((c) => (c.type === "text" ? (c.text ?? "") : `[${c.type}]`))
     .join("\n")
@@ -260,6 +270,7 @@ export function renderMcpProxyResult(
         renderCallOutput(
           details.server,
           details.tool,
+          details.title,
           result.content,
           theme,
           options.expanded,

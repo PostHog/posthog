@@ -233,6 +233,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             {
                 validateResetToken: async ({ uuid, token }: { uuid: string; token: string }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.get(`api/reset/${uuid}/?token=${token}`)
                         return { success: true, token, uuid }
                     } catch (e: any) {
@@ -267,6 +268,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 breakpoint()
 
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create('api/reset/', { email })
                 } catch (e: any) {
                     actions.setRequestPasswordResetManualErrors({ email: e.detail ?? 'An error occurred' })
@@ -295,6 +297,7 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                     return
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.create(`api/reset/${values.validatedResetToken.uuid}/`, {
                         password,
                         token: values.validatedResetToken.token,

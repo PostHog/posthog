@@ -59,16 +59,6 @@ export const PartialUpdateBody = () => zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
@@ -201,7 +191,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     clients: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryClientsDefault)
-        .describe('Filter by API clients that generated the activity (from x-posthog-client header).'),
+        .describe(
+            "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run)."
+        ),
     detail_filters: zod
         .string()
         .optional()

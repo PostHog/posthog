@@ -6,7 +6,7 @@ import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { parseNumericArrayFilter, toParams } from 'lib/utils/url'
+import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { getFlagVariants } from 'scenes/experiments/utils'
 import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -41,6 +41,8 @@ export interface ExperimentsFilters {
     archived?: boolean
     page?: number
     order?: string
+    tags?: string[]
+    excluded_tags?: string[]
 }
 
 export interface FeatureFlagModalFilters {
@@ -59,6 +61,8 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
     archived: false,
     page: 1,
     order: undefined,
+    tags: undefined,
+    excluded_tags: undefined,
 }
 
 const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
@@ -174,12 +178,14 @@ export interface experimentsLogicValues {
     paramsFromFilters: {
         archived?: boolean | undefined
         created_by_id?: number[] | undefined
+        excluded_tags?: string[] | undefined
         limit: number
         offset: number
         order?: string | undefined
         page?: number | undefined
         search?: string | undefined
         status?: ExperimentStatus | 'all' | undefined
+        tags?: string[] | undefined
     }
     sidePanelContext: SidePanelSceneContext
     tab: ExperimentsTabs
@@ -481,12 +487,14 @@ export interface experimentsLogicMeta {
         paramsFromFilters: (filters: ExperimentsFilters) => {
             archived?: boolean | undefined
             created_by_id?: number[] | undefined
+            excluded_tags?: string[] | undefined
             limit: number
             offset: number
             order?: string | undefined
             page?: number | undefined
             search?: string | undefined
             status?: ExperimentStatus | 'all' | undefined
+            tags?: string[] | undefined
         }
         featureFlagModalParamsFromFilters: (
             featureFlagModalFilters: FeatureFlagModalFilters,
@@ -609,7 +617,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
                 loadExperiments: async (_: void, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsList() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
                     )
@@ -621,7 +629,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsArchiveCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`, {
                         disable_feature_flag: disableFeatureFlag,
                     })
@@ -633,7 +641,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     }
                 },
                 unarchiveExperiment: async (id: number) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsUnarchiveCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
                     lemonToast.info('Experiment unarchived')
                     return {
@@ -650,7 +658,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     if (payload.name) {
                         data.name = payload.name
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsDuplicateCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const duplicatedExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
                         data
@@ -680,7 +688,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     if (payload.name) {
                         data.name = payload.name
                     }
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsCopyToProjectCreate() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const newExperiment = await api.create(
                         `api/projects/${values.currentProjectId}/experiments/${payload.id}/copy_to_project`,
                         data
@@ -719,7 +727,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
             {
                 loadFeatureFlagModalFeatureFlags: async (_: void, breakpoint) => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams({
                             ...values.featureFlagModalParamsFromFilters,
@@ -742,7 +750,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             } as ExperimentVelocityStats,
             {
                 loadExperimentsStats: async () => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. experimentsStatsRetrieve() from 'products/experiments/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.get(`api/projects/${values.currentProjectId}/experiments/stats/`)
                     return response
                 },
@@ -883,7 +891,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | boolean | number[]> = {
+            const searchParams: Record<string, string | number | boolean | number[] | string[]> = {
                 ...values.filters,
             }
 
@@ -910,7 +918,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | boolean | number[]> = {
+            const searchParams: Record<string, string | number | boolean | number[] | string[]> = {
                 ...values.filters,
             }
 
@@ -946,11 +954,13 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 actions.setExperimentsTab(tabInURL)
             }
 
-            const { page, search, status, created_by_id, order, archived } = searchParams
+            const { page, search, status, created_by_id, order, archived, tags, excluded_tags } = searchParams
             const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
                 search,
                 created_by_id: parseNumericArrayFilter(created_by_id),
                 order,
+                tags: parseTagsFilter(tags),
+                excluded_tags: parseTagsFilter(excluded_tags),
             }
 
             pageFiltersFromUrl.status = normalizeExperimentFilterStatus(status)

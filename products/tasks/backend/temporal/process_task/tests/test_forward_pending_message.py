@@ -3,7 +3,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.apps import apps
 from django.test import TestCase
@@ -18,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.exceptions import OrganizationExecutionError
 from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuAttribution
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
@@ -96,6 +97,28 @@ class TestForwardPendingUserMessage(TestCase):
         with self.assertRaises(ApplicationError) as ctx:
             forward_pending_user_message("550e8400-e29b-41d4-a716-446655440000")
         assert ctx.exception.non_retryable is True
+
+    @parameterized.expand([(False,), (True,)])
+    @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
+    def test_pending_deletion_blocks_delivery(self, warm: bool, mock_send: Mock) -> None:
+        run = self._make_run(
+            state={
+                "await_user_message": warm,
+                "pending_user_message": "fix the tests",
+                "sandbox_url": "https://sandbox.example.com/rpc",
+            }
+        )
+        self.org.is_pending_deletion = True
+        self.org.save(update_fields=["is_pending_deletion"])
+
+        with self.assertRaises(OrganizationExecutionError) as error_context:
+            forward_pending_user_message(str(run.id))
+
+        assert error_context.exception.non_retryable is True
+        assert error_context.exception.context["reason"] == "organization_pending_deletion"
+        mock_send.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["pending_user_message"] == "fix the tests"
 
     @patch("products.tasks.backend.logic.services.store_skills.refresh_store_skills_state")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")

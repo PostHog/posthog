@@ -1,5 +1,5 @@
 import { DateTime, Duration } from 'luxon'
-import { Counter } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import {
@@ -93,6 +93,21 @@ const counterAwaitedStepFinished = new Counter({
     labelNames: ['outcome'],
 })
 
+const histogramAwaitedStepWaitSeconds = new Histogram({
+    name: 'cdp_hogflow_awaited_step_wait_seconds',
+    help: 'How long a parked step waited before it stopped, by outcome.',
+    labelNames: ['outcome'],
+    buckets: [30, 60, 120, 300, 600, 1200, 1800, 3600, 7200, 10800],
+})
+
+const observeAwaitedStepFinished = (outcome: string, awaiting: AwaitingResume): void => {
+    counterAwaitedStepFinished.labels({ outcome }).inc()
+    if (awaiting.parkedAt) {
+        const waited = DateTime.now().diff(DateTime.fromISO(awaiting.parkedAt), 'seconds').seconds
+        histogramAwaitedStepWaitSeconds.labels({ outcome }).observe(Math.max(0, waited))
+    }
+}
+
 export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
@@ -172,17 +187,20 @@ export class HogFunctionHandler implements ActionHandler {
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
-            trackHogFlowBillableInvocation(result, {
-                invocation: functionResult.invocation,
-                billingMetricType: this.hogFlowActionBillingType,
-            })
+            // A step that does not send leaves this undefined and bills as before.
+            if (functionResult.deliveredToRecipient !== false) {
+                trackHogFlowBillableInvocation(result, {
+                    invocation: functionResult.invocation,
+                    billingMetricType: this.hogFlowActionBillingType,
+                })
 
-            // actionStepCount holds across a retry of this step but changes on a loop revisit.
-            this.usageReporter?.reportBillableInvocation({
-                teamId: invocation.teamId,
-                usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-            })
+                // actionStepCount holds across a retry of this step but changes on a loop revisit.
+                this.usageReporter?.reportBillableInvocation({
+                    teamId: invocation.teamId,
+                    usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
+                    recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                })
+            }
 
             // Re-pin the attribution version to the one that actually sent. Live edits reach runs
             // already in flight, so a run that entered on v2 can send its email after v3 is
@@ -250,6 +268,7 @@ export class HogFunctionHandler implements ActionHandler {
             deadlineAt: deadline.toISO()!,
             dispatch,
             label: awaitRequest.label,
+            parkedAt: DateTime.now().toISO()!,
         }
         result.logs.push({
             level: 'info',
@@ -272,7 +291,7 @@ export class HogFunctionHandler implements ActionHandler {
         if (resume?.key === awaiting.key) {
             delete currentAction.awaitingResume
             delete currentAction.resumeResult
-            counterAwaitedStepFinished.labels({ outcome: resume.status }).inc()
+            observeAwaitedStepFinished(resume.status, awaiting)
             const payload = capWorkflowStepResult(
                 { ...awaiting.dispatch, status: resume.status },
                 resume.result ?? {},
@@ -313,7 +332,7 @@ export class HogFunctionHandler implements ActionHandler {
         }
         const deadline = DateTime.fromISO(awaiting.deadlineAt)
         if (DateTime.now() >= deadline) {
-            counterAwaitedStepFinished.labels({ outcome: 'timed_out' }).inc()
+            observeAwaitedStepFinished('timed_out', awaiting)
             throw new Error(`Timed out waiting for the ${label} to finish`)
         }
         // Woken early with nothing (clock skew): park again.

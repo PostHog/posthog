@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -21,6 +21,10 @@ from posthog.scopes import (
     resolve_ceiling,
 )
 from posthog.utils import get_instance_region
+
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -228,6 +232,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          recoverable soft-delete that refuses a table a source owns. Deleting
 #                          a data quality check is the one PERMANENT delete in this set, and a
 #                          check is cheap to recreate.
+#   replay_scanner:write   Every Replay vision scanner in the scout's project, plus the prompt
+#                          suggestion loop and the shared rating on observations. Scanning spends
+#                          the organization's credits, and delete is PERMANENT (it takes the
+#                          scanner's observations with it), so this scope alone misses the bar the
+#                          others meet. One scope object covers the whole surface, so the two
+#                          exclusions live in `products/replay_vision/backend/scout_writes.py`
+#                          instead: a scout cannot delete, and must cap what it creates or enables.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -244,6 +255,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "llm_skill:write",
         "warehouse_view:write",
         "warehouse_table:write",
+        "replay_scanner:write",
     }
 )
 
@@ -572,8 +584,13 @@ def create_oauth_access_token_for_user(
     include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
+    withhold_scopes: Collection[str] = (),
 ) -> str:
-    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    resolved = [
+        scope
+        for scope in resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+        if scope not in withhold_scopes
+    ]
     if include_mcp_builtin_agent_scope:
         # Provenance marker: the MCP Store uses it to deny the human/member
         # surface and route the agent through its explicit gateway grants. It
@@ -617,15 +634,29 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     Gated here rather than only at the HTTP kickoff, which a workflow retry or
     resume reaches with no request in front of it.
     """
+    organization_id = _organization_id_for_team(team_id)
     if wizard_identity_blocked(
         distinct_id=str(user.distinct_id),
         email=user.email,
         surface="wizard_mint",
         user_uuid=str(user.uuid),
-        organization_ids=[_organization_id_for_team(team_id)],
+        organization_ids=[organization_id],
         team_ids=[team_id],
     ):
         raise WizardIdentityBlockedError(WIZARD_BLOCKED_DETAIL)
+
+    try:
+        security_shadow_check(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                organization_ids=(organization_id,),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="wizard_mint",
+        )
+    except Exception:
+        logger.exception("security_shadow_check_site_failed", call_site="wizard_mint")
 
     app = get_wizard_app()
 

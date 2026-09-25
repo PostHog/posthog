@@ -10,6 +10,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
 
@@ -25,7 +27,7 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 export function MCPSessionDetail(): JSX.Element {
     const { selectedSession, selectedSessionToolCalls, selectedSessionIntent, isSelectedSessionGenerating } =
         useValues(mcpSessionsLogic)
-    const { generateIntent, loadMoreToolCalls } = useActions(mcpSessionsLogic)
+    const { generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
         return (
@@ -44,7 +46,7 @@ export function MCPSessionDetail(): JSX.Element {
 
     // The panel's view of the selected session's calls: the list, whether more pages exist, whether
     // the first page is still loading (skeleton), and whether a "Load more" append is in flight.
-    const { calls: toolCalls, hasNext, loading, loadingMore } = selectedSessionToolCalls
+    const { calls: toolCalls, hasNext, loading, loadingMore, error } = selectedSessionToolCalls
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -128,6 +130,13 @@ export function MCPSessionDetail(): JSX.Element {
                 {loading ? (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton repeat={3} className="h-16 w-full" />
+                    </div>
+                ) : error ? (
+                    <div className="flex flex-col items-start gap-2 text-sm text-secondary">
+                        Could not load this session's tool calls.
+                        <LemonButton size="small" onClick={() => loadToolCalls(selectedSession.session_id)}>
+                            Retry
+                        </LemonButton>
                     </div>
                 ) : toolCalls.length === 0 ? (
                     <div className="text-sm text-secondary">No tool calls captured for this session.</div>
@@ -238,6 +247,12 @@ export function MCPSessionDetail(): JSX.Element {
                     </AccessControlAction>
                 )}
             </footer>
+            {!loading && toolCalls.length > 0 && (
+                <MCPAnalyticsFeedbackPrompt
+                    contextKey={selectedSession.session_id}
+                    prompt={MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT}
+                />
+            )}
         </div>
     )
 }

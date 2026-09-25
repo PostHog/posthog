@@ -1,6 +1,9 @@
+from datetime import time, timedelta
+
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -8,16 +11,20 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
+from posthog.api.team import TeamCustomerAnalyticsConfigSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.tag import Tag
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -88,6 +95,16 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Hedgebox")
+
+    def test_cannot_create_project_with_pending_duplicate_name(self):
+        self._set_unlimited_projects()
+        self.project.is_pending_deletion = True
+        self.project.save(update_fields=["is_pending_deletion"])
+
+        response = self.client.post("/api/projects/", {"name": self.project.name})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("already a project called", response.json()["detail"])
 
     def test_creating_projects_without_name_generates_unique_default_names(self):
         self._set_unlimited_projects()
@@ -218,6 +235,32 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             *[{"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features],
         ]
         self.organization.save()
+
+    def test_project_creation_drops_ai_context_account_property_ids(self):
+        self._set_unlimited_projects()
+        from products.customer_analytics.backend.facade.testing import create_custom_property_definition
+
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan", target_type="account")
+
+        created = self.client.post(
+            "/api/projects/",
+            {
+                "name": "Fresh",
+                "conversations_settings": {"ai_context_account_property_ids": [str(definition.id)]},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        # The new project's team owns no property definition, so an id borrowed from another
+        # team must not survive creation.
+        assert created.json()["conversations_settings"]["ai_context_account_property_ids"] == []
+
+        malformed = self.client.post(
+            "/api/projects/",
+            {"name": "Malformed", "conversations_settings": {"ai_context_account_property_ids": ["not-a-uuid"]}},
+            format="json",
+        )
+        assert malformed.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_project_creation_rejects_paid_logs_retention_without_feature(self):
         self._set_unlimited_projects()
@@ -497,6 +540,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
+        self._mark_project_ingested()
         viewset = ProjectViewSet()
         factory = APIRequestFactory()
         request = factory.delete("/fake")
@@ -511,12 +555,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         # Project deletion happens async in the Temporal workflow
 
-        mock_delete_task.assert_called_once_with(
-            team_ids=[team_id],
-            project_id=project_id,
-            user_id=self.user.id,
-            project_name=project_name,
-        )
+        mock_delete_task.assert_called_once()
+        call_kwargs = mock_delete_task.call_args.kwargs
+        self.assertEqual(call_kwargs["team_ids"], [team_id])
+        self.assertEqual(call_kwargs["project_id"], project_id)
+        self.assertEqual(call_kwargs["user_id"], self.user.id)
+        self.assertEqual(call_kwargs["project_name"], project_name)
+        self.assertGreater(call_kwargs["start_delay"], timedelta(hours=47))
+        self.assertLessEqual(call_kwargs["start_delay"], timedelta(hours=48))
 
     @parameterized.expand(
         [
@@ -561,17 +607,172 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
 
+    def _mark_project_ingested(self) -> None:
+        self.team.ingested_event = True
+        self.team.save(update_fields=["ingested_event"])
+
+    @parameterized.expand(
+        [
+            ("with_ingested_data", True, timedelta(hours=48)),
+            ("without_ingested_data", False, None),
+        ]
+    )
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
-    def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
+    def test_project_deletion_sets_pending_deletion_flag(
+        self, _name, has_ingested_data, expected_delay, mock_delete_task
+    ):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        if has_ingested_data:
+            self._mark_project_ingested()
 
         response = self.client.delete(f"/api/projects/{self.project.id}")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
         self.project.refresh_from_db()
         self.assertTrue(self.project.is_pending_deletion)
+        self.assertAlmostEqual(
+            self.project.deletion_scheduled_at.timestamp(),
+            (timezone.now() + (expected_delay or timedelta())).timestamp(),
+            delta=5,
+        )
         mock_delete_task.assert_called_once()
+        start_delay = mock_delete_task.call_args.kwargs["start_delay"]
+        if expected_delay is None:
+            self.assertIsNone(start_delay)
+        else:
+            self.assertLessEqual(start_delay, expected_delay)
+            self.assertGreater(start_delay, expected_delay - timedelta(minutes=1))
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_can_be_canceled(self, mock_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self._mark_project_ingested()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+        self.assertIsNone(self.project.deletion_scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        restored_activities = list(
+            ActivityLog.objects.filter(
+                team_id=self.project.id,
+                item_id=str(self.project.id),
+                activity="restored",
+            )
+            .order_by("scope")
+            .values_list("scope", flat=True)
+        )
+        self.assertEqual(restored_activities, ["Project", "Team"])
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_deletion_cancellation_rejects_a_stale_schedule(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        stale_scheduled_at = timezone.now() + timedelta(hours=48)
+        current_scheduled_at = timezone.now() - timedelta(seconds=1)
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=current_scheduled_at,
+        )
+        self.project.is_pending_deletion = True
+        self.project.deletion_scheduled_at = stale_scheduled_at
+
+        with patch.object(ProjectViewSet, "get_object", return_value=self.project):
+            response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("can no longer be canceled", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, current_scheduled_at)
+        mock_cancel_delete_task.assert_not_called()
+
+    @patch(
+        "posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow",
+        side_effect=Exception("temporal unavailable"),
+    )
+    def test_project_deletion_cancellation_failure_keeps_project_active(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        scheduled_at = timezone.now() + timedelta(hours=48)
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True,
+            deletion_scheduled_at=scheduled_at,
+        )
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("could not be canceled", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+        self.assertFalse(
+            ActivityLog.objects.filter(
+                team_id=self.project.id,
+                item_id=str(self.project.id),
+                activity="restored",
+            ).exists()
+        )
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_can_be_deleted_again_after_cancellation(self, mock_start_delete_task, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self._mark_project_ingested()
+        self.client.delete(f"/api/projects/{self.project.id}")
+
+        cancel_response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+        self.assertEqual(cancel_response.status_code, status.HTTP_200_OK)
+
+        mock_start_delete_task.reset_mock()
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_start_delete_task.assert_called_once()
+        mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_member_cannot_cancel_deletion(self, mock_cancel_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.project.is_pending_deletion = True
+        self.project.deletion_scheduled_at = timezone.now() + timedelta(hours=48)
+        self.project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertIsNotNone(self.project.deletion_scheduled_at)
+        mock_cancel_delete_task.assert_not_called()
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    def test_project_deletion_cannot_be_canceled_after_deletion_starts(
+        self, mock_start_delete_task, mock_cancel_delete_task
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.client.delete(f"/api/projects/{self.project.id}")
+        Project.objects.filter(id=self.project.id).update(deletion_scheduled_at=timezone.now() - timedelta(hours=1))
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already started", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        mock_cancel_delete_task.assert_not_called()
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_returns_pending_deletion_in_api(self, mock_delete_task):
@@ -595,6 +796,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.delete(f"/api/projects/{self.project.id}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("already being deleted", response.json()["detail"])
+        mock_delete_task.assert_not_called()
+
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    @patch("products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason")
+    def test_concurrent_project_deletion_cannot_clear_pending_state(self, mock_block_reason, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        scheduled_at = timezone.now() + timedelta(hours=48)
+
+        def claim_deletion(*args: object, **kwargs: object) -> None:
+            Project.objects.filter(id=self.project.id).update(
+                is_pending_deletion=True,
+                deletion_scheduled_at=scheduled_at,
+            )
+            return None
+
+        mock_block_reason.side_effect = claim_deletion
+
+        response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already being deleted", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        self.assertEqual(self.project.deletion_scheduled_at, scheduled_at)
         mock_delete_task.assert_not_called()
 
     def test_team_deletion_does_not_cascade_to_persons(self):
@@ -879,6 +1105,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
 
+    def test_customer_analytics_config_save_keeps_track_rules_written_meanwhile(self):
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        serializer = TeamCustomerAnalyticsConfigSerializer(config, data={"activity_event": "$pageview"}, partial=True)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        enabled_at = timezone.now()
+        rules = {**config.account_track_rules, "written": "meanwhile"}
+        TeamCustomerAnalyticsConfig.objects.filter(pk=config.pk).update(
+            account_track_rules=rules, account_track_rules_enabled_at=enabled_at
+        )
+
+        serializer.save()
+
+        config.refresh_from_db()
+        self.assertEqual(config.activity_event, "$pageview")
+        self.assertEqual((config.account_track_rules, config.account_track_rules_enabled_at), (rules, enabled_at))
+
     def test_settings_as_of_action_available_on_projects(self):
         # This action previously existed only on /api/environments/ — it must now work on /api/projects/ too.
         # NOTE: we pass a `scope` filter on purpose. The unscoped snapshot path has a pre-existing bug on the
@@ -916,6 +1158,59 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+    def test_experiments_config_recalculation_times_sync_with_legacy_field(self):
+        # The hourly workflow and older clients read experiment_recalculation_time while
+        # newer clients read the list; if the sync breaks, recalcs run at the wrong hour.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": ["14:00:00", "02:00:00"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(config.experiment_recalculation_time, time(hour=14))
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_time": "08:00:00"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertEqual(config.experiment_recalculation_times, ["08:00:00"])
+        self.assertEqual(config.experiment_recalculation_time, time(hour=8))
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": None},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertIsNone(config.experiment_recalculation_times)
+        self.assertIsNone(config.experiment_recalculation_time)
+
+    @parameterized.expand(
+        [
+            ("not_on_the_hour", ["08:30:00"]),
+            ("bad_format", ["8am"]),
+            ("hour_out_of_range", ["24:00:00"]),
+            ("more_than_two", ["02:00:00", "10:00:00", "18:00:00"]),
+            ("duplicate_hours", ["02:00:00", "02:00:00"]),
+            ("closer_than_six_hours", ["08:00:00", "09:00:00"]),
+            ("closer_than_six_hours_across_midnight", ["23:00:00", "01:00:00"]),
+            ("empty_list", []),
+        ]
+    )
+    def test_experiments_config_rejects_invalid_recalculation_times(self, _name, times):
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_recalculation_times": times},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_tags_round_trip_and_land_in_the_project_team_namespace(self):
         # `tags` is not a Project column, so it must be pulled out before the serializer's

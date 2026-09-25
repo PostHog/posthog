@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,8 +10,15 @@ from rest_framework import status
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
+from products.engineering_analytics.backend.logic.job_logs.coordinator import _query_jobs_with_diagnostics
 from products.engineering_analytics.backend.logic.queries._test_spans import selector_from_nodeid
-from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
+from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    GITHUB_SOURCE_PREFIX,
+    connect_github_jobs,
+    connect_github_source_without_data,
+    create_github_warehouse_table,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 T_RERUN_RECOVERY = "posthog/api/test/test_rerun/TestRerun::test_green_on_attempt_2"
@@ -32,6 +40,11 @@ T_FOREIGN = "posthog/api/test/test_foreign/TestForeign::test_other_service"
 T_OTHER_REPO = "posthog/api/test/test_other_repo/TestOtherRepo::test_flaky"
 T_JEST_RECOVERY = "products/surveys/frontend/surveyLogic.test.ts::surveyLogic saves"
 T_JEST_CROSS_LEG = "frontend/src/scenes/legacy.test.ts::legacy scene renders"
+T_SETUP_BREAK = "posthog/api/test/test_setup/TestSetup::test_errors_when_setup_breaks"
+T_SPAN_ONLY_BREAK = "posthog/api/test/test_setup/TestSetup::test_errors_without_a_broken_run"
+T_JOB_RERUN = "posthog/api/test/test_shard/TestShard::test_fails_with_its_whole_job"
+T_LEGACY_JOB_A = "posthog/api/test/test_legacy_a/TestLegacyA::test_one"
+T_LEGACY_JOB_B = "posthog/api/test/test_legacy_b/TestLegacyB::test_two"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
@@ -93,6 +106,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 pr="401",
                 branch="f1",
                 selector=T_IN_JOB_SELECTOR,
+                runner_name="runner-example",
             ),
             # Failures across 3 distinct PRs, no recovery: qualifies on blast radius alone.
             cls._span(11, T_THREE_PRS, "failed", ts=earlier, run="500", pr="501", branch="f1"),
@@ -115,11 +129,88 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             cls._span(19, T_TIE_B, "rerun_passed", ts=recent, run="1000", pr="1001", branch="tie"),
             cls._span(20, T_TIE_A, "rerun_passed", ts=recent, run="1001", pr="1002", branch="tie"),
             # Would qualify on signal alone, but a non-CI service must never reach the queue.
-            cls._span(21, T_FOREIGN, "rerun_passed", ts=recent, run="1100", pr="1101", service="other-service"),
+            cls._span(
+                21,
+                T_FOREIGN,
+                "rerun_passed",
+                ts=recent,
+                run="1100",
+                pr="1101",
+                service="other-service",
+                runner_name="runner-example",
+            ),
             # Would qualify on signal alone, but belongs to another connected repository.
-            cls._span(22, T_OTHER_REPO, "rerun_passed", ts=recent, run="1200", pr="1201", repo="PostHog/posthog.com"),
+            cls._span(
+                22,
+                T_OTHER_REPO,
+                "rerun_passed",
+                ts=recent,
+                run="1200",
+                pr="1201",
+                repo="PostHog/posthog.com",
+                runner_name="runner-example",
+            ),
             # A job-root span carries no test.outcome and must never become a row.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
+            # CI setup broke: one run attempt errored tests in three jobs. The errors describe the attempt, not
+            # the tests, so none of them reaches the queue as a master failure.
+            *[
+                cls._span(
+                    40 + shard,
+                    f"{T_SETUP_BREAK}_{shard}",
+                    "error",
+                    ts=recent,
+                    run="1700",
+                    branch="master",
+                    job=f"backend:core:{shard}",
+                )
+                for shard in (1, 2, 3)
+            ],
+            # The same shape in a run GitHub reports as healthy.
+            *[
+                cls._span(
+                    70 + shard,
+                    f"{T_SPAN_ONLY_BREAK}_{shard}",
+                    "error",
+                    ts=recent,
+                    run="1900",
+                    branch="master",
+                    job=f"backend:core:{shard}",
+                )
+                for shard in (1, 2, 3)
+            ],
+            # One job attempt failed two tests, and its re-run attempt passed both. Two tests is below the
+            # default job threshold, so both are flakes here; the threshold test lowers it to two.
+            *[
+                span
+                for index in (1, 2)
+                for span in (
+                    cls._span(
+                        50 + index,
+                        f"{T_JOB_RERUN}_{index}",
+                        "failed",
+                        ts=earlier,
+                        run="1800",
+                        branch="master",
+                        job="backend:core:4",
+                    ),
+                    cls._span(
+                        60 + index,
+                        f"{T_JOB_RERUN}_{index}",
+                        "passed",
+                        ts=recent,
+                        run="1800",
+                        attempt="2",
+                        branch="master",
+                        job="backend:core:4",
+                    ),
+                )
+            ],
+            # Two keyless jobs (pre-job_key history) in one run attempt, each failing a different
+            # test. Coalesced under the synthetic 'legacy' job_key, their combined nodeid count can
+            # cross the job-attempt threshold even though neither real job did.
+            cls._span(70, T_LEGACY_JOB_A, "failed", ts=earlier, run="1900", branch="master"),
+            cls._span(71, T_LEGACY_JOB_B, "failed", ts=earlier, run="1900", branch="master"),
             # Main Jest spans share the same evidence model. Recovery only counts within the
             # stable FOSS/EE + shard job that failed.
             cls._span(
@@ -183,6 +274,41 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
+    def test_job_log_discovery_includes_recovered_jobs_without_collecting_unrelated_passes(self) -> None:
+        now = datetime.now(UTC).replace(microsecond=0)
+        jobs = [
+            (1, 400, 1, "runner-example", "success"),
+            (2, 400, 1, "another-runner", "success"),
+            (3, 400, 2, "runner-example", "success"),
+            (4, 999, 1, "runner-example", "success"),
+            (5, 999, 1, "another-runner", "failure"),
+            (6, 1100, 1, "runner-example", "success"),
+            (7, 1200, 1, "runner-example", "success"),
+            (8, 1000, 1, "", "success"),
+        ]
+        create_github_warehouse_table(
+            self,
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                dict.fromkeys(WORKFLOW_JOBS_COLUMNS)
+                | {
+                    "id": job_id,
+                    "run_id": run_id,
+                    "run_attempt": attempt,
+                    "runner_name": runner,
+                    "conclusion": conclusion,
+                    "started_at": (now - timedelta(days=2)).isoformat(),
+                    "completed_at": now.isoformat(),
+                }
+                for job_id, run_id, attempt, runner, conclusion in jobs
+            ],
+        )
+        rows = _query_jobs_with_diagnostics(
+            self.team, GITHUB_SOURCE_PREFIX, (now - timedelta(hours=12)).isoformat(), "posthog/POSTHOG"
+        )
+        assert {row["job_id"] for row in rows} == {1, 5}
+
     @classmethod
     def _span(
         cls,
@@ -199,6 +325,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         service: str = "ci-backend",
         repo: str = "PostHog/posthog",
         job: str = "",
+        runner_name: str = "",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
@@ -208,6 +335,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         )
         if job:
             attr_pairs.append(f"'test.job_key__str', '{job}'")
+        if runner_name:
+            attr_pairs.append(f"'test.runner_name__str', '{runner_name}'")
         attrs = f"map({', '.join(attr_pairs)})" if attr_pairs else "map()"
         resource_pairs = [
             f"'{key}', '{value}'"
@@ -227,6 +356,18 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             f"'{stamp}', '{stamp}', '{stamp}', 0, '{service}', {attrs}, {resource})"
         )
 
+    def setUp(self) -> None:
+        super().setUp()
+        # Run 1700 failed across three jobs on GitHub and run 1800 failed one; run 1900 passed, so only
+        # the first two may drop a trial.
+        connect_github_jobs(
+            self,
+            prefix="flaky",
+            jobs=[(70 + shard, 1700, 1, "failure") for shard in (1, 2, 3)]
+            + [(80, 1800, 1, "failure"), (81, 1800, 2, "success")]
+            + [(90 + shard, 1900, 1, "success") for shard in (1, 2, 3)],
+        )
+
     def _get(self, **params: str) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/flaky_tests/", params)
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -238,8 +379,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_default_window_qualifies_only_actionable_tests(self) -> None:
         data = self._get()
 
-        # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, and
-        # outcome-less job-root spans must never qualify.
+        # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, CI setup break,
+        # and outcome-less job-root spans must never qualify. Run 1800 carries run 1700's shape without
+        # GitHub's failed jobs, so its tests keep their failures.
         assert {row["nodeid"] for row in data["items"]} == {
             T_RERUN_RECOVERY,
             T_STALE_REREPORT,
@@ -255,9 +397,32 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             T_NO_RUN_ID,
             T_JEST_RECOVERY,
             T_JEST_CROSS_LEG,
+            *(f"{T_SPAN_ONLY_BREAK}_{shard}" for shard in (1, 2, 3)),
+            f"{T_JOB_RERUN}_1",
+            f"{T_JOB_RERUN}_2",
+            T_LEGACY_JOB_A,
+            T_LEGACY_JOB_B,
         }
         assert data["truncated"] is False
         assert data["limit"] == 50
+
+    def test_a_job_attempt_failing_enough_tests_is_not_flake_proof(self) -> None:
+        with patch("products.engineering_analytics.backend.logic.queries._test_spans.SETUP_BREAK_MIN_JOB_FAILURES", 2):
+            rows = self._rows()
+
+        assert f"{T_JOB_RERUN}_1" not in rows
+        assert f"{T_JOB_RERUN}_2" not in rows
+        # A single failing test in a job is still a failure, and its re-run pass is still proof.
+        assert rows[T_RERUN_RECOVERY]["classification"] == "confirmed_flake"
+
+    def test_legacy_jobs_do_not_merge_toward_the_job_attempt_threshold(self) -> None:
+        # Two real jobs, both keyless, combine to the same 'legacy' bucket. Unlike a real job
+        # attempt (asserted above), their combined nodeid count must never trigger exclusion.
+        with patch("products.engineering_analytics.backend.logic.queries._test_spans.SETUP_BREAK_MIN_JOB_FAILURES", 2):
+            rows = self._rows()
+
+        assert T_LEGACY_JOB_A in rows
+        assert T_LEGACY_JOB_B in rows
 
     @parameterized.expand(
         [

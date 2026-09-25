@@ -8,8 +8,11 @@ from django.conf import settings
 
 from ..facade.contracts import SavedQuerySummary
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from ..models.node import Node
+from ..models.edge import Edge
+from ..models.node import Node, NodeType
 from .saved_query_freshness import saved_query_materialized_at
+
+POSTHOG_TABLE_ORIGIN = "posthog"
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
@@ -58,6 +61,30 @@ def get_saved_query_summary(team_id: int, saved_query_id: UUID | str) -> SavedQu
         name=saved_query.name,
         last_run_at=saved_query_materialized_at(saved_query),
     )
+
+
+def all_saved_query_columns(team_id: int) -> dict[str, dict[str, str]]:
+    """Each still-resolving saved query's columns, by id, unwrapped the way ``get_saved_query_columns`` does."""
+    rows = DataWarehouseSavedQuery.objects.filter(team_id=team_id).exclude(deleted=True).values_list("id", "columns")
+    return {
+        str(saved_query_id): {
+            name: type_ for name, entry in (stored or {}).items() if (type_ := _clickhouse_type(entry)) is not None
+        }
+        for saved_query_id, stored in rows
+    }
+
+
+def get_saved_query_sql(team_id: int, saved_query_id: UUID | str) -> str | None:
+    """The HogQL text of the saved query exactly as stored, or None when it no longer resolves or
+    stores no text. Soft-deleted rows are excluded for the reason ``get_saved_query_summary`` gives."""
+    stored = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
+        .exclude(deleted=True)
+        .values_list("query", flat=True)
+        .first()
+    )
+    sql = stored.get("query") if isinstance(stored, dict) else None
+    return sql if isinstance(sql, str) else None
 
 
 def all_saved_query_names(team_id: int) -> dict[str, str]:
@@ -109,17 +136,25 @@ def _resolve_allowed_saved_query_ids(
     )
 
 
-def backing_table_ids_by_saved_query(team_id: int) -> dict[UUID, UUID]:
+def backing_table_ids_by_saved_query(team_id: int, *, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:
     """Private backing table ids mapped to their saved query ids. One query.
 
     Includes soft-deleted saved queries because deleting a view leaves its backing table behind.
     The URL predicate deliberately matches the HogQL catalog's private-backing-table exclusion.
+
+    ``table_ids`` narrows the lookup to the tables a caller asked about, so a caller holding a
+    handful of tables does not load the team's whole view list. ``None`` asks about every table; an
+    empty collection asks about none.
     """
+    if table_ids is not None and not table_ids:
+        return {}
     saved_queries = (
         DataWarehouseSavedQuery.objects.filter(team_id=team_id, table__isnull=False)
         .select_related("table")
         .only("id", "team_id", "table_id", "table__url_pattern")
     )
+    if table_ids is not None:
+        saved_queries = saved_queries.filter(table_id__in=table_ids)
     return {
         saved_query.table_id: saved_query.id
         for saved_query in saved_queries
@@ -162,9 +197,51 @@ def get_node_ids_for_saved_queries(team_id: int, saved_query_ids: Iterable[UUID 
     return nodes
 
 
+def get_node_ids_for_posthog_tables(team_id: int, table_names: Iterable[str]) -> dict[str, str]:
+    """The DAG node each of these PostHog tables sits on, as one query. A table no view reads has none."""
+    names = list(table_names)
+    if not names:
+        return {}
+    rows = (
+        Node.objects.filter(
+            team_id=team_id,
+            type=NodeType.TABLE,
+            name__in=names,
+            saved_query__isnull=True,
+            properties__origin=POSTHOG_TABLE_ORIGIN,
+        )
+        .order_by("id")
+        .values_list("name", "id")
+    )
+    nodes: dict[str, str] = {}
+    for name, node_id in rows:
+        nodes.setdefault(name, str(node_id))
+    return nodes
+
+
 def get_saved_query_ids_for_nodes(team_id: int, node_ids: Iterable[UUID | str]) -> list[str]:
     """The saved queries behind these DAG nodes. Source-table nodes have none and are dropped."""
     rows = Node.objects.filter(team_id=team_id, id__in=list(node_ids), saved_query__isnull=False).values_list(
         "saved_query_id", flat=True
     )
     return [str(saved_query_id) for saved_query_id in rows]
+
+
+def dependent_saved_query_ids(team_id: int, saved_query_ids: Collection[UUID]) -> dict[UUID, frozenset[UUID]]:
+    """The live saved queries that read directly from each given one, keyed by the given id.
+
+    Follows the edges of every node a saved query has, so a dependent in another DAG counts too.
+    """
+    dependents: dict[UUID, set[UUID]] = {saved_query_id: set() for saved_query_id in saved_query_ids}
+    edges = (
+        Edge.objects.filter(
+            team_id=team_id,
+            source__saved_query_id__in=saved_query_ids,
+            target__saved_query__isnull=False,
+        )
+        .exclude(target__saved_query__deleted=True)
+        .values_list("source__saved_query_id", "target__saved_query_id")
+    )
+    for source_id, target_id in edges:
+        dependents[source_id].add(target_id)
+    return {saved_query_id: frozenset(ids) for saved_query_id, ids in dependents.items()}

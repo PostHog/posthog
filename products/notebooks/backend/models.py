@@ -194,11 +194,77 @@ class KernelRuntime(UUIDTModel):
     # before this was captured.
     provisioned_cpu_cores = models.FloatField(null=True, blank=True)
     provisioned_memory_gb = models.FloatField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ttl_expires_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"
         indexes = [
             models.Index(fields=["team", "notebook_short_id", "user", "status"]),
+        ]
+
+
+class NotebookRun(TeamScopedRootMixin, UUIDModel):
+    """One execution of a whole markdown notebook: every runnable cell, in document order.
+
+    The orchestrator owns this row. Each cell it starts is a `NotebookNodeRun` pointing back
+    here, so the status endpoint reads the whole run with one join.
+    """
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "running"
+        DONE = "done", "done"
+        FAILED = "failed", "failed"
+        INTERRUPTED = "interrupted", "interrupted"
+
+    class Trigger(models.TextChoices):
+        UI = "ui", "ui"
+        MCP = "mcp", "mcp"
+
+    # db_constraint=False on both FKs to hot tables, for the reasons NotebookNodeRun states below.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # No related_name, like NotebookNodeRun: a named reverse accessor on Notebook would join the
+    # fields the activity log walks, and reading it outside a team scope raises.
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.DO_NOTHING,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    # Which surface started the run. Read as a metric label, so the outcome of a person's click
+    # and of an agent's tool call can be told apart.
+    trigger = models.CharField(choices=Trigger, max_length=20)
+    status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
+    # The variable values this run bound, snapshotted at start. The notebook's own list can
+    # change while the run works, and the results have to stay readable against what produced them.
+    variables: JSONField = JSONField(default=list, blank=True)
+    # The cells to run, as [{node_id, cell_type, dataframe_name}] in document order, frozen at
+    # start. An edit during the run does not add or remove cells from it.
+    cell_plan: JSONField = JSONField(default=list, blank=True)
+    # How far through `cell_plan` the orchestrator is; the status endpoint reads it.
+    current_index = models.IntegerField(default=0, db_default=0)
+    failed_node_id = models.CharField(max_length=128, null=True, blank=True)
+    error = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_notebookrun"
+        indexes = [
+            models.Index(fields=["team", "notebook", "-created_at"]),
+        ]
+        constraints = [
+            # One whole-notebook run at a time, enforced by the database rather than by a lock.
+            models.UniqueConstraint(
+                fields=["notebook"],
+                condition=models.Q(status="running"),
+                name="unique_running_notebook_run",
+            )
         ]
 
 
@@ -227,8 +293,8 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # Who ran it. Kernels are per user, so this is the second half of a KernelRuntime's scope —
     # the callback needs it to file the frame snapshot without a user-blind lookup by id.
     # db_constraint=False: a real FK to the hot posthog_user table locks it on deploy.
-    # db_index=False: nothing queries runs by user — it is only ever read off a run we already
-    # hold. DO_NOTHING keeps that true: SET_NULL would have Django's collector issue an
+    # db_index=False: user-scoped lookups also filter by the indexed notebook and node.
+    # DO_NOTHING avoids having Django's collector issue an
     # `UPDATE … WHERE user_id = …` against this unindexed column on every user delete, on the
     # table that grows fastest. Nothing enforces referential integrity here anyway
     # (db_constraint=False), and a dangling id already reads back as None.
@@ -242,6 +308,20 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     node_id = models.CharField(max_length=128)
+    # The whole-notebook run that dispatched this cell, or null for a single-cell run. SET_NULL
+    # rather than CASCADE: a run record is bookkeeping, and deleting one must not take the
+    # results it produced with it.
+    # db_index=False here, with a partial index in Meta instead: the default full index would be
+    # built inside the AddField's ACCESS EXCLUSIVE lock, and it would index the null rows that
+    # every single-cell run leaves behind on the table that grows fastest.
+    notebook_run = models.ForeignKey(
+        "notebooks.NotebookRun",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="node_runs",
+    )
     # How the run executed: hogql pushed to ClickHouse (pages re-query by `code`); python and
     # duckdb ran in the sandbox kernel (pages slice the on-sandbox result frame by `result_id`).
     node_type = models.CharField(choices=NodeType, default=NodeType.HOGQL, max_length=20)
@@ -272,20 +352,49 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_notebooknoderun"
         indexes = [
             models.Index(fields=["team", "notebook", "node_id"]),
+            # Partial, because only a whole-notebook run's cells carry this column: the status
+            # read joins by it, and SET_NULL updates by it when a run record is deleted. A single
+            # cell run leaves it null and is never looked up this way, so those rows stay out.
+            models.Index(
+                fields=["notebook_run"],
+                name="notebook_node_run_by_run_idx",
+                condition=models.Q(notebook_run__isnull=False),
+            ),
         ]
 
 
 class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
+    class PublicationStatus(models.TextChoices):
+        PRIVATE = "private", "private"
+        PUBLISHED = "published", "published"
+        DEPRECATED = "deprecated", "deprecated"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="", db_default="")
+    tags: JSONField = JSONField(default=list, db_default=[])
+    publication_status = models.CharField(
+        choices=PublicationStatus,
+        default=PublicationStatus.PRIVATE,
+        db_default=PublicationStatus.PRIVATE,
+        max_length=16,
+    )
     canvas_id = models.UUIDField(unique=True)
     current_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    pending_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
+    published_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_generated_widget"
@@ -318,7 +427,9 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     prompt_history: JSONField = JSONField(default=list)
     model = models.CharField(max_length=64, blank=True, default="")
     generator_version = models.CharField(max_length=32)
+    generation_cost_usd = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
     input_contract: JSONField = JSONField(default=list)
+    demo_data: JSONField = JSONField(default=dict, db_default={})
     schema_hash = models.CharField(max_length=64)
     security_review_severity = models.CharField(
         choices=SecurityReviewSeverity,
@@ -364,6 +475,7 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         blank=True,
         related_name="pinned_instances",
     )
+    input_bindings: JSONField = JSONField(default=dict, db_default={})
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
@@ -376,6 +488,20 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "notebook", "node_id"], name="notebook_widget_instance_node_unique"
             ),
         ]
+
+
+class NotebookWidgetSnapshot(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_snapshots")
+    node_id = models.CharField(max_length=MAX_WIDGET_NODE_ID_LENGTH)
+    version = models.ForeignKey("notebooks.GeneratedWidgetVersion", on_delete=models.CASCADE, related_name="snapshots")
+    input_bindings: JSONField = JSONField(default=dict)
+    source_runs: JSONField = JSONField(default=dict)
+    frames: JSONField = JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_notebook_widget_snapshot"
 
 
 class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):

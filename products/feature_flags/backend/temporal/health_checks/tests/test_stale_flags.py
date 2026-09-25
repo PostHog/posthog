@@ -10,6 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.job_owners import JobOwners
@@ -24,10 +25,12 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flag_status import ROLLOUT_FULLY_ROLLED_OUT, ROLLOUT_NOT_ROLLED_OUT, ROLLOUT_PARTIAL
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.temporal.health_checks.stale_flags import (
+    EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
     EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
     EVIDENCE_NOT_CALLED_RECENTLY,
     StaleFeatureFlagsCheck,
 )
+from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -43,6 +46,10 @@ def stale_by_usage() -> dict[str, Any]:
         "last_called_at": timezone.now() - timedelta(days=45),
         "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
     }
+
+
+def constant_and_called() -> dict[str, Any]:
+    return {**stale_by_config(), "last_called_at": timezone.now()}
 
 
 class TestStaleFlagsDetect(BaseTest):
@@ -107,6 +114,10 @@ class TestStaleFlagsDetect(BaseTest):
         elif link == "replay_link":
             # Queryset update instead of save so no Team receivers run in the fixture.
             Team.objects.filter(pk=self.team.pk).update(session_recording_linked_flag={"id": flag.id, "key": flag.key})
+        elif link == "replay_trigger_group":
+            Team.objects.filter(pk=self.team.pk).update(
+                session_recording_trigger_groups=trigger_groups({"flag": flag.key})
+            )
         else:
             raise ValueError(link)
 
@@ -135,6 +146,325 @@ class TestStaleFlagsDetect(BaseTest):
             # Local-evaluation semantics: a disabled dependent still protects its dependency.
             ("disabled_dependent_still_blocks", stale_by_usage(), "disabled_dependent_flag", False),
             ("replay_linked", stale_by_config(), "replay_link", False),
+            # The cases below read filter_effectively_full_rollout_flags, which classifies rollout
+            # completeness and not staleness. No flag becomes STALE to either side because of it,
+            # so test_stale_filter_agrees_with_status_checker in
+            # products/feature_flags/backend/test/test_flag_status.py still holds.
+            # Fully rolled out and still called every day: outside both filter_stale_flags branches.
+            ("constant_and_still_called", constant_and_called(), None, True),
+            # The exclusions run over both candidate sources, not just the stale one.
+            ("constant_and_still_called_blocked_by_experiment", constant_and_called(), "experiment", False),
+            # Legacy shape: an absent properties key is no targeting, which is what
+            # is_group_fully_rolled_out reads and what the SQL prefilter has to let through.
+            (
+                "constant_with_properties_key_absent",
+                {**constant_and_called(), "filters": {"groups": [{"rollout_percentage": 100}]}},
+                None,
+                True,
+            ),
+            # Never called and legacy-shaped. Both candidate queries match it, so the overlap
+            # exclusion is what stops it being reported twice under one hash key.
+            (
+                "legacy_shape_never_called",
+                {**stale_by_config(), "filters": {"groups": [{"rollout_percentage": 100}]}},
+                None,
+                True,
+            ),
+            # Legacy shape: `properties` stored as JSON null is no targeting, which neither the
+            # `IS NULL` arm nor the literal `[]` arm of the prefilter matches on its own.
+            (
+                "constant_with_null_properties",
+                {**constant_and_called(), "filters": {"groups": [{"rollout_percentage": 100, "properties": None}]}},
+                None,
+                True,
+            ),
+            (
+                "constant_but_targeted",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [{"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100}]
+                    },
+                },
+                None,
+                False,
+            ),
+            # The model default is fully rolled out to the checker, so only the SQL keeps every
+            # unconfigured flag out of the report.
+            ("constant_with_no_release_conditions", {**constant_and_called(), "filters": {"groups": []}}, None, False),
+            (
+                "constant_but_younger_than_threshold",
+                {**constant_and_called(), "created_at": timezone.now()},
+                None,
+                False,
+            ),
+            (
+                "multivariate_winner_still_called",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                True,
+            ),
+            # The SQL prefilter matches this on its 100% release condition; only the checker
+            # confirmation keeps a flag that still splits traffic between variants out.
+            (
+                "multivariate_without_winner_still_called",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                False,
+            ),
+            # A holdout is resolved before the release conditions, so part of the population never
+            # reaches the 100% group the prefilter matched. The checker never reads the key.
+            (
+                "constant_and_called_behind_holdout",
+                {
+                    **constant_and_called(),
+                    "filters": {**FULL_ROLLOUT_FILTERS, "holdout": {"id": 1, "exclusion_percentage": 10}},
+                },
+                None,
+                False,
+            ),
+            # Group aggregation, device-id bucketing and feature enrollment decide the result from
+            # evaluation context the configuration does not carry, so the blanket condition does not
+            # reach everyone.
+            (
+                "constant_but_group_aggregated",
+                {**constant_and_called(), "filters": {**FULL_ROLLOUT_FILTERS, "aggregation_group_type_index": 0}},
+                None,
+                False,
+            ),
+            (
+                "constant_but_condition_group_aggregated",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0}]
+                    },
+                },
+                None,
+                False,
+            ),
+            # An explicit null index means person aggregation, so it must not be read as a group.
+            (
+                "constant_with_null_aggregation_index",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None}]
+                    },
+                },
+                None,
+                True,
+            ),
+            (
+                "constant_but_device_id_bucketed",
+                {**constant_and_called(), "bucketing_identifier": "device_id"},
+                None,
+                False,
+            ),
+            (
+                "constant_but_feature_enrollment",
+                {**constant_and_called(), "filters": {**FULL_ROLLOUT_FILTERS, "feature_enrollment": True}},
+                None,
+                False,
+            ),
+            # The matcher ignores an override naming a variant the flag does not configure, so the
+            # distribution decides and a split one is not constant.
+            (
+                "constant_but_unknown_variant_override",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "a", "rollout_percentage": 50},
+                                {"key": "b", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                    },
+                },
+                None,
+                False,
+            ),
+            # A legacy scalar `groups` makes jsonb_array_elements raise, which aborts the statement
+            # for every team in the batch rather than skipping the row.
+            (
+                "legacy_scalar_groups_does_not_abort_the_batch",
+                {**constant_and_called(), "filters": {"groups": "all"}},
+                None,
+                False,
+            ),
+            # A targeted condition declared before the blanket one decides the result for the users
+            # it matches, so the cohort it pins to "test" never receives the named winner.
+            (
+                "constant_but_targeted_variant_override_first",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                None,
+                False,
+            ),
+            # The same two conditions the other way round. The matcher stops at the blanket one, so
+            # the override below it is unreachable and the flag really does serve one variant.
+            (
+                "constant_when_the_blanket_condition_comes_first",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {"properties": [], "rollout_percentage": 100},
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                        ],
+                    },
+                },
+                None,
+                True,
+            ),
+            # Variants take cumulative slices in order, so the 40 still owns the low hashes and the
+            # flag serves two variants despite the 100.
+            (
+                "constant_but_variants_overallocated",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 40},
+                                {"key": "test", "rollout_percentage": 100},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                False,
+            ),
+            # The same pair the other way round is constant: nothing takes a hash before the 100.
+            (
+                "constant_when_the_hundred_comes_first",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 40},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                True,
+            ),
+            # A variant at zero takes no hashes, so the winner owns the whole space from wherever it
+            # is declared. This is the shape a shipped experiment leaves behind.
+            (
+                "constant_when_the_winner_is_not_the_first_variant",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 0},
+                                {"key": "test", "rollout_percentage": 100},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                True,
+            ),
+            # The two escape hatches with no case of their own. Both short-circuit ahead of the
+            # release conditions, the same way the holdout above does.
+            (
+                "constant_and_called_behind_super_groups",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        **FULL_ROLLOUT_FILTERS,
+                        "super_groups": [{"properties": [], "rollout_percentage": 100}],
+                    },
+                },
+                None,
+                False,
+            ),
+            (
+                "constant_and_called_behind_holdout_groups",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        **FULL_ROLLOUT_FILTERS,
+                        "holdout_groups": [{"properties": [], "rollout_percentage": 10}],
+                    },
+                },
+                None,
+                False,
+            ),
+            # `early_exit` returns false on a failed rollout check instead of falling through to the
+            # blanket group, so the configuration can serve two results.
+            (
+                "constant_and_called_with_early_exit",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "groups": [
+                            {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 50},
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                        "early_exit": True,
+                    },
+                },
+                None,
+                False,
+            ),
+            # A trigger group gates recording just as the linked-flag column does, so the flag it
+            # names is not a cleanup candidate either.
+            ("replay_trigger_group_linked", stale_by_config(), "replay_trigger_group", False),
         ]
     )
     def test_detect_inclusion_and_exclusion(
@@ -146,8 +476,32 @@ class TestStaleFlagsDetect(BaseTest):
 
         results = self._detect()
 
-        included = any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
-        assert included is expected_included
+        matching = [result for result in results.get(self.team.id, []) if result.payload["flag_id"] == flag.id]
+        assert len(matching) == (1 if expected_included else 0)
+
+    def test_a_gate_stored_in_another_project_still_protects_the_flag(self) -> None:
+        # Flag ids are globally unique, so a team can store a flag another project owns. Matching
+        # ids per project would report that flag as a cleanup candidate. The delete guard is
+        # project-scoped too, so nothing else would stop the delete that follows, and the stored
+        # reference would be left unrepairable.
+        flag = self._create_flag("gated-from-another-project", **stale_by_config())
+        other_project_team = Team.objects.create(organization=self.organization)
+        # The scan covers the projects that own candidate flags, so the other project needs one
+        # of its own before the gate it stores is read at all.
+        their_flag = FeatureFlag.objects.create(
+            team=other_project_team, key="their-own-flag", created_by=self.user, active=True, **stale_by_config()
+        )
+        Team.objects.filter(pk=other_project_team.pk).update(
+            session_recording_linked_flag={"id": flag.id, "key": flag.key}
+        )
+
+        results = self._detect([self.team.id, other_project_team.id])
+
+        assert not any(result.payload["flag_id"] == flag.id for result in results.get(self.team.id, []))
+        # Nothing gates `their_flag`: a linked flag contributes its id to `flag_ids` and never its
+        # key to `flag_keys`. It stays reported, so an exclusion that swallowed the whole batch
+        # would fail here.
+        assert any(result.payload["flag_id"] == their_flag.id for result in results.get(other_project_team.id, []))
 
     # (name, flag_kwargs, expected payload subset)
     @parameterized.expand(
@@ -194,6 +548,20 @@ class TestStaleFlagsDetect(BaseTest):
                 {"rollout_state": ROLLOUT_PARTIAL, "has_targeting_conditions": True, "max_rollout_percentage": 100},
             ),
             (
+                "effectively_full_rollout_while_called",
+                constant_and_called(),
+                {
+                    "evidence_class": EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
+                    "rollout_state": ROLLOUT_FULLY_ROLLED_OUT,
+                    # The evidence is the configuration, so the date is the flag's age, not its
+                    # last call.
+                    "days_since_evidence": 60,
+                    "has_targeting_conditions": False,
+                    "max_rollout_percentage": 100,
+                    "winning_variant": None,
+                },
+            ),
+            (
                 "multivariate_winning_variant",
                 {
                     "created_at": timezone.now() - timedelta(days=60),
@@ -208,6 +576,28 @@ class TestStaleFlagsDetect(BaseTest):
                     "winning_variant": "control",
                 },
             ),
+            # The matcher ignores the override and serves the distribution, so the payload must
+            # name `control` and not the key the condition carries.
+            (
+                "multivariate_override_names_an_absent_variant",
+                {
+                    **constant_and_called(),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                    },
+                },
+                {
+                    "evidence_class": EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
+                    "rollout_state": ROLLOUT_FULLY_ROLLED_OUT,
+                    "winning_variant": "control",
+                },
+            ),
         ]
     )
     def test_payload_evidence_and_rollout(
@@ -217,7 +607,9 @@ class TestStaleFlagsDetect(BaseTest):
 
         results = self._detect()
 
-        result = next(r for r in results[self.team.id] if r.payload["flag_id"] == flag.id)
+        # One result per flag, not the first of several: a flag both candidate sources return
+        # would otherwise report twice under whichever evidence class happened to come first.
+        (result,) = [r for r in results[self.team.id] if r.payload["flag_id"] == flag.id]
         assert result.severity == HealthIssue.Severity.INFO
         assert result.hash_keys == ["flag_id"]
         assert result.payload["flag_key"] == key
@@ -260,6 +652,42 @@ class TestStaleFlagsDetect(BaseTest):
         assert len(results[self.team.id]) == 2
         assert len(results[team_two.id]) == 1
         assert results[team_two.id][0].payload["flag_id"] != blocked.id
+
+    def test_other_config_formats_are_skipped_without_failing_the_batch(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        unsupported = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-flag",
+            created_by=self.user,
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            filters={"version": 2, **FULL_ROLLOUT_FILTERS},
+        )
+        not_an_object = FeatureFlag.objects.create(
+            team=other_team,
+            key="list-filters",
+            created_by=self.user,
+            active=True,
+            **{**stale_by_usage(), "filters": ["version"]},
+        )
+        called = FeatureFlag.objects.create(
+            team=other_team,
+            key="v2-called",
+            created_by=self.user,
+            active=True,
+            **{**constant_and_called(), "filters": {"version": 2, **FULL_ROLLOUT_FILTERS}},
+        )
+        self._create_flag("v1-stale", **stale_by_usage())
+
+        with capture_logs() as logs:
+            results = self._detect([self.team.id, other_team.id])
+
+        assert set(results) == {self.team.id}
+        assert [result.payload["flag_key"] for result in results[self.team.id]] == ["v1-stale"]
+        skips = [log for log in logs if log["event"] == "stale_feature_flags_skipped_unsupported_config"]
+        assert sorted((log["flag_id"], log["team_id"]) for log in skips) == sorted(
+            [(unsupported.id, other_team.id), (not_an_object.id, other_team.id), (called.id, other_team.id)]
+        )
 
     def test_query_count_does_not_grow_with_candidates_or_teams(self) -> None:
         self._create_flag("baseline", **stale_by_usage())
@@ -414,6 +842,25 @@ class TestStaleFlagsContract(SimpleTestCase):
         assert "no usage data" in content.summary
         assert "serves a fixed result" in content.summary
         assert content.link == "/feature_flags/7"
+
+    def test_render_alert_for_effectively_full_rollout_evidence(self) -> None:
+        content = StaleFeatureFlagsCheck.render_alert(
+            self._issue(
+                {
+                    "flag_id": 11,
+                    "flag_key": "ga-toggle",
+                    "evidence_class": EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
+                    "days_since_evidence": 200,
+                    "rollout_state": ROLLOUT_FULLY_ROLLED_OUT,
+                }
+            )
+        )
+        assert "PostHog still receives calls for this flag" in content.summary
+        assert "fully rolled out" in content.summary
+        # days_since_evidence is the flag's age on this class, so it must not be narrated as a
+        # gap since the last call.
+        assert "200" not in content.summary
+        assert content.link == "/feature_flags/11"
 
     def test_render_signal_returns_none(self) -> None:
         issue = self._issue({"flag_id": 42, "flag_key": "checkout-v2"})

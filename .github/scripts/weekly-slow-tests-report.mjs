@@ -2,7 +2,7 @@
 //
 // Sibling of weekly-flaky-report.mjs: one HogQL read of the passing test spans the
 // CI timing reporter (.github/scripts/report_test_timings.py) already ships, ranked by
-// median wall time, with owner attribution through tools/owners and recent editors
+// median wall time, with owner attribution through packages/owners-yaml and recent editors
 // resolved through the GitHub commits API into Slack mentions. The report nudges the
 // people best placed to speed a test up; it does not re-derive any span signal.
 //

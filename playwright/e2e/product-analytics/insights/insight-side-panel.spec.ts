@@ -84,7 +84,7 @@ test.describe('Insight side panel actions', () => {
 
             const patchPromise = page.waitForResponse(
                 (resp) =>
-                    resp.url().includes('/api/environments/') &&
+                    resp.url().includes('/api/projects/') &&
                     resp.url().includes('/insights/') &&
                     resp.request().method() === 'PATCH'
             )

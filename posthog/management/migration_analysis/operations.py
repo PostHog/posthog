@@ -713,14 +713,16 @@ Safe pattern requires:
                             score=2,
                             reason="DROP TABLE IF EXISTS - properly staged (prior state removal found)",
                             details={"sql": sql, "table": table_name},
-                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed model from state.
+                            guidance=f"""⚠️ **Staged, but hand-written:** Found prior SeparateDatabaseAndState that removed model from state, so the staging is valid. Drop the table with `SafeDropTable` from posthog.migration_helpers instead of this raw DROP.
+
+A raw `DROP TABLE` takes ACCESS EXCLUSIVE on the dropped table and on every table its foreign keys reference, one relation at a time. That order crosses the order of a live multi-table read, and the deadlock detector kills the read rather than the migration. A short `lock_timeout` does not change which session Postgres picks. `SafeDropTable` takes all of the locks up front under a budget derived from `deadlock_timeout`, so the migration loses the race instead.
 
 Remaining checklist:
 - Ensure all code references removed (API, models, imports)
 - Waited at least one full deployment cycle since state removal
 - No other models reference this table via foreign keys
 
-[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#drop-table-lock-order)""",
                         )
 
                 # Not properly staged or can't validate
@@ -986,9 +988,11 @@ class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 class DropForeignKeyAnalyzer(OperationAnalyzer):
     """The constraint drop that rides along with a state-only removal of a column or table.
 
-    Dropping a foreign key is a catalog change. It holds ACCESS EXCLUSIVE on the referenced
-    parent for microseconds and scans nothing, so it scores with `ADD CONSTRAINT ... NOT
-    VALID` rather than with the operations that rewrite a table.
+    Dropping a foreign key is a catalog change and scans nothing, so it scores with `ADD
+    CONSTRAINT ... NOT VALID` rather than with the operations that rewrite a table. Its locks
+    are the risk, and the op takes them in a bounded, parent-first phase of its own. What the
+    op cannot control is the rest of its transaction, so LockPhaseTransactionPolicy
+    checks that at migration level.
     """
 
     operation_type = "DropForeignKey"
@@ -998,15 +1002,43 @@ class DropForeignKeyAnalyzer(OperationAnalyzer):
         return OperationRisk(
             type=self.operation_type,
             score=1,
-            reason="DROP CONSTRAINT on a foreign key is a catalog change (brief lock on the parent, no table scan)",
+            reason="DROP CONSTRAINT on a foreign key is a catalog change (parent-first bounded lock phase, no table scan)",
             details={
                 "table": getattr(op, "table", None),
-                "column": getattr(op, "column", None),
+                "columns": getattr(op, "columns", None),
                 "to_table": getattr(op, "to_table", None),
             },
             guidance=f"""Required beside a state-only removal of the column or table this foreign key sits on. Django stops cascading into a relation it cannot see, and the deferred constraint then fails the parent delete at COMMIT.
 
+The transaction holds the parent locks until COMMIT. Keep this op alone in its migration, next to state-only operations at most, and pass every key on the table to one op with `column=[...]`.
+
 Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
+
+
+class DropColumnConstraintsAnalyzer(OperationAnalyzer):
+    """The check and unique rules that go with a retiring column.
+
+    Every drop is a catalog change on one table, taken under one bounded lock phase, so it
+    scores with DropForeignKey. LockPhaseTransactionPolicy checks the rest of the transaction.
+    """
+
+    operation_type = "DropColumnConstraints"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT and DROP INDEX for retiring columns are catalog changes (bounded lock phase, no table scan)",
+            details={"table": getattr(op, "table", None), "columns": getattr(op, "columns", None)},
+            guidance=f"""Finds every check and unique rule on the columns in the catalog, so it also drops rules no migration file names any more. Run it before the release that stops writing the columns, because a check that requires them then rejects every insert.
+
+The transaction holds the table lock until COMMIT. Keep this op alone in its migration, next to state-only operations at most.
+
+Irreversible. Add a rule back in a new migration rather than by unapplying this one.
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )
@@ -1077,4 +1109,47 @@ class SeparateDatabaseAndStateAnalyzer(OperationAnalyzer):
             score=0,
             reason=f"Wrapper operation - see nested operations for risk: {', '.join(db_op_types)}",
             details={"database_operations": ", ".join(db_op_types)},
+        )
+
+
+class SafeDropTableAnalyzer(OperationAnalyzer):
+    """The drop-table helper that takes its locks up front (posthog/migration_helpers/safe_drop_table.py).
+
+    Scores with the staged `DROP TABLE IF EXISTS` the RunSQL analyzer already recognizes,
+    because it is the same drop. What it adds is lock ordering, so a live read is never
+    the deadlock victim, not a weaker guarantee about the rows.
+    """
+
+    operation_type = "SafeDropTable"
+
+    def analyze(self, op, migration=None, loader=None) -> OperationRisk:
+        tables = [table.lower() for table in op.tables]
+        staged = (
+            migration
+            and loader
+            and all(check_drop_properly_staged("table", table, migration, loader) for table in tables)
+        )
+        if staged:
+            return OperationRisk(
+                type=self.operation_type,
+                score=2,
+                reason="SafeDropTable - properly staged (prior state removal found)",
+                details={"tables": tables},
+                guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed each model from state.
+
+Remaining checklist is the one for any staged drop: all code references removed, one full deployment cycle waited since the state removal, and no other table referencing these.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
+            )
+
+        return OperationRisk(
+            type=self.operation_type,
+            score=5,
+            reason="SafeDropTable - no prior state removal found",
+            details={"tables": tables},
+            guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this model.
+
+SafeDropTable handles the lock order, not the staging. The model still has to leave Django state a full deployment cycle earlier, with a DropForeignKey for each key into a hot parent.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-tables)""",
         )

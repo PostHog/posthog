@@ -17,6 +17,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.api.scanners import _goal_flow_enabled
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
@@ -26,7 +27,9 @@ from products.replay_vision.backend.scanner_draft import (
     DraftError,
     ScannerDraft,
     _build_user_content,
+    _build_user_content_v2,
     _business_context,
+    _CandidateEvent,
     _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
@@ -43,8 +46,10 @@ from products.replay_vision.backend.scanner_draft import (
     _MatchedCohort,
     _MatchedExperiment,
     _MatchedSurvey,
+    _measured_events,
     _solve_budget,
     _v2_query,
+    draft_scanner_from_goal,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
@@ -142,6 +147,22 @@ class TestBuildUserContent:
         # Both grounding blocks must reach the model; losing one silently makes drafts generic again.
         assert "Acme sells anvils to coyotes." in content
         assert "Checkout drop-off (monitor): Flags abandoned checkouts." in content
+
+
+class TestBuildUserContentV2:
+    def test_events_carry_their_session_counts(self):
+        # The counts are what let the model tell a busy event from a name that stopped firing, the
+        # same way the pages list already does. An unmeasured event shows no count rather than a
+        # zero, which would read as dead.
+        content = _build_user_content_v2(
+            "watch people who create a scanner",
+            [_CandidateEvent(name="scanner_created", sessions=42), _CandidateEvent(name="scanner_edited")],
+            [VisitedPath(pathname="/replay-vision", sessions=10)],
+        )
+
+        fenced = content.split("<product-data>")[-1].split("</product-data>")[0]
+        assert "scanner_created (42)" in fenced
+        assert "scanner_edited\n" in fenced
 
 
 class TestFinalize:
@@ -281,7 +302,12 @@ class TestFinalize:
         assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
 
     def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
-        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+        # The definition fallback is stubbed out because this class takes no database; its own
+        # behavior is covered by TestGroundedEventFallback.
+        with (
+            patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn,
+            patch(f"{_MODULE}._event_names_by_lower", return_value={}),
+        ):
             grounded = _finalize(
                 _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
                 allowed_screens=["/checkout"],
@@ -315,6 +341,50 @@ class TestFinalize:
         assert result.query is not None
         assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
         assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
+
+
+class TestGroundedEventFallback(_VisionAPITestCase):
+    def _event(self, name: str, *, seen: bool = True):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now() if seen else None)
+
+    def test_a_real_event_missing_from_the_briefing_survives_with_canonical_casing(self):
+        # The regression: the goal names a real event verbatim, the model copies it, and
+        # list-membership grounding drops it because the briefing's sample missed it.
+        self._event("plan upgraded")
+
+        result = _finalize(
+            _draft(filter_events=["Plan Upgraded"]), allowed_events=["checkout_started"], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
+
+    def test_events_the_team_does_not_emit_still_drop(self):
+        # Invented, internal, and no-longer-firing names must not survive the definition lookup.
+        self._event("$internal_thing")
+        self._event("stale event", seen=False)
+
+        result = _finalize(
+            _draft(filter_events=["ghost event", "$internal_thing", "stale event"]),
+            allowed_events=["checkout_started"],
+            team_id=self.team.id,
+        )
+
+        assert result.query is None
+
+    def test_v2_grounding_accepts_a_real_event_the_briefing_missed(self):
+        self._event("plan upgraded")
+
+        result = _finalize_v2(
+            _draft_v2(filter_events=["plan upgraded"]), allowed_pages=[], allowed_events=[], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
 
 
 class TestDraftGrounding(_VisionAPITestCase):
@@ -680,6 +750,37 @@ class TestEventsForGoal(_VisionAPITestCase):
 
         assert events == ["checkout_started"]
 
+    def test_a_quoted_event_name_is_looked_up_directly_and_leads_the_briefing(self):
+        # "cta hit" is invisible to the term heuristics: both words sit under the term length
+        # cutoff. Quoting it in the goal must still put it in front of the model, first, and in the
+        # team's canonical casing.
+        self._event("cta hit")
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, 'watch what people do around "CTA Hit"')
+
+        assert events[0] == "cta hit"
+
+    def test_the_legacy_briefing_carries_events_the_goal_quotes(self):
+        # The legacy taxonomy is a recency sample with no goal matching, so the quoted lookup is
+        # the only way a named event reaches that briefing and survives grounding.
+        self._event("cta hit")
+
+        with patch(_GENERATE_PATH, return_value=_draft(filter_events=["cta hit"])) as generate:
+            draft = draft_scanner_from_goal(
+                team=self.team,
+                user=self.user,
+                goal='watch what people do around "cta hit"',
+                user_access_control=_access_control(allow=True),
+                include_business_context=False,
+            )
+
+        assert "- cta hit" in generate.call_args.kwargs["user_content"]
+        assert draft.query == {
+            "kind": "RecordingsQuery",
+            "events": [{"id": "cta hit", "name": "cta hit", "type": "events", "order": 0}],
+        }
+
 
 def _launched_experiment(team, user, name: str, *, launched: bool = True):
     flag = FeatureFlag.objects.create(
@@ -862,6 +963,47 @@ class TestLiveActions(_VisionAPITestCase):
             assert _live_actions(self.team, actions) == actions
 
 
+class TestMeasuredEvents(_VisionAPITestCase):
+    def test_every_candidate_carries_its_session_count(self):
+        # A definition lookup ranks a name that fired twice yesterday with one that fires in every
+        # session. Without the counts the model picks the dead name and the scanner never runs.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"scanner_created": 42}):
+            measured = _measured_events(self.team, ["scanner_created", "old_flow_started"])
+
+        assert measured == [
+            _CandidateEvent(name="scanner_created", sessions=42),
+            _CandidateEvent(name="old_flow_started", sessions=0),
+        ]
+
+    def test_a_count_returned_in_another_casing_still_reaches_its_candidate(self):
+        # The query keys its result by the stored casing, which the hardcoded survey names do not
+        # match. A missed lookup would measure zero, and a zero now drops the event as dead.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"Survey Sent": 7}):
+            measured = _measured_events(self.team, ["survey sent"])
+
+        assert measured == [_CandidateEvent(name="survey sent", sessions=7)]
+
+    def test_two_events_differing_only_in_case_keep_their_own_counts(self):
+        # Definitions are unique on the name itself, so both can be real, live events. Folding them
+        # together would credit the retired one with the live one's volume -- and which one won
+        # would depend on the order ClickHouse happened to emit the rows in.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"Signup": 0, "signup": 500}):
+            measured = _measured_events(self.team, ["Signup", "signup"])
+
+        assert measured == [
+            _CandidateEvent(name="Signup", sessions=0),
+            _CandidateEvent(name="signup", sessions=500),
+        ]
+
+    def test_a_failed_measurement_keeps_every_candidate_uncounted(self):
+        # Losing the counts must cost the ranking hint, not the grounding: a briefing with no
+        # events sends the model back to drafting filters it invents.
+        with patch(f"{_MODULE}.recent_event_sessions", side_effect=Exception("clickhouse down")):
+            measured = _measured_events(self.team, ["scanner_created"])
+
+        assert measured == [_CandidateEvent(name="scanner_created", sessions=None)]
+
+
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
@@ -919,6 +1061,20 @@ class TestV2Query:
 
         assert query is not None
         assert {"type": "cohort", "key": "id", "value": 7, "operator": "in"} in query["properties"]
+
+    @pytest.mark.parametrize(
+        "events_match,expected_operand",
+        [("all", None), ("any", "OR")],
+    )
+    def test_the_events_match_decides_the_operand(self, events_match, expected_operand):
+        # "created or edited" is one goal over several events, and ANDing them keeps only the
+        # person who did all of them in one session, which is almost nobody. The default has to
+        # stay AND: flipping it would silently widen every filter already drafted.
+        query = _v2_query([], ["scanner_created", "scanner_edited"], events_match=events_match)
+
+        assert query is not None
+        assert query.get("operand") == expected_operand
+        assert [e["id"] for e in query["events"]] == ["scanner_created", "scanner_edited"]
 
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
@@ -1138,6 +1294,40 @@ class TestFinalizeV2:
         assert draft.query["filter_test_accounts"] is True
         assert draft.query["properties"][0]["value"] == ["/billing"]
 
+    @pytest.mark.parametrize(
+        "filter_pages,expected_operand",
+        [([], "OR"), (["/billing"], None)],
+    )
+    def test_any_match_survives_only_when_the_events_are_the_whole_filter(self, filter_pages, expected_operand):
+        # The operand covers the whole recordings query, so keeping "any" next to a page filter
+        # would OR the page in too and scan every session that merely visited it.
+        draft = _finalize_v2(
+            _draft_v2(
+                filter_pages=filter_pages,
+                filter_events=["scanner_created", "scanner_edited"],
+                filter_events_match="any",
+            ),
+            allowed_pages=["/billing"],
+            allowed_events=["scanner_created", "scanner_edited"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert draft.query.get("operand") == expected_operand
+
+    def test_event_count_suffix_is_stripped_before_grounding(self):
+        # The briefing shows "checkout_started (312)" now, and a model that copies it verbatim
+        # would fail the exact membership check, dropping the filter and widening the scan.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout_started (312)"]),
+            allowed_pages=[],
+            allowed_events=["checkout_started"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout_started"]
+
     def test_page_count_suffix_is_stripped_before_grounding(self):
         # The briefing shows "/billing (10)"; a model that copies it verbatim would fail the exact
         # membership check and the scanner would widen to everything. Strip the count first.
@@ -1147,6 +1337,122 @@ class TestFinalizeV2:
 
         assert draft.query is not None
         assert draft.query["properties"][0]["value"] == ["/billing"]
+
+    def test_an_allowed_event_whose_own_name_ends_in_a_count_is_not_stripped(self):
+        # "checkout step (2)" is the event's real name, not a briefing count. Stripping it first
+        # would either fail the membership check or ground to a different event, and both widen.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout step (2)"]),
+            allowed_pages=[],
+            allowed_events=["checkout step (2)"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
+
+    def test_a_dead_event_whose_own_name_ends_in_a_count_survives_to_be_revived(self):
+        # A dead event leaves the briefing, so it is not in `allowed_events` — but revival can put
+        # it back, and it can only be recognised under its real name. Stripped to "checkout step" it
+        # either drops, leaving a query that scans every session, or grounds to a different event.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout step (2)"]),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"checkout step (2)"},
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
+
+    @pytest.mark.parametrize(
+        "events_match,expected_events,expected_operand",
+        [
+            # The third slot exists for the OR case. ANDed, three events need one session to do all
+            # of them, which is the over-constrained draft the cap is there to prevent.
+            ("all", ["a", "b"], None),
+            # "created or edited" names three events that each mean the same thing, and ORed they
+            # cost nothing to carry: this is the case the wider cap was raised for.
+            ("any", ["a", "b", "c"], "OR"),
+        ],
+    )
+    def test_the_event_cap_follows_the_match_operand(self, events_match, expected_events, expected_operand):
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["a", "b", "c"], filter_events_match=events_match),
+            allowed_pages=[],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == expected_events
+        assert draft.query.get("operand") == expected_operand
+
+    def test_a_downgraded_any_match_keeps_one_event_rather_than_anding_them(self):
+        # The page filter rules out the OR operand, but ANDing the alternatives would need one
+        # session to have created AND edited AND updated, which matches almost nobody.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"], filter_events=["a", "b", "c"], filter_events_match="any"),
+            allowed_pages=["/billing"],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["a"]
+
+    def test_a_downgraded_any_match_keeps_the_event_its_property_filter_rides_on(self):
+        # Keeping the first event blindly would strand the $survey_id filter on an event the query
+        # no longer carries, silently turning a one-survey scan into a scan of every survey.
+        draft = _finalize_v2(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_events=["survey shown", "survey sent"],
+                filter_events_match="any",
+                filter_event_properties=[
+                    _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")
+                ],
+            ),
+            allowed_pages=["/billing"],
+            allowed_events=["survey shown", "survey sent"],
+            team_id=1,
+            allowed_surveys=[_MatchedSurvey(name="Pricing feedback", survey_id="abc-123")],
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["survey sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+
+    def test_a_dead_event_comes_back_rather_than_leaving_the_scan_unfiltered(self):
+        # Dropping the dead event narrows nothing here, it inverts: with no page, action or cohort
+        # left, the query stops describing the goal's flow and starts matching every session.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["billing_limit_set"]),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"billing_limit_set"},
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+
+    def test_a_dead_event_still_drops_while_another_filter_holds_the_scan_down(self):
+        # The page narrows on its own, so dropping the dead event is the narrowing it looks like.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            allowed_pages=["/billing"],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"billing_limit_set"},
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
 
     def test_a_grounded_page_that_cannot_narrow_warns_it_scans_everything(self):
         # "/x" is a real page and grounds, but its filter value is too short to narrow, so the query
@@ -1306,6 +1612,12 @@ class TestDraftV2(_VisionAPITestCase):
     def _drafted_with(self, generate, estimate):
         with (
             patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            # Measure every candidate live, so these tests exercise the estimate-based fallback rather
+            # than the earlier measured-dead drop, which would remove the event before it is reached.
+            patch(
+                f"{_MODULE}._measured_events",
+                side_effect=lambda team, names: [_CandidateEvent(name=n, sessions=100) for n in names],
+            ),
             patch(_GENERATE_PATH, return_value=generate),
             patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
         ):
@@ -1369,6 +1681,156 @@ class TestDraftV2(_VisionAPITestCase):
         assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
         assert draft.estimated_monthly_observations == 0
 
+    def test_a_measured_dead_event_is_dropped_before_it_can_zero_the_scan(self):
+        # billing_limit_set is a real definition, so grounding's definition-lookup fallback would
+        # re-admit it even after it leaves the briefing. Measured at zero sessions it is dead, and one
+        # dead event ANDs the whole scan to nothing, so it must not reach the query. The page comes
+        # from live traffic, so it survives and narrows on its own.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            patch(f"{_MODULE}._measured_events", return_value=[_CandidateEvent(name="billing_limit_set", sessions=0)]),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
+
+    def test_a_quiet_surveys_injected_events_survive_so_its_property_filter_does(self):
+        # The survey events are injected to carry the $survey_id filter, not because volume picked
+        # them. A survey with no responses in the window measures zero on all of them, and dropping
+        # them takes the property filter with them — the one-survey scan becomes a scan of
+        # everything, which is the opposite of what the goal asked for.
+        survey = Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(
+                f"{_MODULE}._measured_events",
+                return_value=[_CandidateEvent(name=name, sessions=0) for name in ("survey sent", "survey shown")],
+            ),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(
+                    filter_events=["survey sent"],
+                    filter_event_properties=[
+                        _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value=str(survey.id))
+                    ],
+                ),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["survey sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
+        ]
+
+    def test_a_teams_own_casing_of_a_survey_event_is_offered_once(self):
+        # The injected names are lowercase constants, but the goal search returns the team's own
+        # spelling. Offering both would show one event twice, each carrying the same count, and the
+        # quiet-survey exemption below only recognises the spelling it injected — so the team's own
+        # would measure zero and drop as dead, taking its $survey_id filter with it.
+        Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+        EventDefinition.objects.create(team=self.team, name="Survey Sent", last_seen_at=timezone.now())
+        offered: list[list[str]] = []
+
+        def measure(team, names):
+            offered.append(list(names))
+            return [_CandidateEvent(name=name, sessions=0) for name in names]
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(f"{_MODULE}._measured_events", side_effect=measure),
+            patch(_GENERATE_PATH, return_value=_draft_v2(filter_events=["Survey Sent"])),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert [n for n in offered[0] if n.lower() == "survey sent"] == ["Survey Sent"]
+
+    def test_a_quiet_survey_event_in_the_teams_own_casing_is_still_exempt(self):
+        # The exemption matches on the injected names, so it has to recognise the canonical spelling
+        # too. Otherwise a quiet survey drops the event its $survey_id filter rides on, and the
+        # one-survey scan widens to every session.
+        #
+        # A page filter rides along so the dead-event revival stays out of it: revival only fires
+        # when nothing else survives, and it would otherwise rescue the event whatever the exemption
+        # did, leaving this test unable to fail.
+        survey = Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+        EventDefinition.objects.create(team=self.team, name="Survey Sent", last_seen_at=timezone.now())
+
+        with (
+            patch(
+                f"{_MODULE}.fetch_visited_paths",
+                return_value=(VisitedPath(pathname="/pricing", sessions=10),),
+            ),
+            patch(f"{_MODULE}.recent_event_sessions", return_value={}),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(
+                    filter_pages=["/pricing"],
+                    filter_events=["Survey Sent"],
+                    filter_event_properties=[
+                        _LlmEventPropertyFilter(event="Survey Sent", property="$survey_id", value=str(survey.id))
+                    ],
+                ),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["Survey Sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
+        ]
+
     def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
         # The whole point of the targeting: the projection has to count that experiment's
         # participants, not every session the pages match, while the query the wizard saves stays
@@ -1408,6 +1870,45 @@ class TestDraftV2(_VisionAPITestCase):
 
         assert draft.model == "gemini-3.8-flash"
         assert draft.credit_limit == 10_000
+
+    def _briefing_under_scopes(self, allowed_scopes):
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(f"{_MODULE}.recent_event_sessions", return_value={"billing_limit_set": 42}) as volume,
+            patch(_GENERATE_PATH, return_value=_draft_v2()) as generate,
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+                allowed_scopes=allowed_scopes,
+            )
+        return volume, generate.call_args.kwargs["user_content"]
+
+    def test_a_scoped_token_lacking_query_read_gets_unmeasured_events(self):
+        # Event volume is an analytics read: a token with only scanner and recording scopes must not
+        # receive counts, which the briefing would surface into the model's prompt and rationale.
+        # The names still go in, unmeasured, so grounding survives the gate.
+        volume, user_content = self._briefing_under_scopes(["replay_scanner:write", "session_recording:read"])
+
+        assert not volume.called
+        assert "billing_limit_set" in user_content
+        assert "billing_limit_set (" not in user_content
+
+    def test_query_read_scope_keeps_the_measured_counts(self):
+        volume, user_content = self._briefing_under_scopes(
+            ["replay_scanner:write", "session_recording:read", "query:read"]
+        )
+
+        assert volume.called
+        assert "billing_limit_set (42)" in user_content
 
 
 class TestDraftEndpointGoalFlow(_VisionAPITestCase):
@@ -1475,6 +1976,16 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         assert body["model"] is None
         assert body["credit_limit"] is None
         assert body["estimated_monthly_observations"] is None
+
+    def test_flag_evaluation_carries_the_person_properties_the_flag_reads(self):
+        # Server-side evaluation is local and cannot read stored person properties. Without the
+        # email, an email-based variant override falls through to the rollout hash, the server
+        # disagrees with the browser that showed the goal flow, and the request silently degrades
+        # to a legacy draft.
+        with patch(f"{_API_MODULE}.get_feature_flag_or_none", return_value="test") as flag:
+            assert _goal_flow_enabled(self.user, self.team) is True
+
+        assert flag.call_args.kwargs["person_properties"] == {"email": self.user.email}
 
     def test_no_budget_never_consults_the_flag(self):
         with (

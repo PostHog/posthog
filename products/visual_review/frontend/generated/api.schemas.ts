@@ -303,6 +303,39 @@ export interface UnquarantineQueryApi {
     identifier: string
 }
 
+export interface TolerationPileupEntryApi {
+    /** Snapshot identifier, for example a Storybook story id plus theme. */
+    identifier: string
+    /** Run type the snapshot belongs to, for example `storybook`. */
+    run_type: string
+    /** Tolerations a person or agent recorded for this snapshot in the window, across every baseline. Each one accepted a different exact rendering, so a high count means the snapshot renders differently from run to run. */
+    intentional_count: number
+    /** Automatic tolerations in the window: renderings that came in under both diff thresholds. */
+    automatic_count: number
+    /** Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests. */
+    is_quarantined: boolean
+}
+
+export interface TolerationPileupsApi {
+    /** Matching snapshots, most manual tolerations first. */
+    entries: TolerationPileupEntryApi[]
+    /** Length of the counting window in days that was applied. */
+    window_days: number
+    /** Manual toleration threshold that was applied. */
+    min_tolerations: number
+    /**
+     * Automatic toleration threshold that was applied, or null when none was.
+     * @nullable
+     */
+    min_automatic_tolerations: number | null
+    /** How many snapshots matched before `limit` was applied. */
+    total: number
+    /** True when `limit` cut the list short. */
+    truncated: boolean
+    /** When the list was computed. */
+    generated_at: string
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -520,9 +553,9 @@ export interface ApproveRunRequestInputApi {
 export interface FinalizeRunRequestInputApi {
     /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
-    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
+    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted. */
     commit_to_github?: boolean
-    /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
+    /** Whether to embed the before/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots. */
     add_images_to_comment_on_pr?: boolean
 }
 
@@ -660,6 +693,43 @@ export type VisualReviewReposThumbnailsRetrieveParams = {
      * Narrow the lookup to one run type. The same identifier under two run types is two different images, so omit this only when the caller shows one run type.
      */
     run_type?: string
+}
+
+export type VisualReviewReposTolerationPileupsRetrieveParams = {
+    /**
+     * Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. Set to false to see only piles nobody has acted on yet.
+     */
+    include_quarantined?: boolean
+    /**
+     * Maximum number of snapshots to return. `total` and `truncated` say whether more matched.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Also list a snapshot when it collected at least this many automatic tolerations in the window. An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; many of them still mean the story is unstable. Omit to ignore automatic tolerations when deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion.
+     * @minimum 1
+     * @maximum 10000
+     */
+    min_automatic_tolerations?: number
+    /**
+     * List a snapshot when a person or agent tolerated it at least this many times in the window. The default, 3, is the weekly debt digest's rule. Lower it to see snapshots that are starting to pile up, raise it to see only the worst ones.
+     * @minimum 1
+     * @maximum 100
+     */
+    min_tolerations?: number
+    /**
+     * Only list snapshots of this run type, for example `storybook` or `playwright`.
+     * @minLength 1
+     * @maxLength 64
+     */
+    run_type?: string
+    /**
+     * How many days back to count tolerations. Defaults to 30.
+     * @minimum 1
+     * @maximum 90
+     */
+    window_days?: number
 }
 
 export type VisualReviewReposRunsListParams = {

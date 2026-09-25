@@ -1,7 +1,6 @@
 import re
 import hmac
 import time
-import hashlib
 import logging
 import functools
 from abc import abstractmethod
@@ -20,6 +19,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+import posthoganalytics
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
@@ -30,11 +30,13 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import activity_storage, record_agent_intent
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -58,9 +60,14 @@ from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
+from products.signals.backend.facade.activity_client import resolve_scout_client_tag
 
 
 class WebAuthnAuthenticationResponse(TypedDict):
@@ -181,6 +188,18 @@ class SessionAuthentication(authentication.SessionAuthentication):
             user, auth = auth_result
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
+            try:
+                security_shadow_check(
+                    SecuritySubject(
+                        email=user.email,
+                        user_uuid=str(user.uuid),
+                        ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                    ),
+                    SecuritySurface.APP,
+                    call_site="session",
+                )
+            except Exception:
+                structlog_logger.exception("security_shadow_check_site_failed", call_site="session")
 
             return (user, auth)
 
@@ -338,6 +357,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             # request cycle (e.g. authenticate() called directly) the thread-local would leak.
             if activity_storage.is_request_scoped():
                 activity_storage.set_user(personal_api_key_object.user)
+                record_agent_intent(request)
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
@@ -894,6 +914,21 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             return None
 
 
+def _record_agent_attribution(request: Union[HttpRequest, Request], access_token: OAuthAccessToken) -> None:
+    """Record the intent the caller states, and a task binding when the token carries one.
+
+    Only the token binding can supply a verified task id, so a token without one records the
+    intent alone. Attribution is extra detail on an audit row, so an error here must not fail
+    the request.
+    """
+    try:
+        if access_token.sandbox_task_id is not None:
+            activity_storage.set_agent_task_id(str(access_token.sandbox_task_id))
+    except Exception as e:
+        capture_exception(e)
+    record_agent_intent(request)
+
+
 class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens
@@ -915,34 +950,76 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 if not access_token:
                     raise AuthenticationFailed(detail="Invalid access token.")
 
-                self._enforce_toolbar_access(access_token)
-
-                self.access_token = access_token
-
-                tag_authentication(
-                    user_id=access_token.user.pk,
-                    team_id=access_token.user.current_team_id,
-                    access_method=AccessMethod.OAUTH,
-                )
-
-                # ActivityLoggingMiddleware only captures session-authenticated users (it runs
-                # before DRF auth), so signal-driven activity logging would otherwise record
-                # bearer-token requests as system actions. Only write when the middleware owns
-                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
-                # thread-local would leak.
-                if activity_storage.is_request_scoped():
-                    activity_storage.set_user(access_token.user)
-                    # Tokens minted during staff impersonation must keep the impersonation
-                    # marker in the audit trail.
-                    if access_token.impersonated_by_id is not None:
-                        activity_storage.set_was_impersonated(True)
-
-                return access_token.user, None
+                return self._authenticate_access_token(request, access_token)
 
             except AuthenticationFailed:
                 raise
-            except Exception:
+            except Exception as e:
+                # _validate_token converts its own failures, so anything reaching here is a
+                # bug in the authentication path, not a bad token. Record it before it is
+                # reported to the caller as one.
+                with posthoganalytics.new_context():
+                    posthoganalytics.set_capture_exception_code_variables_context(False)
+                    capture_exception(e)
                 raise AuthenticationFailed(detail="Invalid access token.")
+
+    def _authenticate_access_token(
+        self, request: Union[HttpRequest, Request], access_token: OAuthAccessToken
+    ) -> tuple[Any, None]:
+        self._enforce_toolbar_access(access_token)
+
+        self.access_token = access_token
+
+        # The delegated query rejects missing users, but the nullable relation needs a type guard.
+        user = access_token.user
+        if user is None:
+            raise AuthenticationFailed(detail="User associated with access token not found.")
+
+        tag_authentication(
+            user_id=user.pk,
+            team_id=user.current_team_id,
+            access_method=AccessMethod.OAUTH,
+        )
+
+        # ActivityLoggingMiddleware only captures session-authenticated users (it runs
+        # before DRF auth), so signal-driven activity logging would otherwise record
+        # bearer-token requests as system actions. Only write when the middleware owns
+        # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+        # thread-local would leak.
+        if activity_storage.is_request_scoped():
+            activity_storage.set_user(user)
+            # Tokens minted during staff impersonation must keep the impersonation
+            # marker in the audit trail.
+            if access_token.impersonated_by_id is not None:
+                activity_storage.set_was_impersonated(True)
+            _record_agent_attribution(request, access_token)
+            self._set_scout_activity_client(access_token)
+
+        return user, None
+
+    def _set_scout_activity_client(self, access_token: OAuthAccessToken) -> None:
+        """Name the scout behind a sandbox token's writes, in place of the self-reported client.
+
+        A scout acts as the person who owns its config, so the acting user alone cannot tell a
+        scout's edit from that person's own MCP edit. The task binding on the token is written
+        server-side at mint time, so it overrides the caller-settable `x-posthog-client` header
+        that `ActivityLoggingMiddleware` read earlier in the request.
+
+        The scout is looked up when an activity row first needs it, not here, because most
+        requests a sandbox token makes are reads that write no row.
+        """
+        if access_token.sandbox_task_id is None:
+            return
+        # Sandbox tokens are minted against exactly one team. Anything else cannot say which
+        # team's runs to look in, and attribution must not guess.
+        scoped_teams = access_token.scoped_teams or []
+        if len(scoped_teams) != 1:
+            return
+        sandbox_task_id = access_token.sandbox_task_id
+        team_id = scoped_teams[0]
+        activity_storage.set_client_resolver(
+            lambda: resolve_scout_client_tag(sandbox_task_id=sandbox_task_id, team_id=team_id)
+        )
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
@@ -1049,6 +1126,7 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
         )
         if activity_storage.is_request_scoped():
             activity_storage.set_user(personal_api_key.user)
+            record_agent_intent(request)
         return personal_api_key.user, None
 
 
@@ -1071,18 +1149,7 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
         except (KeyError, OAuthAccessToken.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source OAuth access token is no longer valid.") from error
 
-        self._enforce_toolbar_access(access_token)
-        self.access_token = access_token
-        tag_authentication(
-            user_id=access_token.user.pk,
-            team_id=access_token.user.current_team_id,
-            access_method=AccessMethod.OAUTH,
-        )
-        if activity_storage.is_request_scoped():
-            activity_storage.set_user(access_token.user)
-            if access_token.impersonated_by_id is not None:
-                activity_storage.set_was_impersonated(True)
-        return access_token.user, None
+        return self._authenticate_access_token(request, access_token)
 
 
 class WidgetAuthentication(authentication.BaseAuthentication):
@@ -1509,15 +1576,15 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Webhook integration not found or disabled.")
 
         django_request = getattr(request, "_request", request)
-        raw_body = django_request.body.decode()
+        try:
+            raw_body = django_request.body.decode()
+        except UnicodeDecodeError:
+            # The signed input is text, so a body that is not UTF-8 cannot carry a valid signature.
+            raise AuthenticationFailed("Invalid webhook signature.")
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
-        expected = hmac.new(
-            signing_secret.encode(),
-            hmac_input.encode(),
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
+        expected = hmac_sha256_signature(signing_secret, hmac_input.encode())
+        if not signatures_match(expected, signature):
             raise AuthenticationFailed("Invalid webhook signature.")
 
         try:

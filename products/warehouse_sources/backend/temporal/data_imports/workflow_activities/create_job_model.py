@@ -11,17 +11,20 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_external_data_schedule
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    mark_schema_running_unless_halted,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
@@ -40,7 +43,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_fast_return_enabled
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -74,6 +76,25 @@ def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
 
 
 LOGGER = get_logger(__name__)
+
+
+class SourceOrSchemaDeletedError(NonReportableError):
+    """The source or schema was deleted while its sync schedule was still live.
+
+    Deletion cancels the schedule, but a run Temporal already started keeps going, so this
+    activity can find the rows gone. The run must still fail, because there is no schema left
+    to create a job for. It is not a defect either, so subclassing ``NonReportableError`` keeps
+    the race out of error tracking instead of opening an issue per orphaned run.
+    """
+
+
+class V3PipelineLockLostError(NonReportableError):
+    """Another run's lock takeover (see acquire_v3_lock.py) reassigned the v3 pipeline lock
+    away from this run before it reached job creation. The takeover path only steals from a
+    holder whose Temporal workflow already looks terminal, so a resumed run landing here is
+    the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
+    it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
+    """
 
 
 def _statistics_stale(team_id: int, table: DataWarehouseTable | None) -> bool:
@@ -128,17 +149,31 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
     if holder is None:
         return
     if holder != run_id:
-        raise ApplicationError(
-            "v3 pipeline lock lost to another run before job creation",
-            non_retryable=True,
-        )
+        raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
+
+
+# Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
+# hundreds of KB on a busy CDC schema, and `schema_metadata` is the source table's column list.
+# Copying them onto every job row was most of the snapshot's storage cost.
+_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
+    """The schema as it was when this job started, for debugging a run after the fact.
+
+    `post_import_job` reads `last_synced_at` back, and CDC extraction adds `cdc_write_mode` for
+    the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
+    """
+    sync_type_config = {
+        key: value
+        for key, value in (schema.sync_type_config or {}).items()
+        if key not in _SNAPSHOT_EXCLUDED_CONFIG_KEYS
+    }
     return {
         "name": schema.name,
         "sync_type": schema.sync_type,
-        "sync_type_config": schema.sync_type_config,
+        "sync_type_config": sync_type_config,
         "sync_frequency_interval": schema.sync_frequency_interval.total_seconds()
         if schema.sync_frequency_interval
         else None,
@@ -219,8 +254,6 @@ def _fast_return_eligible(
     that always fast-returns, so anything outstanding forces the full path, and
     FAST_RETURN_FULL_RUN_INTERVAL forces one anyway for whatever this list cannot see.
     """
-    if not is_fast_return_enabled(schema):
-        return False
     if not (schema.is_incremental or schema.is_append):
         return False
     # xmin and CDC keep their cursor outside `incremental_field_last_value`, and a webhook
@@ -246,14 +279,8 @@ def _fast_return_eligible(
     if data_quality_checks_needed_for(team_id, schema.table_id):
         return False
 
-    last_full_run_at = schema.last_full_run_at
-    if last_full_run_at is None:
-        return False
-    try:
-        stamped = dt.datetime.fromisoformat(last_full_run_at)
-    except (TypeError, ValueError):
-        return False
-    if stamped.tzinfo is None:
+    stamped = schema.last_full_run
+    if stamped is None:
         return False
     return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
 
@@ -267,7 +294,8 @@ class CreateExternalDataJobModelActivityOutputs:
     # ISO timestamp of when the previous sync completed, used to detect new records
     last_synced_at: str | None = None
     emit_signals_enabled: bool = False
-    # True when semantic enrichment is permitted (feature flag on AND AI data processing approved).
+    # True when semantic enrichment is permitted (AI data processing approved). Kept on the payload for
+    # in-flight workflows; the workflow branches on enrichment_needed.
     enrichment_enabled: bool = False
     # True when column-statistics profiling is permitted (feature flag on). No AI-data-processing consent
     # term: it reads only the Delta log and writes to our own DB — nothing leaves our infra.
@@ -297,14 +325,16 @@ def create_external_data_job_model_activity(
 
     close_old_connections()
 
+    # Kept out of the try below so the generic handler does not log a stack trace for a
+    # deletion race that the activity handles.
+    source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
+    schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
+    if not source_exists or not schema_exists:
+        delete_external_data_schedule(str(inputs.schema_id))
+        logger.info("Source or schema no longer exists, deleted the sync schedule")
+        raise SourceOrSchemaDeletedError("Source or schema no longer exists - deleted temporal schedule")
+
     try:
-        source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
-        schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
-
-        if not source_exists or not schema_exists:
-            delete_external_data_schedule(str(inputs.schema_id))
-            raise Exception("Source or schema no longer exists - deleted temporal schedule")
-
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
 
         source: ExternalDataSource = schema.source
@@ -314,10 +344,6 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
-        # Persist the Running status only after the job row exists: a Running schema with no job
-        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
-        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
-        schema.status = ExternalDataSchema.Status.RUNNING
         # Only v3 runs deliver to destinations; v2 has no per-batch queue to carry the ids.
         destination_ids: list[str] = []
         if pipeline_version == ExternalDataJob.PipelineVersion.V3 and is_multi_destination_enabled(
@@ -333,7 +359,10 @@ def create_external_data_job_model_activity(
             schema_snapshot=_build_schema_snapshot(schema),
             destination_ids=destination_ids,
         )
-        schema.save(update_fields=["status", "updated_at"])
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        mark_schema_running_unless_halted(schema)
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -355,15 +384,6 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Semantic enrichment runs only when its flag is on AND AI data processing is approved — let the
-        # workflow skip the child entirely rather than spawn one that immediately no-ops.
-        # Lazy import: enrich_table_semantics is a workflow module; keep it off this activity's import path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (  # noqa: PLC0415
-            enrichment_enabled,
-        )
-
-        enrichment_should_run = bool(ai_data_processing_approved and team is not None and enrichment_enabled(team))
-
         # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
         # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
@@ -375,7 +395,7 @@ def create_external_data_job_model_activity(
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
         table = schema.table
-        enrichment_needed = enrichment_should_run and _enrichment_pending(inputs.team_id, table, schema)
+        enrichment_needed = ai_data_processing_approved and _enrichment_pending(inputs.team_id, table, schema)
         statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
@@ -396,13 +416,17 @@ def create_external_data_job_model_activity(
             schema_name=schema.name,
             last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,
             emit_signals_enabled=emit_signals_enabled,
-            enrichment_enabled=enrichment_should_run,
+            enrichment_enabled=ai_data_processing_approved,
             statistics_enabled=statistics_should_run,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
         )
+    except V3PipelineLockLostError:
+        # The takeover race the guard handles, not a defect — skip the generic handler's
+        # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
+        raise
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

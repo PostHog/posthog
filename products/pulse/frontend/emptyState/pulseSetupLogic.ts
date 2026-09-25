@@ -14,6 +14,8 @@ import { pulseLogic } from '../pulseLogic'
 export const pulseSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.PULSE,
     path: ['products', 'pulse', 'frontend', 'emptyState', 'pulseSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await pulseBriefsList(projectId, { limit: 1 })

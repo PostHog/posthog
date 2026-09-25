@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
+from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -12,6 +14,7 @@ from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -20,6 +23,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.models.vision_alert import (
     VisionAlertConfiguration,
     VisionAlertEvent,
+    VisionAlertKind,
     VisionAlertState,
 )
 
@@ -61,6 +65,24 @@ class _VisionAlertAPITestCase(APIBaseTest):
         }
         payload.update(overrides)
         return payload
+
+    def _sync_destination_templates(self) -> None:
+        sync_template_to_db(template_slack)
+        HogFunctionTemplate.objects.get_or_create(
+            template_id="template-webhook",
+            defaults={
+                "sha": "1.0.0",
+                "name": "Webhook",
+                "description": "Generic webhook template",
+                "code": "return event",
+                "code_language": "hog",
+                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
+                "type": "destination",
+                "status": "stable",
+                "category": ["Integrations"],
+                "free": True,
+            },
+        )
 
     def _create_via_api(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         response = self.client.post(self.base_url, payload or self._metric_payload(), format="json")
@@ -161,6 +183,41 @@ class TestVisionAlertCRUD(_VisionAlertAPITestCase):
         results = response.json()["results"]
         assert [r["name"] for r in results] == ["Other alert"]
 
+    @parameterized.expand(["alerts", "events"])
+    def test_rows_sharing_a_created_at_page_in_a_stable_order(self, endpoint: str) -> None:
+        # Insert in descending id order: only the id tie-breaker can then return ascending ids.
+        ids = sorted(uuid4() for _ in range(3))
+        with time_machine.travel(datetime(2026, 1, 1, 12, 0, tzinfo=UTC), tick=False):
+            if endpoint == "alerts":
+                url = self.base_url
+                for index, row_id in enumerate(reversed(ids)):
+                    VisionAlertConfiguration.objects.for_team(self.team.id).create(
+                        id=row_id,
+                        team=self.team,
+                        scanner=self.scanner,
+                        name=f"Alert {index}",
+                        kind=VisionAlertKind.METRIC,
+                        threshold=5,
+                    )
+            else:
+                alert = self._create_via_api()
+                url = f"{self.base_url}{alert['id']}/events/"
+                for row_id in reversed(ids):
+                    VisionAlertEvent.objects.create(
+                        id=row_id,
+                        alert_id=alert["id"],
+                        kind=VisionAlertEvent.Kind.SNOOZE,
+                        state_before=VisionAlertState.NOT_FIRING,
+                        state_after=VisionAlertState.SNOOZED,
+                    )
+
+        first = self.client.get(url, {"limit": 2})
+        second = self.client.get(url, {"limit": 2, "offset": 2})
+        assert first.status_code == 200, first.json()
+        assert second.status_code == 200, second.json()
+        paged = [row["id"] for row in first.json()["results"] + second.json()["results"]]
+        assert paged == [str(row_id) for row_id in ids]
+
     def test_match_kind_lifecycle_write_is_rejected_by_db(self) -> None:
         data = self._create_via_api(self._match_payload())
         with transaction.atomic():
@@ -233,24 +290,6 @@ class TestVisionAlertControlPlane(_VisionAlertAPITestCase):
 
 
 class TestVisionAlertDestinations(_VisionAlertAPITestCase):
-    def _sync_destination_templates(self) -> None:
-        sync_template_to_db(template_slack)
-        HogFunctionTemplate.objects.get_or_create(
-            template_id="template-webhook",
-            defaults={
-                "sha": "1.0.0",
-                "name": "Webhook",
-                "description": "Generic webhook template",
-                "code": "return event",
-                "code_language": "hog",
-                "inputs_schema": [{"key": "url", "type": "string"}, {"key": "body", "type": "json"}],
-                "type": "destination",
-                "status": "stable",
-                "category": ["Integrations"],
-                "free": True,
-            },
-        )
-
     @parameterized.expand(
         [
             (
@@ -282,6 +321,11 @@ class TestVisionAlertDestinations(_VisionAlertAPITestCase):
         assert len(ids) == expected_count
         hog_functions = HogFunction.objects.filter(id__in=ids)
         assert {(hf.filters or {})["events"][0]["id"] for hf in hog_functions} == expected_event_ids
+
+        detail = self.client.get(f"{self.base_url}{created['id']}/").json()
+        assert [(set(d["hog_function_ids"]), d["type"], d["webhook_url"]) for d in detail["destinations"]] == [
+            (set(ids), "webhook", "https://example.com")
+        ]
 
     def test_destroy_soft_deletes_destinations(self) -> None:
         self._sync_destination_templates()
@@ -391,3 +435,51 @@ class TestVisionAlertAccessControl(_VisionAlertAPITestCase):
             HTTP_AUTHORIZATION=f"Bearer {full}",
         )
         assert response.status_code == 201, response.json()
+
+        self._sync_destination_templates()
+        destinations_url = f"{self.base_url}{response.json()['id']}/destinations/"
+        webhook = {"type": "webhook", "webhook_url": "https://example.com/hook"}
+        response = self.client.post(destinations_url, webhook, format="json", HTTP_AUTHORIZATION=f"Bearer {write_only}")
+        assert response.status_code == 403, response.json()
+        response = self.client.post(destinations_url, webhook, format="json", HTTP_AUTHORIZATION=f"Bearer {full}")
+        assert response.status_code == 201, response.json()
+
+
+class TestVisionAlertActivityLogging(_VisionAlertAPITestCase):
+    def _logs(self, alert_id: str) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="VisionAlertConfiguration", item_id=str(alert_id)
+            ).order_by("created_at")
+        )
+
+    def test_api_crud_is_audited(self) -> None:
+        alert_id = self._create_via_api()["id"]
+
+        self.client.patch(f"{self.base_url}{alert_id}/", {"threshold": 9}, format="json")
+        self.client.delete(f"{self.base_url}{alert_id}/")
+
+        logs = self._logs(alert_id)
+        assert [log.activity for log in logs] == ["created", "updated", "deleted"]
+        detail = cast(dict[str, Any], logs[1].detail)
+        assert {change["field"] for change in detail["changes"]} == {"threshold"}
+
+    @parameterized.expand(
+        [
+            # The two shapes the engine actually saves: a suppressed check, and a state transition.
+            ("suppressed_check", ["next_check_at", "updated_at"]),
+            ("state_transition", ["state", "consecutive_failures", "last_checked_at", "next_check_at"]),
+        ]
+    )
+    def test_evaluation_writes_are_not_audited(self, _name: str, update_fields: list[str]) -> None:
+        # The engine rewrites these on every check; logging them would bury the edits a person made.
+        alert = VisionAlertConfiguration.objects.for_team(self.team.id).get(id=self._create_via_api()["id"])
+        ActivityLog.objects.all().delete()
+
+        alert.state = VisionAlertState.FIRING
+        alert.consecutive_failures = 1
+        alert.last_checked_at = datetime.now(UTC)
+        alert.next_check_at = datetime.now(UTC) + timedelta(hours=1)
+        alert.save(update_fields=update_fields)
+
+        assert self._logs(str(alert.id)) == []

@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
+import { ErrorProjectAccessDenied as ErrorProjectAccessDeniedComponent } from '~/layout/ErrorProjectAccessDenied'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
@@ -28,6 +29,9 @@ export const preloadedScenes: Record<string, SceneExport> = {
     },
     [Scene.ErrorNetwork]: {
         component: ErrorNetworkComponent,
+    },
+    [Scene.ErrorProjectAccessDenied]: {
+        component: ErrorProjectAccessDeniedComponent,
     },
     [Scene.ErrorProjectUnavailable]: {
         component: ErrorProjectUnavailableComponent,
@@ -146,11 +150,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'data_pipeline',
     },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },
+    [Scene.ProjectFiles]: { projectBased: true, name: 'Files', layout: 'app-full-scene-height' },
     [Scene.DebugQuery]: { projectBased: true },
+    [Scene.Terminal]: { projectBased: true, name: 'Terminal', layout: 'app-full-scene-height' },
 
     [Scene.Error404]: { name: 'Not found', projectBased: true },
     [Scene.ErrorAccessDenied]: { name: 'Access denied' },
     [Scene.ErrorNetwork]: { name: 'Network error' },
+    [Scene.ErrorProjectAccessDenied]: { name: 'Project access denied' },
     [Scene.ErrorProjectUnavailable]: { name: 'Project unavailable' },
     [Scene.EventDefinitionEdit]: {
         projectBased: true,
@@ -259,12 +266,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
-    [Scene.Models]: {
-        projectBased: true,
-        name: 'Models',
-        description: 'Create and manage views and materialized views for transforming and organizing your data.',
-        iconType: 'sql_editor',
-    },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
         projectBased: true,
@@ -468,7 +469,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
     [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
-    [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
+    [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
@@ -613,7 +614,7 @@ export const redirects: Record<
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
-    '/batch_exports': urls.destinations(),
+    '/batch_exports': urls.destinations('batch'),
     // Billing lives at /organization/billing. A bare /billing has no scene, so send it there.
     // /billing/authorization_status keeps its own scene route, so it must not be caught here.
     '/billing': urls.organizationBilling(),
@@ -669,8 +670,16 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
     '/live-debugger': urls.liveDebugger(),
+    // Only billing, confirm-creation and create-project have an `/organization*` scene. Every other
+    // path here is guessed or bookmarked, matched no route, and rendered the 404 screen.
+    '/organization': urls.settings('organization'),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
+    '/organization/projects': urls.settings('organization'),
+    '/organization/settings/projects': urls.settings('organization'),
+    '/organization/projects/new': urls.projectCreateFirst(),
+    '/organization/create': urls.organizationCreateFirst(),
+    '/organization/new': urls.organizationCreateFirst(),
     '/pipeline': urls.sources(),
     '/pipelines': urls.sources(),
     '/pipeline/new/site-app': urls.webScriptsNew(),
@@ -840,7 +849,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.deadLetterQueue()]: [Scene.DeadLetterQueue, 'deadLetterQueue'],
     [urls.destinations()]: [Scene.Destinations, 'destinations'],
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
-    [urls.models()]: [Scene.Models, 'models'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
     [urls.eventFiltering()]: [Scene.EventFiltering, 'eventFiltering'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
@@ -878,6 +886,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.terminal()]: [Scene.Terminal, 'terminal'],
+    [urls.projectFiles()]: [Scene.ProjectFiles, 'projectFiles'],
 
     [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
     [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
@@ -901,11 +911,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
-    [`${urls.agenticAuthorize()}/`]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
-    [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
-    [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],
     [urls.batchExport(':id')]: [Scene.BatchExport, 'batchExport'],
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],

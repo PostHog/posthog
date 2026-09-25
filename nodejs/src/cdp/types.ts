@@ -58,6 +58,13 @@ export interface HogFunctionFilters {
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
+    /** Set by Django when compilation failed. The bytecode is null beside it, unless the save kept the last working one. */
+    bytecode_error?: string
+    /**
+     * The runtime contract hash the bytecode was compiled against, from filter_globals.json. Absent on
+     * bytecode saved before the compiler checked globals and functions.
+     */
+    bytecode_contract?: string
 }
 
 export type GroupType = {
@@ -325,6 +332,12 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     finished: boolean
     /** The invocation deliberately finished without running because its trigger did not match. */
     skipped?: boolean
+    /**
+     * Whether a send reached a recipient. Distinct from `skipped` above, which is set only for a
+     * trigger or recipient-preference skip: a push that found no device token sets neither that
+     * flag nor an error, so nothing else on the result tells the two apart.
+     */
+    deliveredToRecipient?: boolean
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -485,7 +498,13 @@ export type HogFlowInvocationContext = {
         // ever catches a wake the subscription streams missed, gating its eventual removal.
         pollReparked?: boolean
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
-        awaitingResume?: { key: string; deadlineAt: string; dispatch: Record<string, unknown>; label?: string }
+        awaitingResume?: {
+            key: string
+            deadlineAt: string
+            dispatch: Record<string, unknown>
+            label?: string
+            parkedAt?: string
+        }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
     }
     // Set by the subscription matcher consumer when an incoming event matched the
@@ -653,7 +672,7 @@ export type DBHogFunctionTemplate = {
 export type IntegrationType = {
     id: number
     team_id: number
-    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns'
+    kind: 'slack' | 'email' | 'oauth' | 'firebase' | 'apns' | 'posthog'
     config: Record<string, any>
     sensitive_config: Record<string, any>
 }

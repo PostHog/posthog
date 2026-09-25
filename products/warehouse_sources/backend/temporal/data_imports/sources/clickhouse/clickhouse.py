@@ -6,8 +6,8 @@ import math
 import time
 import threading
 import collections
-from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager
+from collections.abc import Callable, Generator, Iterator, Sequence
+from contextlib import _GeneratorContextManager, closing
 from typing import Any, Literal, Optional
 
 import pyarrow as pa
@@ -75,6 +75,10 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 # concat and yield a single pa.Table to the pipeline.
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
+
+# Page sizes for re-reading a table whose single query hits a host's per-query result or memory cap.
+PAGED_READ_INITIAL_ROWS = 500_000
+PAGED_READ_MIN_ROWS = 1_000
 
 # Quoter for user-supplied row-filter column names — the allowlist-validated
 # safety rail the shared predicate renderer expects. Trusted internal
@@ -144,7 +148,7 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
     # The ClickHouse host (or a proxy/gateway in front of it) rate-limited the
-    # request with HTTP 429 ("HTTPDriver for <url> returned response code 429").
+    # request with HTTP 429 ("HTTP driver received HTTP status 429 (for url <url>)").
     # A 429 is a transient "back off and retry" signal, not a config error.
     # clickhouse-connect already retries 429 for queries (query_retries), but
     # the probe it runs while constructing the client passes retries=0, so a
@@ -152,7 +156,7 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # retry here recovers the common transient burst. We match only 429; other
     # HTTP statuses keep their existing handling (404 is non-retryable in the
     # source, 5xx stay retryable via Temporal).
-    "returned response code 429",
+    "received HTTP status 429",
     # urllib3 couldn't open the TCP connection to our own egress proxy at all — it never got far
     # enough to attempt a CONNECT tunnel — and wraps the raw socket timeout as
     # `ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))`. This is our proxy
@@ -169,14 +173,14 @@ def _is_transient_connect_drop(error_message: str) -> bool:
 
 
 # clickhouse-connect surfaces an upstream rate-limit as a full HTTP response
-# ("HTTPDriver for <url> returned response code 429"), not a dropped connection:
+# ("HTTP driver received HTTP status 429 (for url <url>)"), not a dropped connection:
 # the request reached the server (or a proxy in front of it) and it told us to
 # slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
 # often clears a short rate-limit burst; if it doesn't, the failing Temporal
 # activity stays retryable and recovers later. We match only 429 — other 4xx
 # response codes are deterministic (e.g. 404 stays non-retryable). Matching the
 # stable status phrase keeps the volatile per-request URL out of the comparison.
-_TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+_TRANSIENT_RATE_LIMIT_SUBSTRING = "received HTTP status 429"
 
 # Backoff base between connect retries after a 429. Longer than the connect-drop
 # retry (which just re-dials) to give the rate limit room to clear.
@@ -1169,16 +1173,16 @@ def _get_incremental_row_count(
 
 
 # clickhouse-connect surfaces a non-2xx HTTP status from the server (or a
-# proxy/LB in front of it) as `HTTPDriver for <url> returned response code <N>`.
+# proxy/LB in front of it) as `HTTP driver received HTTP status <N>`.
 # 429 (rate limited) and the transient gateway codes mean the endpoint can't
 # serve us right now, not that anything we sent was wrong — they clear on their
 # own. A real ClickHouse query error carries a `Code: NNN` instead. We match
 # only these transient statuses so genuine failures still surface.
 _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
-    "returned response code 429",
-    "returned response code 502",
-    "returned response code 503",
-    "returned response code 504",
+    "received HTTP status 429",
+    "received HTTP status 502",
+    "received HTTP status 503",
+    "received HTTP status 504",
 )
 
 
@@ -1265,6 +1269,8 @@ _ARROW_UNSUPPORTED_PREFIXES: tuple[str, ...] = (
     "Nested(",
     "Variant(",
     "Object(",
+    "JSON(",
+    "Dynamic(",
 )
 
 
@@ -1325,6 +1331,25 @@ def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> 
     return "%(last_value)s"
 
 
+def _build_conditions(
+    *,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> tuple[list[str], dict[str, Any]]:
+    """WHERE conditions of the extraction query: the incremental cursor, then the row filters."""
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+    if not should_use_incremental_field:
+        return filter_conditions, filter_params
+
+    if incremental_field is None:
+        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
+
+    cursor_condition = f"{_quote_identifier(incremental_field)} > {_last_value_expr(incremental_field_type)}"
+    return [cursor_condition, *filter_conditions], filter_params
+
+
 def _build_query(
     *,
     database: str,
@@ -1334,6 +1359,7 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
+    page_conditions: Sequence[str] = (),
 ) -> tuple[str, dict[str, Any]]:
     """Build the data extraction query and its bound parameters.
 
@@ -1347,20 +1373,72 @@ def _build_query(
     qualified = _qualified_table(database, table_name)
     select_list = _build_select_list(columns)
 
-    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+    conditions, filter_params = _build_conditions(
+        should_use_incremental_field=should_use_incremental_field,
+        incremental_field=incremental_field,
+        incremental_field_type=incremental_field_type,
+        row_filters=row_filters,
+    )
+    conditions = [*conditions, *page_conditions]
 
-    if not should_use_incremental_field:
-        if filter_conditions:
-            return f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(filter_conditions)}", filter_params
-        return f"SELECT {select_list} FROM {qualified}", filter_params
-
-    if incremental_field is None:
-        raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
-
-    quoted_field = _quote_identifier(incremental_field)
-    conditions = [f"{quoted_field} > {_last_value_expr(incremental_field_type)}", *filter_conditions]
-    query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
+    query = f"SELECT {select_list} FROM {qualified}"
+    if conditions:
+        query += f" WHERE {' AND '.join(conditions)}"
+    if should_use_incremental_field and incremental_field is not None:
+        query += f" ORDER BY {_quote_identifier(incremental_field)} ASC"
     return query, filter_params
+
+
+def _page_key(
+    columns: Sequence[ClickHouseColumn],
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    primary_keys: Optional[list[str]],
+) -> list[str] | None:
+    """Columns whose values split the table into pages, or None when the table has none.
+
+    A NULL fails every comparison, so a nullable sorting-key column would drop its NULL rows from
+    every page. The incremental cursor has no such problem: the cursor condition already skips them.
+    """
+    if should_use_incremental_field:
+        return [incremental_field] if incremental_field else None
+    if not primary_keys:
+        return None
+    nullable_by_name = {column.name: column.nullable for column in columns}
+    if any(nullable_by_name.get(key, True) for key in primary_keys):
+        return None
+    return primary_keys
+
+
+def _page_conditions(
+    key: list[str], lower: Sequence[str] | None, upper: Sequence[str] | None
+) -> tuple[list[str], dict[str, Any]]:
+    """Conditions that keep the rows whose key is above `lower` and at most `upper`.
+
+    Bounds are the key values as ClickHouse renders them with toString(). ClickHouse parses each one
+    back into its column type for the comparison, so no precision is lost in the round trip.
+    """
+    key_tuple = f"({', '.join(_quote_identifier(column) for column in key)})"
+    conditions: list[str] = []
+    parameters: dict[str, Any] = {}
+    for name, operator, bound in (("page_lower", ">", lower), ("page_upper", "<=", upper)):
+        if bound is None:
+            continue
+        placeholders = [f"%({name}_{index})s" for index in range(len(bound))]
+        conditions.append(f"{key_tuple} {operator} ({', '.join(placeholders)})")
+        parameters.update({f"{name}_{index}": value for index, value in enumerate(bound)})
+    return conditions, parameters
+
+
+def _build_page_bound_query(
+    *, database: str, table_name: str, key: list[str], conditions: Sequence[str], page_rows: int
+) -> str:
+    """Query for the key of the last row of a page that starts after the given conditions."""
+    quoted_key = [_quote_identifier(column) for column in key]
+    query = f"SELECT {', '.join(f'toString({column})' for column in quoted_key)} FROM {_qualified_table(database, table_name)}"
+    if conditions:
+        query += f" WHERE {' AND '.join(conditions)}"
+    return f"{query} ORDER BY {', '.join(quoted_key)} LIMIT 1 OFFSET {page_rows - 1}"
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -1393,6 +1471,106 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
         # memory, slow path degrades gracefully.
         "max_bytes_before_external_sort": 500 * 1024 * 1024,
     }
+
+
+# Some hosts serve the ClickHouse HTTP interface but not the ArrowStream output format, and the
+# rejection names the format: Tinybird answers with a 403 "invalid format ArrowStream", and a
+# ClickHouse build without Arrow support raises "Unknown format ArrowStream" (UNKNOWN_FORMAT).
+_ARROW_FORMAT_REJECTED_SUBSTRING = "format ArrowStream"
+
+
+def _is_arrow_format_rejected(message: str) -> bool:
+    return _ARROW_FORMAT_REJECTED_SUBSTRING in message
+
+
+# Per-query caps some hosts enforce and a user can't raise. Tinybird caps each result at 500 MiB and
+# each query's memory, and fails the query before it sends any row.
+_QUERY_LIMIT_EXCEEDED_SUBSTRINGS: tuple[str, ...] = ("TOO_MANY_ROWS_OR_BYTES", "MEMORY_LIMIT_EXCEEDED")
+
+
+def _is_query_limit_exceeded(message: str) -> bool:
+    return any(substring in message for substring in _QUERY_LIMIT_EXCEEDED_SUBSTRINGS)
+
+
+_TIMESTAMP_UNIT_DIGITS: dict[str, int] = {"s": 0, "ms": 3, "us": 6, "ns": 9}
+
+
+def _datetime64_precision(column: ClickHouseColumn) -> int | None:
+    inner, _ = _strip_type_modifiers(column.data_type)
+    match = _DATETIME64_RE.match(inner)
+    return int(match.group(1)) if match is not None else None
+
+
+def _ticks_to_timestamp(ticks: Sequence[Any], precision: int, timestamp_type: pa.TimestampType) -> pa.Array[Any]:
+    scale = 10 ** (_TIMESTAMP_UNIT_DIGITS[timestamp_type.unit] - precision)
+    if scale != 1:
+        ticks = [None if tick is None else tick * scale for tick in ticks]
+    return pa.array(ticks, type=pa.int64()).cast(timestamp_type)
+
+
+def _native_column_to_arrow(
+    values: Sequence[Any], field: pa.Field[pa.DataType], datetime64_precision: int | None
+) -> pa.Array[Any]:
+    if datetime64_precision is not None and isinstance(field.type, pa.TimestampType):
+        return _ticks_to_timestamp(values, datetime64_precision, field.type)
+    try:
+        return pa.array(values, type=field.type)
+    except (pa.ArrowInvalid, pa.ArrowTypeError):
+        # Types that `_build_select_list` does not cast with toString() but `to_arrow_field` maps to
+        # string (geo types, AggregateFunction states, ...) decode to Python tuples, lists or numbers.
+        if not pa.types.is_string(field.type):
+            raise
+        return pa.array([None if value is None else str(value) for value in values], type=pa.string())
+
+
+def _native_block_to_record_batch(
+    block: Sequence[Sequence[Any]], schema: pa.Schema, datetime64_precisions: list[int | None]
+) -> pa.RecordBatch:
+    return pa.RecordBatch.from_arrays(
+        [
+            _native_column_to_arrow(column, field, precision)
+            for column, field, precision in zip(block, schema, datetime64_precisions)
+        ],
+        schema=schema,
+    )
+
+
+def _stream_record_batches(
+    client: ClickHouseClient,
+    query: str,
+    parameters: dict[str, Any],
+    columns: list[ClickHouseColumn],
+    logger: FilteringBoundLogger,
+) -> Generator[pa.RecordBatch]:
+    """Stream the extraction query as one Arrow record batch per ClickHouse block.
+
+    ArrowStream is the fast path because the server builds the batches. When the host rejects that
+    format, we read the same query in the Native format, which every host that passed discovery
+    accepts because clickhouse-connect uses it for the metadata queries. Each Native block is
+    converted against the discovered schema. The host rejects the format before it sends any rows,
+    so the retry cannot duplicate data. Both paths hold one block (`max_block_size` rows) at a
+    time, plus the bounded HTTP read buffer of clickhouse-connect.
+    """
+    try:
+        arrow_stream = client.query_arrow_stream(query, parameters=parameters)
+    except ClickHouseError as e:
+        if not _is_arrow_format_rejected(str(e)):
+            raise
+        logger.warning("ClickHouse host rejected the ArrowStream format, reading in the Native format instead")
+        schema = pa.schema([column.to_arrow_field() for column in columns])
+        datetime64_precisions = [_datetime64_precision(column) for column in columns]
+        # Python datetimes stop at microseconds, so DateTime64 columns come back as integer ticks
+        # to keep the sub-microsecond digits of DateTime64(7..9).
+        column_formats: dict[str, str | dict[str, str]] = {
+            column.name: "int" for column, precision in zip(columns, datetime64_precisions) if precision is not None
+        }
+        with client.query_column_block_stream(query, parameters=parameters, column_formats=column_formats) as blocks:
+            for block in blocks:
+                yield _native_block_to_record_batch(block, schema, datetime64_precisions)
+        return
+
+    with arrow_stream as batches:
+        yield from batches
 
 
 def clickhouse_source(
@@ -1451,6 +1629,7 @@ def clickhouse_source(
 
             # Project to the user-selected columns (always keeping PK + cursor).
             projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
+            page_key = _page_key(list(table.columns), should_use_incremental_field, incremental_field, primary_keys)
 
             # Warn when the incremental cursor isn't the sorting-key prefix.
             # ClickHouse can only skip the sort if the ORDER BY column leads
@@ -1528,10 +1707,7 @@ def clickhouse_source(
             )
 
             try:
-                query, filter_params = _build_query(
-                    database=database,
-                    table_name=table_name,
-                    columns=projected_columns,
+                base_conditions, filter_params = _build_conditions(
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
                     incremental_field_type=incremental_field_type,
@@ -1545,9 +1721,68 @@ def clickhouse_source(
                         last_value = incremental_type_to_initial_value(incremental_field_type)
                     parameters["last_value"] = last_value
 
-                logger.info(f"ClickHouse query: {query}")
+                def read_batches() -> Generator[pa.RecordBatch]:
+                    """Read the table in one query, or in pages of key ranges once a host limit rejects that.
 
-                # query_arrow_stream yields pa.RecordBatch chunks — one per
+                    A page is retried with half as many rows while the host rejects it before it sends a
+                    row. A rejection after rows were read raises, because the retry would read them again.
+                    """
+                    page_rows: int | None = None
+                    lower: list[str] | None = None
+                    while True:
+                        read_any = False
+                        try:
+                            upper: list[str] | None = None
+                            page_conditions: list[str] = []
+                            page_parameters: dict[str, Any] = {}
+                            if page_rows is not None and page_key is not None:
+                                lower_conditions, lower_parameters = _page_conditions(page_key, lower, None)
+                                bound_query = _build_page_bound_query(
+                                    database=database,
+                                    table_name=table_name,
+                                    key=page_key,
+                                    conditions=[*base_conditions, *lower_conditions],
+                                    page_rows=page_rows,
+                                )
+                                bound_rows = stream_client.query(
+                                    bound_query, parameters={**parameters, **lower_parameters}
+                                ).result_rows
+                                upper = list(bound_rows[0]) if bound_rows else None
+                                page_conditions, page_parameters = _page_conditions(page_key, lower, upper)
+
+                            query, _ = _build_query(
+                                database=database,
+                                table_name=table_name,
+                                columns=projected_columns,
+                                should_use_incremental_field=should_use_incremental_field,
+                                incremental_field=incremental_field,
+                                incremental_field_type=incremental_field_type,
+                                row_filters=row_filters,
+                                page_conditions=page_conditions,
+                            )
+                            logger.info(f"ClickHouse query: {query}")
+                            with closing(
+                                _stream_record_batches(
+                                    stream_client, query, {**parameters, **page_parameters}, projected_columns, logger
+                                )
+                            ) as batches:
+                                for batch in batches:
+                                    read_any = read_any or batch.num_rows > 0
+                                    yield batch
+                        except ClickHouseError as e:
+                            if read_any or page_key is None or not _is_query_limit_exceeded(str(e)):
+                                raise
+                            if page_rows is not None and page_rows // 2 < PAGED_READ_MIN_ROWS:
+                                raise
+                            page_rows = PAGED_READ_INITIAL_ROWS if page_rows is None else page_rows // 2
+                            logger.warning(f"ClickHouse query exceeded a host limit, reading {page_rows} rows per page")
+                            continue
+
+                        if upper is None:
+                            return
+                        lower = upper
+
+                # The stream yields pa.RecordBatch chunks — one per
                 # ClickHouse block, capped by max_block_size. We accumulate
                 # these into ~YIELD_TARGET_BYTES / YIELD_TARGET_ROWS pa.Tables
                 # before yielding, so the pipeline's Delta writer sees fewer,
@@ -1555,7 +1790,7 @@ def clickhouse_source(
                 pending: list[pa.RecordBatch] = []
                 pending_rows = 0
                 pending_bytes = 0
-                with stream_client.query_arrow_stream(query, parameters=parameters) as stream:
+                with closing(read_batches()) as stream:
                     for chunk in stream:
                         if chunk.num_rows == 0:
                             continue

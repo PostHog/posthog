@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
-import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -24,7 +23,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -85,6 +84,15 @@ const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
         ...rest,
         id: tab.id || generateTabId(),
     }
+}
+
+// `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
+// location is the homepage has to derive it the same way.
+const homepageTargetPathname = (homepage: SceneTab): string => {
+    const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
+    return removeProjectIdIfPresent(targetPathname) === '/'
+        ? addProjectIdIfMissing(urls.projectHomepage())
+        : targetPathname
 }
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
@@ -256,27 +264,6 @@ export interface sceneLogicActions {
     hideInviteModal: () => {
         value: true
     } // inviteLogic
-    locationChanged: ({
-        method,
-        pathname,
-        search,
-        searchParams,
-        hash,
-        hashParams,
-        initial,
-        url,
-        routerState,
-    }: LocationChangedPayload) => {
-        hash: string
-        hashParams: Record<string, any>
-        initial: boolean
-        method: 'POP' | 'PUSH' | 'REPLACE'
-        pathname: string
-        routerState: Record<string, any>
-        search: string
-        searchParams: Record<string, any>
-        url: string
-    } // router
     loadScene: (
         sceneId: string,
         sceneKey: string | undefined,
@@ -301,6 +288,9 @@ export interface sceneLogicActions {
     }
     reloadBrowserDueToImportError: () => {
         value: true
+    }
+    resetUnavailableHomepage: (pathname: string) => {
+        pathname: string
     }
     setExportedScene: (
         exportedScene: SceneExport,
@@ -340,7 +330,15 @@ export interface sceneLogicProps {
 export interface sceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sceneConfig: (sceneId: string | null) => SceneConfig | null
-        activeSceneId: (sceneId: string | null, isCurrentTeamUnavailable: boolean) => string | null
+        activeSceneId: (
+            sceneId: string | null,
+            isCurrentTeamUnavailable: boolean,
+            location: {
+                hash: string
+                pathname: string
+                search: string
+            }
+        ) => string | null
         activeExportedScene: (
             activeSceneId: string | null,
             exportedScenes: Record<string, SceneExport<SceneProps>>
@@ -381,7 +379,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
     connect(() => ({
         logic: [router, userLogic, preflightLogic, teamLogic],
-        actions: [router, ['locationChanged'], inviteLogic, ['hideInviteModal']],
+        actions: [inviteLogic, ['hideInviteModal']],
         values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
@@ -432,6 +430,7 @@ export const sceneLogic = kea<sceneLogicType>([
         reloadBrowserDueToImportError: true,
 
         setHomepage: (tab: SceneTab | null) => ({ tab }),
+        resetUnavailableHomepage: (pathname: string) => ({ pathname }),
     }),
     reducers({
         sceneId: [
@@ -509,9 +508,22 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: equal },
         ],
         activeSceneId: [
-            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
-            (sceneId: string | null, isCurrentTeamUnavailable: boolean) => {
-                const effectiveResourceAccessControl = getAppContext()?.effective_resource_access_control
+            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable, router.selectors.location],
+            (sceneId: string | null, isCurrentTeamUnavailable: boolean, location: { pathname: string }) => {
+                const appContext = getAppContext()
+                const effectiveResourceAccessControl = appContext?.effective_resource_access_control
+
+                // The server refused the project this address names and served the user's own one,
+                // so the page cannot load. Once the address bar names a project we do serve, the
+                // scene loads as usual.
+                if (
+                    appContext?.project_access_denied &&
+                    sceneId &&
+                    sceneConfigurations[sceneId]?.projectBased &&
+                    getProjectIdentifierInPath(location.pathname) === appContext.project_access_denied
+                ) {
+                    return Scene.ErrorProjectAccessDenied
+                }
 
                 // Get the access control resource type for the current scene
                 const sceneAccessControlResource = sceneId ? sceneToAccessControlResourceType[sceneId as Scene] : null
@@ -666,26 +678,39 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
+        // and the picker that would change it sits behind that screen. Drop the setting instead.
+        resetUnavailableHomepage: ({ pathname }) => {
+            const target = addProjectIdIfMissing(pathname)
+            if (!values.homepage || homepageTargetPathname(values.homepage) !== target) {
+                return
+            }
+            actions.setHomepage(null)
+            lemonToast.info('Your home pointed to something that no longer exists, so we reset it.')
+            const location = router.values.currentLocation
+            if (addProjectIdIfMissing(location.pathname) === target) {
+                // Carry the hash and allow-listed params over, as the `/` → homepage redirect does,
+                // so a modal bound to `?modal=` does not close on the way out.
+                router.actions.replace(
+                    withForwardedHashAndSearchParams(
+                        urls.projectHomepage(),
+                        location.searchParams,
+                        location.hashParams,
+                        forwardedRedirectQueryParams
+                    )
+                )
+            }
+        },
         setHomepage: ({ tab }) => {
             if (isSharedView()) {
                 return
             }
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use userHomeSettingsPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
             api.update('api/user_home_settings/@me/', {
                 homepage: tab ? tabToPersistableSnapshot(tab) : null,
             }).catch((error) => {
                 console.error('Failed to persist homepage', error)
             })
-        },
-        locationChanged: ({ pathname, search, hash }) => {
-            pathname = addProjectIdIfMissing(pathname)
-
-            // Remove trailing slash from the address bar. Route matching itself is handled
-            // upstream via `pathFromWindowToRoutes` in initKea.ts so the scene loads even
-            // before this replace runs.
-            const stripped = stripTrailingSlash(pathname)
-            if (stripped !== pathname) {
-                router.actions.replace(stripped, search, hash)
-            }
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {
@@ -917,9 +942,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 } finally {
                     window.clearTimeout(timeout)
                 }
-                if (values.sceneId !== sceneId) {
-                    breakpoint()
-                }
+                // Break before the `values` read below: the import can outlive this logic, and a
+                // detached path throws. The `sceneId` check this replaces read `values` itself.
+                breakpoint()
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
@@ -997,10 +1022,7 @@ export const sceneLogic = kea<sceneLogicType>([
             if (!homepage) {
                 return false
             }
-            let targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
-            if (removeProjectIdIfPresent(targetPathname) === '/') {
-                targetPathname = addProjectIdIfMissing(urls.projectHomepage())
-            }
+            const targetPathname = homepageTargetPathname(homepage)
             // Forward the incoming hash and allow-listed params (e.g. modal) onto the homepage, and
             // compare against that final target so a forwarded param can't loop.
             const target = withForwardedHashAndSearchParams(

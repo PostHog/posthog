@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { percentage } from 'lib/utils/numbers'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -16,24 +17,27 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { ObservationSearchTab } from '../search/ObservationSearchTab'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { calibrationActivationLogic } from './calibrationActivationLogic'
-import { ScannerAlertsTab } from './components/ScannerAlertsTab'
-import { ScannerBackfillsTab } from './components/ScannerBackfillsTab'
-import { ScannerCalibrationTab } from './components/ScannerCalibrationTab'
-import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
-import { ScannerRunTab } from './components/ScannerRunTab'
-import { ScannerScoutCard } from './components/ScannerScoutCard'
-import { ScannerScoutsTab } from './components/ScannerScoutsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
-import { scanDrought } from './scanDrought'
-import { LIMIT_REACHED_TOOLTIP } from './scannerCopy'
+
+const ScannerAlertsTab = lazyWithRetry(() =>
+    import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
+)
+const ScannerCalibrationTab = lazyWithRetry(() =>
+    import('./components/ScannerCalibrationTab').then((module) => ({ default: module.ScannerCalibrationTab }))
+)
+const ScannerScanTab = lazyWithRetry(() =>
+    import('./components/ScannerScanTab').then((module) => ({ default: module.ScannerScanTab }))
+)
+const ScannerScoutsTab = lazyWithRetry(() =>
+    import('./components/ScannerScoutsTab').then((module) => ({ default: module.ScannerScoutsTab }))
+)
 
 export const scene: SceneExport = {
     component: ReplayScannerSceneComponent,
@@ -66,13 +70,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={scanner.name || 'Untitled scanner'}
-                nameSuffix={
-                    scanner.limit_reached ? (
-                        <Tooltip title={LIMIT_REACHED_TOOLTIP}>
-                            <LemonTag type="danger">Limit reached</LemonTag>
-                        </Tooltip>
-                    ) : undefined
-                }
                 description={scanner.description}
                 resourceType={{ type: 'replay_vision' }}
                 actions={
@@ -106,7 +103,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 
             <IngestionLimitBanner />
             <QuotaBanner />
-            <ScanDroughtBanner scannerId={scannerId} />
 
             <LemonTabs
                 activeKey={activeTab}
@@ -138,7 +134,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                         </LemonButton>
                                     </div>
                                 )}
-                                <ScannerScoutCard scannerId={scannerId} scannerName={scanner.name || ''} />
                                 <ScannerOverview scannerId={scannerId} />
                             </div>
                         ),
@@ -149,24 +144,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         content: <ScannerObservationsTable scannerId={scannerId} />,
                     },
                     {
-                        key: ReplayScannerTab.Search,
-                        label: 'Search',
-                        content: <ObservationSearchTab scanner={scanner} />,
-                    },
-                    {
-                        key: ReplayScannerTab.OnDemand,
-                        label: 'On-demand',
-                        content: <ScannerRunTab scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Backfills,
-                        label: 'Backfills',
-                        content: <ScannerBackfillsTab scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Configuration,
-                        label: 'Configuration',
-                        content: <ScannerConfigReadonly scanner={scanner} />,
+                        key: ReplayScannerTab.Run,
+                        label: 'Run',
+                        content: <ScannerScanTab scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.Calibration,
@@ -200,7 +180,10 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Alerts',
                         content: <ScannerAlertsTab scannerId={scannerId} />,
                     },
-                ]}
+                ].map((tab) => ({
+                    ...tab,
+                    content: <Suspense fallback={<Spinner className="m-4" />}>{tab.content}</Suspense>,
+                }))}
             />
         </SceneContent>
     )
@@ -222,35 +205,6 @@ function QuotaBanner(): JSX.Element | null {
                 : onFreePlan
                   ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this billing period. New observations will pause once they run out. Resets ${state.resetsOn}.`
                   : `You've used ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)} this billing period. New observations will pause once you hit the limit. Resets ${state.resetsOn}.`}
-        </LemonBanner>
-    )
-}
-
-// Silence after a config change reads as "the product is broken", so name the real cause: filters that
-// match nothing, or sampling skipping the few sessions that do match.
-function ScanDroughtBanner({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { scanner, observationStatsApi } = useValues(replayScannerLogic({ id: scannerId }))
-    const { quota } = useValues(visionQuotaLogic)
-    // An exhausted quota already explains the silence in its own banner above.
-    if (!scanner || quotaBannerState(quota).kind === 'exhausted') {
-        return null
-    }
-    const drought = scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date())
-    if (!drought) {
-        return null
-    }
-    const samplingNote =
-        drought.samplingRate < 1
-            ? `, and sampling only scans ${percentage(drought.samplingRate)} of the sessions that do`
-            : ''
-    return (
-        <LemonBanner
-            type="warning"
-            action={{ children: 'Review filters', to: urls.replayVisionScannerTriggers(scannerId) }}
-        >
-            {drought.everScanned
-                ? `No sessions have been scanned since this scanner's configuration last changed, even though sweeps have run since. The filters may match no recordings${samplingNote}.`
-                : `This scanner hasn't scanned any sessions yet, even though sweeps have run. The filters may match no recordings${samplingNote}.`}
         </LemonBanner>
     )
 }

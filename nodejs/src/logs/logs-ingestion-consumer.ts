@@ -36,6 +36,7 @@ import {
     type LogRecordsTransform,
     bufferProcessingMode,
     processLogMessageBuffer,
+    sniffJsonLogAttributes,
 } from './log-record-avro'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -44,6 +45,7 @@ import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
 import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
@@ -83,7 +85,7 @@ export interface LogsIngestionConsumerDeps {
     dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
 }
 
-/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+/** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 /** Retention day counts that get their own per-tier usage metric. */
@@ -352,6 +354,9 @@ export class LogsIngestionConsumer {
     // record source ('logs' | 'spans') instead, so map between the two explicitly
     // rather than comparing across vocabularies. TracesIngestionConsumer overrides to 'spans'.
     protected metricRuleSource: MetricRuleSource = 'logs'
+    // Record source this consumer evaluates retention rules for. Same vocabulary as
+    // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
+    protected retentionRuleSource: RetentionRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -367,6 +372,8 @@ export class LogsIngestionConsumer {
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
     private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly jsonAttributeParsingEnabledTeamsRaw: string
+    private readonly jsonAttributeExtractionEnabledTeamsRaw: string
     private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
@@ -418,6 +425,8 @@ export class LogsIngestionConsumer {
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
         this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.jsonAttributeParsingEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS
+        this.jsonAttributeExtractionEnabledTeamsRaw = mergedConfig.LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS
         this.patternMaskingStage = makePatternMaskingStage()
     }
 
@@ -433,6 +442,14 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.retentionEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * The team's default retention period, applied to records no rule matches and sent as the
+     * batch `retention-days` Kafka header. Traces override this to read their own setting.
+     */
+    protected defaultRetentionDays(_teamId: number, logsSettings: LogsSettings): Promise<number> {
+        return Promise.resolve(logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS)
     }
 
     private isMetricRulesEnabledForTeam(teamId: number): boolean {
@@ -526,7 +543,7 @@ export class LogsIngestionConsumer {
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
         if (retentionCache && retentionEvalEnabled) {
-            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId)
+            retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
         const useRetention = Boolean(retentionRuleSet && retentionRuleSet.rules.length > 0)
 
@@ -542,7 +559,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         if (useRetention && retentionRuleSet) {
-            const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+            const defaultRetentionDays = await this.defaultRetentionDays(message.teamId, logsSettings)
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         }
 
@@ -906,7 +923,9 @@ export class LogsIngestionConsumer {
 
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
-                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        const retentionDays = await this.retryOnDependencyUnavailable(() =>
+                            this.defaultRetentionDays(message.teamId, logsSettings)
+                        )
 
                         // Retention is uniform per team; stash it for the retention usage metrics.
                         const teamStats = usageStats.get(message.teamId)
@@ -920,10 +939,27 @@ export class LogsIngestionConsumer {
                         }
 
                         const metricRuleState = await this.getMetricRuleBatchState(metricTalliesByTeam, message)
-                        const onRecordsDecoded = metricRuleState
-                            ? (records: LogRecord[]) =>
-                                  tallyRecords(metricRuleState.rules, records, metricRuleState.tallies, Date.now())
-                            : undefined
+                        const jsonAttributeKey =
+                            this.appSource === 'logs' &&
+                            teamIdMatchesCsv(this.jsonAttributeParsingEnabledTeamsRaw, message.teamId)
+                                ? logsSettings.json_parse_logs_attribute_key
+                                : undefined
+                        const onRecordsDecoded =
+                            metricRuleState || jsonAttributeKey
+                                ? (records: LogRecord[]) => {
+                                      if (metricRuleState) {
+                                          tallyRecords(
+                                              metricRuleState.rules,
+                                              records,
+                                              metricRuleState.tallies,
+                                              Date.now()
+                                          )
+                                      }
+                                      if (jsonAttributeKey) {
+                                          sniffJsonLogAttributes(records, jsonAttributeKey, message.teamId)
+                                      }
+                                  }
+                                : undefined
 
                         const resolved = await instrumentFn(
                             {
@@ -938,7 +974,17 @@ export class LogsIngestionConsumer {
                             async () =>
                                 this.resolveLogMessageBufferWithOptionalSampling(
                                     message,
-                                    logsSettings,
+                                    {
+                                        ...logsSettings,
+                                        json_parse_logs_attribute_key:
+                                            this.appSource === 'logs' &&
+                                            teamIdMatchesCsv(
+                                                this.jsonAttributeExtractionEnabledTeamsRaw,
+                                                message.teamId
+                                            )
+                                                ? logsSettings.json_parse_logs_attribute_key
+                                                : undefined,
+                                    },
                                     onRecordsDecoded,
                                     transformationBatchBudget
                                 )

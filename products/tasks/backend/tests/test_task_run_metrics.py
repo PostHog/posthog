@@ -154,7 +154,7 @@ class TestTaskRunMetrics(TestCase):
         before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
 
         with patch.object(facade, "signal_task_run_user_message", return_value=True):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before + 1
 
@@ -181,7 +181,7 @@ class TestTaskRunMetrics(TestCase):
             patch.object(facade, "signal_task_run_user_message", side_effect=_terminalize_during_signal),
             self.assertRaises(facade.WarmRunActivationUnavailable),
         ):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_unused_total", labels) == before + 1
         assert _sample_value("posthog_tasks_prewarmed_activated_total", activation_labels) == activated_before
@@ -223,7 +223,7 @@ class TestTaskRunMetrics(TestCase):
         before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
 
         with patch.object(facade, "signal_task_run_user_message", return_value=True):
-            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", branch=None, artifact_ids=[])
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before
 
@@ -343,10 +343,21 @@ class TestTaskRunMetrics(TestCase):
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
         assert mock_capture.called is capture_analytics
 
-    def test_patch_terminal_failure_captures_single_typed_task_run_failed(self) -> None:
+    @parameterized.expand(
+        [
+            ("modal", {}),
+            ("hogland", {"sandbox_backend": "hogland"}),
+        ]
+    )
+    def test_patch_terminal_failure_captures_single_typed_task_run_failed(
+        self, sandbox_backend: str, sandbox_state: dict[str, str]
+    ) -> None:
         from products.tasks.backend.facade import api as facade
 
-        run = self.task.create_run(environment=TaskRun.Environment.CLOUD)
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            extra_state={"sandbox_id": "sandbox-example", **sandbox_state},
+        )
         long_error = "w" * 1400 + "Error: wizard exited with code 7"
 
         with (
@@ -365,6 +376,7 @@ class TestTaskRunMetrics(TestCase):
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
         assert props["error_type"] == "agent_reported"
+        assert props["sandbox_backend"] == sandbox_backend
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("Error: wizard exited with code 7")
 

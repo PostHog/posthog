@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
+from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import EmptyPage, Paginator
@@ -46,6 +47,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "GeneratedWidget",
     "Canvas",
     "Endpoint",
     "EndpointVersion",
@@ -57,6 +59,8 @@ ActivityScope = Literal[
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
+    "ReplayScanner",
+    "VisionAlertConfiguration",
     "Comment",
     "Team",
     "Project",
@@ -100,6 +104,7 @@ ActivityScope = Literal[
     "LogsAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
+    "TracesRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -237,7 +242,10 @@ class ActivityLog(UUIDTModel):
     was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
-    # Value of the x-posthog-client request header captured when the activity was logged
+    # Which API client the activity arrived through. Usually the self-reported x-posthog-client
+    # request header, which is capped shorter than this column. A sandbox OAuth token bound to a
+    # scout run overrides it with the scout's own `scout:<skill_name>` tag, which the caller
+    # cannot set and which needs the full width.
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
@@ -308,6 +316,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
         # the contents — the per-version content audit lives in the revisions feature instead.
         "actions",
+        # Reverse FK into WorkflowProposal's fail-closed manager, and a suggestion filed or resolved
+        # is not a workflow edit.
+        "proposals",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -316,6 +327,7 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     ],
     "IdentityProviderConfig": [
         "scim_bearer_token",
+        "oidc_credentials",
         "saml_x509_cert",
     ],
     "User": [
@@ -351,8 +363,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "allow_publicly_shared_resources": "public sharing permissions",
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
-        "default_experiment_stats_method": "default experiment stats method",
         "is_ai_data_processing_approved": "third-party AI services",
+        "uses_most_specific_access_resolution": "most-specific access resolution",
     },
     "BatchExport": {
         "paused": "enabled",
@@ -379,6 +391,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
         "default_open_pull_request_ready": "PRs open as",
+        "github_issue_writeback_enabled": "comment back on GitHub issues",
+        "pull_request_label_enabled": "label self-driving PRs",
+        "pull_request_label": "self-driving PR label",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -399,6 +414,48 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
 }
 
+# Machine-written. A test asserts this covers `ReplayScanner._MACHINE_OWNED_FIELDS`, a narrower set.
+replay_scanner_machine_fields = [
+    "scanner_version",
+    "origin",
+    "inline_key",
+    "primed_at",
+    "last_swept_at",
+    "last_seen_session_id",
+    "deep_swept_through",
+    "deep_seen_session_id",
+    "deep_attempted_at",
+    "sweep_read_bytes_by_hour",
+    "fast_read_bytes_by_hour",
+    "deep_read_bytes_by_hour",
+    "feedback_themes",
+    "estimated_monthly_observations",
+    "estimated_at",
+    "estimate_attempted_at",
+    "search_suggestions",
+    "search_suggestions_watermark",
+    "search_suggestions_generated_at",
+    "search_last_viewed_at",
+    "limit_notified_period_start",
+    "admission_budget_used",
+    "admission_budget_refreshed_at",
+    "admission_budget_period_start",
+    "admission_credits_since_refresh",
+    "updated_at",
+]
+
+# Rewritten on every check; an alert's firing history is read from its own event log instead.
+vision_alert_machine_fields = [
+    "state",
+    "consecutive_failures",
+    "last_checked_at",
+    "last_notified_at",
+    "next_check_at",
+    "first_enabled_at",
+    # The engine passes this alongside next_check_at on every suppressed check.
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -410,6 +467,8 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "last_error_at",
     ],
     "Dashboard": ["last_accessed_at"],
+    "ReplayScanner": replay_scanner_machine_fields,
+    "VisionAlertConfiguration": vision_alert_machine_fields,
     "LogsAlertConfiguration": [
         "next_check_at",
         "last_notified_at",
@@ -453,6 +512,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
         "scope": "User",
         "activities": ["logged_in", "logged_out"],
@@ -523,7 +583,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    # The reverse relations are listed because the diff reads each one in full; a scanner's
+    # observations run to millions of rows, and its alerts carry their own audit trail.
+    "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
+    "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
+    # The pointer names the tagged object, which a row never changes, and content_type and team
+    # are model objects the diff cannot serialize.
+    "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
         # on each settings toggle, and none of it is configuration.
@@ -585,6 +652,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
         # field changes in the same save (signal_exclusions only governs whether the signal fires).
         "next_delivery_date",
+        # Context rows use a fail-closed team manager that has no scope during signal handling.
+        "contexts",
         # FK to a connected Slack integration. The generic field-diff captures the related object,
         # which isn't JSON-serializable for the change detail (same reason FeatureFlag/Experiment
         # exclude their FK relations) — without this, editing a subscription's integration 500s the save.
@@ -611,6 +680,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Notebook": [
         "text_content",
         "widget_instances",
+        "widget_snapshots",
     ],
     "FeatureFlag": [
         "experiment",
@@ -628,6 +698,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "experimenttosavedmetric_set",
         # Optimistic-concurrency counter, not a user-meaningful change.
         "version",
+        # Internal pointer to the flag-cleanup task, not a user-meaningful change.
+        "flag_cleanup_task_id",
     ],
     "ExperimentSavedMetric": [
         "experiments",
@@ -710,11 +782,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "DataWarehouseSavedQuery": [
         "name",
         "columns",
+        "query_revision",
         "status",
         "external_tables",
         "last_run_at",
         "latest_error",
         "deleted_name",
+        "table",
+        "managed_viewset",
+        "origin",
+        "expires_at",
+        "incremental_state",
+        "semantic_enrichment_hash",
     ],
     "Endpoint": [
         "saved_query",
@@ -813,6 +892,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
+        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
+        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -987,6 +1068,9 @@ def changes_between(
 
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
+        # get_fields() lists a GenericRelation last, as a private field, but lists the reverse
+        # foreign key it replaced first. Keep the old position so the diff order does not change.
+        fields = sorted(fields, key=lambda f: not isinstance(f, GenericRelation))
         excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
         masked_fields = field_with_masked_contents.get(model_type, [])
         filtered_fields = [f for f in fields if f.name not in excluded_fields]
@@ -1009,8 +1093,11 @@ def changes_between(
                 field_name = "dashboards"
 
             # if is a django model field, check the empty_values list
-            left_is_none = left is None or (hasattr(field, "empty_values") and left in field.empty_values)
-            right_is_none = right is None or (hasattr(field, "empty_values") and right in field.empty_values)
+            # A reverse foreign key has no empty_values, so an empty list counts as a value. A
+            # GenericRelation inherits them from Field, and keeps the reverse foreign key behavior.
+            empty_values = None if isinstance(field, GenericRelation) else getattr(field, "empty_values", None)
+            left_is_none = left is None or (empty_values is not None and left in empty_values)
+            right_is_none = right is None or (empty_values is not None and right in empty_values)
 
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
@@ -1125,6 +1212,37 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
         return None
 
 
+# The frontend matches on this job type to render the job id as a link to a sandbox task.
+# Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
+AGENT_TRIGGER_JOB_TYPE = "agent"
+
+
+def agent_trigger() -> Optional[Trigger]:
+    """The agent attribution for this request, or None when neither field reached it.
+
+    The task id is the only server-set part. The intent is the agent's claim.
+    """
+    task_id = activity_storage.get_agent_task_id()
+    intent = activity_storage.get_agent_intent()
+    if not task_id and not intent:
+        return None
+    return Trigger(
+        job_type=AGENT_TRIGGER_JOB_TYPE,
+        job_id=task_id or "",
+        payload={"intent": intent} if intent else {},
+    )
+
+
+def _with_agent_trigger(detail: Detail) -> Detail:
+    """The row is written inside the user's save, so an error here must not fail that save."""
+    try:
+        trigger = agent_trigger()
+        return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
+    except Exception as e:
+        capture_exception(e)
+        return detail
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -1147,6 +1265,9 @@ def log_activity(
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    if detail.trigger is None:
+        # A product that sets its own trigger already says what drove the write.
+        detail = _with_agent_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",

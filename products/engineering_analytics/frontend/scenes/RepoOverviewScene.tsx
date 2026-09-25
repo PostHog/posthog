@@ -5,7 +5,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -43,8 +43,16 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const { pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
-        useValues(engineeringAnalyticsLogic)
+    const {
+        pullRequestsLoading,
+        pullRequestsStatus,
+        workflowHealth,
+        workflowHealthLoadError,
+        workflowHealthLoading,
+        sourceId,
+        activeSource,
+    } = useValues(engineeringAnalyticsLogic)
+    const { loadPullRequests, loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
     const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
 
@@ -95,47 +103,49 @@ export function RepoOverviewScene(): JSX.Element {
                         one directly (two values), not as a time series. CI cost is a window total, not a
                         rate, so its number lives on the Workflows section below. */}
                 <Section id="ci-health" title="CI health" busy={overviewLoading}>
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                        <WindowComparisonCard
-                            title="CI pass rate"
-                            value={overview?.success_rate}
-                            previousValue={overview?.success_rate_prev}
-                            formatValue={(value) => percent(value, 1)}
-                            share
-                            deltaUnit="pt"
-                            deltaPrecision={1}
-                            loading={overviewPending}
-                            tooltip="Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded."
-                            emptyText="No CI runs reached a pass-or-fail result in the window."
-                        />
+                    <div className="@container">
+                        <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
+                            <WindowComparisonCard
+                                title="CI pass rate"
+                                value={overview?.success_rate}
+                                previousValue={overview?.success_rate_prev}
+                                formatValue={(value) => percent(value, 1)}
+                                share
+                                deltaUnit="pt"
+                                deltaPrecision={1}
+                                loading={overviewPending}
+                                tooltip="Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded."
+                                emptyText="No CI runs reached a pass-or-fail result in the window."
+                            />
 
-                        <WindowComparisonCard
-                            title="Median time from push to all checks green"
-                            value={asMinutes(overview?.median_time_to_green_seconds)}
-                            previousValue={asMinutes(overview?.median_time_to_green_seconds_prev)}
-                            formatValue={formatAxisMinutes}
-                            goodWhenDown
-                            loading={overviewPending}
-                            tooltip="Median time from a push until every workflow on it is green. Only fully green pushes count."
-                            emptyText="No fully green PR pushes in the window yet."
-                        />
+                            <WindowComparisonCard
+                                title="Median time from push to all checks green"
+                                value={asMinutes(overview?.median_time_to_green_seconds)}
+                                previousValue={asMinutes(overview?.median_time_to_green_seconds_prev)}
+                                formatValue={formatAxisMinutes}
+                                goodWhenDown
+                                loading={overviewPending}
+                                tooltip="Median time from a push to a pull request until every workflow on it is green. Only pushes that went fully green count."
+                                emptyText="No fully green PR pushes in the window yet."
+                            />
 
-                        <WindowComparisonCard
-                            title="CI cost per merged PR"
-                            value={overview?.cost_per_merge_usd}
-                            previousValue={overview?.cost_per_merge_usd_prev}
-                            formatValue={compactUsd}
-                            goodWhenDown
-                            loading={overviewPending}
-                            emptyText={
-                                !jobsAvailable
-                                    ? 'Cost appears once the job-level source is synced.'
-                                    : overview?.merged_pr_count === 0
-                                      ? 'Nothing merged in the window.'
-                                      : 'No costable jobs in the window.'
-                            }
-                            tooltip="Estimated Depot CI cost per merged PR. Per-workflow spend is in Workflows below."
-                        />
+                            <WindowComparisonCard
+                                title="CI spend per merged PR"
+                                value={overview?.cost_per_merge_usd}
+                                previousValue={overview?.cost_per_merge_usd_prev}
+                                formatValue={compactUsd}
+                                goodWhenDown
+                                loading={overviewPending}
+                                emptyText={
+                                    !jobsAvailable
+                                        ? 'Cost appears once the job-level source is synced.'
+                                        : overview?.merged_pr_count === 0
+                                          ? 'Nothing merged in the window.'
+                                          : 'No costable jobs in the window.'
+                                }
+                                tooltip="Estimated CI cost of every run in the window, divided by the pull requests merged in it. Includes runs on the default branch and on pull requests that never merged. Per-workflow spend is in Workflows below."
+                            />
+                        </div>
                     </div>
                 </Section>
 
@@ -147,7 +157,13 @@ export function RepoOverviewScene(): JSX.Element {
                     {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict, so
                     "is master healthy and fast lately" reads at a glance without the full chart's weight. The
                     full scatter (start-time axis, in-flight band, zoom) lives on the workflow page. */}
-                    {hasEnoughRunActivity(activityRuns) ? (
+                    {repoActivityLoading ? (
+                        <LemonSkeleton className="h-40 w-full" />
+                    ) : repoActivityFailed ? (
+                        <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
+                            Couldn't load {overviewDefaultBranch} activity. Refresh to retry.
+                        </LemonCard>
+                    ) : hasEnoughRunActivity(activityRuns) ? (
                         <RunActivityMiniBars
                             runs={activityRuns}
                             truncated={activityTruncated}
@@ -169,11 +185,7 @@ export function RepoOverviewScene(): JSX.Element {
                         />
                     ) : (
                         <LemonCard hoverEffect={false} className="p-4 text-xs text-secondary">
-                            {repoActivityLoading
-                                ? 'Loading…'
-                                : repoActivityFailed
-                                  ? `Couldn't load ${overviewDefaultBranch} activity. Refresh to retry.`
-                                  : `Not enough completed runs on ${overviewDefaultBranch} in the window to chart yet.`}
+                            Not enough completed runs on {overviewDefaultBranch} in the window to chart yet.
                         </LemonCard>
                     )}
                 </Section>
@@ -193,39 +205,43 @@ export function RepoOverviewScene(): JSX.Element {
                         ) : undefined
                     }
                 >
-                    <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                        <WorkflowHealthTable
-                            rows={shownWorkflows}
-                            loading={workflowHealthLoading}
-                            sourceId={sourceId}
-                            showCost={jobsAvailable}
-                            embedded
-                            compact
-                            pageSize={HUB_PREVIEW_MAX}
-                            emptyState="No workflow runs in the window."
-                        />
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                            <span>
-                                Showing top {shownWorkflows.length} of {workflowHealth.length} workflows
-                            </span>
-                            <div className="flex items-center gap-3">
-                                {canShowMoreWorkflows && (
-                                    <LemonButton size="xsmall" onClick={showMoreWorkflows}>
-                                        Show more
-                                    </LemonButton>
-                                )}
-                                <Link
-                                    to={
-                                        // A bare link would reset the shared window / run scope / repo (the filters
-                                        // logic re-hydrates from the URL on every route), so carry it, plus the source.
-                                        withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
-                                    }
-                                >
-                                    View all →
-                                </Link>
+                    {workflowHealthLoadError ? (
+                        <CIAnalyticsLoadError onRetry={loadWorkflowHealth} loading={workflowHealthLoading} />
+                    ) : (
+                        <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                            <WorkflowHealthTable
+                                rows={shownWorkflows}
+                                loading={workflowHealthLoading}
+                                sourceId={sourceId}
+                                showCost={jobsAvailable}
+                                embedded
+                                compact
+                                pageSize={HUB_PREVIEW_MAX}
+                                emptyState="No workflow runs in the window."
+                            />
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                                <span>
+                                    Showing top {shownWorkflows.length} of {workflowHealth.length} workflows
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    {canShowMoreWorkflows && (
+                                        <LemonButton size="xsmall" onClick={showMoreWorkflows}>
+                                            Show more
+                                        </LemonButton>
+                                    )}
+                                    <Link
+                                        to={
+                                            // A bare link would reset the shared window / run scope / repo (the filters
+                                            // logic re-hydrates from the URL on every route), so carry it, plus the source.
+                                            withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
+                                        }
+                                    >
+                                        View all →
+                                    </Link>
+                                </div>
                             </div>
-                        </div>
-                    </LemonCard>
+                        </LemonCard>
+                    )}
                 </Section>
             </ScopePanel>
 
@@ -234,32 +250,37 @@ export function RepoOverviewScene(): JSX.Element {
                 title="Pull requests needing attention"
                 note="Current open backlog. Not affected by the date range."
             >
-                <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                    <PullRequestTable
-                        rows={shownPrs}
-                        loading={pullRequestsLoading}
-                        sourceId={sourceId}
-                        embedded
-                        pageSize={HUB_PREVIEW_MAX}
-                        emptyState="Nothing failing or stuck in the open backlog."
-                        dataAttr="engineering-analytics-attention-prs"
-                    />
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        <span>
-                            Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing attention
-                        </span>
-                        <div className="flex items-center gap-3">
-                            {canShowMorePrs && (
-                                <LemonButton size="xsmall" onClick={showMorePrs}>
-                                    Show more
-                                </LemonButton>
-                            )}
-                            <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
-                                View all →
-                            </Link>
+                {pullRequestsStatus === 'error' ? (
+                    <CIAnalyticsLoadError onRetry={loadPullRequests} loading={pullRequestsLoading} />
+                ) : (
+                    <LemonCard hoverEffect={false} className="overflow-hidden p-0">
+                        <PullRequestTable
+                            rows={shownPrs}
+                            loading={pullRequestsLoading}
+                            sourceId={sourceId}
+                            embedded
+                            pageSize={HUB_PREVIEW_MAX}
+                            emptyState="Nothing failing or stuck in the open backlog."
+                            dataAttr="engineering-analytics-attention-prs"
+                        />
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                            <span>
+                                Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing
+                                attention
+                            </span>
+                            <div className="flex items-center gap-3">
+                                {canShowMorePrs && (
+                                    <LemonButton size="xsmall" onClick={showMorePrs}>
+                                        Show more
+                                    </LemonButton>
+                                )}
+                                <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                    View all →
+                                </Link>
+                            </div>
                         </div>
-                    </div>
-                </LemonCard>
+                    </LemonCard>
+                )}
             </Section>
         </div>
     )

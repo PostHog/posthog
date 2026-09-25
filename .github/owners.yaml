@@ -10,7 +10,17 @@ rules:
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
+          - '/workflows/cd-mcp-image.yml'
+          - '/workflows/ci-mcp-ui-apps.yml'
+          - '/workflows/ci-mcp.yml'
+      owners: [team-devex, team-context-mcp]
+    - match:
           - '/workflows/ci-llm-gateway.yml'
           - '/workflows/llm-gateway-cd.yml'
           - '/workflows/update-ai-costs.yml'
-      owners: [team-devex, team-ai-gateway]
+      owners: [team-devex, team-agent-infrastructure]
+    - match:
+          - '/workflows/ci-agent-proxy.yml'
+          - '/workflows/cd-agent-proxy-image.yml'
+          - '/workflows/cd-tasks-golden-snapshot.yml'
+      owners: team-agent-infrastructure

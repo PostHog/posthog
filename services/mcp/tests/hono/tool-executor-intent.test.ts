@@ -30,62 +30,12 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { InstructionsBuilder } from '@/hono/instructions'
-import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
 
-function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
-    return {
-        reqCtx: {
-            cache: { get: vi.fn(), set: vi.fn() },
-            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
-            trackEvent: vi.fn(),
-            getSessionUuid: vi.fn().mockResolvedValue(undefined),
-            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
-        } as any,
-        context: {
-            api: {},
-            cache: {},
-            env: {},
-            stateManager: {},
-            sessionManager: {},
-            getDistinctId: vi.fn(),
-            trackEvent: vi.fn(),
-        } as any,
-        useSingleExec: false,
-        toolFeatureFlags: undefined,
-        apiKeyScopes: [],
-        oauthClientId: undefined,
-        clientProfile: {
-            capabilities: { supportsInstructions: true },
-            isCliModeEnabled: vi.fn(() => false),
-            isClaudeUiHost: vi.fn(() => false),
-            isInlineExecUiHost: vi.fn(() => false),
-            isClaudeChatHost: vi.fn(() => false),
-        } as any,
-        requestContext: {
-            authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
-            mcpClientName: 'test',
-            mcpClientVersion: '1.0',
-            mcpProtocolVersion: '2025-03-26',
-            transport: 'streamable-http',
-        },
-        sessionContext: null,
-        allTools: tools as any,
-        scopeGatedTools: [],
-        flagGatedTools: [],
-        gatewayToolsEnabled: false,
-        distinctId: 'test-distinct-id',
-        renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
-        ...overrides,
-    }
-}
+import { makeToolExecutorState, mockApi } from '../shared/test-utils'
 
 describe('ToolExecutor analytics capture', () => {
     let catalog: ToolCatalog
@@ -102,7 +52,7 @@ describe('ToolExecutor analytics capture', () => {
     })
 
     it('injects the analytics arguments into advertised tools', async () => {
-        const state = makeState([], { useSingleExec: true })
+        const state = makeToolExecutorState([], { useSingleExec: true })
 
         const result = await executor.handleToolsList(state)
 
@@ -185,7 +135,7 @@ describe('ToolExecutor analytics capture', () => {
             const filteredTools = catalog
                 .getFilteredTools({ scopes: ['*'] })
                 .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
-            const state = makeState(filteredTools, { useSingleExec: true })
+            const state = makeToolExecutorState(filteredTools, { useSingleExec: true })
             await executor.handleToolsList(state)
 
             const result = (await executor.handleToolCall(
@@ -209,6 +159,38 @@ describe('ToolExecutor analytics capture', () => {
         }
     )
 
+    it.each([
+        ['states an intent', { command: 'tools', context: 'auditing the dashboard tiles' }],
+        ['states none', { command: 'tools' }],
+    ] as const)(
+        'leaves the shared API client alone, so a concurrent call cannot pick up this intent — the agent %s',
+        async (_label, args) => {
+            vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const state = makeToolExecutorState([], { useSingleExec: true })
+
+            await executor.handleToolCall({ name: 'exec', arguments: args }, state)
+
+            expect(state.context.api.config.intent).toBeUndefined()
+        }
+    )
+
+    it('runs the call without an intent when the API client cannot carry one', async () => {
+        vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeToolExecutorState([], { useSingleExec: true })
+        state.context.api = mockApi({
+            withIntent: () => {
+                throw new Error('cannot copy this client')
+            },
+        }) as any
+
+        const result = (await executor.handleToolCall(
+            { name: 'exec', arguments: { command: 'tools', context: 'auditing the dashboard tiles' } },
+            state
+        )) as { isError?: boolean }
+
+        expect(result.isError).toBeFalsy()
+    })
+
     it.each(['not_captured', 'capture_error'] as const)(
         'records %s when analytics preparation cannot capture a supplied model',
         async (reason) => {
@@ -223,7 +205,7 @@ describe('ToolExecutor analytics capture', () => {
 
             const result = (await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'tools', llm_model: 'example-model' } },
-                makeState([], { useSingleExec: true })
+                makeToolExecutorState([], { useSingleExec: true })
             )) as { isError?: boolean }
 
             expect(result.isError).toBeFalsy()
@@ -241,7 +223,7 @@ describe('ToolExecutor analytics capture', () => {
     // test. (projects-get hits the API, which the harness can't fulfill, so we
     // assert on the captured analytics, not the tool's own result.)
     it('strips analytics arguments before a native tool validates and forwards their values', async () => {
-        const state = makeState([{ name: 'projects-get' }])
+        const state = makeToolExecutorState([{ name: 'projects-get' }])
         await executor.handleToolsList(state)
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
 
@@ -278,13 +260,13 @@ describe('ToolExecutor analytics capture', () => {
         {
             label: 'native path',
             call: { name: 'execute-sql', arguments: { query: 'SELECT 1' } },
-            state: () => makeState([{ name: 'execute-sql' }]),
+            state: () => makeToolExecutorState([{ name: 'execute-sql' }]),
         },
         {
             label: 'exec path',
             call: { name: 'exec', arguments: { command: 'call execute-sql {"query": "SELECT 1"}' } },
             state: () =>
-                makeState(
+                makeToolExecutorState(
                     catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'execute-sql'),
                     { useSingleExec: false }
                 ),
@@ -314,13 +296,100 @@ describe('ToolExecutor analytics capture', () => {
 
         const result = (await executor.handleToolCall(
             { name: 'projects-get', arguments: {} },
-            makeState([{ name: 'projects-get' }])
+            makeToolExecutorState([{ name: 'projects-get' }])
         )) as any
 
         expect(result.content).toBeTruthy()
         expect(captureSpy).toHaveBeenCalledTimes(1)
         expect(captureSpy.mock.calls[0]![0].intent).toBeUndefined()
         expect(captureSpy.mock.calls[0]![0].properties?.$mcp_llm_model_missing_reason).toBe('missing')
+
+        captureSpy.mockRestore()
+    })
+
+    // MCP 2026-07-28 carries no session of its own, so the agent's handle is the only one
+    // these calls can group by.
+    const statelessState = (): ReturnType<typeof makeToolExecutorState> =>
+        makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', mcpProtocolVersion: '2026-07-28' } as any,
+        })
+
+    const readConversationHandle = (result: unknown): string | undefined => {
+        const content = (result as { content?: { text?: string }[] }).content ?? []
+        for (const part of content) {
+            try {
+                const parsed = JSON.parse(part.text ?? '')
+                if (parsed && typeof parsed.conversation_id === 'string') {
+                    return parsed.conversation_id
+                }
+            } catch {
+                continue
+            }
+        }
+        return undefined
+    }
+
+    it('hands a session handle to a client that carries none, and groups the echoed call with it', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = statelessState()
+        await executor.handleToolsList(state)
+
+        const first = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+        const handle = readConversationHandle(first)
+
+        expect(handle).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
+
+        const second = await executor.handleToolCall(
+            { name: 'exec', arguments: { command: 'tools', conversation_id: handle } },
+            state
+        )
+
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(2))
+        expect(captureSpy.mock.calls[1]![0].conversationId).toBe(handle)
+        // `RequestContext` holds this same object; a copy would leave its events sessionless.
+        expect(state.requestContext.mcpConversationId).toBe(handle)
+        // Repeating it would spend tokens telling the agent what it just told us.
+        expect(readConversationHandle(second)).toBeUndefined()
+        expect((second as { isError?: boolean }).isError).toBeFalsy()
+
+        captureSpy.mockRestore()
+    })
+
+    it('leaves a client that already has a session untouched', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        // `makeToolExecutorState` carries `sessionId: 'sess-1'`, the wrapper-app id.
+        const state = makeToolExecutorState([], { useSingleExec: true })
+        await executor.handleToolsList(state)
+
+        const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+
+        // Minting here would split the session these clients already group by, and append a
+        // block to every first result, for the majority of today's traffic.
+        expect(readConversationHandle(result)).toBeUndefined()
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBeUndefined()
+
+        captureSpy.mockRestore()
+    })
+
+    it('keeps the handle a wrapper app sent on the conversation header', async () => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+        const state = makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', mcpConversationId: 'conv-from-header' } as any,
+        })
+        await executor.handleToolsList(state)
+
+        const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
+
+        // The header is the app's own grouping. Minting over it would replace that app's
+        // conversation with a fresh handle on every call.
+        expect(readConversationHandle(result)).toBeUndefined()
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe('conv-from-header')
 
         captureSpy.mockRestore()
     })

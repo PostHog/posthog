@@ -3,9 +3,8 @@ import { match } from 'ts-pattern'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { objectCleanWithEmpty } from 'lib/utils/objects'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import type {
     ActionsNode,
     BreakdownFilter,
@@ -202,42 +201,51 @@ export const getQuery =
                     dateRange,
                     funnelsFilter,
                     interval: funnelsInterval,
-                    series: getFunnelSeries(funnelMetric), // Use proper conversion pipeline
+                    series: getFunnelSeries(funnelMetric),
                 }) as FunnelsQuery
             })
             .otherwise(() => undefined)
     }
 
-/**
- * converts a funnel metric to a series of events, actions, and data warehouse nodes
- * this is part of the conversion pipeline for funnel metrics.
- *
- * Funnel series are validated with:
- * Metric Series (ExperimentDataWarehouseNode) -> Filter (FunnelDatawarehouseFilter) -> Query Series (FunnelsDataWarehouseNode)
- *
- * Note: ExperimentDataWarehouseNode is converted to FunnelsDataWarehouseNode via actionsAndEventsToSeries
- */
+/** Funnel steps carry no math, so only identity, name and properties cross over. */
 const getFunnelSeries = (
     funnelMetric: ExperimentFunnelMetric
-): (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[] => {
-    const { events, actions, data_warehouse } = getFilter(funnelMetric)
-
-    return actionsAndEventsToSeries(
-        {
-            actions,
-            events,
-            data_warehouse,
-        } as any,
-        true, // includeProperties
-        MathAvailability.None, // No math for funnels
-        NodeKind.FunnelsDataWarehouseNode // Convert data warehouse filters to FunnelsDataWarehouseNode
-    ).filter(
-        (series) =>
-            series.kind === NodeKind.EventsNode ||
-            series.kind === NodeKind.ActionsNode ||
-            series.kind === NodeKind.FunnelsDataWarehouseNode
-    ) as (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[]
-}
+): (EventsNode | ActionsNode | FunnelsDataWarehouseNode)[] =>
+    funnelMetric.series.map((step) =>
+        match(step)
+            .with({ kind: NodeKind.EventsNode }, (eventStep) =>
+                objectCleanWithEmpty({
+                    kind: NodeKind.EventsNode as const,
+                    event: eventStep.event,
+                    name: eventStep.name || eventStep.event || undefined,
+                    custom_name: eventStep.custom_name,
+                    properties: eventStep.properties,
+                })
+            )
+            .with({ kind: NodeKind.ActionsNode }, (actionStep) =>
+                objectCleanWithEmpty({
+                    kind: NodeKind.ActionsNode as const,
+                    id: actionStep.id,
+                    name: actionStep.name || undefined,
+                    custom_name: actionStep.custom_name,
+                    properties: actionStep.properties,
+                })
+            )
+            .with({ kind: NodeKind.ExperimentDataWarehouseNode }, (dwStep) =>
+                objectCleanWithEmpty({
+                    kind: NodeKind.FunnelsDataWarehouseNode as const,
+                    id: dwStep.table_name,
+                    name: dwStep.name || dwStep.table_name,
+                    custom_name: dwStep.custom_name,
+                    table_name: dwStep.table_name,
+                    timestamp_field: dwStep.timestamp_field,
+                    id_field: dwStep.data_warehouse_join_key,
+                    aggregation_target_field: dwStep.events_join_key,
+                    properties: dwStep.properties,
+                })
+            )
+            .exhaustive()
+    )
 
 /**
  * Creates an empty filter structure

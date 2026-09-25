@@ -1,5 +1,6 @@
 import dataclasses
 from dataclasses import dataclass, field
+from datetime import date
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -35,6 +36,25 @@ class ClockodoEndpointConfig:
 # fixed window that covers all historical entries. time_until is widened past "now" at request
 # time to also capture future-dated (planned) entries. ISO 8601 UTC, as the API requires.
 ENTRIES_TIME_SINCE = "2000-01-01T00:00:00Z"
+
+# The work times endpoint documents that it only yields valid data from 2023-08-21 on, so the
+# sweep starts there rather than at the account's first time entry.
+WORK_TIMES_FIRST_DATE = date(2023, 8, 21)
+# Work times are requested one co-worker and one date range at a time, and the endpoint
+# documents no page param even though it returns a paging block. A row is one day of one
+# co-worker, so a window of at most a year stays well inside the API's 1000-row page, which is
+# what makes a single-page fetch per window complete.
+WORK_TIMES_WINDOW_DAYS = 365
+
+# The co-worker report endpoint requires an explicit year and offers no way to discover the
+# account's first one. Clockodo launched in 2011, so no account holds a report before then.
+USER_REPORTS_FIRST_YEAR = 2011
+# Report detail level: 0 keeps the report at year level. The deeper levels nest month, week and
+# day arrays inside each row, which is a report shape rather than a table shape.
+USER_REPORTS_TYPE = 0
+# Year the report covers. The rows name their co-worker but not the year requested, so the
+# sweep stamps it on to keep them unique across years.
+USER_REPORTS_YEAR_FIELD = "year"
 
 
 CLOCKODO_ENDPOINTS_V2: dict[str, ClockodoEndpointConfig] = {
@@ -83,6 +103,35 @@ CLOCKODO_ENDPOINTS_V2: dict[str, ClockodoEndpointConfig] = {
         description="Time entries across the full account history. Full refresh only — the API "
         "has no server-side modified-since filter.",
     ),
+    "absences": ClockodoEndpointConfig(
+        name="absences",
+        path="v4/absences",
+        data_key="data",
+        description="Vacation, sick leave and other absences of each co-worker.",
+    ),
+    "target_hours": ClockodoEndpointConfig(
+        name="target_hours",
+        path="targethours",
+        data_key="targethours",
+        description="Target (planned) working hours per co-worker, and the periods they apply to.",
+    ),
+    "user_reports": ClockodoEndpointConfig(
+        name="user_reports",
+        path="userreports",
+        data_key="userreports",
+        primary_keys=["users_id", USER_REPORTS_YEAR_FIELD],
+        description="Yearly co-worker report: target versus actual hours, overtime and holidays. "
+        f"One row per co-worker per year from {USER_REPORTS_FIRST_YEAR} on.",
+    ),
+    "work_times": ClockodoEndpointConfig(
+        name="work_times",
+        path="v2/workTimes",
+        data_key="work_time_days",
+        primary_keys=["users_id", "date"],
+        description="Attendance per co-worker per day, with the clock-in/clock-out intervals of "
+        f"the day. Starts at {WORK_TIMES_FIRST_DATE.isoformat()}, the first day the API reports. "
+        "Separate from the project time in `entries`.",
+    ),
 }
 
 
@@ -96,8 +145,10 @@ def _v3(config: ClockodoEndpointConfig, path: str) -> ClockodoEndpointConfig:
     return dataclasses.replace(config, path=path, data_key="data", paginated=True)
 
 
-# v3 reuses the v2 configs for the two resources Clockodo did not decommission (surcharges,
-# entries) and points the other six at their v3/v4 successors from the deprecation notice.
+# v3 reuses the v2 configs for the resources Clockodo did not decommission (surcharges, entries)
+# and for the four this source only ever reached through their current route (absences,
+# target_hours, user_reports, work_times), and points the other six at their v3/v4 successors
+# from the deprecation notice.
 CLOCKODO_ENDPOINTS_V3: dict[str, ClockodoEndpointConfig] = {
     **CLOCKODO_ENDPOINTS_V2,
     "customers": _v3(CLOCKODO_ENDPOINTS_V2["customers"], "v3/customers"),

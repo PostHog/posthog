@@ -1,3 +1,5 @@
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
+import { ElectronSettingsBackupFiles } from "../platform-adapters/electron-settings-backup-files";
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
@@ -32,6 +34,7 @@ import {
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
 } from "@posthog/core/context-menu/identifiers";
 import { CUSTOM_CLOUD_STORE } from "@posthog/core/custom-cloud/identifiers";
+import { feedbackCoreModule } from "@posthog/core/feedback/feedback.module";
 import { FocusHostService } from "@posthog/core/focus/focus-service";
 import { FocusServiceEvent } from "@posthog/core/focus/identifiers";
 import { gitHostModule } from "@posthog/core/git/git-host.module";
@@ -112,6 +115,7 @@ import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
 import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import { FEEDBACK_CONTEXT_SERVICE } from "@posthog/platform/feedback-context";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -122,11 +126,6 @@ import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
-import {
-  QUICK_ASK_FETCH,
-  QUICK_ASK_RUN_DEFAULTS,
-} from "@posthog/quick-ask/service/quick-ask";
-import { quickAskCoreModule } from "@posthog/quick-ask/service/quick-ask.module";
 import type { WorkspaceClient } from "@posthog/workspace-client/client";
 import { databaseModule } from "@posthog/workspace-server/db/db.module";
 import {
@@ -248,11 +247,11 @@ import { ElectronCrypto } from "../platform-adapters/electron-crypto";
 import { ElectronCustomCloudStore } from "../platform-adapters/electron-custom-cloud-store";
 import { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import { ElectronDialog } from "../platform-adapters/electron-dialog";
+import { ElectronFeedbackContext } from "../platform-adapters/electron-feedback-context";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
 import { MissionControlService } from "../platform-adapters/electron-mission-control";
-import { electronNetFetch } from "../platform-adapters/electron-net-fetch";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -284,7 +283,7 @@ import { ElevenLabsSpeechService } from "../services/speech/service";
 import { WorkspaceServerService } from "../services/workspace-server/service";
 import { getUserDataDir, isDevBuild } from "../utils/env";
 import { logger } from "../utils/logger";
-import { quickAskStore, rendererStore } from "../utils/store";
+import { rendererStore } from "../utils/store";
 import type { MainBindings } from "./bindings";
 import {
   APP_LIFECYCLE_SERVICE as MAIN_APP_LIFECYCLE_SERVICE,
@@ -356,9 +355,11 @@ container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
 container.bind(DIALOG_SERVICE).to(ElectronDialog);
+container.bind(SETTINGS_BACKUP_FILES).to(ElectronSettingsBackupFiles);
 container.bind(CLIPBOARD_SERVICE).to(ElectronClipboard);
 container.bind(CRYPTO_SERVICE).to(ElectronCrypto);
 container.bind(ANALYTICS_SERVICE).toConstantValue(posthogNodeAnalytics);
+container.bind(FEEDBACK_CONTEXT_SERVICE).to(ElectronFeedbackContext);
 container.bind(FILE_ICON_SERVICE).to(ElectronFileIcon);
 container.bind(SECURE_STORAGE_SERVICE).to(ElectronSecureStorage);
 container.bind(MAIN_WINDOW_SERVICE).to(ElectronMainWindow);
@@ -420,6 +421,7 @@ container
   .toConstantValue(process.env.VITE_POSTHOG_ACCESS_TOKEN_OVERRIDE ?? null);
 container.bind(MAIN_AUTH_SERVICE).to(AuthService);
 container.bind(AUTH_SERVICE).toService(MAIN_AUTH_SERVICE);
+container.load(feedbackCoreModule);
 container.load(authProxyModule);
 container.bind(AUTH_PROXY_AUTH).toDynamicValue((ctx) => ({
   authenticatedFetch: (url: string, init?: RequestInit) =>
@@ -820,23 +822,6 @@ container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 // live in @posthog/core (bound via canvasCoreModule) and resolve through
 // ctx.container in the host-router routers.
 container.load(canvasCoreModule);
-container.load(quickAskCoreModule);
-// Chromium's network stack, not Node's undici: it honors system proxies and
-// VPN routing, which undici intermittently fails against ("fetch failed").
-container.bind(QUICK_ASK_FETCH).toConstantValue(electronNetFetch);
-container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
-  const repositories = quickAskStore.get("defaultRepositories");
-  const integrationId = quickAskStore.get("defaultGithubIntegrationId");
-  return {
-    channelId: quickAskStore.get("defaultChannelId") || null,
-    repositories,
-    githubIntegrationId:
-      repositories.length > 0 && integrationId ? integrationId : null,
-    adapter: quickAskStore.get("defaultAdapter") || null,
-    model: quickAskStore.get("defaultModel") || null,
-    reasoningEffort: quickAskStore.get("defaultEffort") || null,
-  };
-});
 
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.

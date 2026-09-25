@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from anthropic import APIError
+from anthropic.lib._parse._transform import transform_schema
+from pydantic import BaseModel
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from products.conversations.backend.temporal.ai_reply.constants import LLM_REQUEST_TIMEOUT_SECONDS
@@ -11,6 +14,19 @@ from products.conversations.backend.temporal.ai_reply.constants import LLM_REQUE
 def anthropic_text(message: Any) -> str:
     """Concatenate the text blocks of an Anthropic Messages response."""
     return "".join(block.text for block in message.content if getattr(block, "type", None) == "text")
+
+
+def anthropic_json_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """Schema Anthropic's structured-output grammar accepts.
+
+    A raw ``model_json_schema()`` is rejected (``additionalProperties``, defaults). The grammar
+    then forces a number field to be a number, so a token like ``medium`` cannot be emitted.
+    """
+    return transform_schema(model)
+
+
+def anthropic_output_config(model: type[BaseModel]) -> dict[str, Any]:
+    return {"output_config": {"format": {"type": "json_schema", "schema": anthropic_json_schema(model)}}}
 
 
 def tracing_kwargs(trace_id: str, ticket_id: str) -> dict[str, Any]:
@@ -66,3 +82,11 @@ def strip_json_fence(text: str) -> str:
         if close != -1:
             s = s[:close]
     return s.strip()
+
+
+def llm_attempts() -> int:
+    """Temporal attempt number for this LLM activity, including retries already spent."""
+    try:
+        return max(1, int(activity.info().attempt))
+    except RuntimeError:
+        return 1

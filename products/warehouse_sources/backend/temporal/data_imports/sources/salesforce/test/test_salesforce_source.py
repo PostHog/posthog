@@ -29,7 +29,6 @@ class TestSalesforceSourceVersions:
         self.source = SalesforceSource()
 
     def test_new_sources_default_to_v67(self):
-        # New sources (no pin) must be created on the current API version.
         assert self.source.default_version == "v67.0"
         assert self.source.resolve_api_version(None) == "v67.0"
 

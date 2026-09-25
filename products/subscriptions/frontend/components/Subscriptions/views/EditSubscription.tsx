@@ -42,6 +42,7 @@ import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/ge
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
 import { InsightSelector } from '../InsightSelector'
+import { getNextDeliveryDate } from '../nextDeliveryDate'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { SubscriptionDayPicker } from '../SubscriptionDayPicker'
 import { subscriptionLogic } from '../subscriptionLogic'
@@ -52,7 +53,6 @@ import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getAiSubscriptionGate,
-    getNextDeliveryDate,
     integrationHasFilesWrite,
     intervalOptions,
     monthlyWeekdayOptions,
@@ -112,24 +112,11 @@ function LastDeliveryStatus({
 }
 
 interface EditSubscriptionProps {
-    id: number | 'new'
+    id: number
     insightShortId?: InsightShortId
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     onCancel: () => void
     onDelete: () => void
-}
-
-export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
-    const isCreating = props.id === 'new'
-
-    if (!isCreating) {
-        return <EditSubscriptionForm {...props} />
-    }
-    return (
-        <SubscriptionCreationGate onCancel={props.onCancel}>
-            <EditSubscriptionForm {...props} />
-        </SubscriptionCreationGate>
-    )
 }
 
 export function SubscriptionCreationGate({
@@ -220,7 +207,7 @@ function DashboardInsightsField({
     dashboard,
     onDefaultsApplied,
 }: {
-    dashboard: DashboardType<any>
+    dashboard: DashboardType
     onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (
@@ -239,7 +226,7 @@ function DashboardInsightsField({
     )
 }
 
-function EditSubscriptionForm({
+export function EditSubscription({
     id,
     insightShortId,
     dashboard,
@@ -263,6 +250,7 @@ function EditSubscriptionForm({
     const {
         subscription,
         subscriptionLoading,
+        subscriptionErrors,
         isSubscriptionSubmitting,
         subscriptionChanged,
         lastDelivery,
@@ -291,38 +279,46 @@ function EditSubscriptionForm({
     const isParentless = !insightShortId && !dashboardId
     const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
-    // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
-    // For editing, wait until subscription data has loaded from API (target_type exists)
-    // We check target_type instead of dashboard_export_insights because old subscriptions
-    // may have no insights selected yet
-    const isEditing = id !== 'new'
     const aiGate = getAiSubscriptionGate({
         isAiPrompt,
         isParentless,
-        isEditing,
+        isEditing: true,
         aiConsentApproved: Boolean(currentOrganization?.is_ai_data_processing_approved),
         isCloud: Boolean(preflight?.cloud),
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
     const subscriptionLoaded = !!subscription?.target_type
-    const selectionReady = !isEditing || subscriptionLoaded
 
-    if (subscriptionLoading || (isEditing && !subscriptionLoaded)) {
+    if (subscriptionLoading) {
         return <SubscriptionFormSkeleton />
     }
 
+    if (!subscriptionLoaded) {
+        return (
+            <div className="p-4 text-center">
+                <h2>Not found</h2>
+                <p>This subscription could not be found. It may have been deleted.</p>
+            </div>
+        )
+    }
+
     const _onDelete = (): void => {
-        if (isEditing) {
-            deleteSubscription(id)
-            onDelete()
-        }
+        deleteSubscription(id)
+        onDelete()
     }
 
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
     const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
+
+    let saveDisabledReason: string | undefined = undefined
+    if (aiGate.submitBlocked) {
+        saveDisabledReason = AI_NOT_ALLOWED_REASON
+    } else if (!subscriptionChanged) {
+        saveDisabledReason = 'No changes to save'
+    }
 
     return (
         <Form
@@ -336,7 +332,7 @@ function EditSubscriptionForm({
                 <div className="flex items-center gap-2">
                     <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
 
-                    <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
+                    <h3>Edit subscription</h3>
                 </div>
             </LemonModal.Header>
 
@@ -435,7 +431,7 @@ function EditSubscriptionForm({
                             </LemonField>
                         )}
 
-                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
+                        {dashboard?.tiles && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
                                 onDefaultsApplied={applyDefaultSelectedInsights}
@@ -525,9 +521,13 @@ function EditSubscriptionForm({
                                                     integration="slack"
                                                     value={value}
                                                     onChange={(newValue) => {
+                                                        // value === null is the initial auto-select
+                                                        // rather than a user switch.
+                                                        if (value === null && typeof newValue === 'number') {
+                                                            logic.actions.applyDefaultIntegration(newValue)
+                                                            return
+                                                        }
                                                         onChange(newValue)
-                                                        // Only clear channel when user actively switches,
-                                                        // not on initial auto-select (value is null)
                                                         if (value !== null && newValue !== value) {
                                                             logic.actions.setSubscriptionValue('target_value', '')
                                                         }
@@ -682,6 +682,8 @@ function EditSubscriptionForm({
                                     <LemonField name="interval">
                                         <LemonSelect options={intervalOptions} />
                                     </LemonField>
+                                    {/* The error renders under the box instead, because an error node
+                                        inside this inline row breaks the "Send every ... at ..." layout. */}
                                     <LemonField name="frequency" renderError={() => null}>
                                         <LemonSelect options={availableFrequencyOptions} />
                                     </LemonField>
@@ -753,6 +755,11 @@ function EditSubscriptionForm({
                                     </LemonField>
                                 </div>
                             </div>
+                            {typeof subscriptionErrors.frequency === 'string' && (
+                                <div className="mt-1">
+                                    <LemonField.Error error={subscriptionErrors.frequency} />
+                                </div>
+                            )}
                             {nextDeliveryDate && (
                                 <div className="text-sm text-secondary mt-1">
                                     Next delivery:{' '}
@@ -765,34 +772,32 @@ function EditSubscriptionForm({
                                     {currentTimezone}
                                 </div>
                             )}
-                            {id !== 'new' && (
-                                <div className="flex items-center justify-between gap-2 mt-1">
-                                    <div className="text-sm text-secondary">
-                                        <LastDeliveryStatus
-                                            lastDelivery={lastDelivery}
-                                            loading={lastDeliveryLoading}
-                                            failed={lastDeliveryLoadFailed}
-                                            currentTimezone={currentTimezone}
-                                        />
-                                        {' · '}
-                                        <Link to={urls.subscription(id)}>View history</Link>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSend />}
-                                        onClick={sendTestDelivery}
-                                        loading={testDeliveryLoading}
-                                        disabledReason={
-                                            subscription.enabled === false
-                                                ? 'Re-enable this subscription before sending a test delivery'
-                                                : undefined
-                                        }
-                                    >
-                                        Send test delivery
-                                    </LemonButton>
+                            <div className="flex items-center justify-between gap-2 mt-1">
+                                <div className="text-sm text-secondary">
+                                    <LastDeliveryStatus
+                                        lastDelivery={lastDelivery}
+                                        loading={lastDeliveryLoading}
+                                        failed={lastDeliveryLoadFailed}
+                                        currentTimezone={currentTimezone}
+                                    />
+                                    {' · '}
+                                    <Link to={urls.subscription(id)}>View history</Link>
                                 </div>
-                            )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSend />}
+                                    onClick={sendTestDelivery}
+                                    loading={testDeliveryLoading}
+                                    disabledReason={
+                                        subscription.enabled === false
+                                            ? 'Re-enable this subscription before sending a test delivery'
+                                            : undefined
+                                    }
+                                >
+                                    Send test delivery
+                                </LemonButton>
+                            </div>
                         </div>
 
                         {/*
@@ -927,7 +932,7 @@ function EditSubscriptionForm({
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {subscription && id !== 'new' && (
+                    {subscription && (
                         <LemonButton
                             type="secondary"
                             status="danger"
@@ -945,9 +950,9 @@ function EditSubscriptionForm({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
+                    disabledReason={saveDisabledReason}
                 >
-                    {id === 'new' ? 'Create subscription' : 'Save'}
+                    Save
                 </LemonButton>
             </LemonModal.Footer>
         </Form>

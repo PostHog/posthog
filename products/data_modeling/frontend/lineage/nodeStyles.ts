@@ -10,6 +10,7 @@ export const NODE_TYPE_TAG_SETTINGS: Record<
     view: { label: 'View', type: 'primary', color: 'var(--primary-3000)' },
     matview: { label: 'Materialized view', type: 'success', color: 'var(--success)' },
     endpoint: { label: 'Endpoint', type: 'completion', color: 'var(--purple)' },
+    metric: { label: 'Metric', type: 'info', color: 'var(--blue)' },
 }
 
 export const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {

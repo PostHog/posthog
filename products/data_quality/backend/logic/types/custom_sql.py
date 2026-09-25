@@ -45,6 +45,7 @@ def build_failing_rows(subject: SubjectRef | None, config: "CustomSqlConfig") ->
 
 
 class CustomSqlConfig(CheckConfig):
+    lookback_hours: None = Field(default=None, exclude=True, json_schema_extra={"readOnly": True})
     query: str = Field(
         min_length=1,
         description=(
@@ -68,7 +69,7 @@ class CustomSqlSpec(CheckTypeSpec):
     type_name = CheckType.CUSTOM_SQL
     config_model = CustomSqlConfig
     requires_column = False
-    subject_types = frozenset({SubjectType.TABLE, SubjectType.VIEW, SubjectType.METRIC})
+    subject_types = frozenset({SubjectType.TABLE, SubjectType.VIEW, SubjectType.METRIC, SubjectType.POSTHOG_TABLE})
     reads_beyond_subject = True
     description = "Fails on every row the custom HogQL SELECT returns. Metric checks query the {metric} relation."
 

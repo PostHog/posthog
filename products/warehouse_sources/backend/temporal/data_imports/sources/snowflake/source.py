@@ -5,28 +5,29 @@ from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError,
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-from posthog.schema import (
+from posthog.exceptions_capture import capture_exception
+
+from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-
-from posthog.exceptions_capture import capture_exception
-
-from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
     SnowflakeImplementation,
+    SnowflakeResumeState,
     get_connection_metadata as get_connection_metadata_snowflake,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -97,14 +98,31 @@ SnowflakeErrors = {
     # "check all connection details" message, so people re-enter correct credentials repeatedly.
     "Duo Security authentication is denied": _MFA_ENFORCED_MESSAGE.format(action="try again."),
     "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
+    # Snowflake error 250001 (08001): the account enforces TOTP-based MFA instead of Duo, so the
+    # connector's password-only login is rejected asking for a live TOTP passcode. A distinct phrase
+    # from the "MFA authentication is required" case above.
+    "MFA with TOTP is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
 }
 
 
 @SourceRegistry.register
-class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
+class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[SnowflakeSourceConfig, SnowflakeResumeState]):
     @property
     def get_implementation(self) -> SnowflakeImplementation:
         return _SNOWFLAKE_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SnowflakeResumeState]:
+        return ResumableSourceManager[SnowflakeResumeState](inputs, SnowflakeResumeState)
+
+    # The activity dispatch checks ResumableSource before SimpleSource, so the three-argument
+    # resumable signature is the one that runs; the SQLSource two-argument form is unreachable here.
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: SnowflakeSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SnowflakeResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -113,7 +131,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.SNOWFLAKE,
+            name=ExternalDataSourceType.SNOWFLAKE,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql"],
             caption="Enter your Snowflake credentials to automatically pull your Snowflake data into the PostHog Data warehouse.",
@@ -275,6 +293,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # retrying never succeeds. The codes and host in the message are volatile, so we match the
             # stable phrase.
             "Multi-factor authentication is required for this account": "Snowflake rejected the login because this account requires multi-factor authentication enrollment. Automated syncs can't complete MFA — connect with a service user that uses key-pair authentication or is exempt from MFA, then resync.",
+            # Snowflake error 250001 (08001): the account enforces TOTP-based MFA, so a password-only
+            # login is rejected asking for a live TOTP passcode. An unattended sync can't answer that
+            # prompt, so retrying never succeeds. Distinct phrase from "MFA authentication is
+            # required" above, so it needs its own entry.
+            "MFA with TOTP is required": _MFA_ENFORCED_MESSAGE.format(action="resync."),
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
             # Snowflake error 250001 (08001): the supplied username or password is wrong, so the

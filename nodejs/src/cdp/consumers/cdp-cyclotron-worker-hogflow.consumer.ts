@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
@@ -152,9 +153,17 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 const kind =
                     resolveByRepointedPerson || !hogFlowInvocationState.event.distinct_id ? 'person_id' : 'distinct_id'
 
+                // A push cannot be recalled, and the cached person can predate a device that
+                // unregistered since the last read, so a flow that sends push bypasses the cache here.
+                // A wait woken by a match advances without re-evaluating, so the steps after it would
+                // otherwise read the person cached when the wait parked, without the write that woke it.
+                const forceFreshPerson =
+                    hasPushActions(hogFlow.actions) || hogFlowInvocationState.currentAction?.eventMatched === true
                 const [person, groups] = await Promise.all([
                     personIdOrDistinctId
-                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind)
+                        ? this.personsManager.getCyclotronPerson(hogFlow.team_id, personIdOrDistinctId, kind, {
+                              forceFresh: forceFreshPerson,
+                          })
                         : undefined,
                     this.groupsManager.getGroupsForEvent(
                         hogFlow.team_id,

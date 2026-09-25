@@ -1,5 +1,11 @@
 import { useRendererWindowFocusStore } from "@posthog/ui/shell/rendererWindowFocusStore";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudGithubSetupDialog } from "./CloudGithubSetupDialog";
@@ -28,9 +34,9 @@ vi.mock("@posthog/ui/features/integrations/useGithubUserConnect", () => ({
     return connectState;
   },
 }));
-vi.mock("@posthog/ui/utils/browser", () => ({
-  openUrlInBrowser: vi.fn(),
-}));
+const { openUrlInBrowser } = vi.hoisted(() => ({ openUrlInBrowser: vi.fn() }));
+
+vi.mock("@posthog/ui/utils/browser", () => ({ openUrlInBrowser }));
 
 describe("CloudGithubSetupDialog", () => {
   beforeEach(() => {
@@ -53,14 +59,62 @@ describe("CloudGithubSetupDialog", () => {
     render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
 
     expect(
-      screen.getByText("GitHub authentication required"),
+      screen.getByText("Connect GitHub to run in the cloud"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Cloud tasks require GitHub authentication."),
+      screen.getByText(
+        "Agents work from the latest code in the repos you authorize. Changes come back as pull requests for you to review.",
+      ),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Connect GitHub" }));
 
     expect(connectState.connect).toHaveBeenCalledOnce();
+  });
+
+  it("opens the GitHub permissions guide", async () => {
+    const user = userEvent.setup();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Details" }).closest("p"),
+    ).toHaveTextContent(
+      "Read/write access to authorized repos, plus read access to email addresses and organization membership. PostHog can act as you on GitHub. Details",
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Details",
+      }),
+    );
+
+    expect(openUrlInBrowser).toHaveBeenCalledExactlyOnceWith(
+      "https://posthog.com/docs/libraries/github?tab=Desktop",
+    );
+  });
+
+  it("orders the actions as Connect GitHub, Not now, and Details", async () => {
+    const user = userEvent.setup();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Connect GitHub" }),
+      ).toHaveFocus(),
+    );
+    expect(
+      screen.getByRole("img", { name: "Connect PostHog to GitHub" }),
+    ).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Not now" })).toHaveFocus();
+    expect(document.activeElement).toHaveAttribute(
+      "data-attr",
+      "github-setup-not-now",
+    );
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Details" })).toHaveFocus();
+    expect(document.activeElement).toHaveAttribute(
+      "data-attr",
+      "github-permissions",
+    );
   });
 
   it("shows the onboarding visual while it waits for GitHub", () => {
@@ -70,7 +124,7 @@ describe("CloudGithubSetupDialog", () => {
 
     const waitingState = screen
       .getByText("Waiting for GitHub")
-      .closest('[data-slot="empty"]');
+      .closest('[data-slot="dialog-content"]');
     expect(waitingState).toBeInTheDocument();
     expect(waitingState).toHaveTextContent(
       "Finish authorizing in your browser, then return here.",
@@ -78,17 +132,42 @@ describe("CloudGithubSetupDialog", () => {
     expect(
       waitingState?.querySelector('[aria-label="Loading"]'),
     ).not.toBeNull();
+    expect(
+      waitingState?.querySelector('[data-slot="dialog-header"]'),
+    ).toHaveAttribute("aria-live", "polite");
   });
 
-  it("cancels only after the user selects Cancel", async () => {
+  it("keeps the current location after the user selects Not now", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={onClose} />);
 
     expect(onClose).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Not now" }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(connectState.reset).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      name: "keeps the pending location when Escape arrives mid-connection",
+      isConnecting: true,
+      closeCount: 0,
+    },
+    {
+      name: "closes on Escape before the connection starts",
+      isConnecting: false,
+      closeCount: 1,
+    },
+  ])("$name", async ({ isConnecting, closeCount }) => {
+    const user = userEvent.setup();
+    connectState.isConnecting = isConnecting;
+    const onClose = vi.fn();
+    render(<CloudGithubSetupDialog onConnected={vi.fn()} onClose={onClose} />);
+
+    await user.keyboard("{Escape}");
+
+    expect(onClose).toHaveBeenCalledTimes(closeCount);
   });
 
   it("waits for window focus after the integration appears", () => {
@@ -125,7 +204,7 @@ describe("CloudGithubSetupDialog", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Cancel" }),
+      screen.queryByRole("button", { name: "Not now" }),
     ).not.toBeInTheDocument();
     expect(connectState.reset).toHaveBeenCalledOnce();
     expect(onConnected).not.toHaveBeenCalled();

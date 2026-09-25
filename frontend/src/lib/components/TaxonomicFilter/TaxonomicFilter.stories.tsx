@@ -1,12 +1,13 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
-import { useActions, useMountedLogic } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { delay } from 'msw'
 import { useEffect } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -683,7 +684,18 @@ export const FailedFetchOffersRetry: Story = {
             taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
         )
 
-        useOnMountEffect(() => setSearchQuery('user_signed_up'))
+        const { remoteItems } = useValues(
+            infiniteListLogic({
+                ...args,
+                taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string,
+                listGroupType: TaxonomicFilterGroupType.Events,
+            })
+        )
+        useEffect(() => {
+            if (remoteItems.searchQuery === '' && remoteItems.results.length > 0) {
+                setSearchQuery('user_signed_up')
+            }
+        }, [remoteItems, setSearchQuery])
 
         return (
             <div className="w-fit border rounded p-2 bg-surface-primary">
@@ -694,11 +706,17 @@ export const FailedFetchOffersRetry: Story = {
     args: {
         taxonomicFilterLogicKey: 'events-failed-fetch',
         taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        groupType: TaxonomicFilterGroupType.Events,
+        value: 'page_opened',
+        allowNonCapturedEvents: true,
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/event_definitions': () => [500, { detail: 'server error' }],
+                '/api/projects/:team_id/event_definitions': ({ request }) =>
+                    new URL(request.url).searchParams.get('search')
+                        ? [500, { detail: 'server error' }]
+                        : [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }],
             },
         }),
     ],
@@ -707,6 +725,86 @@ export const FailedFetchOffersRetry: Story = {
         docs: {
             description: {
                 story: 'When the search request fails, the list says so and offers a retry, rather than showing the same "No results" as a genuine empty search.',
+            },
+        },
+    },
+}
+
+export const CustomEventName: Story = {
+    render: (args) => {
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+        useOnMountEffect(() => setSearchQuery('purchase_confirmed'))
+        return <TaxonomicFilter {...args} />
+    },
+    args: {
+        taxonomicFilterLogicKey: 'custom-event-name',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+        groupType: TaxonomicFilterGroupType.Events,
+        allowNonCapturedEvents: true,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': () => [200, { results: [], count: 0 }],
+            },
+        }),
+    ],
+    parameters: { testOptions: { waitForSelector: '[data-attr="prop-filter-event-option-custom"]' } },
+}
+
+export const CohortsWithRealtimeStates: Story = {
+    args: {
+        taxonomicFilterLogicKey: 'cohorts-realtime',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Cohorts],
+        // The opt-in a feature flag's release conditions set. Without it the rows carry no tag,
+        // which is what every other cohort picker in the app renders.
+        showCohortFlagTargeting: true,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/cohorts/': [
+                    {
+                        id: 1,
+                        name: 'Viewed pricing this week',
+                        count: 4321,
+                        is_static: false,
+                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                    },
+                    {
+                        id: 2,
+                        name: 'Completed onboarding',
+                        count: 210,
+                        is_static: false,
+                        realtime: {
+                            state: 'building',
+                            ready_at: null,
+                            build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                        },
+                    },
+                    {
+                        id: 3,
+                        name: 'Churn risk',
+                        count: 76,
+                        is_static: false,
+                        realtime: { state: 'needs_attention', ready_at: null, build: null },
+                    },
+                    { id: 4, name: 'Beta testers', count: 89, is_static: true, realtime: null },
+                    { id: 5, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
+        // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
+        // wait for every loader to disappear here.
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },
+        docs: {
+            description: {
+                story: 'Cohort rows carry their realtime state, so someone picking one for a feature flag sees which cohorts flags can already target and which are still being prepared.',
             },
         },
     },

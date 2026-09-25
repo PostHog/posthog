@@ -2,7 +2,10 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
-use crate::storage::types::{Person, SplitResult};
+use crate::storage::types::{
+    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
+    TombstonedDeleteOutcome, TombstonedPerson,
+};
 
 /// Person lookup operations by ID, UUID, and distinct ID
 #[async_trait]
@@ -51,12 +54,44 @@ pub trait PersonLookup: Send + Sync {
 
     // Deletes
 
-    /// Delete persons by UUID for a given team. Large batches are split into
-    /// fixed-size chunks and deleted concurrently. Each chunk runs in its own
-    /// transaction, deleting distinct_ids first (FK is NO ACTION) then persons
-    /// (feature flag hash key overrides cascade at the DB level). Idempotent:
-    /// deleting already-removed UUIDs is a no-op.
-    async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
+    /// `Hard` removes the rows, tombstoned ones included. `Tombstone` keeps
+    /// them and reports the versions written for the ClickHouse tombstones.
+    async fn delete_persons(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+        mode: DeletePersonsMode,
+    ) -> StorageResult<DeletePersonsOutcome>;
+
+    /// Delete persons that are still tombstoned, at most `max_rows` dependent rows per call:
+    /// persons that fit the budget go whole, the first that does not is trimmed with the leftover
+    /// and returned pending, the rest are returned pending untouched. A revival either wins the
+    /// row lock first and is skipped, or lands afterwards on a fresh row. Idempotent.
+    async fn delete_tombstoned_persons(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+        max_rows: i64,
+    ) -> StorageResult<TombstonedDeleteOutcome>;
+
+    async fn get_person_tombstones(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<TombstonedPerson>>;
+
+    async fn ack_person_tombstones(
+        &self,
+        team_id: i64,
+        acked: &[(Uuid, i64)],
+    ) -> StorageResult<i64>;
+
+    async fn list_person_tombstone_queue(
+        &self,
+        after: (i64, Uuid),
+        team_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonTombstoneQueueEntry>>;
 
     /// Delete up to `batch_size` persons for a team. Selects person IDs with
     /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and

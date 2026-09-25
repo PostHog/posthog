@@ -33,10 +33,12 @@ const MOCK_SCOUT_OWNERS = [
 function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
     return {
         scout_origin: 'canonical',
+        scout_role: 'specialist',
         owners: [],
         enabled: true,
         status: 'active',
         pause_reason: null,
+        deprecation: null,
         emit: true,
         run_interval_minutes: 1440,
         run_cron_schedule: null,
@@ -47,6 +49,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
+        status_changed_by: null,
         auto_pause_exempt: false,
         tags: [],
         mcp_gateway_server_ids: [],
@@ -54,6 +57,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         source_product: null,
         source_id: null,
         created_at: '2026-06-11T09:00:00Z',
+        updated_at: '2026-06-11T09:00:00Z',
         ...overrides,
     }
 }
@@ -215,6 +219,15 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         description: 'survey responses that point at a product problem',
         status: 'pending_pause',
         pause_reason: 'ignored',
+    }),
+    makeMockScout({
+        id: 'scout-operational',
+        skill_name: 'signals-scout-inbox-validation',
+        description: 'whether the fixes shipped from this inbox actually held',
+        scout_role: 'operational',
+        auto_pause_exempt: true,
+        run_interval_minutes: 60,
+        last_run_at: '2026-06-10T23:00:00Z',
     }),
 ]
 

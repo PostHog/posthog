@@ -93,31 +93,31 @@ describe('action.conditional_branch', () => {
             expect(result).toEqual({})
         })
 
+        // A wait arrives here already normalised into a conditional_branch, so its ceiling comes in
+        // as `repark` rather than off the action. A branch without one never parks.
         describe('wait logic', () => {
-            it('should handle wait duration and schedule next check', async () => {
-                action.config.delay_duration = '2h'
-                const result = await checkConditions(invocation, action)
-                expect(result).toEqual({
-                    // Should schedule for 10 minutes from now
-                    scheduledAt: DateTime.utc().plus({ minutes: 10 }),
-                })
+            const repark = (maxWaitDuration: string) => ({ maxWaitDuration, recheckSeconds: 60 * 60 })
+
+            it('should cap the next check at the backstop', async () => {
+                const result = await checkConditions(invocation, action, undefined, repark('2h'))
+                expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ hours: 1 }) })
             })
 
             it('should not schedule for later than the max wait duration', async () => {
-                action.config.delay_duration = '5m'
+                const result = await checkConditions(invocation, action, undefined, repark('5m'))
+                expect(result).toEqual({ scheduledAt: DateTime.utc().plus({ minutes: 5 }) })
+            })
+
+            it('should not schedule at all without a ceiling', async () => {
                 const result = await checkConditions(invocation, action)
-                expect(result).toEqual({
-                    // Should schedule for 5 minutes from now
-                    scheduledAt: DateTime.utc().plus({ minutes: 5 }),
-                })
+                expect(result).toEqual({})
             })
 
             it('should throw error if action started at timestamp is invalid', async () => {
                 invocation.state.currentAction = undefined
-                action.config.delay_duration = '300s'
-                await expect(async () => checkConditions(invocation, action)).rejects.toThrow(
-                    "'startedAtTimestamp' is not set or is invalid"
-                )
+                await expect(async () =>
+                    checkConditions(invocation, action, undefined, repark('300s'))
+                ).rejects.toThrow("'startedAtTimestamp' is not set or is invalid")
             })
         })
     })
@@ -381,7 +381,7 @@ describe('action.conditional_branch', () => {
         it('keeps the cached person on a re-check of a wait that already parked', async () => {
             const refreshPerson = jest.fn().mockResolvedValue(undefined)
             waitInvocation.refreshPerson = refreshPerson
-            // Set once the wait parks; its re-checks run 10 minutes apart, by when the cache expired.
+            // Set once the wait parks; its re-checks run an hour apart, by when the cache expired.
             waitInvocation.state.currentAction!.pollReparked = true
 
             await handler.execute({
@@ -439,10 +439,23 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
 
-        it('re-parks a wait_until_condition on the 10-minute cap (polling retained as backstop)', async () => {
-            // Polling is kept for now: a wait_until_condition re-parks on the 10-minute cap and
-            // re-checks its condition, even though the subscription matcher also wakes it early on a
-            // matching signal. A 30-minute wait therefore schedules ~10 minutes out, not ~30.
+        it('re-parks a wait_until_condition on the hourly cap (backstop retained)', async () => {
+            // The re-check is kept as a reconciliation backstop, so a wait longer than an hour parks
+            // for an hour at a time rather than for its full duration.
+            waitAction.config.max_wait_duration = '4h'
+
+            const result = await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ hours: 1 }))
+        })
+
+        it('parks a wait shorter than the backstop for its own duration', async () => {
+            // The cap only shortens a park; a 30-minute wait must still resolve at 30 minutes rather
+            // than being stretched to the hourly re-check.
             waitAction.config.max_wait_duration = '30m'
 
             const result = await handler.execute({
@@ -451,7 +464,7 @@ describe('action.conditional_branch', () => {
                 result: createInvocationResult(waitInvocation),
             })
 
-            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 10 }))
+            expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 30 }))
         })
 
         it('marks the wait as re-parked when its condition does not match', async () => {

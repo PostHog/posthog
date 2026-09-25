@@ -71,11 +71,23 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     updatePersonProperties: () => ({}),
     deletePersons: () => ({ deletedCount: 0n }),
     deletePersonsBatchForTeam: () => ({ deletedCount: 0n }),
+    deleteTombstonedPersons: () => ({
+        deletedCount: 0n,
+        skippedLiveCount: 0n,
+        blockedPersonUuids: [],
+        pendingPersonUuids: [],
+        rowsDeleted: 0n,
+    }),
+    getPersonTombstones: () => ({ tombstones: [] }),
+    ackPersonTombstones: () => ({ clearedCount: 0n }),
+    listPersonTombstoneQueue: () => ({ entries: [] }),
     splitPerson: () => ({ splits: [] }),
     setPersonDistinctIdVersionFloor: () => ({}),
     setPersonVersionFloor: () => ({ updated: false }),
     fencePerson: () => ({}),
+    fencePersons: () => ({}),
     releaseFence: () => ({}),
+    releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
 }
 

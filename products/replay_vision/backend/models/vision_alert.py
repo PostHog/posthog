@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
@@ -49,7 +50,7 @@ class VisionAlertDirection(models.TextChoices):
     BELOW = "below", "At or below"
 
 
-class VisionAlertConfiguration(TeamScopedRootMixin, UUIDModel):
+class VisionAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """One alert on a scanner's observations, on the shared alerts platform.
 
     Metric alerts evaluate a rolling window on a cadence and own lifecycle state; every
@@ -57,6 +58,8 @@ class VisionAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     (enforced by semgrep). Match alerts never leave NOT_FIRING: their delivery is driven
     by undelivered VisionAlertMatch rows, not by scheduling columns.
     """
+
+    activity_logging_on_delete = True
 
     all_teams = models.Manager()  # noqa: DJ012 — escape hatch for cross-team Temporal access
 

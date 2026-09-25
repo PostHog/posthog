@@ -6,11 +6,11 @@
 #   "opentelemetry-api~=1.27",
 #   "opentelemetry-sdk~=1.27",
 #   "opentelemetry-exporter-otlp-proto-http~=1.27",
-#   "posthog-owners",
+#   "owners-yaml",
 # ]
 #
 # [tool.uv.sources]
-# posthog-owners = { path = "../../tools/owners" }
+# owners-yaml = { path = "../../packages/owners-yaml" }
 # ///
 """Emit OTLP traces from CI JUnit XML artifacts.
 
@@ -65,7 +65,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
-from posthog_owners import OwnersResolver, first_team_owner
+from owners_yaml import OwnersResolver, first_team_owner
 
 logger = logging.getLogger("report_test_timings")
 
@@ -106,6 +106,7 @@ class TestCase:
     file: str  # normalized repo-relative test file; '' when no checked-in file can be found
     file_source: Literal["junit", "inferred", "missing"]
     selector: str  # runnable runner-specific selector; '' when the file cannot be found
+    runner_name: str = ""  # GitHub runner that executed the test, not the trace-export job's runner
 
 
 @dataclass(frozen=True)
@@ -571,6 +572,7 @@ def parse_shard(
                     end=datetime.min,
                     outcome=outcome,
                     attempts=attempts,
+                    runner_name=parse_testsuite_properties(tc).get("posthog.runner_name", ""),
                 )
             )
         file_durations.append(file_testcase_seconds)
@@ -802,7 +804,7 @@ def owner_team_lookup() -> Callable[[str], str]:
 
     Resolution is capture-time on purpose: a test is attributed to whoever owned it when it
     ran. Ownership is best-effort next to the timings themselves, so every failure — a resolver
-    that can't load (a base checkout predating `tools/owners`) or one file that won't resolve —
+    that can't load (a base checkout predating `packages/owners-yaml`) or one file that won't resolve —
     degrades to no stamp, leaving those spans in the reader's `unowned` bucket rather than
     losing the emit.
     """
@@ -902,6 +904,8 @@ def _emit_shard_span(
             test_span.set_attribute("test.job_key", job_trace_key(info))
             test_span.set_attribute("test.outcome", test.outcome)
             test_span.set_attribute("test.attempts", test.attempts)
+            if test.runner_name:
+                test_span.set_attribute("test.runner_name", test.runner_name)
             test_span.set_attribute("test.classname", test.classname)
             test_span.set_attribute("test.name", test.name)
             if test.file:

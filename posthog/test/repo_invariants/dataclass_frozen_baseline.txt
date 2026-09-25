@@ -52,7 +52,6 @@
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py
-1 posthog/taxonomy/property_definition_api.py
 1 posthog/temporal/ai/anomaly_investigation/notebook.py
 1 posthog/temporal/ai/anomaly_investigation/runner.py
 1 posthog/temporal/ai/anomaly_investigation/tools.py
@@ -125,9 +124,6 @@
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
 1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py
-1 products/experiments/stats/bayesian/method.py
-1 products/experiments/stats/bayesian/priors.py
-1 products/experiments/stats/bayesian/tests.py
 1 products/experiments/stats/frequentist/method.py
 1 products/experiments/stats/frequentist/tests.py
 1 products/exports/backend/models/subscription.py
@@ -181,7 +177,6 @@
 1 products/signals/eval/capture.py
 1 products/signals/eval/common.py
 1 products/skills/backend/marketplace/git_smart_http.py
-1 products/slack_app/backend/slack_thread.py
 1 products/slack_app/backend/tests/services/test_run_preferences.py
 1 products/slack_app/backend/tests/services/test_slack_app_home.py
 1 products/stamphog/backend/tests/conftest.py
@@ -206,7 +201,6 @@
 1 products/tasks/backend/temporal/process_task/activities/enforce_self_driving_quota.py
 1 products/tasks/backend/temporal/process_task/activities/feature_flags.py
 1 products/tasks/backend/temporal/process_task/activities/get_task_processing_context.py
-1 products/tasks/backend/temporal/process_task/activities/post_slack_update.py
 1 products/tasks/backend/temporal/process_task/activities/read_sandbox_logs.py
 1 products/tasks/backend/temporal/process_task/activities/relay_sandbox_events.py
 1 products/tasks/backend/temporal/process_task/activities/run_wizard.py
@@ -372,7 +366,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/capsule_crm.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/capsule_crm/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/care_quality_commission.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/care_quality_commission/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/cast_ai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/cast_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/census/census.py
@@ -388,8 +381,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chartmogul/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/chatwoot.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/chatwoot/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/checkmarx.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/checkmarx/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/checkout_com/checkout_com.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/churnkey/churnkey.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/churnkey/settings.py

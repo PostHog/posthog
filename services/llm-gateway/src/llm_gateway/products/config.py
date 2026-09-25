@@ -89,6 +89,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-7",
         "claude-opus-4-8",
         "claude-opus-5",
+        "claude-opus-5-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
@@ -102,6 +103,8 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
@@ -114,7 +117,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
 # model-registry advertising filter; the registry also derives its advertising from it so the two
 # can't drift. Keys must be lowercase.
 RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
-    # Evaluated by ReviewHog; exposed in PostHog Code behind the posthog-code-deepseek-model flag.
+    # Evaluated by ReviewHog and offered in PostHog Code; no other product may select it.
     BASETEN_DEEPSEEK_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
     BASETEN_GLM53_FLASH_PUBLIC_MODEL: frozenset({"posthog_code", "review_hog"}),
@@ -158,6 +161,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-7",
                 "claude-opus-4-8",
                 "claude-opus-5",
+                "claude-opus-5-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -171,6 +175,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
             }
             | BEDROCK_MODELS
         ),
@@ -370,27 +376,6 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
-    # Stamphog: the sandboxed PR reviewer (Sonnet, OAuth-only in practice) and the daily merged-PR
-    # digest summarization (Haiku, server-side via the shared key). Low volume, internal infra.
-    # The reviewer runs inside a sandbox over untrusted PR content, so it authenticates with a
-    # short-lived server-minted OAuth token under the shared sandbox app — hence the app allowlist.
-    # allow_api_keys stays True only for the digest's server-side calls (the shared key never
-    # enters a sandbox); it can flip off once the digest mints tokens too.
-    # Deliberately unbilled, same posture as review_hog/conversations: reviews and digests are work
-    # done by PostHog, not customer-billable usage, and the worker attributes spend per customer team
-    # via the team_id header — a credit_bucket here would silently charge customer AI credits for it.
-    # The trade-off (any personal API key can reach an unbilled route) is shared by every
-    # key-accessible unbilled product in this table and is bounded by the model pins.
-    # requires_server_credential closes the OAuth side of that class: reviewer tokens are minted
-    # server-side with the internal marker, so a user's own Desktop OAuth token can't ride this route
-    # around the posthog_code free-tier gate.
-    "stamphog": ProductConfig(
-        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
-        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-5"}),
-        allow_api_keys=True,
-        credit_bucket=None,
-        requires_server_credential=True,
-    ),
 }
 
 
@@ -495,16 +480,15 @@ def check_free_tier_model_access(
     )
 
 
-# Models a caller may only select while the paired flag is enabled for them, mirroring
-# products/tasks MODEL_ACCESS_FLAGS. Each model maps to its own access flag — the same flag the
-# Desktop picker gates it behind — so an entitlement can't be widened for one model by proxy of
-# another. Keys are the model ids callers send.
-MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
-    "moonshotai/kimi-k3": "tasks-kimi-k3",
-    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
-    "zai-org/glm-5.3": "posthog-code-glm-53-model",
-    "zai-org/glm-5.3-flash": "posthog-code-glm-53-flash-model",
-}
+# Models a caller may only select while the paired flag is enabled for them, mirroring the
+# `access_flag` column of products/tasks/backend/model_catalog.py. Each model maps to its own
+# access flag, the same flag the Desktop picker gates it behind, so an entitlement can't be
+# widened for one model by proxy of another. Keys are the model ids callers send.
+#
+# Empty because no model is behind a rollout right now. Every gate here fails closed, so a model
+# stays listed here only while its rollout is live: an entry left behind after the flag reaches
+# everyone hides the model from any caller the flag service cannot answer for.
+MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {}
 
 
 def get_required_model_flag(model: str | None) -> str | None:
