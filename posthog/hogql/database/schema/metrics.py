@@ -100,7 +100,7 @@ class MetricsTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "metrics_distributed"
+        return "metrics4_view"
 
     def to_printed_hogql(self):
         return "metrics"
@@ -142,7 +142,7 @@ class MetricSeriesTable(Table):
         ),
         "attributes": MapStringDatabaseField(name="attributes", nullable=False),
         "last_seen": DateTimeDatabaseField(
-            name="last_seen", nullable=False, description="Most recent sample timestamp seen for this series."
+            name="timestamp", nullable=False, description="Most recent sample timestamp seen for this series."
         ),
         "original_expiry_timestamp": DateTimeDatabaseField(
             name="original_expiry_timestamp", nullable=False, description="When the series leaves retention."
@@ -150,7 +150,7 @@ class MetricSeriesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "metric_series_distributed"
+        return "metrics4_series"
 
     def to_printed_hogql(self):
         return "metric_series"
@@ -167,6 +167,7 @@ class MetricAttributesTable(Table):
             nullable=False,
             description="Coarse time bucket the attribute counts are aggregated over.",
         ),
+        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
         "attribute_key": StringDatabaseField(
             name="attribute_key", nullable=False, description="Metric attribute name."
         ),
@@ -192,7 +193,7 @@ class MetricAttributesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "metric_attributes_distributed"
+        return "metrics4_attributes"
 
     def to_printed_hogql(self):
         return "metric_attributes"

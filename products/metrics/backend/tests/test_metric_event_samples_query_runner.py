@@ -29,10 +29,14 @@ SPAN_A_B64 = base64.b64encode(bytes.fromhex(SPAN_A_HEX)).decode()
 
 
 def _insert_orphan_sample(*, team_id: int, metric_name: str, timestamp: dt.datetime, value: float) -> None:
-    # Straight into `metrics2`, bypassing the ingest MVs, so no series row exists.
+    # Straight into `metrics4_samples`, bypassing the ingest MVs, so no series row exists.
+    # ARRAY JOIN needs every point array to have the same length.
     sync_execute(
-        "INSERT INTO metrics2 (team_id, metric_name, series_fingerprint, timestamp, original_expiry_timestamp, value) "
-        "VALUES (%(team_id)s, %(metric_name)s, 42, %(ts)s, '2200-01-01 00:00:00', %(value)s)",
+        "INSERT INTO metrics4_samples (team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date, "
+        "timestamp_arr, observed_timestamp_arr, value_arr, count_arr, histogram_counts_arr, trace_id_arr, span_id_arr, "
+        "trace_flags_arr) "
+        "VALUES (%(team_id)s, %(metric_name)s, toStartOfHour(toDateTime64(%(ts)s, 6)), 42, '2200-01-01', "
+        "[toDateTime64(%(ts)s, 6)], [toDateTime64(%(ts)s, 6)], [%(value)s], [1], [[]], [''], [''], [0])",
         {
             "team_id": team_id,
             "metric_name": metric_name,
