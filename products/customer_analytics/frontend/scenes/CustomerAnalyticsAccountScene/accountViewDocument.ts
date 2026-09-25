@@ -1,13 +1,18 @@
 import { v4 as uuidv4 } from 'uuid'
 
 import { parseMarkdownNotebook, serializeMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
-import type { NotebookComponentBlockNode, NotebookDocument } from 'lib/components/MarkdownNotebook/types'
+import type {
+    NotebookComponentBlockNode,
+    NotebookDocument,
+    NotebookPropValue,
+} from 'lib/components/MarkdownNotebook/types'
 
 import {
     getAccountViewComponentByKind,
     getAccountViewComponentByTag,
     type AccountViewComponentKind,
 } from '../../components/Accounts/accountViewComponents'
+import type { AccountViewTileConfig } from '../../components/Accounts/accountViewTileConfig'
 import type { AccountViewContentApi } from '../../generated/api.schemas'
 import { AccountViewContentTypeEnumApi, AccountViewMarkdownNodeTypeEnumApi } from '../../generated/api.schemas'
 
@@ -16,6 +21,7 @@ export interface AccountViewComponentInstance {
     kind: AccountViewComponentKind
     span: number
     title?: string
+    config?: AccountViewTileConfig
 }
 
 export function createAccountViewComponentInstance(kind: AccountViewComponentKind): AccountViewComponentInstance {
@@ -32,6 +38,7 @@ export function parseAccountViewContent(content: AccountViewContentApi): Account
         const nodeId = node.props.nodeId
         const span = node.props.span
         const title = node.props.title
+        const config = node.props.config
         if (!definition || typeof nodeId !== 'string') {
             return []
         }
@@ -41,6 +48,10 @@ export function parseAccountViewContent(content: AccountViewContentApi): Account
                 kind: definition.kind,
                 span: typeof span === 'number' && Number.isInteger(span) && span >= 1 && span <= 12 ? span : 12,
                 title: typeof title === 'string' && title.trim() ? title : undefined,
+                config:
+                    config && typeof config === 'object' && !Array.isArray(config)
+                        ? (config as AccountViewTileConfig)
+                        : undefined,
             },
         ]
     })
@@ -59,6 +70,7 @@ export function createAccountViewContent(components: AccountViewComponentInstanc
                     nodeId: component.nodeId,
                     ...(component.span === 12 ? {} : { span: component.span }),
                     ...(component.title ? { title: component.title } : {}),
+                    ...(component.config ? { config: component.config as NotebookPropValue } : {}),
                 },
             })
         ),

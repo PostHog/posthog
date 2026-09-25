@@ -1,4 +1,5 @@
 import re
+import json
 from typing import Any
 from uuid import UUID
 
@@ -24,8 +25,9 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Meetings": "Meetings",
     "EventStream": "Event stream",
 }
-ACCOUNT_VIEW_ALLOWED_PROPS = {"nodeId", "span", "title"}
+ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
+ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
 ACCOUNT_VIEW_IDENTITY_PROPS = {
     "accountId",
     "account_id",
@@ -37,6 +39,16 @@ ACCOUNT_VIEW_IDENTITY_PROPS = {
     "team_id",
 }
 ACCOUNT_VIEW_NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$")
+
+
+def get_account_identity_props(value: Any) -> set[str]:
+    if isinstance(value, dict):
+        return ACCOUNT_VIEW_IDENTITY_PROPS.intersection(value) | set().union(
+            *(get_account_identity_props(item) for item in value.values())
+        )
+    if isinstance(value, list):
+        return set().union(*(get_account_identity_props(item) for item in value))
+    return set()
 
 
 class InvalidAccountViewContent(ValueError):
@@ -110,6 +122,17 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
         span = component.props.get("span", 12)
         if isinstance(span, bool) or not isinstance(span, int) or span < 1 or span > 12:
             errors.append(f"Component {index} span must be an integer from 1 to 12.")
+
+        config = component.props.get("config")
+        if config is not None:
+            if not isinstance(config, dict):
+                errors.append(f"Component {index} config must be an object.")
+            elif identity_props := get_account_identity_props(config):
+                errors.append(
+                    f"Component {index} config cannot set account identity: {', '.join(sorted(identity_props))}."
+                )
+            elif len(json.dumps(config, separators=(",", ":")).encode()) > ACCOUNT_VIEW_CONFIG_MAX_BYTES:
+                errors.append(f"Component {index} config is too large.")
 
     if errors:
         raise InvalidAccountViewContent(errors)

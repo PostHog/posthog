@@ -12,6 +12,7 @@ import { InsightShortId } from '~/types'
 
 import { AccountBillingChart, canRenderBillingChart } from './AccountBillingChart'
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 
 const HedgehogBurningMoney = pngHoggie(burningMoneyHogPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
@@ -33,16 +34,20 @@ function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Ele
     )
 }
 
+interface AccountBillingExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    externalId: string
+    kind: AccountBillingKind
+}
+
 export function AccountBillingExpansion({
     accountId,
     externalId,
     kind,
-}: {
-    accountId: string
-    externalId: string
-    kind: AccountBillingKind
-}): JSX.Element {
-    const logic = accountBillingLogic({ accountId, externalId, kind })
+    ...tileProps
+}: AccountBillingExpansionProps): JSX.Element {
+    const logicProps = { accountId, externalId, kind, ...tileProps }
+    const logic = accountBillingLogic(logicProps)
     const {
         displayInsights: savedInsights,
         savedInsightsLoading,
@@ -99,7 +104,7 @@ export function AccountBillingExpansion({
                         {canRenderBillingChart(insight.query) ? (
                             <AccountBillingChart
                                 key={queryKey}
-                                logicProps={{ accountId, externalId, kind }}
+                                logicProps={logicProps}
                                 shortId={insight.short_id}
                                 query={insight.query}
                                 queryKey={queryKey}

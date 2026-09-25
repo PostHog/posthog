@@ -30,7 +30,7 @@ export function AccountViewTile({
 }: AccountViewTileProps): JSX.Element {
     const logic = accountViewsLogic({ projectId })
     const { tileSaving } = useValues(logic)
-    const { openTileEditor, removeViewComponent } = useActions(logic)
+    const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
     const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
     const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
 
@@ -85,7 +85,19 @@ export function AccountViewTile({
                 </LemonMenu>
             </div>
             <div className="min-w-0 px-2 pt-2 pb-0 [&_.LemonTable]:-mx-2 [&_.LemonTable]:!w-[calc(100%+1rem)]">
-                <AccountViewComponent kind={component.kind} accountId={accountId} externalId={externalId} embedded />
+                <AccountViewComponent
+                    kind={component.kind}
+                    accountId={accountId}
+                    externalId={externalId}
+                    instanceId={component.nodeId}
+                    initialConfig={component.config}
+                    onConfigChange={
+                        view.can_edit
+                            ? (config) => updateViewComponentConfig(view.id, component.nodeId, config)
+                            : undefined
+                    }
+                    embedded
+                />
             </div>
         </LemonCard>
     )

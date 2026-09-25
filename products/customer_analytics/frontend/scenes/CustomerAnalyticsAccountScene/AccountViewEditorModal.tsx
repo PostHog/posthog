@@ -1,6 +1,9 @@
+import { DndContext } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -20,6 +23,7 @@ import {
     listAvailableAccountViewComponents,
     type AccountViewComponentKind,
 } from '../../components/Accounts/accountViewComponents'
+import { AccountViewEditorComponentItem } from './AccountViewEditorComponentItem'
 import { accountViewsLogic } from './accountViewsLogic'
 
 interface AccountViewEditorModalProps {
@@ -37,7 +41,7 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
         addEditorComponent,
         duplicateEditorComponent,
         removeEditorComponent,
-        moveEditorComponent,
+        reorderEditorComponent,
         setEditorComponentSpan,
         saveEditor,
         reloadEditor,
@@ -159,57 +163,36 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
                             Add the account sections you want to show in this view.
                         </div>
                     ) : (
-                        editorDraft.components.map((component, index) => {
-                            const definition = getAccountViewComponentByKind(component.kind)
-                            return (
-                                <div
-                                    key={component.nodeId}
-                                    className="flex flex-wrap items-center gap-2 rounded border bg-surface-primary p-2"
-                                >
-                                    <span className="min-w-32 flex-1 font-medium">{definition?.label}</span>
-                                    <LemonSegmentedButton
-                                        value={component.span === 6 ? 6 : 12}
-                                        onChange={(span) => setEditorComponentSpan(component.nodeId, span)}
-                                        options={[
-                                            { value: 6, label: 'Half' },
-                                            { value: 12, label: 'Full' },
-                                        ]}
-                                        size="xsmall"
-                                    />
-                                    <div className="flex items-center gap-1">
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconChevronDown className="rotate-180" />}
-                                            aria-label="Move component up"
-                                            onClick={() => moveEditorComponent(component.nodeId, 'up')}
-                                            disabledReason={index === 0 ? 'Already first' : undefined}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconChevronDown />}
-                                            aria-label="Move component down"
-                                            onClick={() => moveEditorComponent(component.nodeId, 'down')}
-                                            disabledReason={
-                                                index === editorDraft.components.length - 1 ? 'Already last' : undefined
-                                            }
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconCopy />}
-                                            aria-label="Duplicate component"
-                                            onClick={() => duplicateEditorComponent(component.nodeId)}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            status="danger"
-                                            icon={<IconTrash />}
-                                            aria-label="Remove component"
-                                            onClick={() => removeEditorComponent(component.nodeId)}
-                                        />
-                                    </div>
+                        <DndContext
+                            onDragEnd={({ active, over }) => {
+                                if (over) {
+                                    reorderEditorComponent(String(active.id), String(over.id))
+                                }
+                            }}
+                            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                        >
+                            <SortableContext
+                                items={editorDraft.components.map((component) => component.nodeId)}
+                                strategy={verticalListSortingStrategy}
+                            >
+                                <div className="flex flex-col gap-2">
+                                    {editorDraft.components.map((component) => {
+                                        const definition = getAccountViewComponentByKind(component.kind)
+                                        return (
+                                            <AccountViewEditorComponentItem
+                                                key={component.nodeId}
+                                                component={component}
+                                                label={component.title ?? definition?.label ?? component.kind}
+                                                disabled={editorSaving}
+                                                onSpanChange={(span) => setEditorComponentSpan(component.nodeId, span)}
+                                                onDuplicate={() => duplicateEditorComponent(component.nodeId)}
+                                                onRemove={() => removeEditorComponent(component.nodeId)}
+                                            />
+                                        )
+                                    })}
                                 </div>
-                            )
-                        })
+                            </SortableContext>
+                        </DndContext>
                     )}
                 </div>
                 {!editingView ? (

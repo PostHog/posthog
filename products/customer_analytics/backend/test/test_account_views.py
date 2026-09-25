@@ -53,7 +53,7 @@ class TestAccountViews(APIBaseTest):
             {
                 "name": "Account workspace",
                 "content": account_view_content(
-                    '<Usage nodeId="usage-one" title="Product usage" />',
+                    '<Usage nodeId="usage-one" title="Product usage" config={{"dateRange":{"date_from":"-7d","date_to":null},"usageInterval":"week"}} />',
                     '<Usage nodeId="usage-two" span={6} />',
                 ),
             },
