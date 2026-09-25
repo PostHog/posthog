@@ -39,7 +39,7 @@ function AuthGate() {
 
   useEffect(() => {
     if (!hydrated) return;
-    const onLogin = segments[0] === "login";
+    const onLogin = segments[0] === "login" || segments[0] === "signin";
     if (!session && !onLogin) router.replace("/login");
     if (session && onLogin) router.replace("/(drawer)");
     SplashScreen.hideAsync().catch(() => {});
@@ -84,6 +84,13 @@ export default function RootLayout() {
             }}
           >
             <Stack.Screen name="login" options={{ animation: "fade" }} />
+            <Stack.Screen
+              name="signin"
+              options={{
+                presentation: "modal",
+                contentStyle: { backgroundColor: colors.bg },
+              }}
+            />
             <Stack.Screen name="(drawer)" />
             <Stack.Screen
               name="config"
