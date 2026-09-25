@@ -80,6 +80,11 @@
             },
             "type": "array"
         },
+        "keys": {
+            "description": "Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.",
+            "minLength": 1,
+            "type": "string"
+        },
         "limit": {
             "description": "Max results (default: 100)",
             "maximum": 100,
