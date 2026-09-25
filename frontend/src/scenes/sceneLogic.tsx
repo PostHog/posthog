@@ -245,6 +245,7 @@ export interface sceneLogicValues {
     exportedScenes: Record<string, SceneExport<SceneProps>>
     hashParams: Record<string, any>
     homepage: SceneTab | null
+    homepageSaving: boolean
     lastReloadAt: number | null
     lastSetScenePayload: Record<string, any>
     loadingScene: string | null
@@ -303,8 +304,14 @@ export interface sceneLogicActions {
         sceneId: string
         sceneKey: string | undefined
     }
-    setHomepage: (tab: SceneTab | null) => {
+    homepageSaved: (tab: SceneTab | null) => { tab: SceneTab | null }
+    setHomepageSaving: (saving: boolean) => { saving: boolean }
+    setHomepage: (
+        tab: SceneTab | null,
+        homepageSource?: 'dashboards list'
+    ) => {
         tab: SceneTab | null
+        homepageSource: 'dashboards list' | undefined
     }
     setScene: (
         sceneId: string,
@@ -429,7 +436,9 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        setHomepage: (tab: SceneTab | null) => ({ tab }),
+        setHomepage: (tab: SceneTab | null, homepageSource?: 'dashboards list') => ({ tab, homepageSource }),
+        homepageSaved: (tab: SceneTab | null) => ({ tab }),
+        setHomepageSaving: (saving: boolean) => ({ saving }),
         resetUnavailableHomepage: (pathname: string) => ({ pathname }),
     }),
     reducers({
@@ -494,9 +503,16 @@ export const sceneLogic = kea<sceneLogicType>([
         homepage: [
             getBootstrappedHomepage(),
             {
-                setHomepage: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
+                setHomepage: (state, { tab, homepageSource }) => {
+                    if (homepageSource) {
+                        return state
+                    }
+                    return tab ? tabToPersistableSnapshot(tab) : null
+                },
+                homepageSaved: (_, { tab }) => (tab ? tabToPersistableSnapshot(tab) : null),
             },
         ],
+        homepageSaving: [false, { setHomepageSaving: (_, { saving }) => saving }],
     })),
     selectors({
         sceneConfig: [
@@ -701,16 +717,33 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             }
         },
-        setHomepage: ({ tab }) => {
-            if (isSharedView()) {
+        setHomepage: async ({ tab, homepageSource }) => {
+            if (isSharedView() || (homepageSource && values.homepageSaving)) {
                 return
             }
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use userHomeSettingsPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
-            api.update('api/user_home_settings/@me/', {
-                homepage: tab ? tabToPersistableSnapshot(tab) : null,
-            }).catch((error) => {
+            if (homepageSource) {
+                actions.setHomepageSaving(true)
+            }
+            try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use userHomeSettingsPartialUpdate() from 'products/platform_features/frontend/generated/api' instead.
+                await api.update('api/user_home_settings/@me/', {
+                    homepage: tab ? tabToPersistableSnapshot(tab) : null,
+                })
+                if (homepageSource) {
+                    actions.homepageSaved(tab)
+                    lemonToast.success('Homepage updated')
+                    posthog.capture('dashboard set as homepage', { source: homepageSource })
+                }
+            } catch (error) {
                 console.error('Failed to persist homepage', error)
-            })
+                if (homepageSource) {
+                    lemonToast.error('Could not save your homepage. Please try again.')
+                }
+            } finally {
+                if (homepageSource) {
+                    actions.setHomepageSaving(false)
+                }
+            }
         },
         setScene: ({ sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
             const {

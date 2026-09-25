@@ -6,6 +6,7 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -109,7 +110,7 @@ export function SubscriptionEmptyState({
 export function AIPromptReportsLink(): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="p-3 bg-fill-secondary border-transparent">
-            <div className="flex gap-3 items-center">
+            <div className="flex flex-col gap-3 @min-[30rem]/subscription-modal:flex-row @min-[30rem]/subscription-modal:items-center">
                 <div className="flex items-center justify-center rounded bg-surface-primary size-9 text-lg shrink-0">
                     <IconAI />
                 </div>
@@ -120,10 +121,10 @@ export function AIPromptReportsLink(): JSX.Element {
                     </div>
                 </div>
                 <LemonButton
-                    type="tertiary"
-                    size="xsmall"
+                    type="secondary"
+                    size="small"
                     to={`${urls.subscriptions()}?tab=ai_prompt`}
-                    className="shrink-0"
+                    className="self-start shrink-0 @min-[30rem]/subscription-modal:self-center"
                 >
                     Explore AI prompt reports
                 </LemonButton>
@@ -151,116 +152,110 @@ export function SubscriptionListItem({
     const destination = subscriptionListDestination(subscription)
 
     return (
-        <LemonButton
-            type="secondary"
-            onClick={onClick}
-            data-attr="subscription-list-item"
-            fullWidth
-            sideAction={{
-                icon: sideActionBusy ? <Spinner /> : <IconEllipsis />,
-                disabled: sideActionBusy,
-                dropdown: {
-                    overlay: (
-                        <>
-                            {onToggleEnabled && (
-                                <LemonButton
-                                    icon={enabled ? <IconPause /> : <IconPlay />}
-                                    onClick={() => onToggleEnabled(!enabled)}
-                                    data-attr="subscription-list-item-toggle-enabled"
-                                    fullWidth
-                                    disabled={isToggling}
-                                >
-                                    {enabled ? 'Disable subscription' : 'Enable subscription'}
-                                </LemonButton>
-                            )}
-                            {onDeliver && enabled && (
-                                <LemonButton
-                                    icon={<IconPlay />}
-                                    onClick={onDeliver}
-                                    data-attr="subscription-list-item-manual-deliver"
-                                    fullWidth
-                                    disabled={isDelivering}
-                                >
-                                    Test delivery
-                                </LemonButton>
-                            )}
-                            {onDelete && (
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    onClick={onDelete}
-                                    data-attr="subscription-list-item-delete"
-                                    status="danger"
-                                    fullWidth
-                                >
-                                    Delete subscription
-                                </LemonButton>
-                            )}
-                        </>
-                    ),
-                },
-            }}
-        >
-            <div className="flex-auto p-2 min-w-0">
-                <div className="flex flex-col gap-1 min-w-0">
-                    <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <div className={`font-medium truncate ${enabled ? 'text-link' : 'text-muted'}`}>
-                                {subscription.title}
+        <div className="relative">
+            <LemonButton type="secondary" onClick={onClick} data-attr="subscription-list-item" fullWidth>
+                <div className="flex-auto p-2 min-w-0">
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <div className="flex min-w-0 flex-col items-start gap-1 pr-8 @min-[30rem]/subscription-modal:flex-row @min-[30rem]/subscription-modal:items-center @min-[30rem]/subscription-modal:justify-between @min-[30rem]/subscription-modal:gap-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <div className={`font-medium truncate ${enabled ? 'text-link' : 'text-muted'}`}>
+                                    {subscription.title}
+                                </div>
+                                {!enabled && (
+                                    <LemonTag type="danger" size="small">
+                                        Disabled
+                                    </LemonTag>
+                                )}
                             </div>
-                            {!enabled && (
-                                <LemonTag type="danger" size="small">
-                                    Disabled
-                                </LemonTag>
-                            )}
-                        </div>
-                        <div
-                            className="flex items-center gap-1 text-xs text-secondary shrink-0"
-                            title={destination.title}
-                        >
-                            {destination.icon}
-                            <span className="max-w-40 truncate">{destination.label}</span>
-                        </div>
-                    </div>
-                    {aiPrompt ? (
-                        <Tooltip title={aiPromptTruncated ? aiPrompt : undefined}>
-                            <div className="text-sm text-muted italic">{`"${aiPromptPreview}"`}</div>
-                        </Tooltip>
-                    ) : null}
-                    {subscription.resource_type === SubscriptionResourceTypes.Insight && subscription.resource_name ? (
-                        <div className="flex items-center gap-1 text-xs text-secondary">
-                            <IconGraph />
-                            <span>
-                                Insight: <span className="font-medium">{subscription.resource_name}</span>
-                            </span>
-                        </div>
-                    ) : null}
-                    <div className="text-xs text-secondary">
-                        {capitalizeFirstLetter(subscription.summary)}
-                        {selectedInsightsCount
-                            ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
-                            : null}
-                    </div>
-                    <div className="flex items-center justify-between gap-3 min-h-5 whitespace-nowrap">
-                        {enabled && subscription.next_delivery_date && (
-                            <div className="text-xs text-secondary shrink-0">
-                                Next delivery:{' '}
-                                <TZLabel
-                                    time={subscription.next_delivery_date}
-                                    formatDate="ddd, MMM D"
-                                    formatTime="h:mm A"
-                                    timestampStyle="absolute"
-                                />
+                            <div
+                                className="flex min-w-0 max-w-full items-center gap-1 text-xs text-secondary @min-[30rem]/subscription-modal:shrink-0"
+                                title={destination.title}
+                            >
+                                {destination.icon}
+                                <span className="max-w-40 truncate">{destination.label}</span>
                             </div>
-                        )}
-                        {subscription.created_by ? (
-                            <div className="flex items-center gap-1 text-xs text-tertiary ml-auto opacity-60 min-w-0 overflow-hidden">
-                                <span>Created by</span>
-                                <ProfilePicture user={subscription.created_by} size="xs" showName />
+                        </div>
+                        {aiPrompt ? (
+                            <Tooltip title={aiPromptTruncated ? aiPrompt : undefined}>
+                                <div className="text-sm text-muted italic">{`"${aiPromptPreview}"`}</div>
+                            </Tooltip>
+                        ) : null}
+                        {subscription.resource_type === SubscriptionResourceTypes.Insight &&
+                        subscription.resource_name ? (
+                            <div className="flex items-center gap-1 text-xs text-secondary">
+                                <IconGraph />
+                                <span>
+                                    Insight: <span className="font-medium">{subscription.resource_name}</span>
+                                </span>
                             </div>
                         ) : null}
+                        <div className="text-xs text-secondary">
+                            {capitalizeFirstLetter(subscription.summary)}
+                            {selectedInsightsCount
+                                ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
+                                : null}
+                        </div>
+                        <div className="flex min-h-5 flex-col items-start gap-1 @min-[30rem]/subscription-modal:flex-row @min-[30rem]/subscription-modal:items-center @min-[30rem]/subscription-modal:justify-between @min-[30rem]/subscription-modal:gap-3">
+                            {enabled && subscription.next_delivery_date && (
+                                <div className="text-xs text-secondary shrink-0">
+                                    Next delivery:{' '}
+                                    <TZLabel
+                                        time={subscription.next_delivery_date}
+                                        formatDate="ddd, MMM D"
+                                        formatTime="h:mm A"
+                                        timestampStyle="absolute"
+                                    />
+                                </div>
+                            )}
+                            {subscription.created_by ? (
+                                <div className="flex min-w-0 items-center gap-1 overflow-hidden text-xs text-tertiary opacity-60 @min-[30rem]/subscription-modal:ml-auto">
+                                    <span>Created by</span>
+                                    <ProfilePicture user={subscription.created_by} size="xs" showName />
+                                </div>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
+            </LemonButton>
+            <div className="absolute right-2 top-2 z-10">
+                <LemonMenu
+                    items={[
+                        onToggleEnabled
+                            ? {
+                                  label: enabled ? 'Disable subscription' : 'Enable subscription',
+                                  icon: enabled ? <IconPause fontSize="12" /> : <IconPlay fontSize="12" />,
+                                  onClick: () => onToggleEnabled(!enabled),
+                                  'data-attr': 'subscription-list-item-toggle-enabled',
+                              }
+                            : false,
+                        onDeliver && enabled
+                            ? {
+                                  label: 'Test delivery',
+                                  icon: <IconPlay fontSize="12" />,
+                                  onClick: onDeliver,
+                                  'data-attr': 'subscription-list-item-manual-deliver',
+                              }
+                            : false,
+                        onDelete
+                            ? {
+                                  label: 'Delete subscription',
+                                  icon: <IconTrash fontSize="12" />,
+                                  onClick: onDelete,
+                                  status: 'danger' as const,
+                                  'data-attr': 'subscription-list-item-delete',
+                              }
+                            : false,
+                    ]}
+                >
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={sideActionBusy ? <Spinner /> : <IconEllipsis />}
+                        disabled={sideActionBusy}
+                        aria-label="Subscription actions"
+                    />
+                </LemonMenu>
             </div>
-        </LemonButton>
+        </div>
     )
 }

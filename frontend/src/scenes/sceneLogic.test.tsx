@@ -3,14 +3,18 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
@@ -306,6 +310,85 @@ describe('sceneLogic', () => {
             sceneKey: 'dashboard-42',
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },
         }
+
+        it('confirms a homepage change only after the save succeeds', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            const capture = jest.spyOn(posthog, 'capture')
+            let finishSave!: () => void
+            let startSave!: () => void
+            const saveResponse = new Promise<void>((resolve) => (finishSave = resolve))
+            const saveStarted = new Promise<void>((resolve) => (startSave = resolve))
+            useMocks({
+                patch: {
+                    '/api/user_home_settings/@me/': async () => {
+                        startSave()
+                        await saveResponse
+                        return [200, {}] as const
+                    },
+                },
+            })
+
+            const previousHomepage = logic.values.homepage
+            logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            expect(logic.values.homepage).toEqual(previousHomepage)
+            expect(logic.values.homepageSaving).toBe(true)
+            await saveStarted
+            finishSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.homepage?.id).toBe(dashboardHomepage.id)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(successToast).toHaveBeenCalledWith('Homepage updated')
+            expect(capture).toHaveBeenCalledWith('dashboard set as homepage', { source: 'dashboards list' })
+            capture.mockRestore()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps the previous homepage if saving from the dashboard list fails', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const errorLog = jest.spyOn(console, 'error').mockImplementation()
+            useMocks({ patch: { '/api/user_home_settings/@me/': [500, {}] } })
+            const previousHomepage = logic.values.homepage
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage).toEqual(previousHomepage)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(errorToast).toHaveBeenCalledWith('Could not save your homepage. Please try again.')
+            errorLog.mockRestore()
+            errorToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('ignores overlapping dashboard-list homepage saves', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            let finishSave!: () => void
+            let startSave!: () => void
+            const saveResponse = new Promise<void>((resolve) => (finishSave = resolve))
+            const saveStarted = new Promise<void>((resolve) => (startSave = resolve))
+            const saveHandler = jest.fn(async () => {
+                startSave()
+                await saveResponse
+                return [200, {}] as const
+            })
+            useMocks({ patch: { '/api/user_home_settings/@me/': saveHandler } })
+
+            logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            logic.actions.setHomepage(
+                { ...dashboardHomepage, id: 'homepage-dashboard-43', pathname: urls.dashboard(43) },
+                'dashboards list'
+            )
+            await saveStarted
+            expect(saveHandler).toHaveBeenCalledTimes(1)
+            finishSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.homepage?.id).toBe(dashboardHomepage.id)
+            sharedView.mockRestore()
+        })
 
         it('redirects /home to the configured dashboard homepage', async () => {
             logic.actions.setHomepage(dashboardHomepage)
