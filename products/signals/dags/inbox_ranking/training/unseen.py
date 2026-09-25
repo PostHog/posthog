@@ -30,7 +30,6 @@ from products.signals.backend.ranking.features import (
     TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
-    feature_set_by_name,
 )
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.calibration import (
@@ -82,6 +81,7 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
     "score": pa.float64(),
     "age_hours": pa.float64(),
     "label_at_scoring": pa.bool_(),
+    "head_readable": pa.bool_(),
 }
 SCORES_SCHEMA = pa.schema(_SCORE_TYPES)
 SCORE_COLUMNS = tuple(_SCORE_TYPES)
@@ -101,14 +101,17 @@ FEATURE_INPUT_COLUMNS = (
 
 @frozen
 class UnseenModel:
-    """One model to score the pool with, the feature set it was fit on, and the readable heads it
-    can score. Models that share a feature set share one matrix."""
+    """One model to score the pool with, the feature set it was fit on, and the heads it can score.
+    Models that share a feature set share one matrix."""
 
     model_name: str
     model_version: str
     model_role: str
     feature_set: FeatureSet
     boosters: Mapping[str, bytes]
+    # Of those heads, the ones whose holdout could be read. Carried onto every scored row, because
+    # the grade runs `horizon_days` later and has no metadata of the model that wrote the row.
+    readable_heads: frozenset[str] = frozenset()
 
 
 @frozen
@@ -147,6 +150,10 @@ class HeadGrade:
     model_name: str
     model_version: str
     model_role: str
+    # Whether this head's holdout could be read on the model that wrote the scores. A rare head is
+    # scored and graded while unreadable, so the pooled grade over many days can give it a number
+    # its one-day holdout never will; read the two populations apart.
+    readable: bool
     rows: int
     positives: int
     # Of the positives, how many had already happened when the report was scored: on this pool the
@@ -193,6 +200,7 @@ class HeadGrade:
             "model_name": self.model_name,
             "model_version": self.model_version,
             "model_role": self.model_role,
+            "readable": self.readable,
         }
 
     def as_dict(self) -> dict[str, object]:
@@ -242,39 +250,6 @@ def chance_band(outcomes: np.ndarray, scores: np.ndarray) -> ChanceBand:
     if not aucs:
         return ChanceBand(auc=None, auc_std=None)
     return ChanceBand(auc=float(np.mean(aucs)), auc_std=float(np.std(aucs)))
-
-
-def model_feature_set(metadata: Mapping[str, Any]) -> FeatureSet | None:
-    """The feature set the model declares, or None when this build cannot produce it. Metadata
-    written before the field existed declares nothing and reads as the tabular set."""
-    return feature_set_by_name(metadata.get("feature_set"))
-
-
-def model_mismatch(metadata: Mapping[str, Any]) -> str | None:
-    """Why the model cannot be scored, or None when it can.
-
-    A model is checked against its own declared set rather than one global contract, so a family
-    on a richer set is not rejected for disagreeing with the tabular one.
-    """
-    feature_set = model_feature_set(metadata)
-    if feature_set is None:
-        return f"feature set {metadata.get('feature_set')} is not one this build can produce"
-    version = metadata.get("feature_schema_version")
-    if version != feature_set.schema_version:
-        return f"feature_schema_version {version} is not {feature_set.name}'s {feature_set.schema_version}"
-    if tuple(metadata.get("feature_names") or ()) != feature_set.feature_names:
-        return f"feature_names differ from the {feature_set.name} feature set"
-    return None
-
-
-def readable_head_files(metadata: Mapping[str, Any]) -> dict[str, str]:
-    """The `<head>.ubj` object name per readable head. Only a readable head is worth an unseen
-    read; an unreadable one has no holdout AUC to compare the unseen AUC against."""
-    return {
-        entry["head"]: entry["file"]
-        for entry in metadata.get("heads", [])
-        if entry.get("readable") and entry.get("file") and entry.get("head") in HEADS_BY_NAME
-    }
 
 
 def unseen_pool(state: pd.DataFrame, snapshot_date: datetime.date) -> pd.DataFrame:
@@ -405,6 +380,7 @@ def score_pool(
                     "score": _predict(booster_ubj, matrix),
                     "age_hours": age_hours,
                     "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
+                    "head_readable": head_name in model.readable_heads,
                 }
             )
             for head_name, booster_ubj in model.boosters.items()
@@ -493,6 +469,10 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, 
     if head.status_labels and "label_provenance_ok" in aligned:
         in_cohort &= aligned["label_provenance_ok"].fillna(False).to_numpy(dtype=bool)
     graded = head_scores.copy()
+    # An object written before the column existed scored a head only when it was readable.
+    graded["head_readable"] = (
+        head_scores["head_readable"].fillna(True).astype(bool) if "head_readable" in head_scores else True
+    )
     graded["in_cohort"] = in_cohort
     graded["outcome"] = pd.array(head.label(aligned).to_numpy(dtype=bool), dtype="boolean")
     graded.loc[~in_cohort, "outcome"] = pd.NA
@@ -526,6 +506,7 @@ def head_grades(graded: pd.DataFrame, head: Head, *, pool: str, scoring_partitio
                 model_name=str(model_name),
                 model_version=str(model_version),
                 model_role=str(model_role),
+                readable=bool(rows["head_readable"].all()),
                 rows=len(rows),
                 positives=int(outcomes.sum()),
                 birth_day_positives=int((outcomes & at_scoring).sum()),

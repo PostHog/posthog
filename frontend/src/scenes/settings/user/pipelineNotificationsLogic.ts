@@ -121,6 +121,7 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 )
                                 const hfs: HogFunctionMinimalApi[] = [
                                     ...initial.results,
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                     ...(await api.loadPaginatedResults<HogFunctionMinimalApi>(initial.next ?? null)),
                                 ]
                                 for (const hf of hfs) {
@@ -136,6 +137,7 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 console.warn(`Failed to load hog functions for team ${team.id}`, e)
                             }
                             try {
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                                 const pcs = await api.loadPaginatedResults<PluginDestinationConfig>(
                                     `api/projects/${team.id}/pipeline_destination_configs/?limit=100`
                                 )
@@ -157,6 +159,7 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 })
                                 const bes: BatchExportApi[] = [
                                     ...initial.results,
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                     ...(await api.loadPaginatedResults<BatchExportApi>(initial.next ?? null)),
                                 ]
                                 for (const be of bes) {

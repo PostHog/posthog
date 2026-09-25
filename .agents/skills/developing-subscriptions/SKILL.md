@@ -15,6 +15,9 @@ Use this skill for a change to the Subscriptions product or its delivery system.
 Use the published `managing-subscriptions` skill to configure an existing subscription through MCP.
 Use `adding-product-alerting` when delivery depends on a threshold, anomaly, breach, or recovery state.
 
+When investigating a subscription whose insight is missing, or changing insight deletion or restoration, read the [insight deletion and related-resource contract](../../../products/product_analytics/AGENTS.md).
+It defines cleanup for subscriptions, alerts, and dashboard tiles, including single and bulk deletion and restore behavior.
+
 ## 1. Route the request
 
 | Request                                                              | Primary path                                 |

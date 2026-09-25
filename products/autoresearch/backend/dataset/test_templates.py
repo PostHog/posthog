@@ -67,7 +67,7 @@ class TestTemplateDefinitions(SimpleTestCase):
 
 
 class TestTemplateSpecsCompile(SimpleTestCase):
-    # Drift guard: every template's population spec must have a compiler branch in
+    # Drift guard: every template's population spec must have a registered compiler in
     # labeling.py, in both row mode (inference/eligible count) and anchor mode (training).
 
     @parameterized.expand(list(TEMPLATES.keys()))

@@ -49,7 +49,7 @@ import {
   UpdateBanner,
   useUpdateBannerVisible,
 } from "@posthog/ui/features/sidebar/components/UpdateBanner";
-import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import { useNavRailMetrics } from "@posthog/ui/features/sidebar/navRailSize";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -201,6 +201,7 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
+  const { width: navRailWidth } = useNavRailMetrics();
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -419,7 +420,7 @@ function RootLayout() {
           {!sidebarOpen && (
             <Box
               aria-hidden
-              style={{ left: channelsLayout ? NAV_RAIL_WIDTH : 0 }}
+              style={{ left: channelsLayout ? navRailWidth : 0 }}
               // The radix preset replaces Tailwind's palette, so plain
               // `bg-black/*` doesn't exist — use the radix black-alpha scale
               // (--black-a2 = 10%, --black-a5 = 30%).

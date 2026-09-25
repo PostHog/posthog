@@ -12,6 +12,10 @@ import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { DataWarehouseSavedQuery } from '~/types'
 
+import { dataCatalogMetricsList } from 'products/data_catalog/frontend/generated/api'
+import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
 import {
@@ -28,8 +32,29 @@ jest.mock('~/generated/core/api', () => ({
     propertyDefinitionsList: jest.fn(),
 }))
 jest.mock('~/queries/query')
+jest.mock('products/data_catalog/frontend/generated/api', () => ({
+    dataCatalogMetricsList: jest.fn(() => Promise.resolve({ results: [], next: null })),
+}))
 
 const mockPropertyDefinitionsList = propertyDefinitionsList as jest.Mock
+const mockDataCatalogMetricsList = dataCatalogMetricsList as jest.Mock
+
+const buildMetric = (id: string, name: string, definitionKind: string | null): DataCatalogMetricApi => ({
+    id,
+    name,
+    description: '',
+    owner: null,
+    definition_kind: definitionKind,
+    referenced_table_names: [],
+    status: 'approved',
+    is_drifted: false,
+    approved_at: null,
+    approved_by: null,
+    last_run_at: null,
+    created_by: { id: 1, uuid: 'user-uuid', email: 'owner@example.com', hedgehog_config: null },
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: null,
+})
 
 const jsonField = (name = 'properties'): DatabaseSchemaField => ({
     name,
@@ -42,6 +67,8 @@ describe('queryDatabaseLogic', () => {
     describe('property definition targets', () => {
         test.each([
             ['event properties', 'events', 'properties', jsonField(), { type: 'event' }],
+            ['qualified event properties', 'posthog.events', 'properties', jsonField(), { type: 'event' }],
+            ['qualified person properties', 'posthog.persons', 'properties', jsonField(), { type: 'person' }],
             ['AI event properties', 'ai_events', 'properties', jsonField(), { type: 'event' }],
             ['person properties', 'persons', 'properties', jsonField(), { type: 'person' }],
             ['person properties joined to events', 'events', 'person.properties', jsonField(), { type: 'person' }],
@@ -116,7 +143,7 @@ describe('queryDatabaseLogic', () => {
         const propertyNode = (): NonNullable<(typeof logic.values.treeData)[number]> | undefined =>
             logic.values.treeData
                 .find((item) => item.record?.type === 'sources')
-                ?.children?.find((item) => item.name === 'PostHog')
+                ?.children?.find((item) => item.name === 'Popular')
                 ?.children?.find((item) => item.name === 'events')
                 ?.children?.find((item) => item.record?.type === 'property-field')
 
@@ -443,7 +470,7 @@ describe('queryDatabaseLogic', () => {
         logic.actions.locateTable('events')
 
         expect(logic.values.expandedFolders).toEqual(
-            expect.arrayContaining(['sources', 'source-posthog', 'table-events'])
+            expect.arrayContaining(['sources', 'source-Popular', 'table-events'])
         )
         expect(logic.values.tableToLocate).toEqual('events')
 
@@ -502,15 +529,135 @@ describe('queryDatabaseLogic', () => {
         })
     })
 
+    it('groups popular shortcuts and the qualified catalog in browsing and search', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const names = [
+            'sessions',
+            'events',
+            'groups',
+            'persons',
+            'logs',
+            'posthog.flag_evaluations',
+            'posthog.ai_events',
+        ]
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: Object.fromEntries(names.map((name) => [name, { id: name, name, type: 'posthog', fields: {} }])),
+            joins: [],
+        })
+        const sources = logic.values.treeData.find((item) => item.id === 'sources')!.children!
+        expect(sources.map((item) => item.name)).toEqual(['Popular', 'PostHog'])
+        expect(sources[0].children?.map((item) => item.name)).toEqual(['events', 'groups', 'persons', 'sessions'])
+        expect(sources[1].children?.map((item) => item.name)).toEqual([
+            'posthog.ai_events',
+            'posthog.events',
+            'posthog.flag_evaluations',
+            'posthog.groups',
+            'posthog.logs',
+            'posthog.persons',
+            'posthog.sessions',
+        ])
+        const tableIds = sources.flatMap((item) => item.children!.map((table) => table.id))
+        expect(new Set(tableIds).size).toBe(tableIds.length)
+        logic.actions.locateTable('posthog.logs')
+        expect(logic.values.expandedFolders).toEqual(
+            expect.arrayContaining(['sources', 'source-posthog', 'table-posthog.logs'])
+        )
+        logic.actions.setSearchTerm('events')
+        const searchSources = logic.values.searchTreeData.find((item) => item.record?.type === 'sources')!.children!
+        expect(searchSources.map((item) => item.name)).toEqual(['Popular', 'PostHog'])
+        expect(searchSources.flatMap((item) => item.children!.map((table) => table.name))).toEqual([
+            'events',
+            'posthog.ai_events',
+            'posthog.events',
+        ])
+        logic.actions.setSearchTerm('posthog.flag_evaluations')
+        expect(logic.values.relevantPosthogTables.map(([table]) => table.name)).toContain('posthog.flag_evaluations')
+        logic.unmount()
+    })
+
+    it('lists only SQL metrics under a metrics section in browsing and search', async () => {
+        initKeaTests()
+        mockDataCatalogMetricsList.mockResolvedValueOnce({
+            results: [
+                buildMetric('m-2', 'weekly_revenue', 'HogQLQuery'),
+                buildMetric('m-1', 'active_users', 'HogQLQuery'),
+                buildMetric('m-3', 'revenue_trend', 'TrendsQuery'),
+                buildMetric('m-4', 'revenue_stub', null),
+            ],
+            next: null,
+        })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+
+        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
+
+        const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(metrics.children!.map((item) => [item.id, item.record?.type])).toEqual([
+            ['metric-m-1', 'metric'],
+            ['metric-m-2', 'metric'],
+        ])
+
+        logic.actions.setSearchTerm('revenue')
+        const searchMetrics = logic.values.searchTreeData.find((item) => item.id === 'search-metrics')!
+        expect(searchMetrics.children!.map((item) => item.id)).toEqual(['search-metric-m-2'])
+
+        metricsLogic.findMounted()!.actions.loadMetricsSuccess([buildMetric('m-3', 'revenue_trend', 'TrendsQuery')])
+        expect(logic.values.searchTreeData.find((item) => item.id === 'search-metrics')).toBeUndefined()
+        logic.actions.setSearchTerm('')
+        expect(logic.values.treeData.find((item) => item.id === 'metrics')).toBeUndefined()
+        logic.unmount()
+    })
+
+    it.each([
+        ['a server error', { status: 500 }, ["Couldn't load metrics", 'Try again']],
+        ['a permission denial', { status: 403, code: 'permission_denied' }, null],
+    ])('handles %s when loading metrics', async (_case, error, expectedChildNames) => {
+        initKeaTests()
+        mockDataCatalogMetricsList.mockRejectedValueOnce(error)
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        logic.values.treeData
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsFailure'])
+
+        const metrics = logic.values.treeData.find((item) => item.id === 'metrics')
+        expect(metrics?.children?.map((item) => item.name) ?? null).toEqual(expectedChildNames)
+        logic.unmount()
+    })
+
+    it('loads metrics again from the retry node', async () => {
+        initKeaTests()
+        mockDataCatalogMetricsList
+            .mockRejectedValueOnce({ status: 500 })
+            .mockResolvedValueOnce({ results: [buildMetric('m-1', 'active_users', 'HogQLQuery')], next: null })
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        logic.values.treeData
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsFailure'])
+
+        const retryNode = logic.values.treeData
+            .find((item) => item.id === 'metrics')
+            ?.children?.find((item) => item.name === 'Try again')
+        expect(retryNode?.onClick).toBeTruthy()
+        retryNode?.onClick?.()
+        await expectLogic(metricsLogic.findMounted()!).toDispatchActions(['loadMetricsSuccess'])
+
+        const metrics = logic.values.treeData.find((item) => item.id === 'metrics')!
+        expect(metrics.children!.map((item) => item.id)).toEqual(['metric-m-1'])
+        logic.unmount()
+    })
+
     describe('lazy schema hydration', () => {
         let logic: ReturnType<typeof queryDatabaseLogic.build>
         let dbLogic: ReturnType<typeof databaseTableListLogic.build>
 
-        const findTableNode = (): any =>
+        const findTableNode = (name = 'events'): any =>
             logic.values.treeData
                 .find((item) => item.record?.type === 'sources')
-                ?.children?.find((child) => child.id === 'source-posthog')
-                ?.children?.find((child) => child.id === 'table-events')
+                ?.children?.flatMap((child) => child.children ?? [])
+                .find((child) => child.id === `table-${name}`)
 
         beforeEach(async () => {
             initKeaTests()
@@ -526,6 +673,12 @@ describe('queryDatabaseLogic', () => {
                 tables: {
                     events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
                     persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                    'posthog.ai_events': {
+                        id: 'posthog.ai_events',
+                        name: 'posthog.ai_events',
+                        type: 'posthog',
+                        fields: {},
+                    },
                 },
                 joins: [],
             })
@@ -620,7 +773,7 @@ describe('queryDatabaseLogic', () => {
                 joins: [],
             })
             if (restored) {
-                logic.actions.setExpandedFolders(['sources', 'source-posthog', 'table-events', joinNode.id], null)
+                logic.actions.setExpandedFolders(['sources', 'source-Popular', 'table-events', joinNode.id], null)
             } else {
                 logic.actions.toggleFolderOpen(joinNode.id, false)
             }
@@ -639,6 +792,60 @@ describe('queryDatabaseLogic', () => {
             await expectLogic(dbLogic).toFinishAllListeners()
             expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
         })
+
+        it.each(['events', 'posthog.events', 'posthog.ai_events'])(
+            'hydrates %s and defers joined fields until expansion',
+            async (name) => {
+                const schemaName = name === 'posthog.ai_events' ? name : 'events'
+                const placeholder = findTableNode(name)?.children?.[0]
+                expect(placeholder?.type).toEqual('loading-indicator')
+                expect(placeholder?.record?.pendingTableName).toEqual(schemaName)
+
+                expect(performQuery).not.toHaveBeenCalled()
+                logic.actions.toggleFolderOpen(`table-${name}`, false)
+                await expectLogic(dbLogic).toFinishAllListeners()
+
+                expect(performQuery).toHaveBeenCalledWith(expect.objectContaining({ tables: [schemaName] }))
+
+                dbLogic.actions.hydrateTableFieldsSuccess([schemaName], {
+                    [schemaName]: {
+                        id: schemaName,
+                        name: schemaName,
+                        type: 'posthog',
+                        fields: {
+                            uuid: { name: 'uuid', hogql_value: 'uuid', type: 'string', schema_valid: true },
+                            person: {
+                                name: 'person',
+                                hogql_value: 'person',
+                                type: 'lazy_table',
+                                table: 'persons',
+                                schema_valid: true,
+                            },
+                        },
+                    } as any,
+                })
+
+                const columnNames = findTableNode(name)?.children?.map((child: any) => child.name)
+                expect(columnNames).toEqual(['uuid', 'person'])
+                expect(performQuery).toHaveBeenCalledTimes(1)
+                if (schemaName === 'events') {
+                    logic.actions.toggleFolderOpen(`table-${name === 'events' ? 'posthog.events' : 'events'}`, false)
+                }
+                logic.actions.selectSchema(findTableNode(name).record.table)
+                await expectLogic(dbLogic).toFinishAllListeners()
+                expect(performQuery).toHaveBeenCalledTimes(1)
+                expect(
+                    logic.values.sidebarOverlayTreeItems.map((item) => ('name' in item ? item.name : undefined))
+                ).toEqual(['uuid', 'person'])
+                const joinNode = findTableNode(name)?.children?.find(
+                    (child: any) => child.record?.type === 'lazy-table'
+                )
+                expect(joinNode).toBeTruthy()
+                logic.actions.toggleFolderOpen(joinNode.id, false)
+                await expectLogic(dbLogic).toFinishAllListeners()
+                expect(performQuery).toHaveBeenLastCalledWith(expect.objectContaining({ tables: ['persons'] }))
+            }
+        )
 
         it.each(['view', 'materialized_view'] as const)(
             'hydrates a saved %s on expansion and shares fields with the overlay and joins',
@@ -774,11 +981,12 @@ describe('queryDatabaseLogic', () => {
             )
         })
 
-        it('hides drafts and unsaved queries when showing a direct connection schema', () => {
+        it('hides drafts, unsaved queries and metrics when showing a direct connection schema', () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })
             draftsLogic.actions.setDrafts([{ id: 'draft-id', name: 'test_draft' }] as any)
+            metricsLogic.findMounted()!.actions.loadMetricsSuccess([buildMetric('m-1', 'daily_revenue', 'HogQLQuery')])
             logic.actions.loadQueryTabStateSuccess({
                 id: 'query-tab-state-id',
                 state: {

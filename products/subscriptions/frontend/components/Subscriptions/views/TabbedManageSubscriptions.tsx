@@ -213,17 +213,24 @@ export function TabbedManageSubscriptions({
                     </p>
                 </div>
             </LemonModal.Header>
-            <LemonModal.Content>
+            <LemonModal.Content className="@container/subscription-modal">
+                {activeTab === 'resource' && subscriptions.length > 0 && (
+                    <div className="mb-3 flex justify-end @min-[34rem]/subscription-modal:hidden">
+                        <LemonButton type="primary" onClick={() => onSelect('new')} data-attr="add-subscription">
+                            Create subscription
+                        </LemonButton>
+                    </div>
+                )}
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={onChangeTab}
                     tabs={tabs}
                     data-attr="manage-subscriptions-tabs"
-                    rightSlotClassName="bg-transparent"
+                    rightSlotClassName="hidden bg-transparent @min-[34rem]/subscription-modal:flex"
                     rightSlot={
-                        activeTab === 'resource' ? (
+                        activeTab === 'resource' && subscriptions.length > 0 ? (
                             <LemonButton type="primary" onClick={() => onSelect('new')} data-attr="add-subscription">
-                                Add subscription
+                                Create subscription
                             </LemonButton>
                         ) : undefined
                     }

@@ -24,6 +24,7 @@ import { useConsentAnalytics } from "@posthog/ui/features/consent/consentAnalyti
 import { useOrgConsent } from "@posthog/ui/features/consent/useOrgConsent";
 import { FeedbackHost } from "@posthog/ui/features/feedback/FeedbackHost";
 import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirectoryDialog";
+import { NewLoopDialog } from "@posthog/ui/features/loops/components/NewLoopDialog";
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
@@ -357,6 +358,7 @@ function App({ devToolbar }: AppProps) {
             <ScopeReauthPrompt />
             <AddDirectoryDialog />
             <ErrorDetailsDialog />
+            {isAuthenticated && <NewLoopDialog />}
             <UpdateAvailableModal />
             {isAuthenticated && <FeedbackHost />}
           </div>

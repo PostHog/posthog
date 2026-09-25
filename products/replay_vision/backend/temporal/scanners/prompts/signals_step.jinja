@@ -7,6 +7,8 @@ The bar is deliberately high. Report a finding only when ALL of these hold:
 
 What makes a finding belong here is that you *saw* it: the `description` must lead with the on-screen detail. Corroboration from the event log *raises* your confidence — call `get_events_around` at the finding's video time to confirm an `$exception`, a failed request, or a `$rageclick`/`$dead_click` backs up what you saw — but never report an issue you only know about from the events.
 
+Write the `headline` as the shortest line that names the defect — 8 words or fewer, naming the control, page, or product step. A reader sees it next to two other headlines with no room for context, so "checkout button does nothing" works and "there was a problem" does not. Never copy text the user typed into the product, and never name a person: the headline travels further than the description does.
+
 Write the `description` as plain prose with no timestamp references — no `(t …)` markers, no timestamps, no "at N seconds", no event IDs. The timing belongs in `start_time` and `end_time`, not the text.
 
 One recording can surface more than one distinct defect; list each separately. Don't repeat the earlier turns' conclusions. Skip anything below {{ min_signal_confidence }} confidence.

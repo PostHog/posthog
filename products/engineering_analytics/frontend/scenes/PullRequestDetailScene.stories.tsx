@@ -12,6 +12,7 @@ import type {
     PRCostSummaryApi,
     PRLifecycleApi,
     PRTimelineApi,
+    PullRequestFrictionDetailApi,
     PullRequestTimelinesApi,
     ReadyToMergeMediansApi,
     WorkflowJobApi,
@@ -117,6 +118,13 @@ function timelines(item: PRTimelineApi): PullRequestTimelinesApi {
         jobs_available: true,
         merge_queue_state_available: true,
         generated_at: '2026-07-02T12:00:00Z',
+        merged_pr_count: item.merged_at ? 1 : 0,
+        red_seconds_per_merged_pr: [
+            { kind: 'red_fixed_by_push', seconds_per_merged_pr: 0 },
+            { kind: 'red_passed_on_rerun', seconds_per_merged_pr: 0 },
+            { kind: 'red_master_broken', seconds_per_merged_pr: 0 },
+            { kind: 'red_not_provable', seconds_per_merged_pr: 0 },
+        ],
         truncated: false,
         limit: 200,
         items: [item],
@@ -251,6 +259,32 @@ const MERGED_COMPARISON = comparison({
     before_first_approval_share: 29 / 31.4,
 })
 
+// One flaky red stretch, a first approval after more than a day, and a queue stay past its free half hour.
+const MERGED_FRICTION: PullRequestFrictionDetailApi = {
+    available: true,
+    window_days: 30,
+    pull_request: {
+        score: 1.9,
+        groups: [
+            { group: 'queue', score: 0.4 },
+            { group: 'review', score: 1.1 },
+            { group: 'ci', score: 0.35 },
+            { group: 'rework', score: 0.05 },
+        ],
+        flake_red_count: 1,
+        master_red_count: 0,
+        unknown_red_count: 0,
+        own_red_count: 0,
+        futile_rerun_count: 0,
+        push_count: 2,
+        ci_wait_seconds: [0.5 * HOUR_SECONDS, 1.9 * HOUR_SECONDS],
+        first_approval_wait_seconds: 29 * HOUR_SECONDS,
+        pushes_after_approval: 0,
+        queue_seconds: 0.9 * HOUR_SECONDS,
+        kickout_count: 0,
+    },
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Pull Request',
@@ -273,6 +307,7 @@ const meta: Meta = {
                 'api/projects/:team_id/engineering_analytics/ci_failure_logs/': NO_FAILURE_LOGS,
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': timelines(MERGED),
                 'api/projects/:team_id/engineering_analytics/delivery_comparison/': MERGED_COMPARISON,
+                'api/projects/:team_id/engineering_analytics/pull_request_friction/': MERGED_FRICTION,
             },
         }),
     ],
@@ -306,6 +341,19 @@ export const OutOfTheMergeQueue: Story = {
                         { github_team: 'team-web-analytics', medians: null },
                     ],
                 },
+            },
+        }),
+    ],
+}
+
+export const SectionLoadErrors: Story = {
+    render: () => <App />,
+    parameters: { testOptions: { waitForSelector: '#ea-section-pr-runs' } },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/pr_runs/': () => [500, null],
+                'api/projects/:team_id/engineering_analytics/pull_request_timelines/': () => [500, null],
             },
         }),
     ],

@@ -20,8 +20,14 @@ class MirrorConversationInputs:
     conversation_id: str
 
 
+@dataclass(frozen=True)
+class MirrorActivityResult:
+    skipped_reason: str | None
+    appended_frames: int
+
+
 @activity.defn
-async def mirror_conversation_to_task_activity(inputs: MirrorConversationInputs) -> None:
+async def mirror_conversation_to_task_activity(inputs: MirrorConversationInputs) -> MirrorActivityResult:
     team = await Team.objects.aget(id=inputs.team_id)
     user = await User.objects.aget(id=inputs.user_id)
     if not await sync_to_async(has_conversation_task_mirror_feature_flag)(team, user):
@@ -34,3 +40,4 @@ async def mirror_conversation_to_task_activity(inputs: MirrorConversationInputs)
         skipped_reason=result.skipped_reason,
         appended_frames=result.appended_frames,
     )
+    return MirrorActivityResult(skipped_reason=result.skipped_reason, appended_frames=result.appended_frames)

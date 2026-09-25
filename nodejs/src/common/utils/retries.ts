@@ -50,19 +50,32 @@ export function getNextRetryMs(baseMs: number, multiplier: number, attempt: numb
 /** Fraction of each backoff to jitter by default, de-correlating retries across workers. */
 export const DEFAULT_JITTER_FACTOR = 0.05
 
+export interface RetrySchedule {
+    /** Total attempts including the first. */
+    tries?: number
+    /** Sleep before the first retry, in ms. */
+    sleepMs?: number
+    backoffFactor?: number
+    maxSleepMs?: number
+    /** Fraction of each sleep to jitter down by. Pass 0 to opt out. */
+    jitter?: number
+    /** No attempt starts after this much time since the first, in ms. An attempt already running is never cut short. */
+    softDeadlineMs?: number
+}
+
 /**
- * Retry a function, respecting `error.isRetriable`.
- *
- * Each sleep is jittered down by up to `jitterFactor` of the backoff so
- * concurrent callers don't retry in lockstep. Pass `0` to opt out.
+ * Retry `fn` while `error.isRetriable` is not false. Sleeps are jittered so
+ * callers don't retry in lockstep.
  */
-export async function retryIfRetriable<T>(
-    fn: () => Promise<T>,
-    tries = 3,
-    sleepMs = 100,
-    jitterFactor = DEFAULT_JITTER_FACTOR
-): Promise<T> {
-    let currentSleepMs = sleepMs
+export async function retryIfRetriable<T>(fn: () => Promise<T>, options: RetrySchedule = {}): Promise<T> {
+    const tries = options.tries ?? defaultRetryConfig.MAX_RETRIES_DEFAULT
+    const backoffFactor = options.backoffFactor ?? defaultRetryConfig.BACKOFF_FACTOR
+    const maxSleepMs = options.maxSleepMs ?? defaultRetryConfig.MAX_INTERVAL
+    const jitter = options.jitter ?? DEFAULT_JITTER_FACTOR
+    const softDeadlineMs = options.softDeadlineMs
+
+    const startedAt = Date.now()
+    let currentSleepMs = options.sleepMs ?? defaultRetryConfig.RETRY_INTERVAL_DEFAULT
     for (let i = 0; i < tries; i++) {
         try {
             return await fn()
@@ -72,14 +85,19 @@ export async function retryIfRetriable<T>(
                 throw error
             }
 
+            const pastSoftDeadline = (): boolean =>
+                softDeadlineMs !== undefined && Date.now() - startedAt >= softDeadlineMs
+            if (pastSoftDeadline()) {
+                throw error
+            }
+
             // Fall through, `fn` will retry after sleep.
-            const jitteredSleepMs =
-                jitterFactor > 0 ? currentSleepMs * (1 - jitterFactor + Math.random() * jitterFactor) : currentSleepMs
+            const jitteredSleepMs = jitter > 0 ? currentSleepMs * (1 - jitter + Math.random() * jitter) : currentSleepMs
             await sleep(jitteredSleepMs)
-            currentSleepMs = Math.min(
-                currentSleepMs * defaultRetryConfig.BACKOFF_FACTOR,
-                defaultRetryConfig.MAX_INTERVAL
-            )
+            currentSleepMs = Math.min(currentSleepMs * backoffFactor, maxSleepMs)
+            if (pastSoftDeadline()) {
+                throw error
+            }
         }
     }
 

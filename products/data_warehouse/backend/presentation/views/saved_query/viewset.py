@@ -42,6 +42,9 @@ class _CancelTarget:
     workflow_run_id: str | None
 
 
+HAS_DEPENDENTS_CODE = "has_dependents"
+
+
 class DependentsValidationError(serializers.ValidationError):
     """A refused delete, carrying the blocked view's node id for a link to its lineage.
 
@@ -50,7 +53,7 @@ class DependentsValidationError(serializers.ValidationError):
     """
 
     def __init__(self, detail: str, node_id: str | None = None) -> None:
-        super().__init__(detail)
+        super().__init__(detail, code=HAS_DEPENDENTS_CODE)
         if node_id:
             self.extra = {"node_id": node_id}
 

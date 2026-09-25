@@ -731,7 +731,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 await waitForBackgroundTasks()
                 expect(getLogs()).toEqual([
-                    '[Action:trigger] Error triggering flow: Could not execute bytecode for input field: distinct_id',
+                    '[Action:trigger] Error triggering flow: Could not execute bytecode for input field: distinct_id: Global variable not found: i.do.not.exist',
                 ])
                 expect(getMetrics()).toEqual([
                     expect.objectContaining({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 }),

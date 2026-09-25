@@ -187,6 +187,9 @@ const canvasEditCreate = (): ToolBase<
         if (params.operations !== undefined) {
             body['operations'] = params.operations
         }
+        if (params.capabilities !== undefined) {
+            body['capabilities'] = params.capabilities
+        }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
@@ -281,7 +284,7 @@ const CanvasLayoutPublishSchema = () => {
                 'ID of the grid canvas whose layout to publish.'
             ),
             expected_current_version_id: CanvasesLayoutPublishCreateBody.shape['expected_current_version_id']
-                .unwrap()
+                .nonoptional()
                 .describe(
                     'The `current_version_id` this document was built on, from canvas-layout-get (null only for a grid canvas that has never published a layout). A whole document replaces the head, so without the guard a layout the user changed after you read it is silently discarded.'
                 ),
@@ -361,7 +364,7 @@ const CanvasMoveSchema = () => {
         .extend({
             id: CanvasesPartialUpdateParams.shape['id'].describe('ID of the canvas to move.'),
             channel_id: CanvasesPartialUpdateBody.shape['channel_id']
-                .unwrap()
+                .nonoptional()
                 .describe('ID of the visible destination space.'),
         })
 }

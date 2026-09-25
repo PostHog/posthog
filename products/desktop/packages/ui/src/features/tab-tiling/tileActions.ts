@@ -11,9 +11,9 @@ export function tileBeside(
   edge: TileEdge,
   source: TileSource,
 ): void {
-  const store = useTileLayoutStore.getState();
-  store.tileTab(tabId, targetTabId, edge);
-  const group = groupForTab(store.groups, tabId);
+  useTileLayoutStore.getState().tileTab(tabId, targetTabId, edge);
+  // The group only exists after the write, so read the state again.
+  const group = groupForTab(useTileLayoutStore.getState().groups, tabId);
   track(ANALYTICS_EVENTS.BROWSER_TAB_TILED, {
     edge,
     source,

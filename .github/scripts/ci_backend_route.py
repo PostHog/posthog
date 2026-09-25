@@ -5,14 +5,15 @@ Only GitHub Actions runs this script. Its answer drives the `Hand off backend te
 to Depot CI` job, which Depot CI waits for before it runs anything, so Depot never
 routes on its own and the tests never run on both engines. Once that job has concluded
 for a commit, every later run of the same commit repeats its answer, whatever the
-percent or the labels say by then. A read of that record that keeps failing fails the
-run, so nothing is routed anywhere.
+percent or the labels say by then, even after the rollout variable is deleted. A read of
+that record that keeps failing stops routing, so a commit cannot run on both engines.
 """
 
 import os
 import sys
 import json
 import time
+import hashlib
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -51,6 +52,17 @@ def parse_percent(raw: str | None) -> int:
         return min(int(value), 100)
     except ValueError:
         return 0
+
+
+def bucket_of(pr_number: int) -> int:
+    """The pull request's fixed rollout bucket, 0 to 99.
+
+    Pull request numbers are sequential, so `pr_number % 100` would give Depot runs of
+    consecutive pull requests and then none for the next 95. A hash spreads them while
+    every push to one pull request keeps its bucket. Python's `hash()` is salted per
+    process, so it would move a pull request between engines from one run to the next.
+    """
+    return int.from_bytes(hashlib.sha256(str(pr_number).encode()).digest()[:8], "big") % 100
 
 
 def handoff_conclusion(check_runs: list[dict], pr_number: int) -> str | None:
@@ -101,7 +113,7 @@ def decide(
         return Decision("depot", f"label {LABEL_FORCE_DEPOT}")
     if pr_number is None:
         return Decision("github", "no pull request number to hash")
-    bucket = pr_number % 100
+    bucket = bucket_of(pr_number)
     if bucket < percent:
         return Decision("depot", f"bucket {bucket} < {percent}%")
     return Decision("github", f"bucket {bucket} >= {percent}%")
@@ -148,11 +160,21 @@ def main() -> int:
     pr_number = int(pr_raw) if pr_raw.isdigit() else None
     is_fork = env.get("IS_FORK", "false") == "true"
     labels = json.loads(env.get("LABELS") or "null") or []
-    # Until the rollout variable exists, only a label can route a commit, so every other
-    # pull request skips the read and its API call, and cannot fail on it.
-    routing_possible = bool(env.get("PERCENT")) or bool({LABEL_FORCE_DEPOT, LABEL_FORCE_GITHUB} & set(labels))
+
+    def route_with(prior_handoff: str | None) -> Decision:
+        return decide(
+            event=event,
+            percent=parse_percent(env.get("PERCENT")),
+            pr_number=pr_number,
+            labels=labels,
+            is_fork=is_fork,
+            is_draft=env.get("IS_DRAFT", "false") == "true",
+            prior_handoff=prior_handoff,
+            head_ref=env.get("HEAD_REF", ""),
+        )
+
     prior_handoff = None
-    if event == "pull_request" and pr_number is not None and not is_fork and routing_possible:
+    if event == "pull_request" and pr_number is not None and not is_fork:
         try:
             prior_handoff = handoff_conclusion(
                 fetch_handoff_checks(env["REPO"], env["SHA"], env["GH_TOKEN"]), pr_number
@@ -160,17 +182,9 @@ def main() -> int:
         except HandoffReadError as error:
             sys.stdout.write(f"::error::Cannot read the earlier hand-off, so this event is not routed: {error}\n")
             return 1
-        sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
-    decision = decide(
-        event=event,
-        percent=parse_percent(env.get("PERCENT")),
-        pr_number=pr_number,
-        labels=labels,
-        is_fork=is_fork,
-        is_draft=env.get("IS_DRAFT", "false") == "true",
-        prior_handoff=prior_handoff,
-        head_ref=env.get("HEAD_REF", ""),
-    )
+        else:
+            sys.stdout.write(f"::notice::Earlier hand-off on this commit: {prior_handoff or 'none'}\n")
+    decision = route_with(prior_handoff)
     sys.stdout.write(f"::notice::Backend CI engine: {decision.engine} ({decision.reason})\n")
     output_path = env.get("GITHUB_OUTPUT")
     if output_path:

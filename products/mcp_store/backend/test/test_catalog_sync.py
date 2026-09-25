@@ -83,6 +83,46 @@ class TestCatalogEntries(SimpleTestCase):
 
 
 class TestSyncMCPCatalog(TestCase):
+    @patch("products.mcp_store.backend.oauth_credentials.get_instance_settings")
+    @patch("products.mcp_store.backend.catalog_sync.probe_mcp_server")
+    def test_slack_dev_uses_separate_credentials_and_resets_after_disable(self, probe, instance_settings):
+        entry = next(entry for entry in MCP_SERVER_CATALOG if entry.oauth_credentials_source == "slack_app")
+        instance_settings.return_value = {
+            "SLACK_DEV_APP_CLIENT_ID": "dev-client",
+            "SLACK_DEV_APP_CLIENT_SECRET": "dev-secret",
+        }
+        probe.return_value = ProbeResult(
+            reachable=True,
+            speaks_mcp=True,
+            auth_flavor="oauth_shared",
+            oauth_metadata={"issuer": "https://mcp.slack.com"},
+            authorize_endpoint_ok=True,
+        )
+
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=["42"]):
+            counts = sync_mcp_catalog(entries=[entry])
+            template = MCPServerTemplate.objects.get(url=entry.url)
+            assert template.name == "Slack via PostHog (dev)"
+            assert template.description == "Search public Slack channels with the internal PostHog development app."
+            assert template.oauth_credentials_source == "slack_dev_app"
+            assert template.oauth_credentials == {}
+            assert entry.oauth_scope_allowlist is not None
+            assert template.oauth_scope_allowlist == list(entry.oauth_scope_allowlist)
+            assert counts.activated == 1
+            assert MCPServerTemplate.available_for_team(42).filter(id=template.id).exists()
+            assert not MCPServerTemplate.available_for_team(43).filter(id=template.id).exists()
+
+        instance_settings.assert_called_with(["SLACK_DEV_APP_CLIENT_ID", "SLACK_DEV_APP_CLIENT_SECRET"])
+        probe.assert_called_once_with(
+            entry.url, scope_allowlist=entry.oauth_scope_allowlist, shared_client_id="dev-client"
+        )
+
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
+            sync_mcp_catalog(entries=[entry])
+        template.refresh_from_db()
+        assert not template.is_active
+        assert template.oauth_credentials_source == "slack_app"
+
     @parameterized.expand(
         [
             ("oauth_dcr_pass", _entry(), _dcr_pass_probe(), True),

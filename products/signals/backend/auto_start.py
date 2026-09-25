@@ -21,6 +21,7 @@ from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
+from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.agent_runtime import STEP_IMPLEMENTATION, resolve_agent_runtime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -80,6 +81,7 @@ from products.signals.backend.task_run_artefacts import (
 )
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
 
@@ -110,6 +112,19 @@ NO_SUPERSEDE = SupersedeDecision(allowed=False)
 class AutostartOutcome:
     status: Literal["started", "blocked", "cancelled", "queued"]
     reason: str = ""
+
+
+@frozen
+class RequestedImplementation:
+    team_id: int
+    report_id: str
+    user_id: int
+    task_id: str | None
+    after_run_count: int
+
+
+class RequestedImplementationUnavailable(RuntimeError):
+    pass
 
 
 @frozen
@@ -237,6 +252,8 @@ _PR_DESCRIPTION_FORM_RULES = (
     "- Cut what the diff shows, what the linked report already says, and all narration of how you "
     "investigated. The report is the long form. What you tried and rejected goes under 'Agent "
     "context', briefly.\n"
+    "- Do not write an 'Origin' section. PostHog adds one below Problem after the PR opens. When you "
+    "edit the description later, keep that section and its HTML comment markers exactly as they are.\n"
     "- Before opening the PR, reread it: could a reviewer get the why, the what and the risk by "
     "scanning it for about thirty seconds? If not, turn paragraphs into bullets and comparisons into "
     "tables. Scannability is the target, not brevity, so a long body dense with tables and diagrams "
@@ -362,10 +379,14 @@ def _build_autostart_task_description(
         "the user to that branch so they can review the changes and decide how to proceed, and explain in your "
         "turn summary why you didn't open the PR directly. Err on the side of caution to avoid committing a "
         "social faux pas in someone else's project.\n\n"
-        "Before you open the PR, run the `/simplify` skill over your branch and apply what it "
-        "finds; if the skill isn't available to you, reread your own diff for the same. Cut the "
-        "scaffolding a first draft accumulates, and any comment that only narrates the code. Only "
-        "remove, never widen the change, and rerun the tests if you removed anything.\n\n"
+        "As soon as the change works and the tests you touched pass, make the work durable before anything "
+        "else: stage it, commit with the git_signed_commit tool, push the branch, and open the draft PR; when "
+        "the repository policy check above rules a PR out, push the branch to the user's fork instead. "
+        "Only after that point, run the `/simplify` skill over your branch and push what it finds as "
+        "a follow-up commit; if the skill isn't available to you, reread your own diff for the same. Cut "
+        "the scaffolding a first draft accumulates, and any comment that only narrates the code. Only "
+        "remove, never widen the change, and rerun the tests if you removed anything. If you are told "
+        "the run is short on budget or time, skip this polish pass: the pushed branch is what matters.\n\n"
         "Write everything you produce in Simplified Technical English, following the "
         "`writing-simplified-technical-english` skill: one meaning per word, active voice, simple tenses, "
         "one idea per sentence.\n\n"
@@ -527,6 +548,7 @@ def _create_implementation_task_if_absent(
     free_trial_enabled: bool | None = None,
     supersede: SupersedeDecision = NO_SUPERSEDE,
     dispatch: ImplementationDispatch | None = None,
+    requested_after_run_count: int | None = None,
 ) -> bool:
     """Create the implementation task and record it (gate row + work-log artefact), serialized per report.
 
@@ -541,9 +563,9 @@ def _create_implementation_task_if_absent(
     The same lock is where billing exemptions freeze (`_stamp_billing_exemption`): the reason is
     decided and written before the task exists, so it can never race a billable PR run.
 
-    ``supersede`` is the one way past the "already implemented" gate. When a research pass decides
-    the fix materially changed, this creates a *second* implementation task and stamps
-    `implemented_at_run_count` with the pass that produced it — under the same lock, so a racing
+    ``supersede`` passes the "already implemented" gate when a research pass decides the fix materially changed.
+    An explicit research rerun can also pass that gate after a new completed pass, for example when the selected repository changes. Both paths stamp
+    `implemented_at_run_count` with the pass that produced it under the same lock, so a racing
     evaluation reads the stamp and declines. That stamp is what keeps one supersede decision to one
     replacement pull request.
     """
@@ -563,6 +585,12 @@ def _create_implementation_task_if_absent(
             return False
         if ImplementationReportContent.from_report(report) != expected_content:
             raise ReportChangedDuringAutostart("Report changed before its implementation task could start")
+        if requested_after_run_count is not None and (
+            report.status != SignalReport.Status.READY
+            or report.run_count <= requested_after_run_count
+            or not _has_unimplemented_work(report)
+        ):
+            return False
         if dispatch is not None:
             latest = (
                 SignalReportArtefact.objects.filter(
@@ -605,7 +633,9 @@ def _create_implementation_task_if_absent(
                 for target in supersede.decision.targets
             ):
                 return False
-        elif claim is not None or pending_replacement(team_id, report_id) is not None:
+        elif pending_replacement(team_id, report_id) is not None or (
+            claim is not None and (requested_after_run_count is None or claim.actor_kind != "task")
+        ):
             return False
         # The gate reads the unified task↔report view (`associated_task_runs` merges the legacy
         # `SignalReportTask` rows with the `task_run` artefact log). Unifying only *adds* sources,
@@ -613,18 +643,24 @@ def _create_implementation_task_if_absent(
         # below always writes the `SignalReportTask` row, so a missing historical artefact
         # can't reopen the gate. Both writes happen under this lock, so a racing evaluation that
         # blocks here observes them and returns False.
-        already_implemented = bool(
-            SignalReport.associated_task_runs(
-                report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
-            )
+        associated_implementations = SignalReport.associated_task_runs(
+            report_id=report_id, team_id=team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
         )
-        if already_implemented and not supersede.allowed:
+        already_implemented = bool(associated_implementations)
+        if requested_after_run_count is not None:
+            task_ids = [entry.task_id for entry in associated_implementations]
+            if any(
+                not run.is_terminal
+                for run in tasks_facade.get_signal_report_implementation_runs(team_id, report_id, task_ids)
+            ):
+                return False
+        if already_implemented and not supersede.allowed and requested_after_run_count is None:
             return False
         if already_implemented and not _has_unimplemented_work(report):
             # Re-checked under the lock: the caller resolved the supersede decision outside it, so a
             # racing evaluation that already stamped this pass must not open a second replacement.
             return False
-        if supersede.allowed and claim is not None:
+        if (supersede.allowed or requested_after_run_count is not None) and claim is not None:
             release_claim(claim, ArtefactAttribution.system(), takeover=True)
         # Both stamps move together. The task about to start is built from the report as it stands
         # now, so neither a research pass nor a rewrite already folded into it may buy another one.
@@ -699,6 +735,175 @@ def _create_implementation_task_if_absent(
     if task_id:
         _capture_steering_attached(team=team, report_id=report_id, task_id=task_id, steering=steering)
     return True
+
+
+def start_requested_implementation(request: RequestedImplementation) -> str:
+    team = Team.objects.select_related("organization").get(id=request.team_id)
+    user = User.objects.filter(id=request.user_id, is_active=True, organization__id=team.organization_id).first()
+    if user is None or UserPermissions(user=user, team=team).current_team.effective_membership_level is None:
+        raise RequestedImplementationUnavailable("The requested user cannot access the report's project")
+
+    report = SignalReport.objects.filter(id=request.report_id, team_id=request.team_id).first()
+    if report is None or report.status != SignalReport.Status.READY or report.run_count <= request.after_run_count:
+        raise RequestedImplementationUnavailable("The requested research did not finish with a ready report")
+    if report.implemented_at_run_count is not None and report.implemented_at_run_count >= report.run_count:
+        return "already_started"
+    if task_run_usage_limited(user, request.team_id):
+        raise RequestedImplementationUnavailable("The requested user cannot start another task run")
+    tasks_facade.enforce_self_driving_pr_quota(team, report_id=request.report_id, stage="manual_rerun")
+    if pending_replacement(request.team_id, request.report_id) is not None:
+        raise RequestedImplementationUnavailable("A replacement is already in progress")
+    actionability_row = (
+        SignalReportArtefact.objects.filter(
+            team_id=request.team_id,
+            report_id=request.report_id,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+        )
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    actionability = (
+        ActionabilityAssessment.model_validate_json(actionability_row.content) if actionability_row else None
+    )
+    if (
+        actionability is None
+        or actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+        or actionability.already_addressed
+    ):
+        raise RequestedImplementationUnavailable("The completed research is not actionable")
+    repo_row = (
+        SignalReportArtefact.objects.filter(
+            team_id=request.team_id,
+            report_id=request.report_id,
+            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        )
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    repo_selection = RepoSelectionResult.model_validate_json(repo_row.content) if repo_row else None
+    if repo_selection is None or repo_selection.repository is None or not report.title or not report.summary:
+        raise RequestedImplementationUnavailable("The completed research has no implementation repository or summary")
+
+    linked_tasks = {
+        entry.task_id
+        for entry in SignalReport.associated_task_runs(
+            report_id=request.report_id,
+            team_id=request.team_id,
+            product=SIGNALS_PRODUCT,
+            type=TASK_RUN_TYPE_IMPLEMENTATION,
+        )
+    }
+    if request.task_id is not None and request.task_id not in linked_tasks:
+        raise RequestedImplementationUnavailable("The requested task is not linked to this report")
+    if request.task_id is None and len(linked_tasks) > 1:
+        raise RequestedImplementationUnavailable("Choose an implementation task when the report has several")
+    selected_task_id = request.task_id or next(iter(linked_tasks), None)
+    selected_task = (
+        tasks_facade.get_tasks_by_ids([selected_task_id], [request.team_id]) if selected_task_id is not None else []
+    )
+    if selected_task_id is not None and not selected_task:
+        raise RequestedImplementationUnavailable("The selected implementation task is unavailable")
+    if selected_task and (selected_task[0].repository or "").lower() != repo_selection.repository.lower():
+        selected_task_id = None
+    expected_content = ImplementationReportContent.from_report(report)
+
+    if selected_task_id is None:
+        priority_row = (
+            SignalReportArtefact.objects.filter(
+                team_id=request.team_id,
+                report_id=request.report_id,
+                type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        priority = PriorityAssessment.model_validate_json(priority_row.content) if priority_row else None
+        steering = load_report_steering(
+            request.team_id, request.report_id, memory_writable=grants_scratchpad_write(IMPLEMENTATION_MCP_SCOPES)
+        )
+        team_config = SignalTeamConfig.objects.filter(team_id=request.team_id).first()
+        created = _create_implementation_task_if_absent(
+            team_id=request.team_id,
+            report_id=request.report_id,
+            title=report.title,
+            description=_build_autostart_task_description(
+                report_id=request.report_id,
+                team_id=request.team_id,
+                summary=report.summary,
+                repository=repo_selection.repository,
+                priority=priority,
+                source_references=_fetch_source_references(request.team_id, request.report_id),
+                steering=steering,
+            ),
+            expected_content=expected_content,
+            user_id=request.user_id,
+            repository=repo_selection.repository,
+            base_branch=team_config.base_branch_for(repo_selection.repository) if team_config else None,
+            steering=steering,
+            free_trial_enabled=self_driving_free_trial_enabled(team),
+            requested_after_run_count=request.after_run_count,
+        )
+        if not created:
+            raise RequestedImplementationUnavailable("Another implementation started before this request")
+        return "created"
+
+    runs = tasks_facade.get_signal_report_implementation_runs(request.team_id, request.report_id, [selected_task_id])
+    if not runs or not runs[0].is_terminal:
+        raise RequestedImplementationUnavailable("The existing implementation task still has an active run")
+    previous_run = runs[0]
+    free_trial_enabled = self_driving_free_trial_enabled(team)
+    with transaction.atomic():
+        current = SignalReport.objects.select_for_update().get(id=request.report_id, team_id=request.team_id)
+        if (
+            current.status != SignalReport.Status.READY
+            or ImplementationReportContent.from_report(current) != expected_content
+            or pending_replacement(request.team_id, request.report_id) is not None
+            or not current.title
+            or not current.summary
+        ):
+            raise RequestedImplementationUnavailable("The report changed before implementation could start")
+        if current.implemented_at_run_count is not None and current.implemented_at_run_count >= current.run_count:
+            return "already_started"
+        result = tasks_facade.run_task(
+            selected_task_id,
+            request.team_id,
+            request.user_id,
+            pipeline_rerun=True,
+            free_trial_enabled=free_trial_enabled,
+            validated_data={
+                "mode": "background",
+                "run_source": "signal_report",
+                "resume_from_run_id": str(previous_run.id),
+                "pending_user_message": (
+                    "The report has fresh research. Read its latest research artefacts, then reassess the existing "
+                    "implementation. Update the existing pull request when appropriate.\n\n"
+                    f"Report: {settings.SITE_URL}/project/{request.team_id}/inbox/reports/{request.report_id}\n"
+                    f"Title: {current.title}\n\nSummary:\n{current.summary}"
+                ),
+            },
+        )
+        if (
+            result is None
+            or result.error is not None
+            or result.run_error
+            or result.task is None
+            or result.task.latest_run_id is None
+        ):
+            raise RequestedImplementationUnavailable("The existing implementation task could not start a new run")
+        new_run = tasks_facade.get_task_run(result.task.latest_run_id, request.team_id)
+        if new_run is None:
+            raise RequestedImplementationUnavailable("The new implementation run could not be read")
+        record_implementation_task(
+            team_id=request.team_id,
+            report_id=request.report_id,
+            task_id=selected_task_id,
+            run_id=str(new_run.id),
+            automation_branch=new_run.state.get("self_driving_head_branch"),
+        )
+        current.implemented_at_run_count = current.run_count
+        current.implemented_at_revision_count = current.content_revision_count or 0
+        current.save(update_fields=["implemented_at_run_count", "implemented_at_revision_count"])
+    return str(new_run.id)
 
 
 def _live_skill_owner_identities(

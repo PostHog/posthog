@@ -13,7 +13,9 @@ class ChameleonEndpointConfig:
     # plural resource (e.g. {"segments": [...], "cursor": {...}}), which matches the endpoint name today.
     data_key: str
     partition_key: Optional[str] = "created_at"  # stable creation timestamp present on every model
-    page_size: int = 500  # Chameleon caps `limit` at 500
+    # Chameleon caps `limit` at 500 on the endpoints that document it. `None` marks an endpoint that
+    # documents no `limit`, so no `limit` is sent and Chameleon applies its own page size.
+    page_size: Optional[int] = 500
     primary_keys: list[str] = field(default_factory=lambda: ["id"])  # Chameleon IDs are globally-unique ObjectIds
     should_sync_default: bool = True
     # Endpoints that require a parent record's `id` query param can only be listed one parent at a
@@ -26,7 +28,12 @@ class ChameleonEndpointConfig:
 
 
 CHAMELEON_ENDPOINTS: dict[str, ChameleonEndpointConfig] = {
-    "profiles": ChameleonEndpointConfig(name="profiles", path="/analyze/profiles", data_key="profiles"),
+    # /analyze/profiles is the User Profile search endpoint. Its documented parameters are only
+    # `segment_id`, `filters`, `filters_op` and `expand`, with no `limit`, and a request that sends
+    # `limit=500` is rejected with 422, which fails the whole table. Without `limit` Chameleon
+    # applies its own page size, and the paginator still follows `cursor.before` when the response
+    # carries one.
+    "profiles": ChameleonEndpointConfig(name="profiles", path="/analyze/profiles", data_key="profiles", page_size=None),
     "companies": ChameleonEndpointConfig(name="companies", path="/analyze/companies", data_key="companies"),
     "segments": ChameleonEndpointConfig(name="segments", path="/edit/segments", data_key="segments"),
     "tours": ChameleonEndpointConfig(name="tours", path="/edit/tours", data_key="tours"),

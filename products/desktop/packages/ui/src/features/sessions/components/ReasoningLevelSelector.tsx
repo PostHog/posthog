@@ -15,6 +15,9 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import {
   adapterForModelId,
@@ -37,6 +40,7 @@ import {
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
+import { shortModelLabel } from "@posthog/ui/features/sessions/components/shortModelLabel";
 import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapterSubscription";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
@@ -286,6 +290,7 @@ export function ReasoningLevelSelector({
     ? (modelEntries.find((entry) => entry.value === currentModel)?.name ??
       currentModel)
     : undefined;
+  const shortLabel = modelLabel ? shortModelLabel(modelLabel) : undefined;
 
   const changeModel = (value: string) => {
     if (onModelChange) {
@@ -481,7 +486,7 @@ export function ReasoningLevelSelector({
   // "Reasoning: undefined".
   const triggerAriaLabel =
     modelLabel && effortLabel
-      ? `Model and reasoning: ${modelLabel} ${effortLabel}`
+      ? `Model and reasoning: ${modelLabel}, ${effortLabel}`
       : modelLabel
         ? `Model: ${modelLabel}`
         : effortLabel
@@ -529,9 +534,35 @@ export function ReasoningLevelSelector({
               </span>
             )}
             {modelLabel && (
-              <span className="font-medium text-foreground">
-                {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
-              </span>
+              <Tooltip>
+                {/* The name rather than the button, which the menu focuses
+                    again as it closes. A tooltip on a focused trigger opens
+                    by itself and then swallows the next Escape. */}
+                <TooltipTrigger
+                  render={
+                    <span className="font-medium text-foreground">
+                      {/* A container query cannot swap text, so a narrow
+                          composer hides the full name and shows the short one
+                          instead. The button carries its own aria-label, so
+                          the copy that is hidden never reaches the accessible
+                          name. */}
+                      <span className="@max-[480px]/composer:hidden">
+                        {isDefaultSelection
+                          ? `Default · ${modelLabel}`
+                          : modelLabel}
+                      </span>
+                      <span className="@max-[480px]/composer:inline hidden">
+                        {isDefaultSelection
+                          ? `Default · ${shortLabel}`
+                          : shortLabel}
+                      </span>
+                    </span>
+                  }
+                />
+                {/* The full model name, which the trigger shortens when the
+                    composer is narrow. */}
+                <TooltipContent side="top">{triggerAriaLabel}</TooltipContent>
+              </Tooltip>
             )}
             {effortLabel && (
               <span

@@ -7309,7 +7309,8 @@
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
-                                                "enum": ["EventsNode", "ActionsNode"],
+                                                "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                                                "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
                                                 "type": "string"
                                             },
                                             "math": {
@@ -7515,7 +7516,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For retention metrics: start event."
+                                "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure."
                             },
                             "start_handling": {
                                 "anyOf": [
@@ -7573,7 +7574,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+            "description": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
         },
         "metrics_secondary": {
             "anyOf": [
@@ -9006,7 +9007,8 @@
                                                 "description": "Action ID. Required for ActionsNode."
                                             },
                                             "kind": {
-                                                "enum": ["EventsNode", "ActionsNode"],
+                                                "description": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                                                "enum": ["EventsNode", "ActionsNode", "ExperimentExposureNode"],
                                                 "type": "string"
                                             },
                                             "math": {
@@ -9212,7 +9214,7 @@
                                         "type": "null"
                                     }
                                 ],
-                                "description": "For retention metrics: start event."
+                                "description": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure."
                             },
                             "start_handling": {
                                 "anyOf": [

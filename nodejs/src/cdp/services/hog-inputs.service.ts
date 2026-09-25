@@ -1,4 +1,4 @@
-import { convertHogToJS } from '@posthog/hogvm'
+import { HogVMErrorKind, HogVMException, convertHogToJS } from '@posthog/hogvm'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
@@ -6,6 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
@@ -51,7 +52,11 @@ export class HogInputsService {
                 return formatLiquidInput(input.value, newGlobals, key, liquidBudget)
             }
             if (templating === 'hog' && input?.bytecode) {
-                return await formatHogInput(input.bytecode, newGlobals, key)
+                try {
+                    return await formatHogInput(input.bytecode, newGlobals, key)
+                } catch (error) {
+                    throw withBytecodeContract(error, input.bytecode_contract)
+                }
             }
 
             return input.value
@@ -260,8 +265,17 @@ export const formatHogInput = async (
             throw error ?? result?.error
         }
         if (!result?.finished) {
-            // NOT ALLOWED
-            throw new Error(`Could not execute bytecode for input field: ${key}`)
+            // An uncaught hog exception comes back as an unfinished run with the error attached.
+            // Other VM messages can echo an argument, and an argument can be a secret input.
+            const message: string = result?.error?.message ?? ''
+            const detail = message.startsWith('Global variable not found') ? `: ${message}` : ''
+            // Only the kind travels, so the caller can classify the failure. The VM error itself stays
+            // behind: a serialized cause chain would print its message, and that can hold a secret.
+            const kind: unknown = result?.error?.kind
+            const cause = isHogVMErrorKind(kind)
+                ? new HogVMException(`Input field ${key} could not be evaluated`, kind)
+                : undefined
+            throw new Error(`Could not execute bytecode for input field: ${key}${detail}`, { cause })
         }
         return convertHogToJS(result.result)
     }
@@ -295,6 +309,21 @@ export const formatHogInput = async (
     return bytecode
 }
 
+/**
+ * A parse error or a refused filter fails the template on every event. Any other render error is
+ * the template meeting this event's values, so another event may pass. A budget is a limit.
+ */
+const liquidErrorKind = (error: unknown): HogVMErrorKind => {
+    const { name, message } = error instanceof Error ? error : { name: '', message: String(error) }
+    if (message.includes('limit exceeded')) {
+        return 'limit'
+    }
+    if (name === 'RenderError' && !message.includes('is not supported')) {
+        return 'data'
+    }
+    return 'contract'
+}
+
 export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -306,7 +335,13 @@ export const formatLiquidInput = (
     }
 
     if (typeof value === 'string') {
-        return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget)
+        try {
+            return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget)
+        } catch (error) {
+            // The renderer's message names the template line the owner has to fix, so it stays as is.
+            const message = error instanceof Error ? error.message : String(error)
+            throw new Error(message, { cause: new HogVMException(message, liquidErrorKind(error)) })
+        }
     }
 
     if (Array.isArray(value)) {

@@ -3,7 +3,7 @@ import RE2 from 're2'
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
 import { BytecodeEntry } from '../types'
-import { UncaughtHogVMException } from '../utils'
+import { HogVMException, UncaughtHogVMException } from '../utils'
 
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -18,6 +18,71 @@ const tuple = (array: any[]): any[] => {
 }
 
 describe('hogvm execute', () => {
+    describe('error kinds', () => {
+        // The CDP decides what to do with a failed filter from this field, so each throw site has
+        // to say whether the bytecode did not fit the runtime, the data did not fit the code, or a
+        // limit was hit. Message text is not part of the contract.
+        const kindOf = (bytecode: any[], options = {}): string => {
+            try {
+                execSync(bytecode, options)
+            } catch (error) {
+                expect(error).toBeInstanceOf(HogVMException)
+                return error.kind
+            }
+            throw new Error('expected the program to throw')
+        }
+
+        test('contract: the bytecode asks for something the runtime does not have', () => {
+            // A filter reading a query-only field, saved before the compiler checked globals.
+            expect(kindOf(['_H', 1, op.STRING, '$virt_is_bot', op.GET_GLOBAL, 1])).toBe('contract')
+            // A ClickHouse aggregate that never existed in Hog.
+            expect(kindOf(['_H', 1, op.INTEGER, 1, op.CALL_GLOBAL, 'countDistinctIf', 1])).toBe('contract')
+            // Two-argument dateAdd, valid HogQL, three arguments in the VM.
+            expect(kindOf(['_H', 1, op.INTEGER, 1, op.INTEGER, 1, op.CALL_GLOBAL, 'dateAdd', 2])).toBe('contract')
+            // An opcode this VM does not know.
+            expect(kindOf(['_H', 1, 999])).toBe('contract')
+            // A host that gave the VM no regex engine. The same program fails on every event, unlike a
+            // pattern the engine rejects.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.STRING, 'b', op.CALL_GLOBAL, 'match', 2])).toBe('contract')
+            // A host that gave the VM no crypto module: the same, a capability the runtime lacks.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.CALL_GLOBAL, 'sha256Hex', 1])).toBe('contract')
+        })
+
+        test('data: the code ran and the value did not fit it', () => {
+            // A standard-library function refusing its argument.
+            expect(
+                kindOf(['_H', 1, op.STRING, 'bogus', op.INTEGER, 1, op.INTEGER, 1, op.CALL_GLOBAL, 'dateDiff', 3])
+            ).toBe('data')
+            // `throw Error('boom')` in user code.
+            expect(kindOf(['_H', 1, op.STRING, 'boom', op.CALL_GLOBAL, 'Error', 1, op.THROW])).toBe('data')
+            // A number where the library expects a string: the engine's TypeError depends on the event.
+            expect(kindOf(['_H', 1, op.STRING, ',', op.INTEGER, 42, op.CALL_GLOBAL, 'splitByString', 2])).toBe('data')
+            // `'admin' in properties.roles` on an event without roles: `in` meets null.
+            expect(kindOf(['_H', 1, op.NULL, op.STRING, 'admin', op.IN])).toBe('data')
+            // An index of 0 that came from a value, so the compiler could not refuse it.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.ARRAY, 1, op.INTEGER, 0, op.GET_PROPERTY])).toBe('data')
+        })
+
+        test('limit: the program hit a resource ceiling', () => {
+            expect(kindOf(['_H', 1, op.STRING, 'a string that is longer than the limit'], { memoryLimit: 8 })).toBe(
+                'limit'
+            )
+        })
+
+        test('a raw JavaScript error from the standard library is a data error with its cause attached', () => {
+            // dateDiff throws a plain Error for its unit; the VM wraps it so the caller sees a Hog error.
+            let thrown: any
+            try {
+                execSync(['_H', 1, op.STRING, 'bogus', op.INTEGER, 1, op.INTEGER, 1, op.CALL_GLOBAL, 'dateDiff', 3])
+            } catch (error) {
+                thrown = error
+            }
+            expect(thrown).toBeInstanceOf(HogVMException)
+            expect(thrown.message).toContain('Unsupported unit for dateDiff')
+            expect(thrown.cause).toBeInstanceOf(Error)
+        })
+    })
+
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
         const options = {
@@ -231,43 +296,44 @@ describe('hogvm execute', () => {
         ).toEqual(expected)
     })
 
-    test('null coercion in ordering comparisons - preserved behavior', () => {
-        // This test documents the current typescript hogvm behavior where null is coerced to 0 in ordering comparisons.
-        // HogVM in python/rust does not share this behavior.
-        // It is preserved for backward compatibility - users depend on it.
-        // See: https://github.com/PostHog/posthog/pull/45328
+    test('an ordering comparison with a null operand is false', () => {
+        // SQL semantics, shared with the Python and Rust VMs. JavaScript would read null as 0, which
+        // made `missing <= 18` match every person without the property.
         const options = {}
+        for (const operation of [op.LT, op.LT_EQ, op.GT, op.GT_EQ]) {
+            for (const value of [-1, 0, 1]) {
+                expect(execSync(['_h', op.NULL, op.INTEGER, value, operation], options)).toBe(false)
+                expect(execSync(['_h', op.INTEGER, value, op.NULL, operation], options)).toBe(false)
+            }
+            expect(execSync(['_h', op.NULL, op.NULL, operation], options)).toBe(false)
+        }
+        // Equality keeps its meaning.
+        expect(execSync(['_h', op.NULL, op.NULL, op.EQ], options)).toBe(true)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.EQ], options)).toBe(false)
+        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.NOT_EQ], options)).toBe(true)
+    })
 
-        // null is coerced to 0 in JavaScript comparisons
-        // 0 <= null is true (null coerces to 0, 0 <= 0)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.LT_EQ], options)).toBe(true)
-        // 0 >= null is true (null coerces to 0, 0 >= 0)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.GT_EQ], options)).toBe(true)
-        // 0 < null is false (null coerces to 0, 0 < 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.LT], options)).toBe(false)
-        // 0 > null is false (null coerces to 0, 0 > 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.GT], options)).toBe(false)
-
-        // 1 < null is false (null coerces to 0, 1 < 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.LT], options)).toBe(false)
-        // 1 <= null is false (null coerces to 0, 1 <= 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.LT_EQ], options)).toBe(false)
-        // 1 > null is true (null coerces to 0, 1 > 0 is true)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.GT], options)).toBe(true)
-        // 1 >= null is true (null coerces to 0, 1 >= 0 is true)
-        expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.GT_EQ], options)).toBe(true)
-
-        // -1 < null is true (null coerces to 0, -1 < 0 is true)
-        expect(execSync(['_h', op.NULL, op.INTEGER, -1, op.LT], options)).toBe(true)
-        // -1 > null is false (null coerces to 0, -1 > 0 is false)
-        expect(execSync(['_h', op.NULL, op.INTEGER, -1, op.GT], options)).toBe(false)
-
-        // Reverse order: null < 0 is false (null coerces to 0, 0 < 0 is false)
-        expect(execSync(['_h', op.INTEGER, 0, op.NULL, op.LT], options)).toBe(false)
-        // Reverse order: null < 1 is true (null coerces to 0, 0 < 1 is true)
-        expect(execSync(['_h', op.INTEGER, 1, op.NULL, op.LT], options)).toBe(true)
-        // Reverse order: null > 1 is false (null coerces to 0, 0 > 1 is false)
-        expect(execSync(['_h', op.INTEGER, 1, op.NULL, op.GT], options)).toBe(false)
+    test('comparing today against an unparseable date is no match, not an error', () => {
+        // A null guard written before the comparison does not save it: AND evaluates every operand
+        // before combining them, so the comparison runs for a person without the property.
+        const compare = (value: string, operation: number) => [
+            '_h',
+            op.STRING,
+            value,
+            op.CALL_GLOBAL,
+            'toDate',
+            1,
+            op.CALL_GLOBAL,
+            'today',
+            0,
+            operation,
+        ]
+        for (const operation of [op.LT_EQ, op.GT_EQ]) {
+            expect(execSync(compare('', operation), {})).toBe(false)
+            expect(execSync(compare('nonsense', operation), {})).toBe(false)
+        }
+        // The shape people actually write, and the one the guard does not save.
+        expect(execSync(['_h', op.FALSE, ...compare('', op.GT_EQ).slice(1), op.AND, 2], {})).toBe(false)
     })
 
     test('async limits', async () => {

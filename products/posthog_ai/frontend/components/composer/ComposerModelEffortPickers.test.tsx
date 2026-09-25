@@ -46,7 +46,7 @@ describe('ComposerModelEffortPickers', () => {
     })
 
     it.each([
-        [undefined, 'gpt-5.6-sol'],
+        [undefined, 'gpt-6-sol'],
         ['gpt-5.6-luna', 'gpt-5.6-luna'],
     ])('waits for the default model %s before switching to Codex', async (defaultModel, expectedModel) => {
         const onModelChange = jest.fn()
@@ -58,7 +58,7 @@ describe('ComposerModelEffortPickers', () => {
             onEffortChange: jest.fn(),
             models: [
                 ...CATALOGUE,
-                ...['gpt-5.6-luna', 'gpt-5.6-sol'].map((model) => ({
+                ...['gpt-5.6-luna', 'gpt-6-sol'].map((model) => ({
                     runtime_adapter: RuntimeAdapterEnumApi.Codex,
                     model,
                     display_name: model,

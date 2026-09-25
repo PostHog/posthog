@@ -140,6 +140,49 @@ export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
     .describe('Payload for recording reviewer feedback on an AI reply.')
 
 /**
+ * Record that a human used or edited the latest AI draft.
+ */
+export const conversationsTicketsAiHumanOutcomeCreateBodyMessageIdMax = 200
+
+export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
+    .object({
+        message_id: zod
+            .string()
+            .max(conversationsTicketsAiHumanOutcomeCreateBodyMessageIdMax)
+            .describe('ID of the private AI draft being adopted.'),
+        outcome: zod
+            .enum(['used', 'edited'])
+            .describe('\* `used` - used\n\* `edited` - edited')
+            .describe(
+                'used when the human inserts the draft as-is; edited after they change it in the composer.\n\n\* `used` - used\n\* `edited` - edited'
+            ),
+    })
+    .describe('Payload for recording whether a human adopted an AI draft.')
+
+/**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const conversationsTicketsNotesCreateBodyMessageMax = 5000
+
+export const ConversationsTicketsNotesCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod
+            .string()
+            .max(conversationsTicketsNotesCreateBodyMessageMax)
+            .describe(
+                'Note content in markdown. The note is visible to your team only and is never sent to the customer.'
+            ),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+    })
+    .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
+
+/**
  * Update a private note on a ticket.
  *
  * Only the note's author can edit it. Customer-facing replies cannot be

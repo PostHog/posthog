@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:posthog:feature-flag-rules-v2:corpus:v2_boolean_evaluation:1.0.0",
+  "type": "object",
+  "properties": {
+    "corpus_version": {
+      "const": "1.0.0"
+    },
+    "config_version": {
+      "const": 2
+    },
+    "description": {
+      "type": "string"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^v2_boolean(\\.[a-z0-9_]+)+$"
+          },
+          "family": {
+            "enum": [
+              "ordering",
+              "properties",
+              "context",
+              "errors",
+              "hashing",
+              "white_box",
+              "eligibility",
+              "parser"
+            ]
+          },
+          "flag": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "deleted": {
+                "type": "boolean"
+              },
+              "requested": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "key",
+              "name",
+              "active",
+              "deleted",
+              "requested"
+            ],
+            "additionalProperties": false
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true,
+            "x-posthog-open-object": "validated separately against the canonical config schema, including rejected examples"
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "identifier": {
+                "type": "string"
+              },
+              "properties": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": true,
+                "x-posthog-open-object": "supplied person property values"
+              },
+              "properties_complete": {
+                "type": "boolean"
+              },
+              "timezone": {
+                "type": "string"
+              },
+              "explicit_exact_matching": {
+                "type": "boolean"
+              },
+              "now": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "identifier",
+              "properties",
+              "properties_complete",
+              "timezone",
+              "explicit_exact_matching",
+              "now"
+            ],
+            "additionalProperties": false
+          },
+          "expected": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "success"
+                  },
+                  "value": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "reason": {
+                    "enum": [
+                      "targeting_match",
+                      "rollout_miss",
+                      "no_rule_match"
+                    ]
+                  },
+                  "rule": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "rule_type": {
+                        "enum": [
+                          "targeted_release",
+                          "percentage_rollout"
+                        ]
+                      },
+                      "index": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "rule_type",
+                      "index"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "status",
+                  "value",
+                  "reason"
+                ],
+                "if": {
+                  "properties": {
+                    "reason": {
+                      "const": "no_rule_match"
+                    }
+                  }
+                },
+                "then": {
+                  "not": {
+                    "required": [
+                      "rule"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "rule"
+                  ]
+                },
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "error"
+                  },
+                  "error": {
+                    "enum": [
+                      "missing_context",
+                      "invalid_property",
+                      "invalid_regex"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "error"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "parse_error"
+                  },
+                  "kind": {
+                    "enum": [
+                      "malformed",
+                      "unsupported"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "omitted"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "hash_evidence": {
+            "type": "object",
+            "properties": {
+              "identifier": {
+                "type": "string"
+              },
+              "input_utf8_hex": {
+                "type": "string"
+              },
+              "sha1_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "first_15_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{15}$"
+              },
+              "n": {
+                "type": "string",
+                "pattern": "^[0-9]+$"
+              },
+              "hash01_binary64_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "threshold_binary64_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              }
+            },
+            "required": [
+              "identifier",
+              "input_utf8_hex",
+              "sha1_hex",
+              "first_15_hex",
+              "n",
+              "hash01_binary64_hex",
+              "threshold_binary64_hex"
+            ],
+            "additionalProperties": false
+          },
+          "white_box": {
+            "type": "object",
+            "properties": {
+              "hash01_binary64_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "threshold_binary64_hex": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{16}$"
+              },
+              "relation": {
+                "enum": [
+                  "equal",
+                  "below",
+                  "above"
+                ]
+              }
+            },
+            "required": [
+              "hash01_binary64_hex",
+              "threshold_binary64_hex",
+              "relation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "family",
+          "flag",
+          "config",
+          "context",
+          "expected"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "corpus_version",
+    "config_version",
+    "description",
+    "cases"
+  ],
+  "additionalProperties": false
+}

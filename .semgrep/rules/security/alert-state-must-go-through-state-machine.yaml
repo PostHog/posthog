@@ -114,9 +114,40 @@ rules:
               - '/.semgrep/rules/security/tests/insight-alert-state-must-go-through-state-machine.py'
           exclude:
               - '/products/alerts/backend/insight_alert_state_machine.py'
+              # Shared skeleton state, covered by platform-alert-state-direct-mutation below.
+              - '/products/alerts/backend/logic/platform_lifecycle.py'
               # Writes HogFunction.enabled (destination plumbing), not an alert.
               - '/products/alerts/backend/logic/destinations.py'
               - '/products/alerts/backend/test/**'
               - '/products/alerts/backend/tests/**'
               - '/products/alerts/backend/**/test_*.py'
               - '/posthog/tasks/alerts/test/**'
+
+    - id: platform-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+                - pattern: $ALERT.enabled = $VALUE
+                - pattern: $QUERY.update(..., state=$VALUE, ...)
+                - pattern: $QUERY.update(..., consecutive_failures=$VALUE, ...)
+                - pattern: $QUERY.update(..., enabled=$VALUE, ...)
+      message: |
+          Direct mutation of shared alert lifecycle fields bypasses the shared mutator.
+          A source decides whether its data breached; the shared lifecycle decides what
+          that means. Route the change through
+          products.alerts.backend.facade.platform_alerts.apply_outcome.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/logs/backend/alert_source_cycle.py'
+              - '/products/logs/backend/platform_alert_backfill.py'
+          exclude:
+              - '/products/**/test/**'
+              - '/products/**/tests/**'
+              - '/products/**/test_*.py'

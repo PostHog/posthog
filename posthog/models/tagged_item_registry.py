@@ -4,17 +4,17 @@ TaggedItem points at its object with two typed columns, `object_id` for integer-
 models and `object_uuid` for UUID-keyed ones, rather than the single text column a
 textbook generic relation uses. Postgres has to cast a join column when the two sides
 differ in type, and Django puts that cast on the TaggedItem side, which makes the index
-on the object column unusable for every `tagged_items__...` lookup. Two typed columns
-keep both joins cast-free.
+on the object column unusable for every `tagged_items__...` lookup. A text column would
+also cast a UUID string to an integer, which fails. With two typed columns, the only
+cast left widens an integer.
 
-`object_id` is a plain integer even though `Project.id` is a bigint. Project ids are
-drawn from `posthog_team_id_seq`, an integer sequence, so they always fit. Only Project
-pays for the mismatch, with a widening cast that cannot fail. Sizing the column to bigint
-instead would move the cast onto every other integer-keyed model, and make it a narrowing
-cast that can overflow.
+`object_id` is a plain integer, matching the physical key columns of the integer-keyed
+tables. Project's key is a bigint, but its ids are drawn from `posthog_team_id_seq`, an
+integer sequence, so they always fit. Most integer-keyed models still declare BigAutoField,
+so Django casts `object_id` to bigint when it joins to them. The cast only widens, so it
+cannot fail, and an expression index on the cast serves those joins.
 
-This module holds no Django model imports, so it is safe to import from anywhere,
-including `posthog/models/tagged_item.py` itself.
+This module imports none of the taggable models, so any of them can import it.
 """
 
 from __future__ import annotations
@@ -108,6 +108,23 @@ def require_taggable(model: type[models.Model]) -> TaggableModel:
 def taggable_for_legacy_field(legacy_field: str) -> TaggableModel | None:
     """The registry entry for a pre-generic-relation foreign key name."""
     return _BY_LEGACY_FIELD.get(legacy_field)
+
+
+def taggable_for_content_type_id(content_type_id: int) -> TaggableModel | None:
+    """The registry entry a stored content type points at, or None for anything unregistered."""
+    model = ContentType.objects.get_for_id(content_type_id).model_class()
+    return taggable_for(model) if model is not None else None
+
+
+def content_type_id_for_legacy_field(legacy_field: str) -> int:
+    """The content type id for a taggable model, named by its legacy foreign key.
+
+    For callers that must not import the model itself, such as HogQL table definitions.
+    """
+    entry = taggable_for_legacy_field(legacy_field)
+    if entry is None:
+        raise NotTaggableError(f"{legacy_field} is not a taggable model's legacy field.")
+    return content_type_for_entry(entry).id
 
 
 def base_model_for(model: type[models.Model]) -> type[models.Model]:

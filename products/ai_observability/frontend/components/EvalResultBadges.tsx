@@ -74,7 +74,7 @@ export function EvalResultBadges({
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
         generationEvaluationRunsLogic({ traceId })
     )
-    const { detectorEvaluationIds } = useValues(llmEvaluationsLogic)
+    const { detectorEvaluationIds, evaluations } = useValues(llmEvaluationsLogic)
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)
 
@@ -100,6 +100,8 @@ export function EvalResultBadges({
             {summaries.map((summary) => {
                 const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
                     trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                    passingRule: evaluations?.find((evaluation) => evaluation.id === summary.latestRun.evaluation_id)
+                        ?.output_config.passing_rule,
                 })
                 return (
                     <Tooltip key={summary.latestRun.evaluation_id} title={<EvalTooltipContent {...summary} />}>

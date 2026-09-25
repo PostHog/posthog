@@ -13,7 +13,7 @@ import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitio
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { PropertyFilters } from './PropertyFilters'
+import { PropertyFilters, PropertyFiltersProps } from './PropertyFilters'
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
@@ -84,8 +84,15 @@ describe('PropertyFilters', () => {
         operator: PropertyOperator.Exact,
     } as const
 
-    it('add filter: click add, search, select property, verify onChange shape', async () => {
-        const { onChange } = renderPropertyFilters({ sendAllKeyUpdates: true })
+    const splitControls: PropertyFiltersProps['renderControls'] = ({ addFilter, activeFilters }) => (
+        <div>
+            <div>{addFilter}</div>
+            <div>{activeFilters}</div>
+        </div>
+    )
+
+    it.each([undefined, splitControls])('adds a filter with layout %p', async (renderControls) => {
+        const { onChange } = renderPropertyFilters({ sendAllKeyUpdates: true, renderControls })
 
         await userEvent.click(screen.getByTestId('new-prop-filter-test-page'))
 
@@ -113,9 +120,10 @@ describe('PropertyFilters', () => {
         expect(filters[0].type).toBe('event')
     })
 
-    it('remove first of two filters: onChange has only the remaining filter', async () => {
+    it.each([undefined, splitControls])('removes the first filter with layout %p', async (renderControls) => {
         const { onChange } = renderPropertyFilters({
             propertyFilters: [BROWSER_FILTER, OS_FILTER],
+            renderControls,
         })
 
         expect(screen.getByText(/Chrome/)).toBeInTheDocument()
@@ -237,7 +245,7 @@ describe('PropertyFilters', () => {
         expect(screen.getByTestId('property-filter-0')).toBeInTheDocument()
     })
 
-    it('keeps an in-progress filter when re-rendered with a new same-content array', async () => {
+    it.each([undefined, splitControls])('keeps an in-progress filter with layout %p', async (renderControls) => {
         // Regression: a parent that re-renders frequently (e.g. a live-streaming
         // dashboard) passes a freshly `.filter()`-ed array each render. A property
         // picked but not yet given a value is never committed via onChange, so it is
@@ -246,6 +254,7 @@ describe('PropertyFilters', () => {
         const { rerender } = render(
             <Provider>
                 <PropertyFilters
+                    renderControls={renderControls}
                     pageKey="in-progress"
                     onChange={onChange}
                     propertyFilters={[]}
@@ -272,6 +281,7 @@ describe('PropertyFilters', () => {
         rerender(
             <Provider>
                 <PropertyFilters
+                    renderControls={renderControls}
                     pageKey="in-progress"
                     onChange={onChange}
                     propertyFilters={[]}

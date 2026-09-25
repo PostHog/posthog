@@ -195,6 +195,7 @@ the row lists both.
 | cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1/SHA-512 request signing)        | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
+| clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clerk                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse                       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickhouse_cloud                 | HTTP                        | requests                                                        | ✅                          |
@@ -225,13 +226,14 @@ the row lists both.
 | datadog                          | HTTP                        | requests                                                        | ✅                          |
 | dataforseo                       | HTTP                        | requests                                                        | ✅                          |
 | datahub                          | HTTP                        | requests                                                        | ✅                          |
-| dbt                              | HTTP                        | requests                                                        | ✅                          |
+| dbt                              | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | debugbear                        | HTTP                        | requests                                                        | ✅                          |
 | decagon                          | HTTP                        | requests                                                        | ✅                          |
 | deel                             | HTTP                        | requests                                                        | ✅                          |
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
+| depot                            | HTTP (Connect RPC)          | requests                                                        | ✅                          |
 | descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | devin_ai                         | HTTP                        | requests                                                        | ✅                          |
 | ding_connect                     | HTTP                        | requests                                                        | ✅                          |
@@ -253,7 +255,7 @@ the row lists both.
 | dynamics_365_business_central    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | dynamodb                         | HTTP                        | requests                                                        | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
-| e2b                              | HTTP                        | requests                                                        | ✅                          |
+| e2b                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
 | easybill                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | easypost                         | HTTP                        | requests                                                        | ✅                          |
@@ -947,7 +949,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - classy
-- clay
 - clazar
 - cleartax
 - clevertap
@@ -962,6 +963,7 @@ doesn't conflict with concurrent PRs.
 - codecov
 - collibra
 - commission_junction
+- commslayer
 - constant_contact
 - conta_azul
 - contentsquare
@@ -984,7 +986,6 @@ doesn't conflict with concurrent PRs.
 - deelflows
 - demodesk
 - deno_deploy
-- depot
 - deputy
 - develocity
 - dialpad
@@ -1014,6 +1015,7 @@ doesn't conflict with concurrent PRs.
 - entsoe
 - eurostat
 - expensify
+- expo
 - facebook_pages
 - faros_ai
 - fastbill
@@ -1241,6 +1243,7 @@ doesn't conflict with concurrent PRs.
 - oecd
 - onedrive
 - onehundredms
+- oneleet
 - onelogin
 - onesignal
 - open_data_dc
@@ -1285,6 +1288,7 @@ doesn't conflict with concurrent PRs.
 - podium
 - polygon
 - poplar
+- postnord
 - practicepanther
 - preset
 - prestashop

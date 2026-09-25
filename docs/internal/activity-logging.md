@@ -123,6 +123,10 @@ Four registries in `activity_log.py` tune it per scope:
 - `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
 - `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
 
+`changes_between` also reads named reverse relations.
+Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
+Reading their fail-closed managers can require team context that background writes do not have.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
@@ -150,18 +154,16 @@ A receiver can also read one from `get_current_trigger()` when the job wrapped i
 
 ### Agent writes
 
-`OAuthAccessTokenAuthentication` records the agent's stated reason from the `x-posthog-intent` header for applications in the Desktop OAuth allowlist.
-Other OAuth applications need a server-set sandbox task binding before they can record agent attribution.
-The authentication also records the task id when the server has bound the token to a sandbox task.
-Desktop uses the signed-in user's OAuth token, so an allowlisted token does not require a sandbox task binding.
+`record_agent_intent` stores the agent's stated reason from the `x-posthog-intent` header for any authenticated request.
+A session, a personal API key and an OAuth token all reach it: the middleware calls it for a session, and the authentication class calls it for a bearer credential.
+`OAuthAccessTokenAuthentication` also records the task id when the server has bound the token to a sandbox task.
 When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id or empty string>, payload={"intent": ...})`.
 A product that passes its own trigger keeps it, so this only fills the gap.
 
 The intent is the caller's own claim and nothing verifies it.
 Both activity views display intent without a task link and identify it as self-reported in the tooltip.
-A task link appears only when the token has a server-set task binding.
+A task link appears only when the token has a server-set task binding, so intent never implies a verified run.
 The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
-Session authentication and personal API keys do not use this OAuth attribution path.
 This applies to new activity rows; it does not recover intent that was discarded before the change.
 
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
@@ -196,8 +198,17 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
 - Access control: resource `activity_log`, default level `viewer`.
-- Entitlement: the advanced endpoint is gated by `AvailableFeature.AUDIT_LOGS` and applies the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). The plain list the side panel reads is not gated the same way. Writes always happen.
+- Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
+
+Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
+MCP supplies bounded reader instructions only when its filtered catalog advertises `advanced-activity-logs-list`, and adds SQL instructions only when `execute-sql` is also advertised.
+Tools-mode clients receive these instructions inline. Exec clients receive them in the command reference; Claude web/desktop loads them from the analytics guide, with an inline fallback when guide loading is disabled.
+The universal scout skills carry only availability and stop guidance, so they do not send clients searching for readers they cannot access.
+The SQL table enforces the same entitlement, retention, and access controls; it is not a bypass.
+When a reader is unavailable, stop using that reader for the run and record the limitation. Other advertised, authorized readers remain usable: per-object endpoints such as feature-flag activity do not share the project-wide Audit Logs entitlement gate. Skip only checks that have no available reader.
+To audit scheduled scout writes, use the server-derived `scout:<skill_name>` client tag and the run window. The tag identifies a scout, not a run; inspect actors, items, and timestamps when runs overlap.
+Do not infer that no configuration change occurred from missing access.
 
 A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
 Most scenes do not need this; the side panel and deep links work without it.

@@ -16,6 +16,38 @@ export interface FeedbackImage {
   dataUrl: string;
 }
 
+async function detectImageType(file: File): Promise<string | null> {
+  const bytes = await new Promise<Uint8Array>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result));
+      } else {
+        reject(new Error("Could not read this image."));
+      }
+    };
+    reader.onerror = () => reject(new Error("Could not read this image."));
+    reader.readAsArrayBuffer(file.slice(0, 12));
+  });
+  if ([0xff, 0xd8, 0xff].every((byte, index) => bytes[index] === byte)) {
+    return "image/jpeg";
+  }
+  if (
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every(
+      (byte, index) => bytes[index] === byte,
+    )
+  ) {
+    return "image/png";
+  }
+  if (
+    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
+
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -67,11 +99,15 @@ async function resizeImage(file: File): Promise<string> {
 }
 
 export async function readFeedbackImage(file: File): Promise<FeedbackImage> {
-  if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+  if (file.type && !SUPPORTED_IMAGE_TYPES.has(file.type)) {
     throw new Error("Choose a JPEG, PNG, or WebP image.");
   }
   if (file.size > MAX_FEEDBACK_IMAGE_INPUT_BYTES) {
     throw new Error("Choose an image smaller than 10 MB.");
+  }
+  const detectedType = await detectImageType(file);
+  if (!detectedType || (file.type && file.type !== detectedType)) {
+    throw new Error("Choose a JPEG, PNG, or WebP image.");
   }
 
   return {

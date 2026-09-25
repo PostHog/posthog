@@ -52,7 +52,6 @@ import {
 import { POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
-import { expressionModalLogic } from 'scenes/data-warehouse/expressionModalLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -61,12 +60,13 @@ import { escapeDottedHogQLIdentifier, escapePropertyAsHogQLIdentifier } from '~/
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
+import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
+import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
-import { TableCertificationIcon } from '../../TableCertificationBadge'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
 import { PropertyDefinitionFilter } from './PropertyDefinitionFilter'
@@ -372,6 +372,20 @@ export const QueryDatabase = ({
 
     const getEndpointUrl = (item: TreeDataItem): string => endpointModelUrl(item.record?.table?.name ?? item.name)
 
+    const getMetricEditorUrl = (item: TreeDataItem): string =>
+        urls.sqlEditor({ source: 'metric', metricName: item.record?.metric.name })
+
+    const openMetricEditor = (item: TreeDataItem, newTab = false): void => {
+        const url = getMetricEditorUrl(item)
+
+        if (newTab || isEmbeddedMode) {
+            newInternalTab(url)
+            return
+        }
+
+        router.actions.push(url)
+    }
+
     const treeRef = useRef<LemonTreeRef>(null)
     useEffect(() => {
         setTreeRef(treeRef)
@@ -446,6 +460,10 @@ export const QueryDatabase = ({
 
                 if (item && item.record?.type === 'unsaved-query') {
                     openUnsavedQuery(item.record)
+                }
+
+                if (item && item.record?.type === 'metric') {
+                    openMetricEditor(item)
                 }
             }}
             renderItem={(item) => {
@@ -690,6 +708,77 @@ export const QueryDatabase = ({
                                 <ButtonPrimitive menuItem className="text-danger">
                                     Delete
                                 </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
+                }
+
+                if (item.record?.type === 'metric') {
+                    const metricName = item.record.metric.name
+                    const openMetricLabel = 'Open in SQL editor'
+                    return (
+                        <DropdownMenuGroup>
+                            <div className="flex gap-px">
+                                {isEmbeddedMode ? (
+                                    <DropdownMenuItem
+                                        asChild
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            openMetricEditor(item, true)
+                                        }}
+                                    >
+                                        <ButtonPrimitive menuItem>{openMetricLabel}</ButtonPrimitive>
+                                    </DropdownMenuItem>
+                                ) : (
+                                    <>
+                                        <DropdownMenuItem asChild>
+                                            <Link
+                                                to={getMetricEditorUrl(item)}
+                                                onClick={(e) => e.stopPropagation()}
+                                                buttonProps={{
+                                                    menuItem: true,
+                                                    className: 'flex-1 rounded-r-none',
+                                                }}
+                                            >
+                                                {openMetricLabel}
+                                            </Link>
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem asChild>
+                                            <Link
+                                                to={getMetricEditorUrl(item)}
+                                                target="_blank"
+                                                targetBlankIcon={false}
+                                                onClick={(e) => e.stopPropagation()}
+                                                tooltip={openMetricLabel}
+                                                buttonProps={{
+                                                    menuItem: true,
+                                                    iconOnly: true,
+                                                    className: 'px-2 rounded-l-none',
+                                                }}
+                                            >
+                                                <IconExternal />
+                                            </Link>
+                                        </DropdownMenuItem>
+                                    </>
+                                )}
+                            </div>
+                            <DropdownMenuItem asChild>
+                                <Link
+                                    to={urls.dataCatalogMetric(metricName)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    buttonProps={{ menuItem: true }}
+                                >
+                                    View in data catalog
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    void copyToClipboard(metricName)
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Copy metric name</ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )
@@ -1277,6 +1366,7 @@ export const QueryDatabase = ({
                     'managed-view',
                     'endpoint',
                     'draft',
+                    'metric',
                     'column',
                     'unsaved-query',
                     'folder',

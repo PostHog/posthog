@@ -150,6 +150,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 - **A session row carries the same card and menu as the space's own list.**
   Both surfaces render `ChannelItemHoverCard` and `TaskRowContextMenu` from one
   `TaskRowMenuProps`, so the facts and the actions can't drift.
+  While either menu is open, its Archive shortcut acts on that menu's task.
+  When the menu closes, the shortcut acts on the visible task again.
   Rename is the one item the tree drops, because it edits in place and there is
   no inline editor on a row the keyboard is walking.
   The card also opens on the keyboard's highlight, 350ms after it lands — on a space row as well as a session one, so walking the tree shows the same card whichever kind of row the highlight lands on.
@@ -178,7 +180,8 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   (memoize the `menu`), and a surface that lists rows has to sit under the
   provider, or its rows get no card at all.
 - **A space has a card too, on the same handle.** `SpaceHoverCard` is a trigger on the one popup the session rows use, so crossing from a space to a session under it swaps the card's contents instead of closing one popup and opening another. The payload is a discriminated union (`ChannelPreviewPayload`), and `kind` picks `SpacePreview` or `ChannelItemPreview`.
-  It shows who has been working in the space, what it is wired to, and the counts the row draws as dots: the creator leads the avatar group wearing a crown, then whoever ran the newest sessions.
+  It shows what kind of space it is, how many sessions it holds and when someone last worked in it, who has been working in the space, what it is wired to, and the counts the row draws as dots: the creator leads the avatar group wearing a crown, then whoever ran the newest sessions.
+  The work column's space rows (`WorkColumn`) carry no hover buttons: their actions, New session first, live in this card and the row's right-click menu. Buttons that appear on hover push the row's faces and dot aside.
   The people are not a membership list — the backend has none. They come from `useSpaceOverview`, off the same `space-tree-tasks` page the tree's rows are built from, which the row's own hover prefetch has already warmed, so the card costs no request.
   The group is `reverse`d, so each face tucks behind the one after it — which puts the creator's right corner under its neighbour, so the crown goes on its left corner instead.
   `useChannelActions` memoizes its action list, and `ChannelSection` memoizes the payload, because both travel to the card's store on every identity change. Its memo comparator also compares `repositories` by content — the channel list is polled and hands out a new array each time.

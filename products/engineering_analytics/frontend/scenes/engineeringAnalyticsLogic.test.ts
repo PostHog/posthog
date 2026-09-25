@@ -345,8 +345,6 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it('scopes workflow health to the shared run group', async () => {
-        // The scope lives in the shared filters logic so it carries into the workflow detail page; the
-        // Workflows tab reads it and reloads workflow health whenever the group changes.
         logic = engineeringAnalyticsLogic()
         logic.mount()
         const filters = engineeringAnalyticsFiltersLogic()
@@ -359,7 +357,6 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', run_scope: 'pull_request' })
 
-        // The group persists across a window change.
         filters.actions.setDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', run_scope: 'pull_request' })
@@ -465,7 +462,11 @@ describe('engineeringAnalyticsLogic', () => {
 
     it.each([
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
-        ['test health', () => urls.engineeringAnalyticsTestHealth()],
+        ['tests', () => urls.engineeringAnalyticsTests()],
+        ['teams', () => urls.engineeringAnalyticsTeams()],
+        ['authors', () => urls.engineeringAnalyticsAuthors()],
+        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay')],
+        ['deploys', () => urls.engineeringAnalyticsDeploys()],
     ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -474,6 +475,16 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
+    })
+
+    it('requests the hub once on a scoped direct load', async () => {
+        router.actions.push(urls.engineeringAnalyticsTeam('team-replay'), { source: 'src-newer' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
     })
 
     it.each([
@@ -722,16 +733,17 @@ describe('engineeringAnalyticsLogic', () => {
         ])
     })
 
-    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
-        silenceKeaLoadersErrors() // the loader failure is the scenario under test
-        mockQuarantine.mockRejectedValue(
-            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
-        )
+    it.each([
+        [400, 'notConnected'],
+        [500, 'error'],
+    ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
+        silenceKeaLoadersErrors()
+        mockTrunkQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineFailure'])
 
-        expect(logic.values.quarantineLoadFailed).toBe(true)
+        expect(logic.values.trunkQuarantineStatus).toBe(expectedStatus)
     })
 })

@@ -73,7 +73,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -161,25 +160,6 @@
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
-  '''
-# ---
-# name: TestElement.test_element_stats_postgres_queries_are_as_expected.13
-  '''
-  SELECT "data_tools_datawarehouseexpression"."deleted",
-         "data_tools_datawarehouseexpression"."deleted_at",
-         "data_tools_datawarehouseexpression"."id",
-         "data_tools_datawarehouseexpression"."team_id",
-         "data_tools_datawarehouseexpression"."created_at",
-         "data_tools_datawarehouseexpression"."created_by_id",
-         "data_tools_datawarehouseexpression"."table_name",
-         "data_tools_datawarehouseexpression"."field_name",
-         "data_tools_datawarehouseexpression"."expression",
-         "data_tools_datawarehouseexpression"."connection_id"
-  FROM "data_tools_datawarehouseexpression"
-  WHERE ("data_tools_datawarehouseexpression"."team_id" = 99999
-         AND NOT ("data_tools_datawarehouseexpression"."deleted"
-                  AND "data_tools_datawarehouseexpression"."deleted" IS NOT NULL)
-         AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.2
@@ -275,9 +255,6 @@
          "posthog_team"."api_query_rate_limit",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
-         "posthog_team"."experiment_recalculation_time",
-         "posthog_team"."default_experiment_confidence_level",
-         "posthog_team"."default_experiment_stats_method",
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
@@ -312,7 +289,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -365,7 +341,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
@@ -443,7 +418,6 @@
          "posthog_organization"."default_role_id",
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",

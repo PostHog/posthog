@@ -41,7 +41,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
@@ -50,6 +50,7 @@ import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { INSIGHT_CARD_KEY_ATTR, insightCardKey } from './insightCardImageCapture'
 import { InsightMeta } from './InsightMeta'
+import { InsightVisualizationSkeleton } from './InsightVisualizationSkeleton'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 
@@ -64,7 +65,7 @@ export function shouldRenderInsightCardViz({
     placement: DashboardPlacement | 'SavedInsightGrid'
     inView: boolean
     isPageVisible: boolean
-    query: QueryBasedInsightModel['query']
+    query: InsightModel['query']
 }): boolean {
     if (isStorybook || placement === DashboardPlacement.Export) {
         return true
@@ -155,7 +156,7 @@ type AlertModalState = {
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     canEditDashboard?: boolean
@@ -175,7 +176,7 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
-    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
+    refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
     /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
     isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
@@ -211,7 +212,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    tile?: DashboardTile<QueryBasedInsightModel>
+    tile?: DashboardTile
     /** survey opportunity for this insight */
     surveyOpportunity?: boolean
     /** Show a direct action for creating an anomaly detection alert for this saved insight. */
@@ -300,7 +301,7 @@ function InsightCardInternal(
     const canPersistDisplayOptions = !!dashboardId && canEditInsight
     const refreshAfterDisplayOptionsChangeRef = useRef(refreshAfterDisplayOptionsChange)
     refreshAfterDisplayOptionsChangeRef.current = refreshAfterDisplayOptionsChange
-    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: QueryBasedInsightModel): void => {
+    const handleRefreshAfterDisplayOptionsChange = useCallback((updatedInsight: InsightModel): void => {
         refreshAfterDisplayOptionsChangeRef.current?.(updatedInsight)
     }, [])
 
@@ -440,7 +441,9 @@ function InsightCardInternal(
     // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
         <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
-    ) : null
+    ) : (
+        <InsightVisualizationSkeleton query={insight.query} />
+    )
 
     return (
         <div

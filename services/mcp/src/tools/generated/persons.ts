@@ -47,12 +47,15 @@ const PersonsCohortsRetrieveSchema = () => {
     return PersonsCohortsRetrieveQueryParams.omit({ format: true })
 }
 
-const personsCohortsRetrieve = (): ToolBase<ReturnType<typeof PersonsCohortsRetrieveSchema>, unknown> => ({
+const personsCohortsRetrieve = (): ToolBase<
+    ReturnType<typeof PersonsCohortsRetrieveSchema>,
+    Schemas.PersonCohortsResponse
+> => ({
     name: 'persons-cohorts-retrieve',
     schema: PersonsCohortsRetrieveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsCohortsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.PersonCohortsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/cohorts/`,
             query: {
@@ -65,7 +68,7 @@ const personsCohortsRetrieve = (): ToolBase<ReturnType<typeof PersonsCohortsRetr
 
 const PersonsListSchema = () => {
     const PersonsListQueryParams = orvalSchemas.PersonsListQueryParams()
-    return PersonsListQueryParams.omit({ format: true, properties: true }).extend({
+    return PersonsListQueryParams.omit({ format: true, include_matched_fields: true, properties: true }).extend({
         limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
         offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
     })
@@ -73,13 +76,13 @@ const PersonsListSchema = () => {
 
 const personsList = (): ToolBase<
     ReturnType<typeof PersonsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedPersonRecordList>
+    WithPostHogUrl<Schemas.PaginatedPersonListRecordList>
 > => ({
     name: 'persons-list',
     schema: PersonsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedPersonRecordList>({
+        const result = await context.api.request<Schemas.PaginatedPersonListRecordList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/`,
             query: {

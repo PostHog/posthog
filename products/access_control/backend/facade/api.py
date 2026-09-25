@@ -21,20 +21,36 @@ from __future__ import annotations
 from typing import cast
 from uuid import UUID
 
+from django.http import Http404
 from django.shortcuts import get_object_or_404
+
+from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.models.role import Role, RoleMembership
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
-from ..property_access_control import is_property_access_control_enabled
+from ..property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
+    is_property_access_control_enabled,
+)
 from . import contracts
 from .contracts import PropertyAccessLevel
-from .user_access_control import highest_access_level, minimum_access_level, ordered_access_levels
+from .user_access_control import (
+    RESOURCE_INHERITANCE_MAP,
+    RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
+    AccessControlLevel,
+    access_level_satisfied_for_resource,
+    default_access_level,
+    highest_access_level,
+    minimum_access_level,
+    ordered_access_levels,
+)
 
 
 class InvalidObjectAccessControlError(Exception):
@@ -75,18 +91,43 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
 
 
 def _get_property_definition(property_definition_id: str, team_id: int) -> PropertyDefinition:
+    # Callers often send the property name. The pk is a UUID, and Django raises its own
+    # ValidationError for any other string, which the API would turn into a 500.
+    try:
+        UUID(str(property_definition_id))
+    except ValueError as exc:
+        raise PropertyDefinitionNotFoundError(property_definition_id) from exc
     try:
         return get_object_or_404(PropertyDefinition, id=property_definition_id, team_id=team_id)
-    except Exception as exc:
+    except Http404 as exc:
         # Normalize 404 -> domain error so presentation can translate without leaking ORM concerns.
-        from django.http import Http404
-
-        if isinstance(exc, Http404):
-            raise PropertyDefinitionNotFoundError(property_definition_id) from exc
-        raise
+        raise PropertyDefinitionNotFoundError(property_definition_id) from exc
 
 
 # --- Read API ---
+
+
+def get_restricted_properties_with_group_type_index_for_team(
+    *, user: User | None, team_id: int
+) -> set[RestrictedProperty]:
+    """Return property restrictions for a user and team."""
+    return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+
+
+def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
+    """Return restricted event and person property names."""
+    return contracts.RestrictedPropertyNames(
+        event=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.EVENT
+        ),
+        person=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.PERSON
+        ),
+    )
 
 
 def get_property_access_state(
@@ -160,6 +201,116 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     if not entitled:
         return False
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
+
+
+def _level_rank(levels: list[AccessControlLevel], level: str) -> int:
+    """Position of `level` on the ladder, with an unrecognized level ranked below every real one."""
+    return levels.index(cast(AccessControlLevel, level)) if level in levels else -1
+
+
+def _grants_at_least(resource: APIScopeObject, level: str, required_level: AccessControlLevel) -> bool:
+    """Whether `level` satisfies `required_level`, reading an unrecognized level as no grant.
+
+    The access level of a row is an unvalidated string, so a value outside the ladder of the
+    resource is possible. Comparing it would raise, so treat it as restricting instead."""
+    if level not in ordered_access_levels(resource):
+        return False
+    return access_level_satisfied_for_resource(resource, cast(AccessControlLevel, level), required_level)
+
+
+def every_member_has_resource_access(
+    *, team_id: int, resource: APIScopeObject, required_level: AccessControlLevel
+) -> bool:
+    """Whether every member of the team resolves at least `required_level` on `resource`.
+
+    For a caller that builds something without a request user and hands it to many readers at
+    once — an AI-drafted ticket note, a userless precompute. Such a caller cannot honor a
+    restriction on one member, so it asks whether any restriction exists at all and leaves the
+    data out when one does.
+
+    Deliberately conservative, and for that reason the same answer under both resolution orders:
+    one restricting rule makes this False, including where highest-wins resolution would let a
+    permissive default outrank it. Erring toward withholding keeps the answer stable when an
+    organization moves to most-specific resolution.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None:
+        return False
+
+    # Resolution reads the rows of the parent of an inheriting resource, never the child's own
+    # resource-scope rows, so the parent is what to inspect.
+    resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+
+    # With no rules in effect, every member sits at the built-in default for the resource.
+    if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS or not team.organization.is_feature_available(
+        AvailableFeature.ACCESS_CONTROL
+    ):
+        return _grants_at_least(resource, default_access_level(resource), required_level)
+
+    rows = list(AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=None))
+    everyone_rows = [row for row in rows if row.organization_member_id is None and row.role_id is None]
+    subject_rows = [row for row in rows if row.organization_member_id is not None or row.role_id is not None]
+
+    levels = ordered_access_levels(resource)
+    floor = (
+        max((row.access_level for row in everyone_rows), key=lambda level: _level_rank(levels, level))
+        if everyone_rows
+        else default_access_level(resource)
+    )
+    if not _grants_at_least(resource, floor, required_level):
+        return False
+    return all(_grants_at_least(resource, row.access_level, required_level) for row in subject_rows)
+
+
+def object_ids_restricted_from_any_member(
+    *, team_id: int, resource: APIScopeObject, required_level: AccessControlLevel
+) -> set[str]:
+    """Ids of `resource` objects carrying a rule that gives somebody less than `required_level`.
+
+    The object-level counterpart of `every_member_has_resource_access`, for the same kind of
+    caller: one that builds something without a request user and hands it to many readers at
+    once. It cannot tell those readers apart, so it leaves out every object that any rule
+    withholds from any of them.
+
+    Conservative in the same way. One restricting rule on an object is enough to name it, even
+    where resolution would let a permissive rule outrank that one, so the answer does not change
+    when an organization moves to most-specific resolution.
+    """
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None or not team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return set()
+
+    # Object rows are written against the resource itself, never its parent, so an inheriting
+    # resource is not mapped here the way a resource-scope lookup maps it.
+    satisfying = [
+        level for level in ordered_access_levels(resource) if _grants_at_least(resource, level, required_level)
+    ]
+    restricted = (
+        AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        .exclude(access_level__in=satisfying)
+        .values_list("resource_id", flat=True)
+    )
+    return {resource_id for resource_id in restricted if resource_id}
+
+
+def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
+    """Whether the role is a role of that organization.
+
+    For a caller that accepts a role id from a request and must not let it name a role of
+    another organization.
+    """
+    return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
+
+
+def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
+    """Ids of the users the role grants access to.
+
+    A membership whose organization member moved to another organization no longer grants
+    anything, so it is left out.
+    """
+    return list(
+        RoleMembership.objects.filter(role_id=role_id).valid_for_authorization().values_list("user_id", flat=True)
+    )
 
 
 # --- Write API ---

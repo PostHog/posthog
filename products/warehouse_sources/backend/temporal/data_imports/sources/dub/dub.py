@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -14,16 +15,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
+    ResponseAction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settings import (
     DUB_BASE_URL,
     DUB_ENDPOINTS,
+    PARTNER_PROGRAM_ENDPOINTS,
     DubEndpointConfig,
 )
 
@@ -31,12 +35,22 @@ REQUEST_TIMEOUT_SECONDS = 30
 # /folders rejects a larger page with a 422.
 FOLDERS_PAGE_SIZE = 50
 
+NO_PARTNER_PROGRAM_MESSAGE = (
+    "This Dub workspace has no partner program, so there is nothing to sync here. "
+    "Set up Dub Partners in your workspace, then refresh this table list."
+)
+
+# A workspace without a partner program answers the whole table with 404, which is an empty
+# table rather than a broken sync. Let the run finish so the workspace's other tables still land.
+_PARTNER_PROGRAM_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
 
 @frozen
 class DubResumeConfig:
     page: Optional[int] = None
     starting_after: Optional[str] = None
-    # Which /links scope the cursor belongs to; see DubLinksScopePaginator.
+    # Which scope the walk reached: a /links folder (DubLinksScopePaginator) or the next
+    # partner to read (_partner_analytics_rows).
     scope_index: Optional[int] = None
 
 
@@ -195,6 +209,79 @@ def _fetch_folder_ids(api_key: str) -> list[str]:
         page += 1
 
 
+def _fetch_partner_ids(api_key: str) -> list[str]:
+    """Every partner enrolled in the program, so /partners/analytics can be read per partner."""
+    config = DUB_ENDPOINTS["partners"]
+    session = _make_session(api_key)
+    partner_ids: list[str] = []
+    page = 1
+
+    while True:
+        params: dict[str, Any] = {**config.params, "page": page, config.page_size_param: config.page_size}
+        res = session.get(
+            f"{DUB_BASE_URL}{config.path}",
+            params=params,
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if res.status_code in (401, 403, 404):
+            # Same gating as the partners table itself: no program, or a plan that cannot
+            # reach it, leaves nothing to walk.
+            return partner_ids
+        res.raise_for_status()
+
+        rows = res.json()
+        if not isinstance(rows, list) or not rows:
+            return partner_ids
+
+        partner_ids.extend(str(row["id"]) for row in rows if isinstance(row, dict) and row.get("id"))
+        if len(rows) < config.page_size:
+            return partner_ids
+        page += 1
+
+
+def _partner_analytics_rows(
+    api_key: str,
+    config: DubEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[DubResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read /partners/analytics once per enrolled partner.
+
+    Dub rejects the request unless it names a partner, so the endpoint has no program-wide
+    mode and the table is the union of the per-partner series. The response repeats only the
+    bucket timestamp, so each row carries the partner it came from to keep the key unique.
+    """
+    partner_ids = _fetch_partner_ids(api_key)
+
+    start_index = 0
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.scope_index is not None:
+            start_index = min(resume.scope_index, len(partner_ids))
+
+    session = _make_session(api_key)
+    for index in range(start_index, len(partner_ids)):
+        partner_id = partner_ids[index]
+        res = session.get(
+            f"{DUB_BASE_URL}{config.path}",
+            params={**config.params, "partnerId": partner_id},
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if res.status_code == 404:
+            # A partner can leave the program between the list call and this one.
+            continue
+        res.raise_for_status()
+
+        rows = res.json()
+        if not isinstance(rows, list) or not rows:
+            continue
+
+        # Staged before the yield it covers, so a crash resumes at the next unwritten partner.
+        resumable_source_manager.save_state(DubResumeConfig(scope_index=index + 1))
+        yield [{**row, "partnerId": partner_id} for row in rows if isinstance(row, dict)]
+
+
 def _format_timestamp(value: Any) -> str:
     if isinstance(value, datetime | date):
         return value.isoformat()
@@ -204,6 +291,8 @@ def _format_timestamp(value: Any) -> str:
 def _build_paginator(config: DubEndpointConfig, folder_ids: list[str]) -> BasePaginator:
     if config.folder_scoped:
         return DubLinksScopePaginator(page_size=config.page_size, folder_ids=folder_ids)
+    if config.pagination == "single":
+        return SinglePagePaginator()
     if config.pagination == "cursor":
         return DubCursorPaginator(page_size=config.page_size)
     return PageNumberPaginator(base_page=1, page_param="page", total_path=None)
@@ -244,7 +333,9 @@ def get_resource(
 ) -> EndpointResource:
     config = DUB_ENDPOINTS[endpoint]
 
-    params: dict[str, Any] = {**config.params, config.page_size_param: config.page_size}
+    params: dict[str, Any] = {**config.params}
+    if config.pagination != "single":
+        params[config.page_size_param] = config.page_size
 
     if config.event_type is not None:
         if should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -262,6 +353,9 @@ def get_resource(
         "params": params,
         "paginator": _build_paginator(config, folder_ids or []),
     }
+
+    if endpoint in PARTNER_PROGRAM_ENDPOINTS:
+        endpoint_config["response_actions"] = _PARTNER_PROGRAM_404_IGNORE
 
     return {
         "name": config.name,
@@ -321,6 +415,17 @@ def dub_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = DUB_ENDPOINTS[endpoint]
+
+    if endpoint_config.partner_scoped:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _partner_analytics_rows(api_key, endpoint_config, resumable_source_manager),
+            primary_keys=list(endpoint_config.primary_keys),
+            partition_count=1,
+            partition_size=1,
+            sort_mode=endpoint_config.sort_mode,
+        )
+
     folder_ids = _fetch_folder_ids(api_key) if endpoint_config.folder_scoped else []
 
     config: RESTAPIConfig = {
@@ -365,7 +470,7 @@ def dub_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=list(endpoint_config.primary_keys),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,
@@ -376,8 +481,10 @@ def dub_source(
 
 
 def _probe_params(config: DubEndpointConfig) -> dict[str, Any]:
-    params: dict[str, Any] = {**config.params, config.page_size_param: 1}
-    if config.event_type is not None:
+    params: dict[str, Any] = {**config.params}
+    if config.pagination != "single":
+        params[config.page_size_param] = 1
+    if config.event_type is not None or "interval" in params:
         # Keep the probe cheap — a 24h window is enough to establish plan access.
         params["interval"] = "24h"
     return params
@@ -393,8 +500,9 @@ def _error_message(res: Response) -> str:
 def check_endpoint_access(api_key: str, endpoint: str) -> str | None:
     """Probe one endpoint; return None when reachable, or a short reason when access is denied.
 
-    Only a real denial (401/403) counts as unreachable — throttles, 5xx, and network blips
-    are treated as reachable so a transient error never hides a table from the schema picker.
+    Only a real denial (401/403, plus the partner-program 404) counts as unreachable — throttles,
+    5xx, and network blips are treated as reachable so a transient error never hides a table from
+    the schema picker.
     """
     config = DUB_ENDPOINTS[endpoint]
     try:
@@ -407,6 +515,10 @@ def check_endpoint_access(api_key: str, endpoint: str) -> str | None:
         )
         if res.status_code in (401, 403):
             return _error_message(res)
+        if res.status_code == 404 and endpoint in PARTNER_PROGRAM_ENDPOINTS:
+            # Dub's own copy here is a bare "Program not found", which reads as a bug to a user
+            # who never had a program.
+            return NO_PARTNER_PROGRAM_MESSAGE
         return None
     except Exception:
         return None

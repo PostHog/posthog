@@ -23,7 +23,7 @@ const meta: Meta<StoryProps> = {
                     name: 'signups',
                     definition_kind: definitionKind,
                 },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/': {
+                '/api/projects/:team_id/data_quality_checks/': {
                     results: hasCheck
                         ? [
                               {
@@ -40,12 +40,18 @@ const meta: Meta<StoryProps> = {
                           ]
                         : [],
                 },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/health/': {
-                    health: hasCheck ? 'failing' : 'unknown',
-                    checks_total: hasCheck ? 1 : 0,
-                    checks_failing: hasCheck ? 1 : 0,
-                },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/check_types/': [
+                '/api/projects/:team_id/data_quality_checks/health/': hasCheck
+                    ? [
+                          {
+                              subject_type: 'metric',
+                              subject_uuid: 'metric-1',
+                              health: 'failing',
+                              checks_total: 1,
+                              checks_failing: 1,
+                          },
+                      ]
+                    : [],
+                '/api/projects/:team_id/data_quality_checks/check_types/': [
                     {
                         check_type: 'custom_sql',
                         description: 'Return one row per failure.',
@@ -53,8 +59,8 @@ const meta: Meta<StoryProps> = {
                         config_schema: {},
                     },
                 ],
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/check_suite_runs/': { results: [] },
-                '/api/projects/:team_id/data_catalog/metrics/metric-1/checks/schedule/': {
+                '/api/projects/:team_id/data_quality_runs/': { results: [] },
+                '/api/projects/:team_id/data_quality_checks/schedule/': {
                     id: 'schedule-1',
                     enabled: true,
                     interval: '24hour',

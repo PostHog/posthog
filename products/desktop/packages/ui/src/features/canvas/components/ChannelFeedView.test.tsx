@@ -1,5 +1,8 @@
+import { buildChannelItems } from "@posthog/core/canvas/channelItems";
 import type { Task } from "@posthog/shared/domain-types";
+import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { Theme } from "@radix-ui/themes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,11 +42,27 @@ vi.mock("@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead", () => ({
   useMarkTaskActivityRead: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("@posthog/ui/features/sidebar/usePinnedTasks", () => ({
-  usePinnedTasks: () => ({ togglePin: vi.fn() }),
+  usePinnedTasks: () => ({
+    togglePin: vi.fn(),
+    pinnedTaskIds: new Set<string>(),
+    setPinnedMany: vi.fn(),
+    isSettingPinnedMany: false,
+  }),
 }));
 const { archiveTask } = vi.hoisted(() => ({ archiveTask: vi.fn() }));
 vi.mock("@posthog/ui/features/archive/useArchiveTask", () => ({
   useArchiveTask: () => ({ archiveTask }),
+  useArchiveCacheKeys: () => [],
+  archiveTasksImperative: vi.fn(),
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasksRunState", () => ({
+  useChannelTasksRunState: () => [],
+}));
+vi.mock("@posthog/ui/features/tasks/useLiveTaskIds", () => ({
+  useLiveTaskIds: () => [],
+}));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
+  useChannelTaskMutations: () => ({ fileTask: vi.fn() }),
 }));
 vi.mock(
   "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog",
@@ -237,6 +256,75 @@ describe("ChannelFeedView", () => {
 
     expect(screen.queryByText("Already archived")).not.toBeInTheDocument();
     expect(screen.getByText(task.title)).toBeInTheDocument();
+  });
+
+  // The kickoff has to lead the feed in the shape of the view around it. It
+  // used to render as a card above the rows, whichever view was active, so the
+  // list view showed one card sitting on top of a list.
+  it.each([
+    ["cards" as const, true],
+    ["list" as const, false],
+  ])("shows a pending kickoff first, in the %s shape", (rowStyle, isCard) => {
+    const prompt = "Add a dark-mode toggle";
+    const { container } = render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[task]}
+          pending={[{ id: "pending-1", prompt }]}
+          rowStyle={rowStyle}
+          isLoading={false}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    const feed = container.textContent ?? "";
+    expect(feed).toContain(prompt);
+    expect(feed.indexOf(prompt)).toBeLessThan(feed.indexOf(task.title));
+    // Only the card puts a "New task" heading above the prompt.
+    expect(screen.queryByText("New task") !== null).toBe(isCard);
+  });
+
+  it("keeps a list selection in its own scope and opens nothing on cmd-click", async () => {
+    const second = { ...task, id: "task-2", title: "Fix flaky test" };
+    const tasks = [task, second];
+    const onOpenTask = vi.fn();
+    const onOpenThread = vi.fn();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <Theme>
+          <ChannelFeedView
+            channelId="channel-1"
+            tasks={tasks}
+            rowStyle="list"
+            selectable
+            spaceItems={buildChannelItems({
+              dashboards: [],
+              feedTasks: tasks,
+              archivedTaskIds: new Set(),
+              pinnedTaskIds: new Set(),
+              ownedBy: null,
+            })}
+            isLoading={false}
+            onOpenTask={onOpenTask}
+            onOpenThread={onOpenThread}
+          />
+        </Theme>
+      </QueryClientProvider>,
+    );
+
+    const user = userEvent.setup();
+    await user.keyboard("{Meta>}");
+    await user.click(screen.getByText(task.title));
+    await user.click(screen.getByText(second.title));
+    await user.keyboard("{/Meta}");
+
+    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(onOpenTask).not.toHaveBeenCalled();
+    expect(onOpenThread).not.toHaveBeenCalled();
+    expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([]);
   });
 
   it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {

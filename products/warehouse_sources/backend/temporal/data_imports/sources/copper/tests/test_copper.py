@@ -2,17 +2,24 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest import mock
 
 from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.copper import (
+    COPPER_BASE_URL,
     COPPER_DEFAULT_PAGE_SIZE,
     CopperResumeConfig,
+    _iter_related_items,
     _to_unix_seconds,
     copper_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import (
+    COPPER_ENDPOINTS,
+    RELATED_ITEM_PARENTS,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -413,3 +420,208 @@ class TestValidateCredentials:
         validate_credentials("secret-key", "user@example.com")
 
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
+
+def _fake_api(
+    get_routes: dict[str, Any] | None = None,
+    search_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
+) -> mock.MagicMock:
+    """A session answering Copper paths from a routing table; anything unrouted is a 404."""
+    routes = get_routes or {}
+    pages = search_pages or {}
+
+    def _get(url: str, params: Any = None, timeout: Any = None) -> Response:
+        path = url.removeprefix(COPPER_BASE_URL)
+        if path not in routes:
+            return _response(None, status_code=404)
+        return _response(routes[path])
+
+    def _post(url: str, json: Any = None, timeout: Any = None) -> Response:
+        path = url.removeprefix(COPPER_BASE_URL)
+        endpoint_pages = pages.get(path, [])
+        index = json["page_number"] - 1
+        return _response(endpoint_pages[index] if index < len(endpoint_pages) else [])
+
+    session = mock.MagicMock()
+    session.get.side_effect = _get
+    session.post.side_effect = _post
+    return session
+
+
+def _requested_paths(session: mock.MagicMock) -> list[str]:
+    return [call.args[0].removeprefix(COPPER_BASE_URL) for call in session.get.call_args_list]
+
+
+class TestFieldLayouts:
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_fans_out_per_entity_and_per_opportunity_pipeline(self, mock_session) -> None:
+        layout = [{"field_id": 0, "field_key": "full_name", "field_type": "static_field"}]
+        session = _fake_api(
+            {
+                "/pipelines": [{"id": 5}, {"id": 6}],
+                "/field_layouts/by_entity/people": layout,
+                "/field_layouts/by_entity/opportunities": layout,
+            }
+        )
+        mock_session.return_value = session
+
+        rows = _rows(_source("field_layouts", _make_manager()))
+
+        # Each row is stamped with the layout it came from — the response itself carries neither.
+        assert rows == [
+            {
+                "entity_type": "people",
+                "pipeline_id": 0,
+                "field_id": 0,
+                "field_key": "full_name",
+                "field_type": "static_field",
+            },
+            {
+                "entity_type": "opportunities",
+                "pipeline_id": 5,
+                "field_id": 0,
+                "field_key": "full_name",
+                "field_type": "static_field",
+            },
+            {
+                "entity_type": "opportunities",
+                "pipeline_id": 6,
+                "field_id": 0,
+                "field_key": "full_name",
+                "field_type": "static_field",
+            },
+        ]
+
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_only_opportunities_carry_a_pipeline_param(self, mock_session) -> None:
+        layout = [{"field_id": 0}]
+        session = _fake_api(
+            {
+                "/pipelines": [{"id": 5}],
+                "/field_layouts/by_entity/people": layout,
+                "/field_layouts/by_entity/opportunities": layout,
+            }
+        )
+        mock_session.return_value = session
+
+        _rows(_source("field_layouts", _make_manager()))
+
+        params_by_path = {
+            call.args[0].removeprefix(COPPER_BASE_URL): call.kwargs["params"] for call in session.get.call_args_list
+        }
+        # Copper rejects an opportunities layout request without a pipeline, and rejects the param
+        # on every other entity.
+        assert params_by_path["/field_layouts/by_entity/opportunities"] == {"pipeline_id": 5}
+        assert params_by_path["/field_layouts/by_entity/people"] is None
+
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_entity_copper_does_not_serve_is_skipped(self, mock_session) -> None:
+        session = _fake_api({"/pipelines": [], "/field_layouts/by_entity/tasks": [{"field_id": 3}]})
+        mock_session.return_value = session
+
+        rows = _rows(_source("field_layouts", _make_manager()))
+
+        # The other five entities 404 on this account; the walk keeps going instead of failing.
+        assert rows == [{"entity_type": "tasks", "pipeline_id": 0, "field_id": 3}]
+
+
+class TestRelatedItems:
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_stamps_each_edge_with_the_record_it_was_read_from(self, mock_session) -> None:
+        session = _fake_api(
+            {"/people/7/related": [{"id": 208105, "type": "project"}, {"id": 44, "type": "company"}]},
+            {"/people/search": [[{"id": 7}]]},
+        )
+        mock_session.return_value = session
+
+        rows = _rows(_source("related_items", _make_manager()))
+
+        assert rows == [
+            {"parent_type": "person", "parent_id": 7, "id": 208105, "type": "project"},
+            {"parent_type": "person", "parent_id": 7, "id": 44, "type": "company"},
+        ]
+
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_walks_every_relatable_entity_type(self, mock_session) -> None:
+        session = _fake_api({}, {config.path: [[]] for config in COPPER_ENDPOINTS.values()})
+        mock_session.return_value = session
+
+        _rows(_source("related_items", _make_manager()))
+
+        searched = [call.args[0].removeprefix(COPPER_BASE_URL) for call in session.post.call_args_list]
+        assert searched == [
+            "/leads/search",
+            "/people/search",
+            "/companies/search",
+            "/opportunities/search",
+            "/projects/search",
+            "/tasks/search",
+        ]
+
+    @mock.patch(COPPER_SESSION_PATCH)
+    def test_record_deleted_mid_walk_is_skipped(self, mock_session) -> None:
+        session = _fake_api(
+            {"/people/8/related": [{"id": 1, "type": "company"}]},
+            {"/people/search": [[{"id": 7}, {"id": 8}]]},
+        )
+        mock_session.return_value = session
+
+        rows = _rows(_source("related_items", _make_manager()))
+
+        # Person 7 was deleted between the search page and its related lookup, so it 404s.
+        assert "/people/7/related" in _requested_paths(session)
+        assert rows == [{"parent_type": "person", "parent_id": 8, "id": 1, "type": "company"}]
+
+    def test_checkpoints_the_next_position_after_each_page(self) -> None:
+        session = _fake_api(
+            {"/leads/1/related": [{"id": 1, "type": "task"}], "/leads/2/related": []},
+            {"/leads/search": [[{"id": 1}], [{"id": 2}]]},
+        )
+        manager = _make_manager()
+
+        list(_iter_related_items(session, COPPER_ENDPOINTS["related_items"].path, manager, page_size=1))
+
+        checkpoints = [(c.args[0].parent_index, c.args[0].page_number) for c in manager.save_state.call_args_list]
+        # Leads pages 1 and 2, then the walk moves on to people (index 1) at page 1. Every later
+        # parent contributes one more checkpoint as its single empty page ends it.
+        assert checkpoints[:3] == [(0, 2), (0, 3), (1, 1)]
+
+    def test_final_parent_leaves_no_checkpoint_behind(self) -> None:
+        session = _fake_api({}, {})
+        manager = _make_manager()
+
+        list(_iter_related_items(session, COPPER_ENDPOINTS["related_items"].path, manager, page_size=1))
+
+        saved = [c.args[0].parent_index for c in manager.save_state.call_args_list]
+        # A checkpoint past the last parent would make a retry resume onto nothing.
+        assert max(saved) == len(RELATED_ITEM_PARENTS) - 1
+        manager.clear_state.assert_called_once()
+
+    def test_malformed_search_page_fails_loudly(self) -> None:
+        null_page = Response()
+        null_page.status_code = 200
+        null_page._content = b"null"
+        session = _fake_api({}, {})
+        session.post.side_effect = lambda url, json=None, timeout=None: null_page
+        manager = _make_manager()
+
+        with pytest.raises(ValueError):
+            list(_iter_related_items(session, COPPER_ENDPOINTS["related_items"].path, manager, page_size=1))
+
+    def test_resumes_from_the_saved_parent_and_page(self) -> None:
+        session = _fake_api(
+            {"/projects/9/related": [{"id": 3, "type": "task"}]},
+            {"/projects/search": [[], [], [{"id": 9}]]},
+        )
+        manager = _make_manager(CopperResumeConfig(page_number=3, parent_index=4))
+
+        rows = [
+            row for page in _iter_related_items(session, "/{entity}/{record_id}/related", manager, 1) for row in page
+        ]
+
+        searched = [call.args[0].removeprefix(COPPER_BASE_URL) for call in session.post.call_args_list]
+        # Projects is index 4, so leads through opportunities are not re-walked, and projects
+        # restarts at page 3 rather than page 1.
+        assert searched == ["/projects/search", "/projects/search", "/tasks/search"]
+        assert session.post.call_args_list[0].kwargs["json"]["page_number"] == 3
+        assert rows == [{"parent_type": "project", "parent_id": 9, "id": 3, "type": "task"}]

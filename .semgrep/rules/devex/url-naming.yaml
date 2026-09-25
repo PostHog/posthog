@@ -1,0 +1,137 @@
+rules:
+    - id: api-path-underscore
+      message: |
+          This API path segment uses a hyphen. API paths use underscores (`add_snapshots`, not
+          `add-snapshots`), so that the URL, the viewset method name, and the query params and
+          JSON fields all read the same way.
+
+          Change the literal to use underscores. An `@action` without `url_path=` takes the method
+          name as its path, which is already correct.
+
+          A hyphenated path that has already shipped keeps its name, because SDKs, MCP tools and
+          customer scripts call it. It carries `# nosemgrep: api-path-underscore` on the line
+          above. Use the same comment, with a reason, only when an external contract dictates
+          the path.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      patterns:
+          - pattern-either:
+                - pattern: action(..., url_path="$PATH", ...)
+                - pattern: $MODULE.action(..., url_path="$PATH", ...)
+                - pattern: $ROUTER.register("$PATH", ...)
+          # Semgrep anchors the regex at the start of the value. Check only literal segments: a
+          # segment starts at a `/` and ends at a `/`, a regex group or the end, so a character
+          # class such as `[A-Za-z0-9_./-]` inside a group does not match.
+          - metavariable-regex:
+                metavariable: $PATH
+                regex: '^(?:.*/)?[A-Za-z0-9_]+-[A-Za-z0-9_-]*(?=/|\(|$)'
+      metadata:
+          category: best-practice
+
+    - id: api-query-param-underscore
+      message: |
+          This API query parameter uses a hyphen. API query parameters use underscores
+          (`date_from`, not `date-from`), the same as the JSON fields they sit next to.
+
+          A hyphenated parameter that has already shipped keeps its name, because clients send
+          it. It carries `# nosemgrep: api-query-param-underscore` on the line above.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      patterns:
+          - pattern-either:
+                - pattern: $REQ.query_params.get("$NAME", ...)
+                - pattern: $REQ.query_params.getlist("$NAME", ...)
+                - pattern: $REQ.query_params["$NAME"]
+                - pattern: $REQ.GET.get("$NAME", ...)
+                - pattern: $REQ.GET.getlist("$NAME", ...)
+                - pattern: $REQ.GET["$NAME"]
+                - pattern: OpenApiParameter("$NAME", ...)
+                - pattern: OpenApiParameter(..., name="$NAME", ...)
+          # HTTP header names use hyphens by spec.
+          - pattern-not: OpenApiParameter(..., location=OpenApiParameter.HEADER, ...)
+          - pattern-not: OpenApiParameter($ARG, $TYPE, OpenApiParameter.HEADER, ...)
+          - pattern-not: OpenApiParameter(..., location="header", ...)
+          - metavariable-regex:
+                metavariable: $NAME
+                regex: '.*-'
+      metadata:
+          category: best-practice
+
+    - id: frontend-route-hyphen
+      message: |
+          This scene route uses an underscore in a path segment. App URLs use hyphens
+          (`/data-management`, not `/data_management`), because people read, share and
+          bookmark them.
+
+          Change the segment to use hyphens, and change the matching builder in `urls`. Route
+          params such as `:runId` are not checked.
+
+          A route that has already shipped keeps its path, because links to it exist. It carries
+          `// nosemgrep: frontend-route-hyphen` on the line above. To rename one, move the old
+          path to `redirects` so that old links still work.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - 'products/*/manifest.tsx'
+      # A route key maps to a `[Scene, sceneKey]` array. Redirect keys map to a string or a
+      # function, so this skips them: a redirect keeps an old path alive on purpose.
+      pattern-regex: '''(?:/(?::[\w-]+|[\w.*-]*))*?/[A-Za-z0-9.*-]*_[\w.*-]*(?:/[^'']*)?''\s*:\s*\['
+      metadata:
+          category: best-practice
+
+    - id: frontend-url-hyphen
+      message: |
+          This app URL uses an underscore in a path segment. App URLs use hyphens
+          (`/data-management`, not `/data_management`), because people read, share and
+          bookmark them. Query parameters after `?` are not checked.
+
+          A URL that has already shipped keeps its path, because links to it exist. It carries
+          `// nosemgrep: frontend-url-hyphen` on the line above. To rename one, add the old path
+          to the scene `redirects` so that old links still work.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - 'frontend/src/scenes/urls.ts'
+      # Match a string or template literal that starts with `/`. Walk its segments up to the
+      # first `?` or `#`, and flag a segment that is not a `:param` and has an underscore in its
+      # literal text. A simple `${expr}` counts as part of a segment, so the walk continues past it.
+      # An interpolation with nested braces or backticks, such as a conditional query string, ends
+      # the walk.
+      pattern-regex: '[`''"](?:/(?::[\w-]+|(?:[\w.*-]|\$\{[^{}`]*\})*))*?/(?:[A-Za-z0-9.*-]|\$\{[^{}`]*\})*_[\w.*-]*(?=[/`''"?#$])'
+      metadata:
+          category: best-practice
+
+    - id: settings-id-hyphen
+      message: |
+          This settings section or setting id uses an underscore. Settings ids appear in the URL
+          (`/settings/<section>#<setting>`), and every existing id uses hyphens.
+
+          Change the id to use hyphens.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          include:
+              - 'frontend/src/scenes/settings/SettingsMap.tsx'
+      pattern-regex: '\bid:\s*''[a-z0-9-]*_[a-z0-9_-]*'''
+      metadata:
+          category: best-practice

@@ -33,6 +33,7 @@ class CDCErrorCategory(enum.StrEnum):
     SLOT_NOT_CONFIGURED = "slot_not_configured"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
+    PERMISSION_DENIED = "permission_denied"
     WAL_DECODE_ERROR = "wal_decode_error"
     TRANSACTION_TOO_LARGE = "transaction_too_large"
     SCHEMA_MERGE_INCOMPATIBLE = "schema_merge_incompatible"
@@ -48,7 +49,7 @@ class CDCErrorInfo:
 
 
 class CDCTransactionTooLargeError(Exception):
-    """A single source transaction exceeded the in-memory decode budget.
+    """A single source transaction exceeded the decoder's per-transaction caps (changes, spill bytes or decode time).
 
     Non-retryable: re-decoding replays the same oversized transaction. The decoder guard
     that raises this lives in the source-specific decoder; the type is defined here so the
@@ -152,6 +153,14 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "The replication slot is currently in use by another connection. PostHog will retry shortly.",
         True,
     ),
+    CDCErrorCategory.PERMISSION_DENIED: (
+        "The database role connected for change data capture lacks a privilege it needs on the "
+        "source database. This is often table ownership: managing the publication (for example "
+        "adding a table to it) requires owning every table in it, not just SELECT. Grant the "
+        "missing privilege or ownership, or switch the affected tables to Incremental sync instead "
+        "of CDC, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.WAL_DECODE_ERROR: (
         "PostHog could not decode the change stream from the source database. This usually points to "
         "an unsupported column type or replication setting. Contact support if it persists.",
@@ -169,9 +178,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
-        "A source table has a column named _ph_cdc_seq, which PostHog reserves for ordering change "
-        "data. Rename that column on the source table, or contact support to keep this table on the "
-        "previous sync mode.",
+        "A source table has a column named _ph_cdc_seq, which PostHog uses for change data capture. "
+        "Rename the column on your database, or choose another sync method for that table.",
         False,
     ),
     CDCErrorCategory.UNKNOWN: (

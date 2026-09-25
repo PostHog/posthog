@@ -276,6 +276,10 @@ export type DataModelingDagsListParams = {
 
 export type DataModelingEdgesListParams = {
     /**
+     * Return only the edges of this DAG.
+     */
+    dag?: string
+    /**
      * A page number within the paginated result set.
      */
     page?: number
@@ -286,6 +290,10 @@ export type DataModelingEdgesListParams = {
 }
 
 export type DataModelingNodesListParams = {
+    /**
+     * Scope the lineage counts to this DAG.
+     */
+    dag?: string
     /**
      * A page number within the paginated result set.
      */

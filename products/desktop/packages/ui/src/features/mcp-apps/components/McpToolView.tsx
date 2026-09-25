@@ -3,6 +3,7 @@ import {
   getPostHogExecDisplay,
   isPostHogExecTool,
 } from "@posthog/core/sessions/posthogExecDisplay";
+import { readMcpToolDescriptor } from "@posthog/shared";
 import { useChatThreadChrome } from "../../sessions/components/chat-thread/chatThreadChrome";
 import { ToolRow } from "../../sessions/components/session-update/ToolRow";
 import {
@@ -43,11 +44,13 @@ export function McpToolView({
 
   const { serverName: defaultServerName, toolName: defaultToolName } =
     parseMcpToolKey(mcpToolName);
+  const descriptor = readMcpToolDescriptor(toolCall._meta);
   const posthogDisplay = isPostHogExecTool(mcpToolName)
     ? getPostHogExecDisplay(rawInput)
     : null;
-  const serverName = posthogDisplay ? "posthog" : defaultServerName;
-  const toolName = posthogDisplay?.label ?? defaultToolName;
+  const toolName =
+    posthogDisplay?.label ?? descriptor?.title ?? defaultToolName;
+  const displayName = `${defaultServerName} - ${toolName}`;
   const inputPreview = posthogDisplay
     ? posthogDisplay.input
       ? truncateText(
@@ -79,7 +82,6 @@ export function McpToolView({
       </>
     ) : undefined;
 
-  const labelClass = chatChrome ? "text-muted-foreground" : "text-gray-10";
   const previewClass = chatChrome
     ? "text-muted-foreground/50"
     : "text-accent-11";
@@ -93,12 +95,7 @@ export function McpToolView({
       defaultOpen={expanded}
       content={body}
     >
-      <ToolTitle>
-        <span className={labelClass}>{serverName}</span>
-        {" - "}
-        {toolName}
-        <span className={labelClass}>{" (MCP)"}</span>
-      </ToolTitle>
+      <ToolTitle>{displayName}</ToolTitle>
       {inputPreview && (
         <ToolTitle>
           <span className={previewClass}>{inputPreview}</span>

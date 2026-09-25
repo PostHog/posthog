@@ -172,6 +172,11 @@ class TestValidateMetricDefinition(BaseTest):
                 ["events"],
             ),
             (
+                "table_function_still_reaches_the_denied_table_filter",
+                "select count() from numbers(10) join events on 1",
+                ["events", "numbers"],
+            ),
+            (
                 "join_constraint_subquery",
                 "select count() from persons join groups on persons.id in (select person_id from events)",
                 ["events", "groups", "persons"],

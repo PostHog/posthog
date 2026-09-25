@@ -51,6 +51,18 @@ on:
                 description: "PostHog ref/SHA to render the skills from (blank = this workflow's checkout ref, i.e. master on schedule)"
                 required: false
                 default: ''
+            box_mem_mib:
+                description: 'Total/cap memory (MiB) for the golden. Blank = 20480 (fixed-size default).'
+                required: false
+                default: ''
+            box_mem_boot_mib:
+                description: 'Boot memory (MiB) for a pluggable-memory golden — boots this small and hot-adds up to the cap. Blank = fixed-size golden (today).'
+                required: false
+                default: ''
+            target_alias:
+                description: 'Live alias to promote the baked snapshot into. Blank = posthog-tasks-default (the golden every task box uses). Set posthog-tasks-hotplug to publish a pluggable-memory golden alongside the default, selected per team by the tasks-hogland-hotplug-golden flag.'
+                required: false
+                default: ''
     schedule:
         # Daily, minute offset off :00 — GitHub's scheduler is contended at the
         # top of the hour and may drop those runs. No-op until armed (job `if`).
@@ -603,7 +615,7 @@ jobs:
             # sampler + the rendered-skills tarball + install-skills.sh +
             # setup-golden.sh) in over the box's SSH, runs setup-golden.sh, then
             # snapshots and points the candidate alias at it. Golden shape is the
-            # task sandbox shape: 4 CPU / 16 GiB / 64 GiB.
+            # task sandbox shape: 4 CPU / 20 GiB / 64 GiB.
             - name: Bake candidate snapshot (box primitives)
               if: env.skip != 'true'
               env:
@@ -613,7 +625,11 @@ jobs:
                   SKILLS_TARBALL: ${{ env.SKILLS_TARBALL }}
                   AGENT_VERSION: ${{ steps.agent-version.outputs.version }}
                   BOX_CPUS: '4'
-                  BOX_MEM_MIB: '16384'
+                  # Both blank on the schedule -> fixed-size 20 GiB golden, unchanged.
+                  # A manual dispatch can bake a pluggable-memory golden (e.g. cap 32768
+                  # + boot 4096) without touching the scheduled path.
+                  BOX_MEM_MIB: ${{ inputs.box_mem_mib || '20480' }}
+                  BOX_MEM_BOOT_MIB: ${{ inputs.box_mem_boot_mib || '' }}
                   BOX_DISK_GIB: '64'
               run: |
                   set -euo pipefail
@@ -636,11 +652,15 @@ jobs:
 
             # Promote: re-point the live alias at the candidate's snapshot id. A
             # single alias PUT — atomic from any restoring caller's perspective.
-            - name: Promote candidate to default
+            - name: Promote candidate to the live alias
               id: promote
               if: env.skip != 'true'
               env:
                   CLUSTER: ${{ matrix.cluster }}
+                  # Blank -> the default golden every box restores from. A pluggable
+                  # bake sets this to a separate alias (e.g. posthog-tasks-hotplug) so
+                  # it never touches the default; the hotplug flag selects it per team.
+                  TARGET_ALIAS: ${{ inputs.target_alias || 'posthog-tasks-default' }}
               run: |
                   set -euo pipefail
                   SNAP_ID=$(hogland snapshot resolve posthog-tasks-candidate | jq -r .snapshot_id)
@@ -648,7 +668,7 @@ jobs:
                   # clean 409), so a transient collision must not fail the promote.
                   promoted=0
                   for attempt in 1 2 3 4 5; do
-                      if hogland snapshot alias "$SNAP_ID" posthog-tasks-default; then
+                      if hogland snapshot alias "$SNAP_ID" "$TARGET_ALIAS"; then
                           promoted=1
                           break
                       fi
@@ -656,7 +676,7 @@ jobs:
                       sleep $((attempt * 5))
                   done
                   if [[ "$promoted" != "1" ]]; then
-                      echo "::error::failed to repoint posthog-tasks-default after 5 attempts"
+                      echo "::error::failed to repoint $TARGET_ALIAS after 5 attempts"
                       exit 1
                   fi
                   # Confirm the live alias now resolves to our snapshot. This
@@ -664,9 +684,9 @@ jobs:
                   # catches a lost or overwritten alias write on THIS cluster — it
                   # does not prove the bake ran against the intended cluster (both
                   # the PUT and this read use the same matrix HOG_HOST).
-                  resolved=$(hogland snapshot resolve posthog-tasks-default | jq -r .snapshot_id)
+                  resolved=$(hogland snapshot resolve "$TARGET_ALIAS" | jq -r .snapshot_id)
                   if [[ "$resolved" != "$SNAP_ID" ]]; then
-                      echo "::error::posthog-tasks-default in cluster ${CLUSTER} resolves to ${resolved}, expected ${SNAP_ID}"
+                      echo "::error::$TARGET_ALIAS in cluster ${CLUSTER} resolves to ${resolved}, expected ${SNAP_ID}"
                       exit 1
                   fi
                   echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"

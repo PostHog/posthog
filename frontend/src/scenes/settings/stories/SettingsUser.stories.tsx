@@ -38,6 +38,7 @@ const meta: Meta<StoryProps> = {
                     realm: 'cloud',
                 },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/webauthn/credentials/': [],
                 '/api/users/@me/login_sessions/': [
                     {
                         id: '0190a1b2-0000-7000-8000-000000000001',
@@ -113,6 +114,84 @@ export const SettingsUserProfileHedgehogAvatar: Story = {
                 },
             },
         },
+    },
+}
+
+export const SettingsUserProfileStaleSession: Story = {
+    args: { sectionId: 'user-profile' },
+    parameters: {
+        msw: {
+            mocks: {
+                get: {
+                    '/api/users/@me/': () => [
+                        200,
+                        {
+                            ...MOCK_DEFAULT_USER,
+                            organization: {
+                                ...MOCK_DEFAULT_ORGANIZATION,
+                                available_product_features: getAvailableProductFeatures(),
+                            },
+                            sensitive_session_expires_at: '2023-05-24T00:00:00Z',
+                        },
+                    ],
+                },
+            },
+        },
+    },
+}
+
+const TWO_FACTOR_ENABLED_MOCKS = {
+    get: {
+        '/api/users/@me/two_factor_status/': () => [
+            200,
+            {
+                is_enabled: true,
+                method: 'TOTP',
+                has_totp: true,
+                has_passkeys: false,
+                passkeys_enabled_for_2fa: false,
+                backup_codes_remaining: 7,
+            },
+        ],
+    },
+    post: {
+        '/api/users/@me/two_factor_backup_codes/': () => [
+            200,
+            {
+                backup_codes: [
+                    'c0ffee01',
+                    'c0ffee02',
+                    'c0ffee03',
+                    'c0ffee04',
+                    'c0ffee05',
+                    'c0ffee06',
+                    'c0ffee07',
+                    'c0ffee08',
+                    'c0ffee09',
+                    'c0ffee10',
+                ],
+            },
+        ],
+    },
+}
+
+export const SettingsUserBackupCodesModal: Story = {
+    args: { sectionId: 'user-profile' },
+    parameters: { msw: { mocks: TWO_FACTOR_ENABLED_MOCKS } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText(/backup codes/i, { selector: 'button *' }))
+    },
+}
+
+export const SettingsUserBackupCodesModalGenerated: Story = {
+    args: { sectionId: 'user-profile' },
+    parameters: { msw: { mocks: TWO_FACTOR_ENABLED_MOCKS } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText(/backup codes/i, { selector: 'button *' }))
+        await userEvent.click(await within(document.body).findByText('Generate new codes'))
+        await within(document.body).findByText('c0ffee10')
     },
 }
 

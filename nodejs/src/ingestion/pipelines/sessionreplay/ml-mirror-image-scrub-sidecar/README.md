@@ -19,10 +19,13 @@ There is no batch time limit and no drop path: every message a poll batch takes 
 The waiting _is_ the backpressure. A batch that spends longer on a jammed sidecar calls `consume()` that much later, so the consumer paces itself to whatever the sidecar can execute without needing to pause partitions explicitly.
 Lag grows while that happens, which is correct and is what the drain-time panels on the dashboard are for.
 
-Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (50, against a default of 500).
+Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (150, against a default of 500).
+It is not smaller than that because every batch ends with a window drain, where the last few images finish unevenly while the other scrub slots idle, and a larger batch spreads that fixed cost over more images.
+The consumer caps the poll below the configured size so that every image can time out once at the sidecar and the batch still returns inside `max.poll.interval.ms`, with a fifth of the interval kept for the key read, the window drain and any wait on the write lane: with a 45s scrub timeout that is five waves of `SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY` images, 70 at the production concurrency of 14.
 A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
 Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
-If a revoke does land mid-batch, the batch stops as soon as a flush finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+If a revoke does land mid-batch, the batch stops as soon as a write finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+The S3 writes run behind the scrub of the next batches, so the batch duration the consumer reports covers the scrub plus any time the batch waited for the write lane to have room (`ml_mirror_image_scrub_consumer_write_wait_seconds`); `ml_mirror_image_scrub_consumer_write_duration_seconds` covers the writes themselves.
 
 A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
 
@@ -100,7 +103,8 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
-6. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+6. **Code redaction**: every QR/barcode that zxing decodes gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+   zxing reads the frame at the plan's code scale, which finds every code still decodable from the stored image.
 
 The goal is to protect data labellers and reduce PII exposure.
 It does not need to be perfect; the self-verifying test (below) keeps it honest.
@@ -114,13 +118,13 @@ The fill's edges are feathered by blurring the fill's _colour_ only, never the m
 All model inference and image processing run in optimized native libraries.
 The TypeScript is orchestration plus lightweight output decoding (over small downscaled maps, not full images):
 
-| Stage                              | Library            | Native engine        |
-| ---------------------------------- | ------------------ | -------------------- |
-| NSFW/gore classify (SwiftFormer)   | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Face detection (YuNet)             | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Text detection (DBNet / PP-OCRv3)  | `onnxruntime-node` | ONNX Runtime (C++)   |
-| QR/barcode detection               | `zxing-wasm`       | zxing-cpp (C++/wasm) |
-| resize / blur / composite / encode | `sharp`            | libvips (C++)        |
+| Stage                                  | Library            | Native engine        |
+| -------------------------------------- | ------------------ | -------------------- |
+| NSFW/gore classify (SwiftFormer)       | `onnxruntime-node` | ONNX Runtime (C++)   |
+| Face detection (YuNet)                 | `onnxruntime-node` | ONNX Runtime (C++)   |
+| Text detection (DBNet / PP-OCRv6 tiny) | `onnxruntime-node` | ONNX Runtime (C++)   |
+| QR/barcode detection                   | `zxing-wasm`       | zxing-cpp (C++/wasm) |
+| resize / blur / composite / encode     | `sharp`            | libvips (C++)        |
 
 We do not train anything and run no neural nets in JS.
 The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, tensor packing, mask fill), which runs over the small detection maps and is not the bottleneck.
@@ -162,6 +166,10 @@ dev/  (non-production)
   bench.ts scale.ts worker-proc.ts   latency + throughput benchmarks
   make-corpus.ts  synthetic screenshot corpus
   setup.ts        download ONNX models + sample test images (npm run setup)
+  text-det-bench.ts   text detector comparison: cost and per-word redaction recall, per model and canvas size
+  text-det-setup.ts text-det-corpus.ts text-det-quantize.py text-det-dynamic-hw.py   its models, labelled images and int8 builds
+  face-bench.ts   face detector comparison: YuNet variants and input sizes, cost and per-face redaction recall
+  code-bench.ts   code detector cost against zxing's input scale, and which codes stay decodable from the stored image
 
 fixtures/  committed eval fixtures (e.g. a retina Wikipedia page: dense text + a face)
 models/  test-data/  corpus/  out/   downloaded/generated by setup (gitignored)
@@ -193,7 +201,7 @@ The suite **gates** on session replay's representative domain (crisp rendered-UI
 
 ```text
 UI TEXT (gated):        31/31 clean, 0.0% leak   [PASS]   # rendered screenshots
-DOCUMENT TEXT (report): 19/20 clean, 2.7% worst  [report] # faint fax/scan print, out of domain
+DOCUMENT TEXT (report): 20/20 clean, 0.0% worst  [report] # faint fax/scan print, out of domain
 FACE:                   89/89 faces redacted (100%)
 ```
 
@@ -214,7 +222,9 @@ One rule sets every size: **each detector must see a subject at least `ratio` ti
 Anything still readable in the artifact was therefore large enough to have been found and filled.
 
 `ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
-Faces bind at 64/21 ≈ 3.05; text is 7/3 ≈ 2.33; codes constrain nothing, since a code degraded past decoding carries nothing.
+Faces bind at 64/21 ≈ 3.05; codes need 3, and text 4.3/3 ≈ 1.43.
+zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
+DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
 **`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
@@ -224,7 +234,7 @@ Setting the frame budget independently is what let two individually-reasonable s
 Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
 At the defaults a 1080p capture is stored at about 161x90.
 
-Re-derive the floors with `tsx dev/glyph-floor.ts` (text) and `tsx dev/floors.ts` (faces and codes); both read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
+Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
 ## Models are baked into the image
 

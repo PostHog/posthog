@@ -46,7 +46,6 @@ from posthog.tasks.tasks import (
     clickhouse_mutation_count,
     clickhouse_part_count,
     clickhouse_row_count,
-    clickhouse_send_license_usage,
     delete_expired_delegation_invites,
     delete_expired_exported_assets,
     fail_stuck_video_exports,
@@ -86,7 +85,7 @@ from products.approvals.backend.tasks import (
 from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
-from products.conversations.backend.tasks.slack import sweep_inbound_events
+from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
@@ -109,6 +108,7 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
+from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
@@ -922,17 +922,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.EE_AVAILABLE:
-        sender.add_periodic_task(
-            # The minute differs between installations so that they do not all call
-            # license.posthog.com in the same minute past midnight.
-            crontab(hour="0", minute=instance_spread_minute("send license usage", 40)),
-            clickhouse_send_license_usage.s(),
-        )
-        sender.add_periodic_task(
-            crontab(hour="4", minute=instance_spread_minute("send license usage retry", 40)),
-            clickhouse_send_license_usage.s(),
-        )  # again a few hours later just to make sure
-
         materialize_columns_crontab = get_crontab(settings.MATERIALIZE_COLUMNS_SCHEDULE_CRON)
 
         if materialize_columns_crontab:
@@ -1015,6 +1004,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     add_periodic_task_with_expiry(
         sender,
+        crontab(hour="2", minute="17"),
+        cleanup_widget_snapshots.s(),
+        name="remove unreferenced notebook widget snapshots",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",
@@ -1076,6 +1072,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         sweep_inbound_events.s(),
         name="sweep conversation inbound events",
+    )
+
+    # Re-drive due Slack outbound delivery parts. Celery on_commit is only a wake-up hint.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sweep_delivery_parts.s(),
+        name="sweep conversation delivery parts",
     )
 
     # Pull ambient messages from MS Teams shared channels (which never push them

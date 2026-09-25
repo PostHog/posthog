@@ -79,3 +79,27 @@ class TestExperimentAdmin(BaseTest):
         if run is not None:
             assert run.trigger == ExperimentMetricsRecalculation.Trigger.MANUAL
             assert str(run.pk) in response.url
+
+    def test_migrate_experiment_view_creates_a_new_engine_copy(self) -> None:
+        Experiment.objects.filter(pk=self.draft.pk).update(
+            metrics=[
+                {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                }
+            ]
+        )
+        request = RequestFactory().post("/")
+        request.user = self.user
+        request.session = SessionStore()
+        request._messages = FallbackStorage(request)  # type: ignore[attr-defined]
+
+        response = self.model_admin.migrate_experiment(request, str(self.draft.pk))
+
+        self.draft.refresh_from_db()
+        assert self.draft.stats_config is not None
+        migrated_to = self.draft.stats_config["migrated_to"]
+        assert str(migrated_to) in response.url
+        migrated_metrics = Experiment.objects.get(pk=migrated_to).metrics
+        assert migrated_metrics is not None
+        assert migrated_metrics[0]["kind"] == "ExperimentMetric"

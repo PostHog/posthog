@@ -1035,7 +1035,7 @@ describe('ML session key batches', () => {
             const batcher = new BlockMetadataBatcher(
                 new BlockMetadataParquetStore(
                     { send: upload } as unknown as S3Client,
-                    'ml-bucket',
+                    { v2: 'ml-bucket', v3: 'ml-bucket-v3' },
                     'block-metadata',
                     'pod'
                 ),

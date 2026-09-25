@@ -1,14 +1,11 @@
 import type { Schemas } from '@/api/generated'
 import {
-    extractQueryTokens,
     formatLearnDocument,
     formatLearnFile,
     type LearnSearchResult,
     type LearnSearchSnippet,
     makeSkillFile,
-    MIN_STEM_VARIANT_LENGTH,
     readLearnLines,
-    scoreProjectSearchResult,
     searchLearnFile,
     type SkillFile,
 } from '@/skills/skill-catalog'
@@ -18,8 +15,6 @@ const PROJECT_SKILL_LIST_PAGE_SIZE = 100
 const PROJECT_SKILL_LIST_LIMIT = 200
 // Matches MAX_SKILL_BODY_BYTES in products/skills/backend/api/skill_serializers.py.
 const MAX_PROJECT_SKILL_BODY_BYTES = 1_000_000
-// Zero-hit fallback fan-out: at most this many single-token backend searches, longest tokens first.
-const MAX_FALLBACK_SEARCH_TOKENS = 3
 
 export interface ProjectSkillList {
     count: number
@@ -86,72 +81,15 @@ export class ProjectSkillCatalog {
 
     async searchResults(query: string): Promise<LearnSearchResult[]> {
         const response = await this.search(query)
-        const results = response.results.map((skill) =>
-            this.toSearchResult(query, skill.name, skill.description, skill.matches)
+        return response.results.map((skill) =>
+            this.toSearchResult(skill.name, skill.description, skill.score, skill.matches)
         )
-        if (results.length > 0) {
-            return results
-        }
-        // The backend icontains-matches the WHOLE query, so a natural multi-word query returns
-        // nothing even when a skill's body or bundled files match individual words — which would
-        // bias the cross-source merge against project skills, since PostHog skills are searched
-        // locally over full content. Recover cheapest-first: bounded per-token backend searches
-        // (these do reach body/file content), then a purely local rank of the memoized listing.
-        const tokenResults = await this.searchByTokens(query)
-        if (tokenResults.length > 0) {
-            return tokenResults
-        }
-        return await this.rankListing(query)
-    }
-
-    /**
-     * Whole-query backend search yielded nothing: retry with a few informative single tokens so
-     * body/file-content matches surface. Each token search runs independently — a failing one must
-     * not sink the fallback — and hits are merged by skill name, then scored against the ORIGINAL
-     * full query so cross-source merge ordering stays consistent.
-     */
-    private async searchByTokens(query: string): Promise<LearnSearchResult[]> {
-        const tokens = informativeSearchTokens(query)
-        if (tokens.length === 0) {
-            return []
-        }
-        const responses = await Promise.allSettled(tokens.map((token) => this.search(token)))
-        const merged = new Map<string, { description: string; matches: Schemas.LLMSkillSearchMatch[] }>()
-        for (const outcome of responses) {
-            if (outcome.status !== 'fulfilled') {
-                continue
-            }
-            for (const skill of outcome.value.results) {
-                const existing = merged.get(skill.name)
-                if (existing) {
-                    existing.matches.push(...skill.matches)
-                } else {
-                    merged.set(skill.name, { description: skill.description, matches: [...skill.matches] })
-                }
-            }
-        }
-        return [...merged.entries()].map(([name, { description, matches }]) =>
-            this.toSearchResult(query, name, description, matches)
-        )
-    }
-
-    /** Last-resort local rank of the memoized listing (name + description only) when even per-token search finds nothing. */
-    private async rankListing(query: string): Promise<LearnSearchResult[]> {
-        const { skills } = await this.list()
-        return skills
-            .map((skill) => ({
-                identifier: `project:${skill.name}`,
-                description: skill.description,
-                snippets: [] as LearnSearchSnippet[],
-                score: scoreProjectSearchResult(query, skill.name, skill.description, []),
-            }))
-            .filter((result) => result.score > 0)
     }
 
     private toSearchResult(
-        query: string,
         name: string,
         description: string,
+        score: number,
         matches: readonly Schemas.LLMSkillSearchMatch[]
     ): LearnSearchResult {
         return {
@@ -169,13 +107,7 @@ export class ProjectSkillCatalog {
                         text: match.excerpt,
                     }))
             ),
-            // Scored client-side so project and PostHog results merge into one relevance order.
-            score: scoreProjectSearchResult(
-                query,
-                name,
-                description,
-                matches.map((match) => match.matched_field)
-            ),
+            score,
         }
     }
 
@@ -307,17 +239,6 @@ export class ProjectSkillCatalog {
         cache.set(key, promise)
         return promise
     }
-}
-
-/**
- * Informative single tokens for the zero-hit per-token fallback: the scorer's own tokenization,
- * dropping tokens too short to be selective, longest first (more specific), capped for fan-out.
- */
-function informativeSearchTokens(query: string): string[] {
-    return extractQueryTokens(query)
-        .filter((token) => token.length >= MIN_STEM_VARIANT_LENGTH)
-        .sort((left, right) => right.length - left.length)
-        .slice(0, MAX_FALLBACK_SEARCH_TOKENS)
 }
 
 function dedupeSnippets(snippets: LearnSearchSnippet[]): LearnSearchSnippet[] {

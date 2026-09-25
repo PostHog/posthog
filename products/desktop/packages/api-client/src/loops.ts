@@ -22,6 +22,8 @@ export namespace LoopSchemas {
     | "run_completed"
     | "run_failed"
     | "pr_created"
+    | "pr_merged"
+    | "pr_closed"
     | "needs_attention";
   export type LoopGithubTriggerEventEnum =
     | "issues"
@@ -103,15 +105,15 @@ export namespace LoopSchemas {
 
   /** The context (a "#channel" / desktop folder) a loop is attached to, plus what it maintains. */
   export type LoopContextTarget = {
-    /** Desktop folder id of the attached context. */
-    folder_id: string;
+    /** Id of the channel (space) the loop is attached to. */
+    channel_id: string;
     /** Context (channel) name, used to file runs into its feed. */
     name: string;
     outputs: LoopContextOutputs;
   };
 
   export type LoopContextTargetWrite = {
-    folder_id: string;
+    channel_id: string;
     name: string;
     outputs?: LoopContextOutputsWrite;
   };

@@ -9,8 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AIContextAccountPropertyApi,
     AIReplyPlaybookApi,
     AiFeedbackRequestApi,
+    AiHumanOutcomeRequestApi,
     BulkUpdateStatusRequestApi,
     BulkUpdateStatusResponseApi,
     BulkUpdateTagsUUIDRequestApi,
@@ -29,7 +31,9 @@ import type {
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
+    TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
     TicketViewApi,
     ZendeskImportJobApi,
@@ -52,6 +56,23 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getConversationsAiContextAccountPropertiesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/ai_context_account_properties/`
+}
+
+/**
+ * Account-target Customer analytics properties that can be included in AI reply context. Capped at the first 500 properties by name.
+ */
+export const conversationsAiContextAccountPropertiesList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AIContextAccountPropertyApi[]> => {
+    return apiMutator<AIContextAccountPropertyApi[]>(getConversationsAiContextAccountPropertiesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getConversationsAiReplyPlaybookRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/conversations/ai_reply_playbook/`
@@ -193,6 +214,27 @@ export const conversationsTicketsAiFeedbackCreate = async (
     })
 }
 
+export const getConversationsTicketsAiHumanOutcomeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/ai_human_outcome/`
+}
+
+/**
+ * Record that a human used or edited the latest AI draft.
+ */
+export const conversationsTicketsAiHumanOutcomeCreate = async (
+    projectId: string,
+    id: string,
+    aiHumanOutcomeRequestApi: AiHumanOutcomeRequestApi,
+    options?: RequestInit
+): Promise<AiHumanOutcomeRequestApi> => {
+    return apiMutator<AiHumanOutcomeRequestApi>(getConversationsTicketsAiHumanOutcomeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aiHumanOutcomeRequestApi),
+    })
+}
+
 export const getConversationsTicketsMessagesListUrl = (
     projectId: string,
     id: string,
@@ -252,6 +294,30 @@ export const conversationsTicketsMessagesFullEmailRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getConversationsTicketsNotesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/notes/`
+}
+
+/**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const conversationsTicketsNotesCreate = async (
+    projectId: string,
+    id: string,
+    ticketNoteCreateRequestApi: TicketNoteCreateRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsNotesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketNoteCreateRequestApi),
+    })
 }
 
 export const getConversationsTicketsNotesPartialUpdateUrl = (projectId: string, id: string, messageId: string) => {
@@ -428,12 +494,13 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
  * callers without object-level ticket restrictions, since it holds one unscoped total
  * per team - serving it to a restricted member would leak counts for tickets they can't
  * see.
+ * @summary Count unread tickets
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
+): Promise<TicketUnreadCountResponseApi> => {
+    return apiMutator<TicketUnreadCountResponseApi>(getConversationsTicketsUnreadCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

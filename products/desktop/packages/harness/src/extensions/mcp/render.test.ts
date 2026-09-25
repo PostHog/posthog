@@ -273,6 +273,26 @@ describe("renderMcpProxyResult", () => {
       expect(text).toBe("demo \u2192 echo\necho: hi");
     });
 
+    it("strips terminal control sequences from the title", () => {
+      const text = renderText(
+        renderMcpProxyResult(
+          {
+            content: [{ type: "text", text: "echo: hi" }],
+            details: {
+              kind: "call",
+              server: "demo",
+              tool: "echo",
+              piName: "mcp_demo_echo",
+              title: "\u001b]52;c;ZW52aW4=\u0007Evil\u001b[2m title",
+            },
+          },
+          resultOptions(),
+          fakeTheme,
+        ),
+      );
+      expect(text).toBe("demo \u2192 Evil title\necho: hi");
+    });
+
     it("truncates long output when collapsed, shows it all expanded", () => {
       const bigOutput = Array.from({ length: 30 }, (_, i) => `line ${i}`).join(
         "\n",

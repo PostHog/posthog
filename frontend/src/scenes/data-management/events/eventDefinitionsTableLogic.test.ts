@@ -273,14 +273,14 @@ describe('eventDefinitionsTableLogic', () => {
                 [propertiesStartingUrl]: expect.objectContaining({
                     count: 5,
                 }),
-                [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: expect.objectContaining(
+                [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: expect.objectContaining(
                     mockEvent.properties
                 ),
             })
 
             expect(api.get).toHaveBeenCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
-            expect(api.get).toHaveBeenNthCalledWith(2, `api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
+            expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
             expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
 
             await expectLogic(logic, () => {

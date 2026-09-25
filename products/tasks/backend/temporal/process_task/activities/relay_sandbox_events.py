@@ -53,6 +53,7 @@ from ee.hogai.sandbox import (
     is_turn_complete,
     pi_turn_error,
     turn_complete_trace_id,
+    turn_completed_successfully,
 )
 
 logger = structlog.get_logger(__name__)
@@ -545,6 +546,11 @@ async def _relay_loop(
                                         )
                                     else:
                                         await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
+                                        await _signal_safely(
+                                            workflow_handle,
+                                            "agent_turn_completed",
+                                            arg=turn_completed_successfully(event_data),
+                                        )
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if not turn_failed and task_run is not None and task_run.mode == "interactive":

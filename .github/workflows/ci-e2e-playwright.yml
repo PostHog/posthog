@@ -166,6 +166,8 @@ jobs:
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
+                        # The personhog gRPC stubs the backend's person reads go through
+                        - 'packages/personhog-proto/**'
                         - 'bin/*'
                         - frontend/**/*
                         - package.json

@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.
     METRONOME_ENDPOINTS,
     USAGE_DAILY_LOOKBACK_SECONDS,
     USAGE_HOURLY_LOOKBACK_SECONDS,
+    usage_history_window,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.source import MetronomeSource
 
@@ -433,11 +434,11 @@ class TestMetronomeSourceResponse:
                 "2026-03-14T00:00:00Z",
             ),
             (
-                "a_first_sync_starts_where_the_schema_recorded_its_range",
+                "a_first_sync_reaches_back_by_the_configured_depth",
                 "usage_daily",
                 None,
-                datetime(2025, 12, 1, 6, 30, tzinfo=UTC),
-                "2025-12-01T00:00:00Z",
+                timedelta(days=90),
+                "2026-06-05T00:00:00Z",
             ),
             (
                 "an_unrecorded_first_sync_falls_back_to_the_daily_bound",
@@ -465,7 +466,7 @@ class TestMetronomeSourceResponse:
     )
     @patch(f"{TRANSPORT}._parallel_usage_pages")
     def test_bucketed_usage_window_starts_where_the_table_left_off(
-        self, _name, endpoint, watermark, history_start, expected_start, mock_parallel
+        self, _name, endpoint, watermark, usage_history, expected_start, mock_parallel
     ) -> None:
         # An unaligned lower bound asks Metronome for part of a period the table already holds, and
         # the partial aggregate that comes back upserts as a second row, because the period start
@@ -478,7 +479,7 @@ class TestMetronomeSourceResponse:
                 job_id="job-1",
                 should_use_incremental_field=watermark is not None,
                 db_incremental_field_last_value=watermark,
-                history_start=history_start,
+                usage_history=usage_history,
             ).items()
 
         body = mock_parallel.call_args.args[2]
@@ -731,16 +732,26 @@ class TestMetronomeSchemas:
     def test_the_usage_history_window_follows_the_source_setting(
         self, _name, schema_name, hourly, daily, expected_days
     ) -> None:
-        source = MetronomeSource()
-        config = source.parse_config(
-            {"api_key": "tok", "usage_hourly_history_days": hourly, "usage_daily_history_months": daily}
-        )
-
-        window = source.history_lookback_for_schema(schema_name, config)
+        window = usage_history_window(schema_name, hourly, daily)
 
         assert window == (timedelta(days=expected_days) if expected_days is not None else None)
 
-    def test_an_unreadable_config_leaves_the_defaults(self) -> None:
-        # `history_start_for_schema` passes None when the source's inputs no longer parse, and a
-        # table whose depth it cannot read must still be bounded.
-        assert MetronomeSource().history_lookback_for_schema("usage_hourly", None) == timedelta(days=30)
+    @patch(f"{TRANSPORT}._parallel_usage_pages")
+    def test_a_depth_the_user_edits_reaches_the_request(self, mock_parallel) -> None:
+        # The depth is a source setting the user can change after the first sync. Reading it per run
+        # is what makes an edit take effect; recording it once left the edit saved and inert.
+        source = MetronomeSource()
+        config = source.parse_config({"api_key": "tok", "usage_daily_history_months": 3})
+        inputs = MagicMock(
+            schema_name="usage_daily",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+
+        with time_machine.travel(NOW, tick=False):
+            source.source_for_pipeline(config, MagicMock(can_resume=lambda: False), inputs).items()
+
+        assert mock_parallel.call_args.args[2]["starting_on"] == "2026-06-04T00:00:00Z"

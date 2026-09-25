@@ -97,6 +97,11 @@
                     },
                     "type": "array"
                 },
+                "includeImpact": {
+                    "default": false,
+                    "description": "Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches.",
+                    "type": "boolean"
+                },
                 "limit": {
                     "description": "Max rows to return, ordered by total_duration_nano DESC. Defaults to 100; hard max 5000. Keep this small to bound the response size — a high value on high-cardinality span names (e.g. untemplated URL paths) returns a very large payload. Prefer narrowing with `serviceNames`/`filterGroup` over raising the limit.",
                     "maximum": 5000,
