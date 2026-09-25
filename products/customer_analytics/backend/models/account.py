@@ -1,4 +1,3 @@
-from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import JSONField, Q
@@ -103,6 +102,18 @@ class Account(Taggable, TeamScopedRootMixin, UUIDModel, CreatedMetaFields, Updat
         self._properties = validated.model_dump(mode="json")
 
 
+ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE = (
+    "You can't change the account group type once this project has accounts. Delete the existing accounts first."
+)
+
+
+def account_group_type_index_drift_blocked(team_id: int, previous_index: int | None, new_index: int | None) -> bool:
+    if previous_index is None or previous_index == new_index:
+        return False
+
+    return Account.objects.unscoped().filter(team_id=team_id).exists()
+
+
 @receiver(pre_save, sender="customer_analytics.TeamCustomerAnalyticsConfig")
 def _enforce_account_group_type_index_drift_policy(sender, instance, **kwargs) -> None:
     if instance.pk is None:
@@ -113,9 +124,5 @@ def _enforce_account_group_type_index_drift_policy(sender, instance, **kwargs) -
         return
 
     previous = sender.objects.filter(pk=instance.pk).values_list("account_group_type_index", flat=True).first()
-    if previous is None or previous == instance.account_group_type_index:
-        return
-
-    AccountModel = apps.get_model("customer_analytics", "Account")
-    if AccountModel.objects.unscoped().filter(team_id=instance.team_id).exists():
-        raise ValidationError("Cannot change account_group_type_index once accounts exist for this team")
+    if account_group_type_index_drift_blocked(instance.team_id, previous, instance.account_group_type_index):
+        raise ValidationError(ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE)

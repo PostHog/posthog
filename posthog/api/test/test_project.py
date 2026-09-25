@@ -24,7 +24,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
-from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.facade.team_extension import (
+    ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE,
+    TeamCustomerAnalyticsConfig,
+)
+from products.customer_analytics.backend.facade.testing import create_account
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
@@ -1104,6 +1108,25 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+
+    def test_customer_analytics_config_rejects_account_group_type_index_drift(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        config.account_group_type_index = 0
+        config.save(update_fields=["account_group_type_index"])
+        create_account(team_id=self.team.pk)
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"account_group_type_index": 1}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn(ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE, response.json()["detail"])
+        config.refresh_from_db()
+        self.assertEqual(config.account_group_type_index, 0)
 
     def test_customer_analytics_config_save_keeps_track_rules_written_meanwhile(self):
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)

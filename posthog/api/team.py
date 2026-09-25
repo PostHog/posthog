@@ -123,7 +123,11 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
-from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.facade.team_extension import (
+    ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE,
+    TeamCustomerAnalyticsConfig,
+    account_group_type_index_drift_blocked,
+)
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -1067,6 +1071,20 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     @staticmethod
     def validate_account_group_type_index(value):
         return validate_group_type_index("account_group_type_index", value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if (
+            self.instance is not None
+            and "account_group_type_index" in attrs
+            and account_group_type_index_drift_blocked(
+                self.instance.team_id,
+                self.instance.account_group_type_index,
+                attrs["account_group_type_index"],
+            )
+        ):
+            raise serializers.ValidationError({"account_group_type_index": ACCOUNT_GROUP_TYPE_INDEX_DRIFT_MESSAGE})
+        return attrs
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
