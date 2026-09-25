@@ -39,7 +39,9 @@ on:
         # The events_json leg runs wherever the legacy tests run, the hourly master run
         # included: the paths in .github/new-events-schema-targets.txt rerun against the
         # native-JSON events table, all of them on full runs and the reached ones on
-        # narrowed runs. The `test-new-events-schema` label opts a PR into the doubled
+        # narrowed runs. A PR whose product-only change forced the full run reruns only
+        # that product's paths, because the merge queue runs the whole list before merge.
+        # The `test-new-events-schema` label opts a PR into the doubled
         # matrices that run the whole suite in both events schemas, in place of that leg.
         # Apply it before a push or ready_for_review because label events do not start
         # this workflow. Manual dispatches also run both modes.
@@ -2838,6 +2840,7 @@ jobs:
                       json_targets_count="$JSON_TARGETS_FULL_SHARDS"
                       if [[ -n "$JSON_TARGETS_SHARDS" ]] && (( JSON_TARGETS_SHARDS < json_targets_count )); then
                           json_targets_count="$JSON_TARGETS_SHARDS"
+                          echo "::notice::Discovery shortened the events_json list to $json_targets_count shard(s)"
                       fi
 
                       # The legacy-mode safeguard leg runs only where a regression must not

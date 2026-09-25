@@ -2613,6 +2613,7 @@ jobs:
                       json_targets_count="$JSON_TARGETS_FULL_SHARDS"
                       if [[ -n "$JSON_TARGETS_SHARDS" ]] && (( JSON_TARGETS_SHARDS < json_targets_count )); then
                           json_targets_count="$JSON_TARGETS_SHARDS"
+                          echo "::notice::Discovery shortened the events_json list to $json_targets_count shard(s)"
                       fi
 
                       # The legacy-mode safeguard leg runs only where a regression must not

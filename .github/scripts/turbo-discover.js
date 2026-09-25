@@ -1364,6 +1364,10 @@ function narrowedJsonTargetsShards(paths, durations) {
     if (paths.length === 0) {
         return 0
     }
+    // Without durations the work reads as zero, which would size the list to one shard.
+    if (!durations) {
+        return DJANGO_FALLBACK_SHARDS.JsonTargets
+    }
     return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
 }
 
@@ -1522,6 +1526,8 @@ module.exports = {
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
+    DJANGO_FALLBACK_SHARDS,
+    narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
     collectTestFiles,
@@ -1615,7 +1621,9 @@ if (legacyChanged) {
         products = allProducts
         runLegacy = true
         runLegacyReason = 'non_isolated_product'
-        diffProducts = affectedProducts
+        // Products that import the changed product's internals keep their events_json paths too.
+        const dependents = tachDependentProducts(nonIsolatedAffectedProducts, allProductSet)
+        diffProducts = dependents === null ? null : [...new Set([...affectedProducts, ...dependents])].sort()
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
