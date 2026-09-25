@@ -30,7 +30,17 @@ from products.tasks.backend.facade.usage import task_run_usage_limited
 
 
 class Command(BaseCommand):
-    help = "Restart research for one ready signal report, then request a fresh implementation run if it remains actionable."
+    help = "Restart research for one completed signal report, then request a fresh implementation run if it remains actionable."
+
+    researchable_statuses = frozenset(
+        {
+            SignalReport.Status.POTENTIAL,
+            SignalReport.Status.PENDING_INPUT,
+            SignalReport.Status.READY,
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.FAILED,
+        }
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
@@ -72,8 +82,8 @@ class Command(BaseCommand):
         report = SignalReport.objects.select_related("team").filter(team_id=team_id, id=report_id).first()
         if report is None:
             raise CommandError("The report does not exist in the requested team")
-        if report.status != SignalReport.Status.READY or report.signal_count < 1:
-            raise CommandError("The report must be ready and have at least one signal")
+        if report.status not in self.researchable_statuses or report.signal_count < 1:
+            raise CommandError("The report must be inactive and have at least one signal")
         user = User.objects.filter(id=user_id, is_active=True, organization__id=report.team.organization_id).first()
         if user is None or UserPermissions(user=user, team=report.team).current_team.effective_membership_level is None:
             raise CommandError("The requested user cannot access the report's project")
@@ -119,13 +129,17 @@ class Command(BaseCommand):
             )
             return
 
+        previous_status = report.status
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
-            if report.status != SignalReport.Status.READY or pending_replacement(team_id, report_id) is not None:
+            if report.status != previous_status or pending_replacement(team_id, report_id) is not None:
                 raise CommandError("The report changed before research could start")
             previous_promoted_at = report.promoted_at
             previous_run_count = report.run_count
-            update_fields = report.transition_to(SignalReport.Status.CANDIDATE)
+            update_fields = set()
+            if report.status not in {SignalReport.Status.POTENTIAL, SignalReport.Status.READY}:
+                update_fields.update(report.transition_to(SignalReport.Status.POTENTIAL))
+            update_fields.update(report.transition_to(SignalReport.Status.CANDIDATE))
             report.save(update_fields=update_fields)
             promoted_at = report.promoted_at
 
@@ -153,12 +167,14 @@ class Command(BaseCommand):
             with transaction.atomic():
                 current = SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
                 if current.status == SignalReport.Status.CANDIDATE and current.promoted_at == promoted_at:
-                    current.status = SignalReport.Status.READY
+                    current.status = previous_status
                     current.promoted_at = previous_promoted_at
                     current.save(update_fields=["status", "promoted_at"])
                     restored = True
             if restored:
-                raise CommandError(f"Could not start {workflow_id}; restored the report to ready") from error
+                raise CommandError(
+                    f"Could not start {workflow_id}; restored the report to {previous_status}"
+                ) from error
             raise CommandError(
                 f"Workflow start was uncertain and the report advanced. Inspect {workflow_id}"
             ) from error

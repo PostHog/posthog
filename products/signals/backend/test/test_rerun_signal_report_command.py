@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+from parameterized import parameterized
+
 from products.signals.backend.management.commands.rerun_signal_report import Command
 from products.signals.backend.models import SignalReport
 
@@ -61,11 +63,22 @@ class TestRerunSignalReportCommand(BaseTest):
         assert self.report.status == SignalReport.Status.READY
         start.assert_not_awaited()
 
+    @parameterized.expand(
+        [
+            ("ready", SignalReport.Status.READY),
+            ("failed", SignalReport.Status.FAILED),
+            ("pending_input", SignalReport.Status.PENDING_INPUT),
+            ("resolved", SignalReport.Status.RESOLVED),
+            ("potential", SignalReport.Status.POTENTIAL),
+        ]
+    )
     @patch.object(Command, "_start_workflow", new_callable=AsyncMock)
     @patch.object(Command, "_workflow_is_running", new_callable=AsyncMock, return_value=False)
     def test_execute_starts_fresh_research_with_implementation_request(
-        self, _running: AsyncMock, start: AsyncMock
+        self, _name: str, status: SignalReport.Status, _running: AsyncMock, start: AsyncMock
     ) -> None:
+        self.report.status = status
+        self.report.save(update_fields=["status"])
         assert "Started research" in self.command(execute=True)
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.CANDIDATE
@@ -87,14 +100,19 @@ class TestRerunSignalReportCommand(BaseTest):
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.READY
 
+    @parameterized.expand([("ready", SignalReport.Status.READY), ("failed", SignalReport.Status.FAILED)])
     @patch.object(Command, "_start_workflow", new_callable=AsyncMock, side_effect=RuntimeError("start failed"))
     @patch.object(Command, "_workflow_is_running", new_callable=AsyncMock, return_value=False)
-    def test_failed_workflow_start_restores_ready_status(self, _running: AsyncMock, _start: AsyncMock) -> None:
+    def test_failed_workflow_start_restores_original_status(
+        self, _name: str, status: SignalReport.Status, _running: AsyncMock, _start: AsyncMock
+    ) -> None:
+        self.report.status = status
+        self.report.save(update_fields=["status"])
         try:
             self.command(execute=True)
         except CommandError as error:
-            assert "restored the report to ready" in str(error)
+            assert f"restored the report to {status}" in str(error)
         else:
             raise AssertionError("A failed workflow start appeared successful")
         self.report.refresh_from_db()
-        assert self.report.status == SignalReport.Status.READY
+        assert self.report.status == status

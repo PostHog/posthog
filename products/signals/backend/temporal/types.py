@@ -185,7 +185,7 @@ class ReadSignalsFromS3Output:
     signals: list["EmitSignalInputs"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 
