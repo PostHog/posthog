@@ -2,6 +2,7 @@ import json
 import time
 import uuid
 import typing as t
+import inspect
 from datetime import date, timedelta
 from typing import Any, cast
 
@@ -14067,6 +14068,22 @@ class TestGetDirectConnectionMetadata(SimpleTestCase):
 
         self.assertEqual(result, {})
         mock_capture.assert_called_once_with(error)
+
+    def test_every_source_metadata_fetcher_accepts_require_ssl(self):
+        # The fetcher is always called with `require_ssl`, but the source classes are duck-typed
+        # with no shared signature. A source that omits the keyword raises a TypeError, which the
+        # caller swallows, so the source saves with empty connection metadata and stays silent.
+        sources_missing_keyword = []
+        for source_type, source in SourceRegistry.get_all_sources().items():
+            fetcher = getattr(source, "get_connection_metadata", None)
+            if not callable(fetcher):
+                continue
+            try:
+                inspect.signature(fetcher).bind(Mock(), 1, require_ssl=True)
+            except TypeError:
+                sources_missing_keyword.append(str(source_type))
+
+        self.assertEqual(sources_missing_keyword, [])
 
 
 class TestHasPreservedCredentials(SimpleTestCase):
