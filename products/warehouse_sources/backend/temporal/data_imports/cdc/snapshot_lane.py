@@ -13,6 +13,7 @@ imports, so the schema API can call it.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
@@ -139,12 +140,18 @@ def cancel_sync_that_could_hand_over(schema: ExternalDataSchema) -> bool:
     return cancel_running_sync(schema) is not None or has_queued_batches(schema)
 
 
-def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> bool:
+def hand_reset_to_capture_if_sync_running(
+    schema: ExternalDataSchema, logger: FilteringBoundLogger, *, awaiting_slot: bool = False
+) -> bool:
     """Leave a CDC table's reset to capture while a sync of it could still hand over. Returns whether it did.
 
     When no sync can, returns False, and the caller resets the table now. Otherwise the schedule is
     paused and the reset marked pending, and capture finishes it once the sync stops. A failed check
     hands the reset over too, because capture retries it.
+
+    `awaiting_slot` holds the staged reset back until a capture run has read the slot. Repair CDC
+    hands its resets over before it recreates the slot, and a capture run that fires in between
+    would otherwise start the snapshot against the dead one.
     """
     # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
@@ -164,7 +171,9 @@ def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: Fi
         # Capture pauses the schedule again before it resets the table.
         logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
 
-    persisted = update_sync_type_config_keys(schema.id, schema.team_id, mutate=stage_handed_over_reset)
+    persisted = update_sync_type_config_keys(
+        schema.id, schema.team_id, mutate=partial(stage_handed_over_reset, awaiting_slot=awaiting_slot)
+    )
     # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
     schema.sync_type_config = {
         **(schema.sync_type_config or {}),
@@ -185,7 +194,7 @@ def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: Fi
     return True
 
 
-def stage_handed_over_reset(config: dict[str, Any]) -> None:
+def stage_handed_over_reset(config: dict[str, Any], *, awaiting_slot: bool = False) -> None:
     """Stage a request's reset for capture. Read under the row lock.
 
     Merged, not replaced: a reset already waiting on a slot must keep waiting, or the snapshot this
@@ -195,6 +204,8 @@ def stage_handed_over_reset(config: dict[str, Any]) -> None:
     fields = dict(current) if isinstance(current, dict) else {}
     fields["clear_deferred_runs"] = True
     fields["trigger"] = True
+    if awaiting_slot:
+        fields["awaiting_slot"] = True
     fields["generation"] = next_reset_generation(fields)
     config[CDC_RESET_PENDING_KEY] = fields
 

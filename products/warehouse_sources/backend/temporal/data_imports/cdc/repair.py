@@ -119,7 +119,13 @@ def _repair_locked(source: ExternalDataSource) -> int:
     _cancel_running_cdc_jobs(source, all_cdc_schemas, log)
     # A sync that hands over after its table's reset leaves the reset pending on a streaming table,
     # whose next run wipes it. Capture finishes those resets once the syncs stop, after this repair.
-    handed_over = {schema.id for schema in all_cdc_schemas if hand_reset_to_capture_if_sync_running(schema, log)}
+    # They wait for the slot as well, because the one they would snapshot against is gone until
+    # `recreate_slot` below, and a capture run firing meanwhile must not start that snapshot.
+    handed_over = {
+        schema.id
+        for schema in all_cdc_schemas
+        if hand_reset_to_capture_if_sync_running(schema, log, awaiting_slot=True)
+    }
     reset_now = [schema for schema in cdc_schemas if schema.id not in handed_over]
 
     # Reset schemas before touching the slot (same ordering as the extraction activity's
