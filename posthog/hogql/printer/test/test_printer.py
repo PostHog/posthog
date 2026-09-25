@@ -5020,6 +5020,26 @@ class TestPrinter(BaseTest):
                 "SELECT event FROM events WHERE nullIf(event, '') NOT IN (SELECT event FROM events WHERE event = 'signup')",
                 "ifNull(globalNotIn(",
             ),
+            (
+                "in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalIn(",
+            ),
+            (
+                "not_in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id NOT IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalNotIn(",
+            ),
+            (
+                "in_console_logs_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries WHERE message ILIKE '%error%')",
+                "globalIn(",
+            ),
+            (
+                "in_batch_export_log_entries_subquery",
+                "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
+                "globalIn(",
+            ),
         ]
     )
     def test_sharded_in_subqueries_promoted_to_global(self, _name, select, expected):
@@ -5038,6 +5058,14 @@ class TestPrinter(BaseTest):
         printed = self._select(select)
         assert "globalIn" not in printed, f"did not expect globalIn in:\n{printed}"
         assert "globalNotIn" not in printed, f"did not expect globalNotIn in:\n{printed}"
+
+    def test_console_logs_lazy_join_is_global(self):
+        # log_entries lives on the aux cluster; a plain join would re-run the log_entries
+        # subquery against aux once per shard of the session_replay_events scan.
+        printed = self._select(
+            "SELECT session_id FROM raw_session_replay_events WHERE console_logs.message = 'error' LIMIT 10"
+        )
+        assert "GLOBAL LEFT JOIN" in printed, f"expected GLOBAL LEFT JOIN in:\n{printed}"
 
     @parameterized.expand(
         [

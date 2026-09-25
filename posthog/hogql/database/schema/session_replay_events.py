@@ -174,7 +174,9 @@ def join_with_console_logs_log_entries_table(
     )
 
     join_expr = ast.JoinExpr(table=select_query)
-    join_expr.join_type = "LEFT JOIN"
+    # GLOBAL: log_entries is a Distributed over the aux cluster. A plain join re-runs this
+    # subquery on every shard of the session_replay_events scan, each issuing its own aux read.
+    join_expr.join_type = "GLOBAL LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
