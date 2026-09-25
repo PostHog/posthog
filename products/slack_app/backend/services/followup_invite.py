@@ -14,7 +14,16 @@ from products.slack_app.backend.services.slack_scopes import bot_is_ready
 BOT_SETUP_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 
-def build_followup_invite_text(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> str | None:
+DEFAULT_INVITE_SUBJECT = "this report"
+
+
+def build_followup_invite_text(
+    integration: Integration | None,
+    *,
+    utm_tags: str,
+    ai_enabled: bool,
+    subject: str = DEFAULT_INVITE_SUBJECT,
+) -> str | None:
     """mrkdwn nudging the channel to @PostHog this report (or to set the bot up).
 
     Returns ``None`` when there's no Slack install or the org hasn't approved AI data processing —
@@ -28,20 +37,30 @@ def build_followup_invite_text(integration: Integration | None, *, utm_tags: str
 
     ``utm_tags`` attributes an install that starts from the setup link, so each caller passes the
     campaign that names its own surface.
+
+    ``subject`` names what the reader would be asking about, for a surface that isn't a report.
+    The unfurl path passes the resource it just expanded, so the line reads "dig into this
+    dashboard" rather than naming a report the reader never saw.
     """
     if integration is None or not ai_enabled:
         return None
     if bot_is_ready(integration):
-        return "💬 Reply in this thread and mention *@PostHog* with a question to dig into this report."
+        return f"💬 Reply in this thread and mention *@PostHog* with a question to dig into {subject}."
     return f"💬 <{BOT_SETUP_DOCS_URL}?{utm_tags}|Set up the @PostHog bot> to ask follow-up questions about your reports here."
 
 
-def build_followup_invite(integration: Integration | None, *, utm_tags: str, ai_enabled: bool) -> dict[str, Any] | None:
+def build_followup_invite(
+    integration: Integration | None,
+    *,
+    utm_tags: str,
+    ai_enabled: bool,
+    subject: str = DEFAULT_INVITE_SUBJECT,
+) -> dict[str, Any] | None:
     """Slack context block nudging the channel to @PostHog this report (or to set the bot up).
 
     Returns ``None`` in the same cases as ``build_followup_invite_text``.
     """
-    text = build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled)
+    text = build_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled, subject=subject)
     if text is None:
         return None
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}

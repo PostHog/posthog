@@ -17,6 +17,7 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.redis import get_client
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import get_instance_region
 
@@ -28,6 +29,7 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -37,6 +39,17 @@ logger = structlog.get_logger(__name__)
 _MAX_DESCRIPTION_CHARS = 2800
 # Keep title + status + message under Slack's 3000-char section limit; the client shows "Show more".
 _MAX_OPENING_MESSAGE_CHARS = 2000
+
+_INVITE_UTM_TAGS = "utm_source=slack&utm_medium=unfurl&utm_campaign=link_unfurl_followup"
+# A channel that shares PostHog links all day would otherwise carry the invite on every unfurl,
+# which reads as chrome and stops being noticed. One a day per channel keeps it legible.
+_INVITE_THROTTLE_SECONDS = 24 * 60 * 60
+_INVITE_SUBJECT_BY_KIND: dict[str, str] = {
+    "insight": "this insight",
+    "dashboard": "this dashboard",
+    "ticket": "this ticket",
+    "task": "this task",
+}
 
 # Query `source.kind` / top-level `kind` → short name before " insight" (sync with InsightType / query kinds).
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
@@ -284,6 +297,43 @@ def _ticket_unfurl_payload(*, url: str, ticket: Ticket, requester: str, opening_
     if opening_message:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f">>> {opening_message}"}})
     return {"blocks": blocks}
+
+
+def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
+    """Whether this channel may carry the follow-up invite now, claiming the day's slot if so.
+
+    ``SET NX EX`` makes the claim atomic, so two unfurls racing in the same channel produce one
+    invite. A Redis failure returns False: skipping a nudge costs nothing, while failing open
+    would turn an outage into an invite on every unfurl in every channel at once.
+    """
+    try:
+        claimed = get_client().set(
+            f"slack_app:unfurl_invite:{slack_team_id}:{channel}",
+            "1",
+            nx=True,
+            ex=_INVITE_THROTTLE_SECONDS,
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_invite_throttle_unavailable", channel=channel, exc_info=True)
+        return False
+    return bool(claimed)
+
+
+def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> dict | None:
+    """The invite block for the first resource we unfurled, or None when it should stay quiet."""
+    slack_team_id = integration.integration_id
+    if not slack_team_id:
+        return None
+    if not integration.team.organization.is_ai_data_processing_approved:
+        return None
+    if not _claim_invite_slot(slack_team_id, channel):
+        return None
+    return build_followup_invite(
+        integration,
+        utm_tags=_INVITE_UTM_TAGS,
+        ai_enabled=True,
+        subject=_INVITE_SUBJECT_BY_KIND.get(kind, "this"),
+    )
 
 
 def _is_normal_public_channel(slack: SlackIntegration, channel: str, cache: dict[str, bool]) -> bool:
@@ -549,6 +599,12 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     if not unfurls:
         return
 
+    # `unfurled_kinds` is appended in the same order `unfurls` is populated, so [0] names the
+    # resource the invite lands on.
+    invite = _build_unfurl_invite(integration, unfurled_kinds[0], channel)
+    if invite:
+        next(iter(unfurls.values()))["blocks"].append(invite)
+
     unfurl_kwargs: dict = {"channel": channel, "ts": message_ts, "unfurls": unfurls}
     if unfurl_id:
         unfurl_kwargs["unfurl_id"] = unfurl_id
@@ -568,4 +624,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             kinds=sorted(set(unfurled_kinds)),
             unfurled_count=len(unfurls),
             skipped_count=len(skipped),
+            followup_invite_shown=invite is not None,
         )
