@@ -522,12 +522,11 @@ The flag-definitions self-heal queue follows the write side, not the read side. 
 `FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` defaults to `false`.
 Set it to `true` on the Rust definitions fleet to rebuild entries that S3 serves after a confirmed Redis miss.
 `FLAG_DEFINITIONS_SELF_HEAL_ENABLED` must also be `true`, and the Celery rebuild drain must run.
-The queue uses `ZADD NX` so repeated polls keep the first enqueue time.
+The Rust service reads both settings at startup. Restart its pods after a setting change. The service puts S3-hit requests in a lower-priority queue, so cache misses that return 503 drain first. Both queues use `ZADD NX` so repeated polls keep the first enqueue time. The drain skips a queued team if Redis already holds its payload and ETag.
 
 During rollout, watch `flags_flag_definitions_rebuild_requested_total` by `trigger` and `result`.
 Also watch `posthog_flag_definitions_rebuild_queue_depth` and `posthog_flag_definitions_rebuild_oldest_age_seconds`.
-Set the S3-hit variable to `false` to stop this trigger.
-Set self-heal to `false` to stop both S3-hit and cache-miss triggers.
+Set the S3-hit variable to `false` and restart the Rust pods to stop new S3-hit requests. Set self-heal to `false` and restart them to stop both triggers. The Celery drain continues to process requests that are already queued after either setting is disabled.
 
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 
