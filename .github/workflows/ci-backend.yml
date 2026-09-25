@@ -4495,13 +4495,16 @@ jobs:
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
         # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
-            !cancelled() && github.run_attempt == '1'
+            !cancelled()
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
+              # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
+              # so this guard stays on the step for the Depot copy of this job to run.
+              if: github.run_attempt == '1'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
