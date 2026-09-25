@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import * as stopPng from '@posthog/brand/hoggies/png/stop'
-import { IconChat } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CommentComposer } from 'lib/components/Comments/CommentComposer'
 import { CommentsList } from 'lib/components/Comments/CommentsList'
 import { CommentsLogicProps, commentsLogic } from 'lib/components/Comments/commentsLogic'
-import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
@@ -17,16 +15,6 @@ import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
 
 const HedgehogStop = pngHoggie(stopPng)
-
-export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Element => {
-    const { commentCount } = useValues(sidePanelDiscussionLogic)
-
-    return (
-        <IconWithCount count={commentCount} {...props}>
-            <IconChat />
-        </IconWithCount>
-    )
-}
 
 export const SidePanelDiscussion = (): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)

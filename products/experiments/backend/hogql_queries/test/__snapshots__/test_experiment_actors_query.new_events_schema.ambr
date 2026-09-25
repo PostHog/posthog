@@ -1,0 +1,937 @@
+# serializer version: 1
+# name: TestExperimentActorsQuery.test_experiment_exposure_actors_with_recordings[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id) SELECT exposures.entity_id AS actor_id,
+                                   exposures.variant AS variant,
+                                   array(tuple(toTimeZone(exposures.first_exposure_time, 'UTC'), exposures.exposure_event_uuid, exposures.exposure_session_id, '')) AS matching_events,
+                                   actor_id AS id
+     FROM exposures
+     WHERE ifNull(equals(variant, 'control'), 0)
+     ORDER BY actor_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_0_exposure_control[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id) SELECT exposures.entity_id AS actor_id,
+                                   exposures.variant AS variant,
+                                   actor_id AS id
+     FROM exposures
+     WHERE ifNull(equals(variant, 'control'), 0)
+     ORDER BY actor_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_1_exposure_test[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id) SELECT exposures.entity_id AS actor_id,
+                                   exposures.variant AS variant,
+                                   actor_id AS id
+     FROM exposures
+     WHERE ifNull(equals(variant, 'test'), 0)
+     ORDER BY actor_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_2_conversions_step1_control[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 1), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_3_conversions_step2_control[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 2), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_4_dropoffs_step1_control[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 0), 0), ifNull(less(entity_metrics.step_reached, 1), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_5_dropoffs_control[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 1), 0), ifNull(less(entity_metrics.step_reached, 2), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_6_conversions_step1_test[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 1), 0), ifNull(equals(variant, 'test'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_7_conversions_step2_test[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 2), 0), ifNull(equals(variant, 'test'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_8_dropoffs_step1_test[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 0), 0), ifNull(less(entity_metrics.step_reached, 1), 0), ifNull(equals(variant, 'test'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_9_dropoffs_test[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 1), 0), ifNull(less(entity_metrics.step_reached, 2), 0), ifNull(equals(variant, 'test'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_excludes_events_before_exposure[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 1), 0), ifNull(less(entity_metrics.step_reached, 2), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_step1_dropoff_counts_pre_exposure_signup[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               (arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, arrayFilter(t -> and(isNotNull(t.1), isNotNull(t.2)), groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))))[1]).1 AS step_reached
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 0), 0), ifNull(less(entity_metrics.step_reached, 1), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestExperimentActorsQuery.test_experiment_funnel_actors_with_recordings[new_events_schema]
+  '''
+  SELECT source.id,
+         source.id AS id,
+         source.matching_events AS matching_events
+  FROM
+    (WITH exposures AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
+               min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
+               max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
+               argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
+               argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
+        GROUP BY entity_id),
+          metric_events AS
+       (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               events.uuid AS uuid,
+               if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$session_id`)), if(isNull(nullIf(toString(events.properties.`$session_id`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$session_id`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$session_id`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$session_id`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$session_id`), '[]'), '{}'), toString(events.properties.`$session_id`))))) AS session_id,
+               multiply(1, and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0))) AS step_0,
+               if(equals(events.event, 'signup'), 1, 0) AS step_1,
+               if(equals(events.event, 'purchase'), 1, 0) AS step_2
+        FROM events_json AS events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), or(and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), or(equals(events.event, 'signup'), equals(events.event, 'purchase'))))),
+          entity_metrics AS
+       (SELECT exposures.entity_id AS entity_id,
+               exposures.variant AS variant,
+               exposures.exposure_event_uuid AS exposure_event_uuid,
+               groupArray(tuple(toTimeZone(metric_events.timestamp, 'UTC'), metric_events.uuid, metric_events.session_id, '')) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arraySort(x -> minus(0, x.1), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(toTimeZone(metric_events.timestamp, 'UTC'), 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(greater(x, 0), 0), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)]))))))[1] AS af_tuple,
+               af_tuple.1 AS step_reached,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array
+        FROM exposures
+        LEFT JOIN metric_events ON equals(exposures.entity_id, metric_events.entity_id)
+        GROUP BY exposures.entity_id,
+                 exposures.variant,
+                 exposures.exposure_event_uuid) SELECT entity_metrics.entity_id AS actor_id,
+                                                       entity_metrics.variant AS variant,
+                                                       entity_metrics.matched_events_array[plus(entity_metrics.step_reached, 1)] AS matching_events,
+                                                       actor_id AS id
+     FROM entity_metrics
+     WHERE and(ifNull(greaterOrEquals(entity_metrics.step_reached, 2), 0), ifNull(equals(variant, 'control'), 0))
+     ORDER BY entity_metrics.entity_id ASC) AS source
+  ORDER BY source.id ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---

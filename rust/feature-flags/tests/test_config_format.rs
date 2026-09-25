@@ -202,9 +202,16 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                 .bind(raw).bind(team.id).bind(key).execute(&mut *connection).await?;
         }
         drop(connection);
-        assert!(build_flags_cache(db.non_persons_reader.clone(), team.id)
-            .await
-            .is_err());
+        // The cache builder omits every non-v1 row instead of failing the team; the
+        // evaluator's PostgreSQL fallback below still sees them.
+        let mut built: Vec<String> = build_flags_cache(db.non_persons_reader.clone(), team.id)
+            .await?
+            .flags
+            .into_iter()
+            .map(|flag| flag.key)
+            .collect();
+        built.sort();
+        assert_eq!(built, vec!["absent", "one", "one-float", "one-rounded"]);
     }
     let stored = if cached {
         let reader = HyperCacheReader::new_with_s3_client(

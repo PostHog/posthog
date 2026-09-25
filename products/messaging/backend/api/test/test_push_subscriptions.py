@@ -19,7 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_caching import set_team_in_cache
 
 from products.messaging.backend.api import push_subscriptions
-from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token, sign_push_identity_token_es256
+from products.messaging.backend.api.push_identity_tokens import sign_push_identity_token_es256
 from products.messaging.backend.api.push_subscriptions import (
     PUSH_SUBSCRIPTION_DISCARD_COUNTER,
     PUSH_SUBSCRIPTION_REJECTION_COUNTER,
@@ -45,9 +45,6 @@ def _es256_keypair() -> tuple[str, str]:
 
 
 class TestPushSubscriptionsAPI(BaseTest):
-    # Realistic length (>= 32 bytes) so signing/verification exercises a real phs_ secret.
-    SECRET = "phs_project_secret_0123456789abcdef0123"
-
     def setUp(self):
         super().setUp()
         self.client = Client()
@@ -91,9 +88,7 @@ class TestPushSubscriptionsAPI(BaseTest):
     def _enable_identity_verification(self, mode: str):
         self.firebase_integration.config["push_identity_verification"] = mode
         self.firebase_integration.save()
-        self.team.secret_api_token = self.SECRET
-        self.team.save()
-        # The endpoint resolves the team from the token cache, so refresh it with the secret set.
+        # The endpoint resolves the team from the token cache, so refresh it.
         set_team_in_cache(self.team.api_token, self.team)
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
@@ -532,25 +527,6 @@ class TestPushSubscriptionsAPI(BaseTest):
         mock_capture.assert_called_once()
 
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
-    def test_required_mode_accepts_a_valid_identity_token(self, mock_capture: MagicMock):
-        mock_capture.return_value = MagicMock(status_code=200)
-        self._enable_identity_verification("required")
-        token = sign_push_identity_token(self.SECRET, "user-1", "my-firebase-project")
-
-        response = self._post(
-            {
-                "distinct_id": "user-1",
-                "device_token": "fcm-device-token-abc",
-                "platform": "android",
-                "app_id": "my-firebase-project",
-                "identity_token": token,
-            }
-        )
-
-        assert response.status_code == status.HTTP_200_OK
-        mock_capture.assert_called_once()
-
-    @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_required_mode_rejects_registration_without_a_token(self, mock_capture: MagicMock):
         self._enable_identity_verification("required")
 
@@ -571,8 +547,9 @@ class TestPushSubscriptionsAPI(BaseTest):
     def test_required_mode_rejects_a_token_minted_for_another_distinct_id(self, mock_capture: MagicMock):
         # The takeover guard: a token the attacker legitimately minted for their own distinct_id
         # cannot authorize binding a device to the victim's distinct_id.
-        self._enable_identity_verification("required")
-        attacker_token = sign_push_identity_token(self.SECRET, "attacker", "my-firebase-project")
+        private_pem, public_pem = _es256_keypair()
+        self._register_public_key("required", public_pem)
+        attacker_token = sign_push_identity_token_es256(private_pem, "attacker", "my-firebase-project")
 
         response = self._post(
             {
@@ -722,8 +699,9 @@ class TestPushSubscriptionsAPI(BaseTest):
     @patch("products.messaging.backend.api.push_subscriptions.capture_internal")
     def test_required_mode_accepts_a_valid_token_for_unregister(self, mock_capture: MagicMock):
         mock_capture.return_value = MagicMock(status_code=200)
-        self._enable_identity_verification("required")
-        token = sign_push_identity_token(self.SECRET, "user-1", "my-firebase-project")
+        private_pem, public_pem = _es256_keypair()
+        self._register_public_key("required", public_pem)
+        token = sign_push_identity_token_es256(private_pem, "user-1", "my-firebase-project")
 
         response = self._delete(
             {

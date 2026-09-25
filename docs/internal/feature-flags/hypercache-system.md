@@ -95,12 +95,12 @@ ETags are computed as SHA256 hashes of the JSON content.
 
 ## Service cache (Rust)
 
-The feature-flags Rust evaluation service uses a separate HyperCache instance defined in `posthog/models/feature_flag/flags_cache.py`. Unlike the local evaluation cache (which serves SDKs with cohort definitions and group type mappings), the service cache provides raw flag data plus pre-computed dependency metadata so the Rust service can evaluate flags in the correct order without recomputing the dependency graph on every request.
+The feature-flags Rust evaluation service uses a separate HyperCache instance defined in `products/feature_flags/backend/flags_cache.py`. Unlike the local evaluation cache (which serves SDKs with cohort definitions and group type mappings), the service cache provides raw flag data plus pre-computed dependency metadata so the Rust service can evaluate flags in the correct order without recomputing the dependency graph on every request.
 
 ### Cache instance
 
 ```python
-# posthog/models/feature_flag/flags_cache.py
+# products/feature_flags/backend/flags_cache.py
 flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags.json",
@@ -115,14 +115,23 @@ flags_hypercache = HyperCache(
 
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags), then returns a cache payload trimmed to the flags worth caching. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
-Cohort references and flag dependencies are read from each flag's `filters` through `products/feature_flags/backend/facade/references.py`, which runs `detect_config_format` before it reads a v1 key.
-A flag stored in any other config format raises `ConfigFormatError` rather than reading as a flag with no references; in this cache that fails the team's rebuild the way any malformed document does, and `HyperCache.update_cache` keeps the existing entry and ETag.
-Inactive and deleted flags are skipped before that read (`_is_unevaluable`), so they are not classified.
+Before anything serializes or reads a flag, `_omit_unsupported_flags` classifies each stored `filters` document with `detect_config_format` (`products/feature_flags/backend/facade/config.py`).
+Only a config version 1 document (no `version`, or a numeric 1) is published.
+A v2 document, an unsupported discriminator, a document that is not a JSON object, or an evaluable v1 document whose release conditions cannot be read is omitted, together with every flag whose dependency conditions reference it, transitively.
+That applies to inactive and archived rows too, so an inactive v2 or non-object row is never blanked into a v1-shaped `{"groups": []}` entry, and a dependent with `flag_evaluates_to: false` on it never matches against a target the matcher never evaluated.
+The rebuild still succeeds with the remaining flags, the stored rows are not modified, and the omitted ids are logged.
+Unevaluable v1 rows are not read (`_is_unevaluable`), so a disabled row with an unreadable document keeps its established behavior: kept and blanked when referenced, dropped otherwise.
+Cohort references and flag dependencies are then read from the surviving flags' `filters` through `products/feature_flags/backend/facade/references.py`.
 
-Because that filtering happens before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
+Because inactive flags are filtered before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
 A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
 `_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
-`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same drop, blanking, and config-format rejection: an evaluable non-v1 document fails that team's build there too, so the two writers cannot publish different answers for the same row.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same omission, drop, and blanking rule: `omit_unsupported_flags` classifies the raw documents that `from_pg_keeping_undecodable` loads.
+Both builders run the same fixture, `rust/feature-flags/tests/fixtures/flags_cache_config_formats.json`.
+One known divergence remains: Rust decodes v1 documents into typed structs, so an evaluable row it cannot decode (a property filter without a `type` key, for example) is omitted there with its dependents, while Python, which only reads the cohort and flag references, still publishes it.
+`verify_team_flags` reports and repairs such a team, attributed to the writer that produced it.
+An entry written before this rule can hold an inactive non-v1 row already blanked to `{"groups": []}`; its cached bytes cannot recover the original format, so the entry is rebuilt from the database rows by the next invalidation, refresh sweep, or verifier repair rather than reclassified in place.
+Until then an unreferenced blanked row is inert for the matcher, and an active dependent of one reports as `STALE_IN_CACHE` and triggers the repair.
 Parity is per team, not per byte: each team has one primary writer (teams whose invalidation routes to Kafka via `KAFKA_ROUTING_FLAG` get the Rust builder, every other team Python), the Python verifier remains a repair writer for every team, and the two serializers order keys differently — so what must match is the flag set, fields, and metadata, not the bytes or etag.
 Verifier fixes on the flags cache carry a `writer` label (`posthog_hypercache_verify_fixes_total{cache_type="flags", writer="rust"|"python"|"unknown"}`), attributed by evaluating the same routing flag (`get_team_primary_flags_writer` in `flags_cache.py`): a fix on a rust-routed team is the parity signal that the Rust builder diverged, which the unattributed counter blends into Python's baseline repair noise. `unknown` means the routing flag couldn't be evaluated at fix time, so an attribution outage can't masquerade as a clean Rust ramp.
 Old-shape entries that still carry unreferenced inactive rows stay valid: the matcher never reads those rows, and `verify_team_flags` suppresses them instead of reporting `STALE_IN_CACHE`, so they converge through flag edits and TTL rather than a fleet-wide repair.
@@ -180,8 +189,27 @@ flag_definitions_hypercache = HyperCache(
 
 It includes full cohort definitions and group type mappings, since all current SDKs support cohort evaluation locally. A legacy `flag_definitions_without_cohorts_hypercache` variant — pre-flattened cohort filters for SDKs too old to evaluate cohorts locally — was removed once nothing served it to real clients anymore.
 
-The builder reads cohort references and flag dependencies through the same `facade/references.py` accessors as the service cache.
-A flag in an unsupported config format is dropped from the payload by the per-flag error handling (logged and counted in `posthog_flag_definitions_processing_error`), the team's other flags are published as before, and the cohort prepass skips that flag so one document cannot fail the whole batch.
+The builder classifies stored filters before reading cohort references, transforming dependencies, or serializing flags.
+Only absent or numeric version 1 configurations enter the legacy feed.
+Classification includes inactive and deleted targets before existing lifecycle filtering omits them.
+Unsupported formats are expected exclusions; malformed flags increment `posthog_flag_definitions_processing_error`.
+A malformed flag or reachable cohort removes the affected flag and its transitive dependents while independent flags remain available.
+Direct and nested cohort references must be integers or strings that parse as integers; booleans, floats, and unparseable values are rejected before serialization.
+Legacy cohort property dictionaries can use `type` or `values` as property names; a grouped expression requires both keys.
+Dependencies on excluded targets are omitted even when the condition expects false.
+An inconclusive dependency does not always force an SDK to use server evaluation: a later condition can return a different variant.
+For example, if the first condition selects `blue` when the target is true and the next always selects `green`, omitting only the target can make the SDK return `green` instead of `blue`.
+Removing the dependent prevents that local answer, at the cost of sending the whole flag to server evaluation or the caller's local-only default.
+Supported v1 missing targets, inactive targets, cycles, cohort scoping, mappings, and metadata retain their existing behavior.
+The internal `flags.json` producer keeps its separate rejection and inactive-filter behavior.
+
+Readers serve cached bodies and answer 304s without re-checking them, so the exclusion relies on deployment order.
+For well-formed v1 data with string dependency references, this builder preserves the older builder's definitions.
+Integer dependency references now resolve to flag keys and populated dependency chains.
+Malformed flags and reachable cohorts now exclude affected flags and their transitive dependents.
+These cases can change cached bodies and ETags even before an unsupported configuration exists, including during a rollback.
+Deploy this builder to every region before storing an unsupported configuration, and never deploy an older builder after one exists.
+Tightening these exclusion rules later requires rebuilding existing cache entries.
 
 ### Cache invalidation
 
@@ -573,7 +601,7 @@ Django signals automatically invalidate the cache when models change.
 All signal handlers use `transaction.on_commit()` to avoid race conditions:
 
 ```python
-# posthog/models/feature_flag/flags_cache.py
+# products/feature_flags/backend/flags_cache.py
 @receiver([post_save, post_delete], sender=FeatureFlag)
 def feature_flag_changed_flags_cache(sender, instance, **kwargs):
     transaction.on_commit(lambda: update_team_service_flags_cache.delay(instance.team_id))
