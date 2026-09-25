@@ -2,7 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -75,6 +76,34 @@ describe('EmptyStates', () => {
 
             expect(!!container.querySelector('[data-attr="insight-sample-data-state"]')).toBe(expectSampleData)
             expect(!!container.querySelector('[data-attr="insight-empty-state"]')).toBe(!expectSampleData)
+        })
+
+        it.each([
+            { name: 'nothing extra when the query was quick', queryElapsedMs: 3_000, expectNote: false },
+            { name: 'nothing extra just below the slow threshold', queryElapsedMs: 14_500, expectNote: false },
+            { name: 'how long the query ran when it crawled', queryElapsedMs: 42_000, expectNote: true },
+        ])('shows $name', ({ queryElapsedMs, expectNote }) => {
+            mountWithTeam({ ingested_event: true, is_demo: false })
+            render(<InsightEmptyState queryElapsedMs={queryElapsedMs} onRetry={() => {}} />)
+
+            expect(!!screen.queryByText(/seconds to come back empty/)).toBe(expectNote)
+            expect(!!screen.queryByText('Run again')).toBe(expectNote)
+        })
+
+        it('re-runs the query from the slow empty state', async () => {
+            mountWithTeam({ ingested_event: true, is_demo: false })
+            const onRetry = jest.fn()
+            const { rerender } = render(<InsightEmptyState queryElapsedMs={42_000} onRetry={onRetry} />)
+
+            await userEvent.click(screen.getByText('Run again'))
+            await userEvent.click(screen.getByText('Run again'))
+
+            expect(onRetry).toHaveBeenCalledTimes(1)
+
+            rerender(<InsightEmptyState queryElapsedMs={38_000} onRetry={onRetry} />)
+            await userEvent.click(screen.getByText('Run again'))
+
+            expect(onRetry).toHaveBeenCalledTimes(2)
         })
     })
 })

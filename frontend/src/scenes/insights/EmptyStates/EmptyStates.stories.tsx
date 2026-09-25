@@ -7,6 +7,7 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 import { useStorybookMocks } from '~/mocks/browser'
 
 import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import { InsightEmptyState } from './EmptyStates'
 import funnelOneStep from './funnelOneStep.json'
 
 type Story = StoryObj<{}>
@@ -243,6 +244,19 @@ export const LongLoading: Story = {
             waitForLoadersToDisappear: false,
             waitForSelector: '[data-attr=insight-loading-waiting-message]',
         },
+    },
+}
+
+export const EmptyAfterSlowQuery: Story = {
+    render: () => (
+        <InsightEmptyState
+            heading="There are no matching rows for this query"
+            queryElapsedMs={42_000}
+            onRetry={() => {}}
+        />
+    ),
+    parameters: {
+        pageUrl: undefined,
     },
 }
 
