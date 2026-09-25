@@ -1,0 +1,16 @@
+---
+title: MCP protocol revisions
+sidebar: Docs
+showTitle: true
+---
+
+The **Calls by protocol revision** strip on the MCP analytics dashboard breaks down tool call volume by the MCP protocol revision each client negotiated.
+
+MCP protocol revisions are dated (for example `2025-06-18`), not versioned as "v1" or "v2". The bar and its legend list the rolling `draft` revision first, then dated revisions newest first, then other reported values by call count, then **Other**, then **Unknown**. Each entry shows its percentage of all tool calls and its call count.
+
+`2026-07-28` is the stateless revision. The headline is the share of calls on older revisions, which still use the initialize handshake. Calls on `2026-07-28`, a later revision, or `draft` count as current.
+
+- **Unknown** means the call has no captured protocol revision. This usually means the server runs `@posthog/mcp` before 0.10.0 or `posthog` (Python) before 7.33.0, which don't capture it. A value that isn't a string also counts as unknown.
+- **Other** combines legacy values outside the top eight in the selected date range and filters. Current revisions are never folded into it.
+
+Both **Unknown** and **Other** stay in the percentage denominator for every share shown.
