@@ -15,6 +15,10 @@ import psycopg.errors
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
+    HostNotAllowedError,
+)
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -43,6 +47,16 @@ _HOST_UNREACHABLE_MARKERS = (
     "enetunreach",
 )
 
+# A managed provider (observed on Neon) blocks the connection once the account or project has
+# exceeded a usage quota, reporting a plain libpq ERROR rather than a connection failure. Mirrors
+# the non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
+# "exceeded the compute time quota" / "exceeded the data transfer quota" entries), which use more
+# specific wording for those two quota types; this is the more generic sibling. The block only
+# lifts when the customer upgrades the plan or the quota resets, so without this marker it falls
+# through to the generic CONNECTION_FAILED bucket below and retries indefinitely into the same
+# wall. Match the stable quota phrase; it names no volatile host/IP/port detail.
+_QUOTA_EXCEEDED_MARKER = "exceeded the quota"
+
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
 # down, or its firewall blocks PostHog's IPs. Deterministic for the configured tunnel, so it's
@@ -66,6 +80,14 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if _SSH_GATEWAY_SESSION_ERROR_MARKER in str(exc).lower():
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return None
+
+    # The host policy refused a host before any socket opened. Deterministic for the configured
+    # host, so it stops the run like an unroutable address does. One type covers the bastion and
+    # the database, and each needs its own guidance, so the prefix picks the category.
+    if isinstance(exc, HostNotAllowedError):
+        if str(exc).startswith(SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR):
+            return CDCErrorCategory.SSH_TUNNEL_FAILED
+        return CDCErrorCategory.HOST_UNREACHABLE
 
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.
     # A non-psycopg exception whose message happens to contain e.g. "does not exist" would
@@ -94,11 +116,21 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     if any(marker in message for marker in _AUTH_MARKERS):
         return CDCErrorCategory.AUTH_FAILED
 
+    # SQLSTATE 42501 (insufficient_privilege) — the connecting role lacks a privilege CDC needs.
+    # Covers both "permission denied for table/view/schema ..." (missing SELECT/USAGE) and
+    # "must be owner of table ..." (managing a publication requires table ownership, not just
+    # SELECT). Deterministic until the customer grants the privilege, so it must not fall through
+    # to the retryable UNKNOWN bucket, where a stuck grant would otherwise retry forever.
+    if isinstance(exc, psycopg.errors.InsufficientPrivilege):
+        return CDCErrorCategory.PERMISSION_DENIED
+
     if isinstance(exc, psycopg.OperationalError):
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):
             return CDCErrorCategory.SSL_REQUIRED
         if any(marker in message for marker in _HOST_UNREACHABLE_MARKERS):
             return CDCErrorCategory.HOST_UNREACHABLE
+        if _QUOTA_EXCEEDED_MARKER in message:
+            return CDCErrorCategory.QUOTA_EXCEEDED
         return CDCErrorCategory.CONNECTION_FAILED
 
     return None

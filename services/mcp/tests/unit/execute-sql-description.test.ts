@@ -14,7 +14,8 @@ describe('formatExecuteSqlDescription', () => {
         expect(rendered).toContain('confidence')
         expect(rendered).toContain('reasoning')
         expect(rendered).toContain('#### Metric discovery (semantic layer)')
-        expect(rendered).toContain('system.information_schema.metrics')
+        expect(rendered).toContain('metric-list')
+        expect(rendered).toContain('metric-describe')
         expect(rendered).toContain('data-catalog-metric-run')
         expect(rendered).toContain('#### Regular schema discovery')
         // The tool's own intro must stay first; metric discovery sits after the
@@ -28,13 +29,13 @@ describe('formatExecuteSqlDescription', () => {
 
     // The description ships to every MCP client on every tools/list; keep the catalog
     // addition small so prompt bloat shows up as a reviewable failure, not silent growth.
-    // Budget 2500 covers the metric-discovery section (carrying the catalog-vs-query-*
-    // precedence rule, synonym/derived-form and definition-question routing, and the
-    // no-match offer to save a settled measure as a proposed metric) plus the
-    // certification/verified-join trust checklist; keep future additions under this so
-    // bloat still fails the build.
+    // Budget 2600 covers the metric-discovery section (carrying the catalog-vs-query-*
+    // precedence rule, synonym/derived-form and definition-question routing, the
+    // plain-language one-off caveat the answer owes the reader, and the no-match offer
+    // to save a settled measure as a proposed metric) plus the certification/verified-join
+    // trust checklist; keep future additions under this so bloat still fails the build.
     it('keeps data-catalog discovery within its character budget', () => {
         const catalogSections = `${METRIC_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
-        expect(catalogSections.length).toBeLessThan(2500)
+        expect(catalogSections.length).toBeLessThan(2600)
     })
 })

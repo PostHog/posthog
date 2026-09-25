@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -51,12 +49,12 @@ class DeelSource(ResumableSource[DeelSourceConfig, DeelResumeConfig]):
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DEEL,
+            name=ExternalDataSourceType.DEEL,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Deel",
             caption="""Enter your Deel API token to pull your Deel workforce and payroll data into the PostHog Data warehouse.
 
-Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (e.g. `people:read`, `contracts:read`, `accounting:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
+Create an organization token in [Deel](https://app.deel.com/developer-center) under More > Developer with read scopes for the data you want to sync (`people:read`, `contracts:read`, `accounting:read`, `timesheets:read`, `time-off:read`, `legal-entity:read`, `organizations:read`). Prefer an organization token over a personal token — personal tokens stop working when the user leaves the organization.""",
             iconPath="/static/services/deel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/deel",
             releaseStatus=ReleaseStatus.ALPHA,

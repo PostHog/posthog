@@ -18,6 +18,8 @@ export const manifest: ProductManifest = {
             // /visual_review entry point — picks a repo and forwards into its
             // workspace. Empty / multi-repo cases handled inside the scene.
             name: 'Visual review',
+            description:
+                'Catch unintended UI changes by reviewing screenshot diffs from CI, with the approved baselines committed back to your repo.',
             projectBased: true,
             import: () => import('./frontend/scenes/VisualReviewIndexScene'),
             iconType: 'visual_review',
@@ -60,12 +62,19 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review': ['VisualReviewIndex', 'visualReviewIndex'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/repos/:repoId/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/repos/:repoId/flakiness': ['VisualReviewFlakiness', 'visualReviewFlakiness'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',

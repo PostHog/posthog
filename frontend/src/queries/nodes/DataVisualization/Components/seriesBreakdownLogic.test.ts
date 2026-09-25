@@ -330,6 +330,88 @@ describe('seriesBreakdownLogic', () => {
         })
     })
 
+    it.each([
+        { xColumn: 'event', breakdownColumn: 'browser' },
+        { xColumn: 'browser', breakdownColumn: 'event' },
+    ])(
+        'shows taxonomy display names when the event column is the $xColumn x-axis or $breakdownColumn breakdown',
+        async ({ xColumn, breakdownColumn }) => {
+            logic = seriesBreakdownLogic({ key: testUniqueKey })
+            logic.mount()
+
+            const builtDataNodeLogic = dataNodeLogic({
+                key: testUniqueKey,
+                query: globalQuery.source,
+            })
+            builtDataNodeLogic.mount()
+            builtDataNodeLogic.actions.setResponse({
+                results: [
+                    ['$pageview', 'Safari', 11],
+                    ['signed_up', 'Safari', 22],
+                ],
+                columns: ['event', 'browser', 'total_count'],
+                types: [
+                    ['event', 'String'],
+                    ['browser', 'Nullable(String)'],
+                    ['total_count', 'UInt64'],
+                ],
+            })
+
+            builtDataVizLogic.actions.clearAxis()
+            builtDataVizLogic.actions.updateXSeries(xColumn)
+            builtDataVizLogic.actions.addYSeries('total_count')
+            logic.actions.addSeriesBreakdown(breakdownColumn)
+
+            const { xData, seriesData } = logic.values.seriesBreakdownData
+            if (xColumn === 'event') {
+                expect(xData.data).toEqual(['Pageview', 'signed_up'])
+                expect(seriesData.map((series) => series.name)).toEqual(['Safari'])
+            } else {
+                expect(xData.data).toEqual(['Safari'])
+                expect(seriesData.map((series) => series.name)).toEqual(['Pageview', 'signed_up'])
+                expect(seriesData.map((series) => series.breakdownValue)).toEqual(['$pageview', 'signed_up'])
+            }
+        }
+    )
+
+    it('sums raw breakdown values at zero decimal places', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        const builtDataNodeLogic = dataNodeLogic({
+            key: testUniqueKey,
+            query: globalQuery.source,
+        })
+        builtDataNodeLogic.mount()
+        builtDataNodeLogic.actions.setResponse({
+            results: [
+                ['signed_up', 'Safari', 42.195],
+                ['logged_out', 'Safari', 11.7],
+                ['downloaded_file', 'Safari', 0.49],
+                ['downloaded_file', 'Safari', 0.49],
+            ],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'Float64'],
+            ],
+        })
+
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+        builtDataVizLogic.actions.updateSeriesIndex(0, 'total_count', { formatting: { decimalPlaces: 0 } })
+
+        logic.actions.addSeriesBreakdown('browser')
+
+        await expectLogic(logic).toMatchValues({
+            seriesBreakdownData: expect.objectContaining({
+                seriesData: [expect.objectContaining({ name: 'Safari', data: [42.195, 11.7, 0.98] })],
+            }),
+        })
+    })
+
     it('preserves missing breakdown buckets as null when showNullsAsZero is disabled', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()

@@ -47,22 +47,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -105,22 +95,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -163,22 +143,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
         .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
     default_role_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
@@ -209,13 +179,17 @@ export const ProxyRecordsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Set or clear the HTTPS redirect for requests to the managed proxy domain root.
  */
-export const proxyRecordsPartialUpdateBodyRootRedirectUrlMax = 1024
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax = 1024
+
+export const proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax = 0
 
 export const ProxyRecordsPartialUpdateBody = /* @__PURE__ */ zod.object({
     root_redirect_url: zod
-        .url()
-        .max(proxyRecordsPartialUpdateBodyRootRedirectUrlMax)
-        .nullish()
+        .union([
+            zod.url().max(proxyRecordsPartialUpdateBodyRootRedirectUrlOneMax).nullable(),
+            zod.string().max(proxyRecordsPartialUpdateBodyRootRedirectUrlTwoMax),
+        ])
+        .optional()
         .describe(
             'HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.'
         ),
@@ -270,7 +244,7 @@ export const advancedActivityLogsExportCreateBodyUserEmailMax = 254
 export const advancedActivityLogsExportCreateBodyTeamIdMin = 0
 export const advancedActivityLogsExportCreateBodyTeamIdMax = 2147483647
 
-export const advancedActivityLogsExportCreateBodyClientMax = 32
+export const advancedActivityLogsExportCreateBodyClientMax = 256
 
 export const advancedActivityLogsExportCreateBodyActivityMax = 79
 

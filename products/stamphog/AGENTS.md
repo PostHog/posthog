@@ -1,6 +1,7 @@
 # stamphog — invariants for agents
 
-Read [README.md](README.md) for the product shape first. This file is the contract: the
+Read [README.md](README.md) for the product shape first, and [docs/digest.md](docs/digest.md) for
+the digest design. This file is the contract: the
 invariants below were each earned through a real review finding — do not relax one without
 understanding what it closes, and hold new code to all of them.
 
@@ -53,8 +54,10 @@ There is deliberately no "this file is harmless" rule, and adding one back needs
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
 
 The digest carries the one narrow exception, and it is not a gate.
-`detect_ownership` counts each team's files under `products/<name>/frontend/generated/`, and a team whose changed files are all in there is not a digest audience (`backend/logic/audiences.py`).
+`detect_ownership` counts each team's files under `products/<name>/frontend/generated/` and keeps them out of the team's path sample, and `backend/logic/audiences.py` subtracts that count, so a team's `owned_file_count` is the files a person edited.
+A team left with none of those is not a digest audience at all.
 `hogli build:openapi` rewrites those types whenever any shared serializer changes anywhere in the repo, so a team owning nothing else in a PR was not touched by it: that is how an error-tracking change reached the product analytics channel.
+Subtracting rather than only dropping the all-generated case came from the same channel getting swept again: one regenerated file next to one real one read as a two-file stake, which is above the graze rule's threshold, so the sweep looked like ownership.
 Three things keep it from being the harmless-file rule above.
 It decides who hears about a merge, never whether code is safe to approve.
 The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
@@ -91,16 +94,18 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 ## Sandbox credentials and egress
 
-- The sandbox holds NO long-lived secret. `_mint_reviewer_gateway_token` mints a per-run OAuth
-  token under the repo's connecting user with exactly `["llm_gateway:read", "internal_run:read"]`
-  and `include_internal_scopes=False`. Never switch to `include_internal_scopes=True` — that
-  drags `task:write` into a sandbox running an LLM over untrusted PR content. The
-  `internal_run:read` marker is what satisfies the gateway route's `requires_server_credential`.
+- The sandbox holds NO long-lived secret. `_mint_reviewer_scoped_token` mints a per-run `phe_`
+  from the Go ai-gateway (`POST /v1/tokens`) with the worker's `phs_` (`AI_GATEWAY_API_KEY`), pinned
+  to `product=aio_stamphog` and `obo=<customer team>`, capped at `cap_usd=5` and `ttl_seconds=3600`,
+  acting as the repo's connecting user. The `phs_` never enters the sandbox; a mint failure fails
+  the run (no shared-key fallback); the worker revokes the token once the reviewer returns,
+  without waiting for the sandbox teardown. Do not widen the cap or TTL without a run-cost reason: they bound what a prompt-injected reviewer can
+  spend with a leaked token.
 - The raw-Anthropic fallback exists for a local `review_pr.py` run only; hosted runs fail closed
   without a gateway. No `ANTHROPIC_API_KEY` may enter the sandbox environment.
 - Egress is an explicit domain allowlist (`_sandbox_egress_allowlist`). Additions go through
   `STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS`, not code edits.
-- Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
+- Everything posted to GitHub goes through `scrub_credentials` AND `neutralize_active_markdown` (`logic/scrubbing.py`)
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
 - The sandbox checkout is the PR head, so the engine's Agent SDK session runs with `setting_sources=[]` + `strict_mcp_config` (reviewer.py): a PR-shipped `.claude/settings.json` hook, `CLAUDE.md`, or `.mcp.json` is readable as untrusted content, never loaded as configuration.
   Don't reintroduce filesystem settings discovery there.
@@ -166,14 +171,43 @@ narrow:
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
   what the reviewer prompt was told about its own invocation.
 
+## The manual trigger (the one exception to label mode)
+
+`request_manual_review` (`POST review_runs/` and the `stamphog-review-runs-create` MCP tool) queues a review because a project member asked for it.
+The request stands in for the trigger label, so it bypasses `review_mode` and nothing else.
+Every other webhook-path gate still refuses: closed PRs, drafts, bot authors, untrusted author associations, and authors below write permission.
+The requester's own GitHub access is not checked; the `stamphog:write` scope and the product's access control are the gate.
+The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
+A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
+
 ## Trust boundaries
 
+- Turning reviews **off** (`enabled=False`, the soft-delete) and changing when they run (`review_mode`,
+  `trigger_label`) need the `manager` level on the `stamphog` resource, on an update or a create alike. Turning reviews
+  **on** (`enabled=True`, or `add_repository`) needs `editor`, so an editor can re-enable a repository
+  a manager paused; that is the requested self-serve direction. A supplied value counts even when it
+  matches the stored one, because the view's snapshot of the row is stale by the time the facade
+  saves. The digest toggle stays at `editor`. Service credentials are refused at both levels.
+- A sync records what the member's own GitHub token lists in the team's `StamphogInstallation`
+  snapshot and creates no repo config. `add_repository` binds only a repository in that snapshot,
+  taking the installation id and the connecting user from the record, never from the request.
+  Never list an installation's repositories with the installation token for this: an outside
+  collaborator on one repository can reach the installation, and that token shows every private
+  repository in it. The snapshot is a union across members' syncs, and only the removal and
+  uninstall webhooks shrink it. A `repositories_added` webhook never grows it: the webhook carries
+  no user, so nobody on the team proved access to that repository. It becomes addable when a member
+  syncs again.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
-- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
-  it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
-  settings — those were configured under a verified binding.
+- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
+  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
+  otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
+  policy the same way when it binds one. Reinstall rebinds keep settings — those
+  were configured under a verified binding. Such a row is also kept out of the digest candidates:
+  a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
+  one placeholder silence the whole team's digest.
 - Digest routing is derived every run from the repositories and never stored, so nothing here can
   go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
   team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the
@@ -191,6 +225,9 @@ narrow:
   moment somebody adds the app.
 - A declared channel that does not resolve is a dead end, never a retry with the audience slug —
   the slug is the wrong name the declaration exists to correct.
+- Retrieving one review run returns the reviewer's parsed reasoning (`reasoning`, `showstoppers`, `review_body`, `change_summary`) to anyone who can read the run.
+  That is the text stamphog posts as its GitHub review, and it passes the same `scrub_credentials` and `neutralize_active_markdown` first.
+  The raw reviewer stdout, the PR payload, patches, and policy files never leave the facade.
 - PR content — title, body, diff, comments, reactions — is untrusted input everywhere, including
   in reviewer prompts and error messages persisted to API-readable fields (`run.error` keeps only
   a truncated first line for exactly this reason).
@@ -207,8 +244,18 @@ changes both, and divergence here has produced real approve-when-should-wait fin
 Inputs `review_pr.py` fetches over the network reach the sandbox through the context JSON instead, and
 dropping one is a silent behavior change rather than a missing section. `author_team_slugs` feeds
 `author_on_owning_team`, which the reviewer prompt reads with a default of `True`, so an unset key
-tells the reviewer that every author owns the code they touched. `pr_provenance` needs no token and
-is computed in the sandbox from the checkout.
+tells the reviewer that every author owns the code they touched.
+
+The sandbox checkout is shallow and holds no PR history, so a hosted context always carries `merge_base_sha` (the engine diffs `merge_base..head`) and `commit_messages` (the provenance trailers).
+Without those keys (a manual `review_pr.py` run) the engine reads git history instead.
+The engine's git has no credential, so every object it reads must arrive in `_clone_pr` or `_prefetch_review_blobs`: an on-demand promisor fetch is anonymous and a private repository refuses it.
+Test clone changes with `GIT_NO_LAZY_FETCH=1`, because a public repository hides that failure.
+
+The server's pre-check (`refuse_on_pre_gates`, `backend/logic/engine_pregate.py`) runs `review_local.py --pregate` in a child process on the worker, in a temporary tree with the run's effective trusted policy.
+It never imports the engine: the engine's bare module names and its import-time policy load would bind to the worker's own checkout.
+Its fast refusal may only cover what the sandbox review would also refuse, because nothing re-reviews it.
+`pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
+Anything in doubt, and any error, falls through to the full review.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a

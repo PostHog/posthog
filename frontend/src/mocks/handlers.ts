@@ -152,6 +152,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_saved_query_folders/': [],
         '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/core_memory/': { results: [] },
         '/api/environments/:team_id/conversations/': EMPTY_PAGINATED_RESPONSE,
@@ -169,6 +170,46 @@ export const defaultMocks: Mocks = {
             MOCK_DEFAULT_ORGANIZATION_MEMBER,
             MOCK_SECOND_ORGANIZATION_MEMBER,
         ]),
+        '/api/organizations/:organization_id/members/project_access/': {
+            results: [
+                {
+                    organization_membership_id: MOCK_DEFAULT_ORGANIZATION_MEMBER.id,
+                    projects: [
+                        {
+                            team_id: MOCK_DEFAULT_TEAM.id,
+                            team_name: MOCK_DEFAULT_TEAM.name,
+                            access_level: 'admin',
+                            resolved: {
+                                access_level: 'admin',
+                                source: 'org_admin',
+                                source_subject: null,
+                                source_resource: 'project',
+                                source_resource_id: null,
+                                subject_name: null,
+                            },
+                        },
+                    ],
+                },
+                {
+                    organization_membership_id: MOCK_SECOND_ORGANIZATION_MEMBER.id,
+                    projects: [
+                        {
+                            team_id: MOCK_DEFAULT_TEAM.id,
+                            team_name: MOCK_DEFAULT_TEAM.name,
+                            access_level: 'member',
+                            resolved: {
+                                access_level: 'member',
+                                source: 'object',
+                                source_subject: 'default',
+                                source_resource: 'project',
+                                source_resource_id: String(MOCK_DEFAULT_TEAM.id),
+                                subject_name: null,
+                            },
+                        },
+                    ],
+                },
+            ],
+        },
         '/api/organizations/:organization_id/invites/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/organizations/:organization_id/plugins/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN]),
         '/api/organizations/:organization_id/plugins/repository/': [],
@@ -189,7 +230,10 @@ export const defaultMocks: Mocks = {
                 pending_invites: [],
             },
         ],
-        '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
+        '/api/users/@me/two_factor_status/': () => [
+            200,
+            { is_enabled: true, backup_codes_remaining: 0, method: 'TOTP' },
+        ],
         '/api/users/@me/hedgehog_config/': {
             color: null,
             enabled: false,
@@ -276,7 +320,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/event_ingestion_restrictions/': [],
         'api/projects/:team_id/surveys': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/surveys/responses_count': {},
-        'api/environments/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
+        'api/projects/:team_id/integrations': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/integrations/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/quick_filters/': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/error_tracking/assignment_rules': EMPTY_PAGINATED_RESPONSE,

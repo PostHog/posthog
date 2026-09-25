@@ -1,5 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "surface": {
+            "description": "Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.\n\n* `roster` - roster\n* `desktop` - desktop\n* `wizard` - wizard",
+            "enum": ["roster", "desktop", "wizard"],
+            "type": "string"
+        }
+    },
     "type": "object"
 }

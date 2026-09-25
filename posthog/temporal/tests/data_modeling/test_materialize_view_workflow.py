@@ -1,3 +1,4 @@
+import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import Callable
@@ -11,6 +12,8 @@ from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAl
 
 from posthog.temporal.data_modeling.activities import (
     FailMaterializationInputs,
+    ManagedWarehouseShadowEligibilityInputs,
+    ManagedWarehouseShadowResult,
     MaterializeViewResult,
     PrepareQueryableTableResult,
     StageQueryableFilesResult,
@@ -21,11 +24,13 @@ from posthog.temporal.data_modeling.activities.enrich_view_semantics import Enri
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     ACCOUNT_PROPERTY_S3_SYNC_PATCH,
     ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
+    TRINO_SHADOW_EXECUTION_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
 )
 
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
+from products.data_modeling.backend.facade.models import DataModelingJobEngine
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, QualityAuditMode
 from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncActivityInputs
 
@@ -59,6 +64,7 @@ class TestQualityGateBranching:
         patched: bool | Callable[[str], bool] = True,
         shadow_handle: AsyncMock | None = None,
         start_child: AsyncMock | None = None,
+        inputs: MaterializeViewWorkflowInputs | None = None,
     ) -> tuple:
         execute_activity = AsyncMock(side_effect=activity_results)
         child = (
@@ -92,21 +98,78 @@ class TestQualityGateBranching:
                 "get_node_rows_materialized_metric",
                 "get_node_storage_delta_mib_metric",
                 "get_node_total_storage_mib_metric",
-                "get_duckgres_shadow_finished_metric",
+                "get_managed_warehouse_shadow_finished_metrics",
                 "get_clickhouse_materialization_duration_metric",
-                "get_duckgres_shadow_duration_metric",
-                "get_duckgres_shadow_rows_materialized_metric",
-                "get_duckgres_shadow_row_count_match_metric",
-                "get_duckgres_shadow_storage_mib_metric",
-                "get_duckgres_shadow_storage_delta_mib_metric",
+                "get_managed_warehouse_shadow_duration_metrics",
+                "get_managed_warehouse_shadow_rows_materialized_metrics",
+                "get_managed_warehouse_shadow_row_count_match_metrics",
+                "get_managed_warehouse_shadow_storage_mib_metrics",
+                "get_managed_warehouse_shadow_storage_delta_mib_metrics",
             ):
                 stack.enter_context(patch(f"{WORKFLOW_MODULE}.{metric}"))
-            result = await MaterializeViewWorkflow().run(_inputs())
+            result = await MaterializeViewWorkflow().run(inputs or _inputs())
         return result, execute_activity
+
+    @pytest.mark.parametrize("shadow_error,blocked", [(None, False), ("Upstream write failed", False), (None, True)])
+    async def test_shadow_outcome_is_independent_of_clickhouse_success(
+        self, shadow_error: str | None, blocked: bool
+    ) -> None:
+        shadow = asyncio.get_running_loop().create_future()
+        shadow.set_result(
+            ManagedWarehouseShadowResult(
+                row_count=10,
+                duration_seconds=1,
+                schema_name="models",
+                table_name="orders",
+                error=shadow_error,
+            )
+        )
+        activity_results = [
+            True,
+            "shadow-job",
+            "job-1",
+            _materialize_result("skip"),
+            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
+            None,
+            None,
+        ]
+        if blocked:
+            activity_results.pop(1)
+        with patch.object(temporalio.workflow, "start_activity", return_value=shadow) as start_shadow:
+            result, _ = await self._run(activity_results, {}, inputs=dataclasses.replace(_inputs(), skip_trino=blocked))
+        assert start_shadow.called is not blocked
+        assert result.job_id == "job-1"
+        assert result.rows_materialized == 10
+        assert result.trino_materialized is (not blocked and shadow_error is None)
+
+    @pytest.mark.parametrize("shadow_error", [None, "Trino write failed"])
+    async def test_trino_only_reports_materialization_failure(self, shadow_error: str | None) -> None:
+        shadow = asyncio.get_running_loop().create_future()
+        shadow.set_result(
+            ManagedWarehouseShadowResult(
+                row_count=10,
+                duration_seconds=1,
+                schema_name="models",
+                table_name="orders",
+                error=shadow_error,
+            )
+        )
+        with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
+            if shadow_error:
+                with pytest.raises(temporalio.exceptions.ApplicationError, match="Trino write failed"):
+                    await self._run(
+                        [True, "shadow-job"], {}, inputs=dataclasses.replace(_inputs(), managed_warehouse_only=True)
+                    )
+            else:
+                result, _ = await self._run(
+                    [True, "shadow-job"], {}, inputs=dataclasses.replace(_inputs(), managed_warehouse_only=True)
+                )
+                assert result.trino_materialized is True
+                assert result.job_id == "shadow-job"
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [
-            False,  # duckgres shadow check
+            False,  # managed warehouse shadow check
             "job-1",  # create job
             _materialize_result("gate"),
             StageQueryableFilesResult(staged_folder_path="staged_1"),
@@ -121,6 +184,15 @@ class TestQualityGateBranching:
         assert started[-2:] == ["stage_queryable_files_activity", "quality_block_materialization_activity"]
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
+        assert execute_activity.await_args_list[0].args[1] == ManagedWarehouseShadowEligibilityInputs(
+            team_id=7,
+            dag_id="dag-1",
+            node_id="node-1",
+        )
+        assert (
+            execute_activity.await_args_list[0].args[0].__name__
+            == "check_managed_warehouse_shadow_eligibility_activity"
+        )
 
     async def test_account_staging_starts_an_isolated_child_workflow(self):
         materialize_result = dataclasses.replace(
@@ -251,6 +323,8 @@ class TestQualityGateBranching:
         start_child.assert_not_awaited()
         assert result.quality_blocking_failures is None
         assert result.quality_audited is False
+        assert execute_activity.await_args_list[0].args[1] == 7
+        assert execute_activity.await_args_list[0].args[0].__name__ == "check_managed_warehouse_shadow_enabled_activity"
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's
@@ -295,25 +369,35 @@ class TestQualityGateBranching:
         assert result.quality_audited is expected_audited
         assert result.quality_blocking_failures is None
 
-    async def test_a_blocked_publish_still_settles_the_duckgres_shadow(self):
+    @pytest.mark.parametrize("trino_patch", [False, True])
+    async def test_a_blocked_publish_still_settles_the_managed_warehouse_shadow(self, trino_patch: bool):
         # The blocked branch returns early. Leaving the shadow activity unawaited holds the parent
         # DAG's concurrency slot and orphans the shadow job.
         shadow_handle = AsyncMock()
         shadow_handle.__await__ = lambda self=None: iter([])
         activity_results = [
-            True,  # duckgres shadow enabled
-            "duckgres-job-1",  # create duckgres job
+            True,  # managed warehouse shadow enabled
+            "managed-warehouse-job-1",
             "job-1",  # create clickhouse job
             _materialize_result("gate"),
             StageQueryableFilesResult(staged_folder_path="staged_1"),
             None,  # quality_block_materialization
         ]
 
-        with patch.object(MaterializeViewWorkflow, "_collect_shadow_comparison", new=AsyncMock()) as collect:
-            result, _ = await self._run(activity_results, {"checks_failed_blocking": 1}, shadow_handle=shadow_handle)
+        with (
+            patch.object(MaterializeViewWorkflow, "_collect_shadow_comparison", new=AsyncMock()) as collect,
+            patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle) as start_shadow,
+        ):
+            result, execute_activity = await self._run(
+                activity_results,
+                {"checks_failed_blocking": 1},
+                patched=lambda name: trino_patch if name == TRINO_SHADOW_EXECUTION_PATCH else True,
+            )
 
         assert result.quality_blocking_failures == 1
+        assert execute_activity.await_args_list[1].args[1].engine == DataModelingJobEngine.MANAGED_WAREHOUSE
         collect.assert_awaited_once()
+        assert start_shadow.call_args.args[1].use_trino is trino_patch
 
 
 def _cancelled_child_error() -> ChildWorkflowError:
@@ -372,11 +456,11 @@ class TestStagedAudit:
                 await self._staged_verdict(MaterializeViewWorkflow())
 
 
-class TestFinalizeOrphanedDuckgresJob:
+class TestFinalizeOrphanedManagedWarehouseJob:
     async def test_marks_orphaned_job_failed_without_touching_node(self):
         workflow = MaterializeViewWorkflow()
         with patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity:
-            await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), "activity died")
 
         execute_activity.assert_awaited_once()
         assert execute_activity.await_args is not None
@@ -388,10 +472,10 @@ class TestFinalizeOrphanedDuckgresJob:
         assert payload.update_node is False
         assert "activity died" in payload.error
 
-    async def test_noop_when_no_duckgres_job(self):
+    async def test_noop_when_no_managed_warehouse_job(self):
         workflow = MaterializeViewWorkflow()
         with patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity:
-            await workflow._finalize_orphaned_duckgres_job(None, _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job(None, _inputs(), "activity died")
         execute_activity.assert_not_awaited()
 
     async def test_finalization_is_best_effort(self):
@@ -401,7 +485,7 @@ class TestFinalizeOrphanedDuckgresJob:
             patch.object(temporalio.workflow, "logger"),
         ):
             # a failure to finalize must never propagate out of the shadow path
-            await workflow._finalize_orphaned_duckgres_job("job-123", _inputs(), "activity died")
+            await workflow._finalize_orphaned_managed_warehouse_job("job-123", _inputs(), "activity died")
 
 
 class TestMaybeStageAccountProperties:
@@ -505,7 +589,7 @@ class TestCollectShadowComparison:
             patch.object(temporalio.workflow, "execute_activity", new=AsyncMock()) as execute_activity,
             patch.object(temporalio.workflow, "logger"),
             patch(f"{WORKFLOW_MODULE}.capture_exception"),
-            patch(f"{WORKFLOW_MODULE}.get_duckgres_shadow_finished_metric"),
+            patch(f"{WORKFLOW_MODULE}.get_managed_warehouse_shadow_finished_metrics"),
         ):
             await workflow._collect_shadow_comparison(dead_handle(), "job-123", 5, 1.0, _inputs())
 

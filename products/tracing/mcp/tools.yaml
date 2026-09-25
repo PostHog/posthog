@@ -205,6 +205,12 @@ tools:
         response:
             include:
                 - results
+    organizations-projects-tracing-config-partial-update:
+        operation: organizations_projects_tracing_config_partial_update
+        enabled: false
+    organizations-projects-tracing-config-retrieve:
+        operation: organizations_projects_tracing_config_retrieve
+        enabled: false
     query-apm-spans:
         operation: tracing_spans_query_create
         enabled: true
@@ -221,8 +227,38 @@ tools:
         response:
             include:
                 - results
+    tracing-retention-rules-create:
+        operation: tracing_retention_rules_create
+        enabled: false
+    tracing-retention-rules-destroy:
+        operation: tracing_retention_rules_destroy
+        enabled: false
+    tracing-retention-rules-list:
+        operation: tracing_retention_rules_list
+        enabled: false
+    tracing-retention-rules-partial-update:
+        operation: tracing_retention_rules_partial_update
+        enabled: false
+    tracing-retention-rules-reorder-create:
+        operation: tracing_retention_rules_reorder_create
+        enabled: false
+    tracing-retention-rules-retrieve:
+        operation: tracing_retention_rules_retrieve
+        enabled: false
+    tracing-retention-rules-suggest-name-create:
+        operation: tracing_retention_rules_suggest_name_create
+        enabled: false
+    tracing-retention-rules-update:
+        operation: tracing_retention_rules_update
+        enabled: false
+    tracing-spans-error-counts-create:
+        operation: tracing_spans_error_counts_create
+        enabled: false
     tracing-spans-has-spans-retrieve:
         operation: tracing_spans_has_spans_retrieve
+        enabled: false
+    tracing-spans-impact-create:
+        operation: tracing_spans_impact_create
         enabled: false
     tracing-spans-symbol-stats-create:
         operation: tracing_spans_symbol_stats_create

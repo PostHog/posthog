@@ -1,26 +1,35 @@
 import {
   BellIcon,
   BookOpenTextIcon,
+  ChatsCircleIcon,
   EnvelopeSimple,
   HouseSimple,
   type IconProps,
   Lightning,
+  ListMagnifyingGlassIcon,
   ShapesIcon,
 } from "@phosphor-icons/react";
 import type { RailVisit } from "@posthog/shared";
 import type { SidebarNavItem } from "@posthog/shared/analytics-events";
 import { readMirror } from "@posthog/ui/features/browser-tabs/tabsSync";
 import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
-import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
+import {
+  isRestorableVisitHref,
+  type NavRailPane,
+  railPaneFoldsIntoWork,
+} from "@posthog/ui/features/canvas/railPane";
 import {
   applyTabViewState,
   showChannelList,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
 import {
   formatHotkey,
   SHORTCUTS,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
@@ -28,12 +37,14 @@ import {
   navigateToCanvases,
   navigateToChannel,
   navigateToCommandCenter,
+  navigateToFeeds,
   navigateToHome,
   navigateToInbox,
   navigateToLoops,
   navigateToSpaces,
   navigateToSpacesContext,
 } from "@posthog/ui/router/navigationBridge";
+import { hrefPath } from "@posthog/ui/router/reportNavigation";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import type { ComponentType } from "react";
 
@@ -46,6 +57,7 @@ export interface RailCounts {
 export interface RailDestination {
   pane: NavRailPane;
   label: string;
+  shortLabel?: string;
   analyticsId: SidebarNavItem;
   Icon: ComponentType<IconProps>;
   /** Root opened by an explicit Cmd/Ctrl-click. */
@@ -57,15 +69,20 @@ export interface RailDestination {
    * from landing on its root. Defaults to `onPick`.
    */
   onReclick?: () => void;
+  /** `more` files the destination under the rail's overflow menu. */
+  placement?: "top" | "bottom" | "more";
   shortcut?: string;
   count?: (counts: RailCounts) => number;
   countTone?: CountBadgeTone;
-  enabled?: (flags: {
-    home: boolean;
-    inbox: boolean;
-    loops: boolean;
-    context: boolean;
-  }) => boolean;
+  enabled?: (flags: RailFlags) => boolean;
+}
+
+export interface RailFlags {
+  home: boolean;
+  inbox: boolean;
+  loops: boolean;
+  context: boolean;
+  savedSearches: boolean;
 }
 
 /**
@@ -73,7 +90,7 @@ export interface RailDestination {
  * is view state — but the destinations that own the whole screen have no column
  * to put it in, so leaving one is part of the pick.
  */
-export function showSpaces(): void {
+function showSpaces(): void {
   const channelId = useCurrentChannelStore.getState().currentChannelId;
   if (!channelId) {
     showChannelList();
@@ -82,6 +99,19 @@ export function showSpaces(): void {
   }
   showChannelList({ keepForRoute: channelId });
   navigateToChannel(channelId);
+}
+
+/** Navigating to the root instead would close what you are reading. */
+function focusColumnSearch(): void {
+  useSidebarStore.getState().setOpen(true);
+  requestSidebarSearchFocus();
+}
+
+function showInboxList(): void {
+  if (isInboxTriagePath(hrefPath(currentHref() ?? ""))) {
+    navigateToInbox();
+  }
+  focusColumnSearch();
 }
 
 /**
@@ -124,7 +154,13 @@ export function pickRailDestination(
   destination: RailDestination,
   current: NavRailPane,
 ): void {
-  if (destination.pane === current) {
+  // A report page belongs to the list that opened it, and only its `?from=`
+  // says which, so a route pattern cannot answer this.
+  const here = currentHref() ?? "";
+  const onDestination =
+    destination.pane === current &&
+    isRestorableVisitHref(destination.pane, here);
+  if (onDestination) {
     (destination.onReclick ?? destination.onPick)();
     return;
   }
@@ -132,11 +168,15 @@ export function pickRailDestination(
   // A remembered visit that IS where we already are restores nothing, and the
   // click would look dead. Fall through to the destination's root instead, so
   // a pick always goes somewhere.
-  if (visit && visit.href !== currentHref()) restoreVisit(visit);
+  const restorable =
+    visit &&
+    visit.href !== currentHref() &&
+    isRestorableVisitHref(destination.pane, visit.href);
+  if (restorable) restoreVisit(visit);
   else destination.onPick();
 }
 
-export const RAIL_DESTINATIONS: readonly RailDestination[] = [
+const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "home",
     label: "Home",
@@ -164,6 +204,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: BellIcon,
     href: "/activity",
     onPick: navigateToActivity,
+    onReclick: focusColumnSearch,
     count: (counts) => counts.activity,
   },
   {
@@ -173,6 +214,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: ShapesIcon,
     href: "/canvases",
     onPick: () => navigateToCanvases(),
+    onReclick: focusColumnSearch,
   },
   {
     pane: "inbox",
@@ -181,6 +223,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     Icon: EnvelopeSimple,
     href: "/inbox",
     onPick: navigateToInbox,
+    onReclick: showInboxList,
     shortcut: formatHotkey(SHORTCUTS.INBOX),
     count: (counts) => counts.inbox,
     enabled: (flags) => flags.inbox,
@@ -194,6 +237,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     onPick: navigateToCommandCenter,
     count: (counts) => counts.commandCenter,
     countTone: "neutral",
+    placement: "more",
   },
   {
     pane: "loops",
@@ -203,6 +247,17 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
     href: "/loops",
     onPick: () => navigateToLoops(),
     enabled: (flags) => flags.loops,
+  },
+  {
+    pane: "feeds",
+    label: "Saved searches",
+    shortLabel: "Saved",
+    analyticsId: "search",
+    Icon: ListMagnifyingGlassIcon,
+    href: "/feeds",
+    onPick: navigateToFeeds,
+    placement: "bottom",
+    enabled: (flags) => flags.savedSearches,
   },
   {
     pane: "context",
@@ -215,11 +270,35 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   },
 ];
 
-export function visibleRailDestinations(flags: {
-  home: boolean;
-  inbox: boolean;
-  loops: boolean;
-  context: boolean;
-}): readonly RailDestination[] {
+export function visibleRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
   return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
+}
+
+export function showWorkColumn(): void {
+  useSidebarStore.getState().setOpen(true);
+}
+
+const WORK_DESTINATION: RailDestination = {
+  pane: "spaces",
+  label: "Work",
+  analyticsId: "spaces",
+  Icon: ChatsCircleIcon,
+  href: "/spaces",
+  onPick: () => {
+    showWorkColumn();
+    navigateToSpaces();
+  },
+  onReclick: showWorkColumn,
+};
+
+export function visibleWorkRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  const rest = RAIL_DESTINATIONS.filter(
+    ({ enabled, pane }) =>
+      !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
+  );
+  return [WORK_DESTINATION, ...rest];
 }

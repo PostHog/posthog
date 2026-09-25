@@ -4,12 +4,13 @@ from typing import Any
 from urllib.parse import urlencode
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 from requests import Response
+from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import mailersend
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
@@ -102,7 +103,7 @@ class TestToDatetime:
 
 
 class TestActivityDateWindow:
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_first_sync_uses_lookback_window(self) -> None:
         window = _activity_date_window(
             should_use_incremental_field=True, db_incremental_field_last_value=None, lookback_days=30
@@ -110,7 +111,7 @@ class TestActivityDateWindow:
         assert window.end - window.start == 30 * 24 * 60 * 60
         assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_full_refresh_uses_lookback_window(self) -> None:
         # Activity requires a date window even without an incremental cursor, so a full refresh still
         # falls back to the lookback window rather than omitting the bounds.
@@ -119,7 +120,7 @@ class TestActivityDateWindow:
         )
         assert window.end - window.start == 30 * 24 * 60 * 60
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_incremental_starts_from_last_value(self) -> None:
         last = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
         window = _activity_date_window(
@@ -128,7 +129,17 @@ class TestActivityDateWindow:
         assert window.start == int(last.timestamp())
         assert window.end == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
 
-    @freeze_time("2026-06-23T00:00:00Z")
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
+    def test_cursor_older_than_the_tier_is_clamped(self) -> None:
+        # A watermark left behind by a paused sync asks for more history than the plan retains,
+        # which MailerSend rejects; it must be clamped to the tier being tried.
+        stale = datetime(2026, 1, 1, tzinfo=UTC)
+        window = _activity_date_window(
+            should_use_incremental_field=True, db_incremental_field_last_value=stale, lookback_days=7
+        )
+        assert window.end - window.start == 7 * 24 * 60 * 60
+
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     def test_future_cursor_is_clamped_below_date_to(self) -> None:
         # A future-dated cursor would make date_from >= date_to and 422 the request; it must be clamped.
         future = datetime(2027, 1, 1, tzinfo=UTC)
@@ -202,6 +213,38 @@ class TestTopLevelPagination:
         assert manager.save_state.call_args.args[0] == MailerSendResumeConfig(
             fanout_state={"next_url": f"{BASE}/recipients?page=2&limit=100"}
         )
+
+    @parameterized.expand(
+        [
+            ("last_allowed_page_is_followed", 1000, 2, ["r1", "r2"]),
+            ("page_past_the_cap_ends_the_table", 1001, 1, ["r1"]),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_at_the_documented_page_cap(
+        self,
+        _name: str,
+        next_page: int,
+        expected_requests: int,
+        expected_ids: list[str],
+        MockSession: MagicMock,
+    ) -> None:
+        # MailerSend accepts pages 1-1000 and rejects page 1001 with a 422, but still advertises a
+        # next link on page 1000, so the cap has to end the table instead of following that link.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _page([{"id": "r1"}], next_url=f"{BASE}/recipients?page={next_page}&limit=100"),
+                _page([{"id": "r2"}], next_url=None),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("recipients", manager))
+
+        assert [r["id"] for r in rows] == expected_ids
+        assert session.send.call_count == expected_requests
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_on_empty_page_without_checkpoint(self, MockSession: MagicMock) -> None:
@@ -281,6 +324,7 @@ class TestActivityFanOut:
             {"id": "a2", "type": "opened", "domain_id": "d2"},
         ]
 
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_sends_required_date_window_params(self, MockSession: MagicMock) -> None:
         session = MockSession.return_value
@@ -321,6 +365,59 @@ class TestActivityFanOut:
         )
         assert [r["id"] for r in rows] == ["a2"]
         assert [c["url"] for c in snaps if "/activity/" in c["url"]] == [f"{BASE}/activity/d2"]
+
+    @staticmethod
+    def _rejected_window() -> Response:
+        # MailerSend rejects a window reaching past the account's activity retention.
+        return _response({"message": "The given data was invalid."}, status_code=422)
+
+    @staticmethod
+    def _window_days(snapshot: dict[str, Any]) -> float:
+        return (snapshot["date_to"] - snapshot["date_from"]) / (24 * 60 * 60)
+
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_narrows_the_window_when_the_account_retains_less(self, MockSession: MagicMock) -> None:
+        # Activity retention is 30, 7 or 1 days depending on the plan and no endpoint reports it,
+        # so a rejected window must step down a tier rather than fail the whole sync.
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                self._domains("d1"),
+                self._rejected_window(),
+                self._domains("d1"),
+                _page([{"id": "a1"}], next_url=None),
+            ],
+        )
+
+        rows = _rows(_source("activity", _make_manager()))
+
+        assert [r["id"] for r in rows] == ["a1"]
+        attempts = [c for c in snaps if "/activity/" in c["url"]]
+        assert [self._window_days(a) for a in attempts] == [30, 7]
+
+    @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_every_tier_rejected_fails_the_sync(self, MockSession: MagicMock) -> None:
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                self._domains("d1"),
+                self._rejected_window(),
+                self._domains("d1"),
+                self._rejected_window(),
+                self._domains("d1"),
+                self._rejected_window(),
+            ],
+        )
+
+        with pytest.raises(HTTPError):
+            _rows(_source("activity", _make_manager()))
+
+        attempts = [c for c in snaps if "/activity/" in c["url"]]
+        assert [self._window_days(a) for a in attempts] == [30, 7, 1]
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_all_rows_yielded_for_small_domains(self, MockSession: MagicMock) -> None:

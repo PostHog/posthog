@@ -10,6 +10,8 @@ import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab"
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
+import { WorkActivityColumn } from "@posthog/ui/features/canvas/components/work/WorkActivityColumn";
+import { WorkColumn } from "@posthog/ui/features/canvas/components/work/WorkColumn";
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
@@ -17,6 +19,11 @@ import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentC
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
+import {
+  type NavRailPane,
+  railPaneFoldsIntoWork,
+} from "@posthog/ui/features/canvas/railPane";
 import {
   selectActivityItem,
   selectActivityReport,
@@ -27,6 +34,9 @@ import {
   showChannelPane,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useWorkActivityStore } from "@posthog/ui/features/canvas/stores/workActivityStore";
+import { InboxPane } from "@posthog/ui/features/inbox/components/InboxPane";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
@@ -34,10 +44,8 @@ import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu
 import { SidebarNavSection } from "@posthog/ui/features/sidebar/components/SidebarNavSection";
 import { TasksHeader } from "@posthog/ui/features/sidebar/components/TasksHeader";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
-import {
-  CHANNELS_SIDEBAR_MIN_WIDTH,
-  NAV_RAIL_WIDTH,
-} from "@posthog/ui/features/sidebar/constants";
+import { CHANNELS_SIDEBAR_MIN_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import { useNavRailMetrics } from "@posthog/ui/features/sidebar/navRailSize";
 import {
   beginSidebarPeek,
   cancelSidebarPeek,
@@ -50,8 +58,19 @@ import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { useSidebarEdgeHoverPeek } from "@posthog/ui/primitives/hooks/useSidebarEdgeHoverPeek";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
-import { useParams } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useRef } from "react";
+import {
+  reportSourceHrefFromLocation,
+  resolveNavigationSource,
+} from "@posthog/ui/router/reportNavigation";
+import { useParams, useRouterState } from "@tanstack/react-router";
+import {
+  type ComponentProps,
+  memo,
+  type ReactElement,
+  useDeferredValue,
+  useEffect,
+  useRef,
+} from "react";
 
 /**
  * The sidebar slider: the channel list and the channel you're in, laid out side
@@ -115,7 +134,6 @@ function ChannelPanes({
       >
         <div className="relative h-full w-1/2 min-w-0" inert={!showList}>
           <ChannelsList />
-          <ChannelsFab />
         </div>
         <div className="h-full w-1/2 min-w-0" inert={showList}>
           {channelId && (
@@ -132,7 +150,73 @@ function ChannelPanes({
     </div>
   );
 }
-export function ChannelsSidebar() {
+type ActivityFeedListProps = ComponentProps<typeof ActivityFeedList>;
+
+/**
+ * What the rail's column shows: the destination decides, so a new one adds a
+ * case here rather than another rung on a conditional.
+ */
+function RailPaneBody({
+  railPane,
+  workLayout,
+  workActivityOpen,
+  showsActivityDetail,
+  selectedActivityId,
+  onActivityActivate,
+  onActivityReportActivate,
+  feedId,
+  channelId,
+  showList,
+  sidebarVisible,
+  pendingTabSwitch,
+}: {
+  railPane: NavRailPane;
+  workLayout: boolean;
+  workActivityOpen: boolean;
+  showsActivityDetail: boolean;
+  selectedActivityId: string | undefined;
+  // Taken from the list rather than restated, so the row's payload can change
+  // shape without this seam disagreeing about it.
+  onActivityActivate: ActivityFeedListProps["onActivate"];
+  onActivityReportActivate: ActivityFeedListProps["onReportActivate"];
+  feedId: string | undefined;
+  channelId: string | null;
+  showList: boolean;
+  sidebarVisible: boolean;
+  pendingTabSwitch: boolean;
+}): ReactElement {
+  if (workLayout && workActivityOpen) {
+    return <WorkActivityColumn className="min-h-0 flex-1" />;
+  }
+  if (showsActivityDetail) {
+    return (
+      <ActivityFeedList
+        className="min-h-0 flex-1"
+        selectedId={selectedActivityId}
+        onActivate={onActivityActivate}
+        onReportActivate={onActivityReportActivate}
+      />
+    );
+  }
+  if (railPane === "inbox") return <InboxPane className="min-h-0 flex-1" />;
+  if (workLayout && railPaneFoldsIntoWork(railPane)) return <WorkColumn />;
+  if (railPane === "canvases") {
+    return <CanvasesPane className="min-h-0 flex-1" />;
+  }
+  if (feedId) {
+    return <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />;
+  }
+  return (
+    <ChannelPanes
+      channelId={channelId}
+      showList={showList}
+      sidebarVisible={sidebarVisible}
+      pendingTabSwitch={pendingTabSwitch}
+    />
+  );
+}
+
+function ChannelsSidebarImpl() {
   const width = useChannelsSidebarStore((state) => state.width);
   const setWidth = useChannelsSidebarStore((state) => state.setWidth);
   const isResizing = useChannelsSidebarStore((state) => state.isResizing);
@@ -156,6 +240,7 @@ export function ChannelsSidebar() {
   }, [workspacesFetched, workspaces, hasCompletedOnboarding, setOpenAuto]);
 
   const channelsLayout = useChannelsLayout();
+  const { width: navRailWidth } = useNavRailMetrics();
   const peek = useSidebarPeekStore((s) => s.peek);
   useSidebarEdgeHoverPeek({
     enabled: !open && !isResizing,
@@ -163,7 +248,7 @@ export function ChannelsSidebar() {
     side: "left",
     width,
     // Hovering a rail button is not a request to slide the sidebar out.
-    offset: channelsLayout ? NAV_RAIL_WIDTH : 0,
+    offset: channelsLayout ? navRailWidth : 0,
     onReveal: beginSidebarPeek,
     onClose: () => endSidebarPeek(),
   });
@@ -197,14 +282,31 @@ export function ChannelsSidebar() {
   const archivedTaskIds = useArchivedTaskIds();
 
   // Scoping lives in ChannelRouteSync: this column is not always drawn.
-  const { currentChannelId } = useCurrentChannel({ enabled: channelsLayout });
+  useCurrentChannel({ enabled: channelsLayout });
+  // The route's space, before the space list has resolved it. That hook withholds
+  // an unresolved id so nothing files against a dead space, but the pane only has
+  // to draw one — waiting held its tabs behind the fetch, and a stale id is
+  // dropped by the same hook a tick later.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   // Browsing the list is view state, not navigation: you stay in the channel
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
   const { pane: railPane, showsActivityDetail } = useRailSurface();
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
   const selectedActivityId = useActivitySelection()?.id;
-  const { feedId } = useParams({ strict: false });
+  const sourceFeedId = useRouterState({
+    select: (state) =>
+      resolveNavigationSource(
+        reportSourceHrefFromLocation(state.resolvedLocation ?? state.location),
+      )?.feedId ?? undefined,
+  });
+  const feedId =
+    useParams({
+      strict: false,
+      select: (params) => params.feedId,
+    }) ?? sourceFeedId;
   const pane = useChannelPaneStore((s) => s.pane);
   const { isPending: pendingTabSwitch, viewState: pendingTabViewState } =
     usePendingTabViewState();
@@ -253,25 +355,20 @@ export function ChannelsSidebar() {
           )}
 
           {channelsLayout ? (
-            showsActivityDetail ? (
-              <ActivityFeedList
-                className="min-h-0 flex-1"
-                selectedId={selectedActivityId}
-                onActivate={selectActivityItem}
-                onReportActivate={selectActivityReport}
-              />
-            ) : railPane === "canvases" ? (
-              <CanvasesPane className="min-h-0 flex-1" />
-            ) : feedId ? (
-              <TaskFeedPane feedId={feedId} className="min-h-0 flex-1" />
-            ) : (
-              <ChannelPanes
-                channelId={presentedChannelId}
-                showList={showList}
-                sidebarVisible={open || peek}
-                pendingTabSwitch={pendingTabSwitch}
-              />
-            )
+            <RailPaneBody
+              railPane={railPane}
+              workLayout={workLayout}
+              workActivityOpen={workActivityOpen}
+              showsActivityDetail={showsActivityDetail}
+              selectedActivityId={selectedActivityId}
+              onActivityActivate={selectActivityItem}
+              onActivityReportActivate={selectActivityReport}
+              feedId={feedId}
+              channelId={presentedChannelId}
+              showList={showList}
+              sidebarVisible={open || peek}
+              pendingTabSwitch={pendingTabSwitch}
+            />
           ) : bodyChannelsWorld ? (
             <>
               <Separator />
@@ -315,3 +412,6 @@ export function ChannelsSidebar() {
     </ResizableSidebar>
   );
 }
+
+// The root layout re-renders on every navigation; this keeps that from cascading here.
+export const ChannelsSidebar = memo(ChannelsSidebarImpl);

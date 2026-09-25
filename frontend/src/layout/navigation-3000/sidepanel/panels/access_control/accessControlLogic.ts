@@ -91,6 +91,7 @@ export interface accessControlLogicValues {
         | 'dashboard_template'
         | 'data_catalog'
         | 'data_catalog_approval'
+        | 'data_deletion'
         | 'dataset'
         | 'early_access_feature'
         | 'element'
@@ -320,6 +321,7 @@ export interface accessControlLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -329,14 +331,17 @@ export interface accessControlLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -402,6 +407,7 @@ export interface accessControlLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -446,6 +452,7 @@ export interface accessControlLogicMeta {
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -539,6 +546,7 @@ export interface accessControlLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -548,14 +556,17 @@ export interface accessControlLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -621,6 +632,7 @@ export interface accessControlLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -655,6 +667,7 @@ export interface accessControlLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -664,14 +677,17 @@ export interface accessControlLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -737,6 +753,7 @@ export interface accessControlLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -839,6 +856,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             {
                 loadAccessControls: async () => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const response = await api.get<AccessControlResponseType>(values.endpoint)
                         return response
                     } catch {
@@ -859,6 +877,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 },
 
                 updateAccessControlDefault: async ({ level, source }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                         access_level: level,
                     })
@@ -875,6 +894,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlRoles: async ({ accessControls, source }) => {
                     for (const { role, level } of accessControls) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
                             access_level: level,
@@ -896,6 +916,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
 
                 updateAccessControlMembers: async ({ accessControls, source }) => {
                     for (const { member, level } of accessControls) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
                             access_level: level,
@@ -950,6 +971,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'
@@ -1061,6 +1083,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'
@@ -1178,6 +1201,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     | 'dashboard_template'
                     | 'data_catalog'
                     | 'data_catalog_approval'
+                    | 'data_deletion'
                     | 'dataset'
                     | 'early_access_feature'
                     | 'element'

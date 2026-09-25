@@ -1,13 +1,6 @@
-import {
-  suggestedReviewerDisplayName,
-  toSuggestedReviewerWriteContent,
-} from "@posthog/core/inbox/artefacts";
+import { toSuggestedReviewerWriteContent } from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
   Button,
   Popover,
   PopoverContent,
@@ -17,15 +10,20 @@ import type { InboxReportActionSurface } from "@posthog/shared";
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
+  SuggestedReviewer,
 } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { SuggestedReviewersList } from "@posthog/ui/features/inbox/components/SuggestedReviewersList";
 import { SuggestedReviewerAvatar } from "@posthog/ui/features/inbox/components/utils/SuggestedReviewerAvatar";
 import {
   useInboxReportArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 
 const MAX_VISIBLE = 4;
 // Keep this stable because autocapture insights and UI tests can depend on it.
@@ -38,12 +36,14 @@ interface SuggestedReviewerAvatarStackProps {
   /** Analytics surface for the remove-self action; the stack lives on list
    * cards by default, but the detail header reuses it. */
   surface?: InboxReportActionSurface;
+  triageId?: string;
 }
 
 export function SuggestedReviewerAvatarStack({
   report,
   artefacts,
   surface = "list_row",
+  triageId,
 }: SuggestedReviewerAvatarStackProps) {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
@@ -55,12 +55,18 @@ export function SuggestedReviewerAvatarStack({
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
-  const fireAction = useReportActionTracker(report, surface);
+  const fireAction = useReportActionTracker(report, surface, triageId);
+  const trackResult = useReportActionResultTracker(report, surface, triageId);
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
-  const reviewers = (reviewerArtefact?.content ?? []).filter(
-    (reviewer) => reviewer.github_login,
+  const allReviewers = reviewerArtefact?.content ?? [];
+  // The stack draws GitHub profile avatars, so it can only show reviewers who have a login. A
+  // reviewer identified by PostHog user alone still routes the report and belongs in the list;
+  // they just have no avatar to draw here yet.
+  const reviewers = allReviewers.filter(
+    (reviewer): reviewer is SuggestedReviewer & { github_login: string } =>
+      !!reviewer.github_login,
   );
   if (reviewers.length === 0) {
     return null;
@@ -72,6 +78,11 @@ export function SuggestedReviewerAvatarStack({
   const visible = reviewers.slice(0, MAX_VISIBLE);
   const overflow = reviewers.length - visible.length;
   const reviewerCountLabel = `${reviewers.length} suggested reviewer${reviewers.length === 1 ? "" : "s"}`;
+  // The avatars overlap, so each one needs a ring in the color of the surface
+  // behind it to keep an apparent gap. Rows publish that color as
+  // `--inbox-row-surface`; anything else falls back to the panel background.
+  // The overflow badge fills in `--gray-4`, which no row state uses, so it
+  // keeps its shape when its ring matches the row behind it.
   const avatarStack = (
     <span className="-space-x-1.5 flex items-center">
       <span className="sr-only">{reviewerCountLabel}</span>
@@ -80,11 +91,11 @@ export function SuggestedReviewerAvatarStack({
           key={reviewer.github_login}
           githubLogin={reviewer.github_login}
           size="sm"
-          className="ring-(--color-panel-solid) ring-2"
+          className="ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]"
         />
       ))}
       {overflow > 0 ? (
-        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-3) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-(--color-panel-solid) ring-2">
+        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--gray-4) px-1 font-semibold text-[9px] text-gray-11 leading-none ring-2 ring-[var(--inbox-row-surface,var(--color-panel-solid))]">
           +{overflow}
         </span>
       ) : null}
@@ -96,15 +107,25 @@ export function SuggestedReviewerAvatarStack({
     const nextReviewers = reviewerArtefact.content.filter(
       (reviewer) => reviewer.user?.uuid !== currentUser?.uuid,
     );
-    fireAction("remove_suggested_reviewer", {
-      suggested_reviewer_login: currentReviewer.github_login,
-      suggested_reviewer_uuid: currentReviewer.user?.uuid,
-    });
-    updateReviewers({
-      artefactId: reviewerArtefact.id,
-      content: toSuggestedReviewerWriteContent(nextReviewers),
-      optimisticReviewers: nextReviewers,
-    });
+    const startedAt = Date.now();
+    fireAction("remove_suggested_reviewer");
+    updateReviewers(
+      {
+        content: toSuggestedReviewerWriteContent(nextReviewers),
+        optimisticReviewers: nextReviewers,
+      },
+      {
+        onSuccess: () =>
+          trackResult("remove_suggested_reviewer", "succeeded", startedAt),
+        onError: () =>
+          trackResult(
+            "remove_suggested_reviewer",
+            "failed",
+            startedAt,
+            "request_failed",
+          ),
+      },
+    );
   };
 
   return (
@@ -133,34 +154,10 @@ export function SuggestedReviewerAvatarStack({
           Suggested reviewers
         </div>
         <div className="max-h-80 overflow-y-auto overscroll-contain p-2">
-          <Accordion
-            multiple
-            defaultValue={
-              reviewers[0]?.github_login ? [reviewers[0].github_login] : []
-            }
-          >
-            {reviewers.map((reviewer) => (
-              <AccordionItem
-                key={reviewer.github_login}
-                value={reviewer.github_login}
-              >
-                <AccordionTrigger>
-                  {suggestedReviewerDisplayName(reviewer)}
-                </AccordionTrigger>
-                <AccordionContent>
-                  <div className="flex flex-col gap-2 pb-2 text-[12px] text-gray-11 leading-relaxed">
-                    {reviewer.relevant_commits.length > 0 ? (
-                      reviewer.relevant_commits.map((commit) => (
-                        <p key={commit.sha}>{commit.reason}</p>
-                      ))
-                    ) : (
-                      <p>Suggested by the agent</p>
-                    )}
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
+          <SuggestedReviewersList
+            reviewers={allReviewers}
+            disabled={isPending}
+          />
         </div>
         {currentReviewer && reviewerArtefact ? (
           <div className="border-(--gray-6) border-t p-2">

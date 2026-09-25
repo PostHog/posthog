@@ -17,9 +17,7 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
-        # constituent PR already ran this in full.
-        if: github.repository == 'PostHog/posthog' && !startsWith(github.head_ref, 'trunk-merge/')
+        if: github.repository == 'PostHog/posthog'
         name: Determine need to run proto checks
         outputs:
             proto: ${{ steps.filter.outputs.proto || 'true' }}
@@ -43,7 +41,9 @@ jobs:
                   filters: |
                       proto:
                         - 'proto/**'
-                        - 'posthog/personhog_client/proto/generated/**'
+                        - 'packages/personhog-proto/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
                         - 'bin/generate_personhog_proto.sh'
                         - 'nodejs/src/common/generated/personhog/**'
                         - 'nodejs/src/common/generated/ingestion-worker/**'
@@ -121,8 +121,12 @@ jobs:
                   python-version: '3.13.13'
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            - name: Install codegen tools
-              run: pip install grpcio-tools protoletariat ruff
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: 'false'
+
+            - name: Install codegen tools from the lock
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-install-project --only-group proto-codegen
 
             - name: Regenerate Python proto stubs
               run: bash bin/generate_personhog_proto.sh
@@ -130,8 +134,8 @@ jobs:
             - name: Check for diff
               run: |
                   # Intent-to-add so brand-new generated files show up in git diff
-                  git add -N posthog/personhog_client/proto/generated/
-                  if ! git diff --exit-code posthog/personhog_client/proto/generated/; then
+                  git add -N packages/personhog-proto/
+                  if ! git diff --exit-code packages/personhog-proto/; then
                     echo ""
                     echo "ERROR: Generated Python proto stubs are out of date."
                     echo "Run 'bash bin/generate_personhog_proto.sh' and commit the result."
@@ -182,9 +186,9 @@ jobs:
     proto_checks:
         needs: [changes, lint, breaking, python-codegen, node-codegen]
         name: Proto Checks Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check all proto jobs
               run: |

@@ -17,6 +17,7 @@ from .process_task.activities import (
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
+    collect_agent_shadow_result,
     complete_run_stream,
     create_resume_snapshot,
     create_sandbox_for_repository,
@@ -54,6 +55,7 @@ from .process_task.activities import (
 from .process_task.activities.feature_flags import is_slack_app_agent_design_enabled_for_task_activity
 from .process_task.activities.get_pr_babysit_snapshot import get_pr_babysit_snapshot
 from .process_task.activities.get_pr_context import get_pr_context
+from .process_task.activities.mark_pr_ready import mark_pr_ready
 from .process_task.activities.slack_agent_design import (
     append_slack_agent_design_steps,
     start_slack_agent_design_stream,
@@ -101,6 +103,7 @@ ACTIVITIES = [
     start_agent_server,
     launch_agent_server,
     await_agent_server_ready,
+    collect_agent_shadow_result,
     mark_repo_ready,
     read_sandbox_logs,
     cleanup_sandbox,
@@ -114,6 +117,7 @@ ACTIVITIES = [
     update_task_run_status,
     get_pr_context,
     get_pr_babysit_snapshot,
+    mark_pr_ready,
     relay_slack_message,
     is_slack_app_agent_design_enabled_for_task_activity,
     start_slack_agent_design_stream,

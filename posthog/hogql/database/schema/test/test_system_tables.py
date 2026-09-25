@@ -1,10 +1,9 @@
 import json
 import uuid
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
-from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -17,8 +16,18 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
+from posthog.models import (
+    DataDeletionRequest,
+    Group,
+    GroupTypeMapping,
+    GroupUsageMetric,
+    Organization,
+    OrganizationMembership,
+    Tag,
+    Team,
+)
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
@@ -26,6 +35,7 @@ from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mappi
 
 from products.access_control.backend.models.role import Role
 from products.actions.backend.models.action import Action
+from products.aeo.backend.facade.testing import create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -34,17 +44,46 @@ from products.ai_observability.backend.models.score_definitions import ScoreDefi
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
+from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
+from products.canvas.backend.models import Canvas
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
-from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models import EmailThread, EmailThreadAccountLink, Ticket, TicketAssignment
+from products.customer_analytics.backend.facade.testing import (
+    create_account,
+    create_account_channel_summary,
+    create_account_relationship,
+    create_account_relationship_definition,
+    create_custom_property_definition,
+    create_custom_property_value,
+    create_customer_task,
+    create_feature_request,
+    create_feature_request_account_link,
+    create_feature_request_evidence,
+    create_feature_request_history,
+    create_feature_request_product_area,
+    create_feature_request_product_area_link,
+    create_meeting,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
+from products.error_tracking.backend.facade.testing import (
+    create_assignment_rule,
+    create_bypass_rule,
+    create_issue,
+    create_issue_assignment,
+    create_issue_fingerprint,
+    create_release,
+    create_severity_rule,
+    create_suppression_rule,
+    create_symbol_set,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -52,6 +91,7 @@ from products.logs.backend.models import LogsAlertConfiguration, LogsView
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.surveys.backend.models import Survey, SurveyResponseArchive
+from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataJob,
@@ -60,55 +100,6 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-if TYPE_CHECKING:
-    from products.customer_analytics.backend.models.account import Account
-    from products.customer_analytics.backend.models.custom_property_definition import CustomPropertyDefinition
-    from products.customer_analytics.backend.models.custom_property_value import CustomPropertyValue
-    from products.customer_analytics.backend.models.feature_request import (
-        FeatureRequest,
-        FeatureRequestAccountLink,
-        FeatureRequestEvidence,
-        FeatureRequestHistory,
-        FeatureRequestProductArea,
-        FeatureRequestProductAreaLink,
-    )
-    from products.customer_analytics.backend.models.relationship import (
-        AccountRelationship,
-        AccountRelationshipDefinition,
-    )
-    from products.error_tracking.backend.models import (
-        ErrorTrackingAssignmentRule,
-        ErrorTrackingBypassRule,
-        ErrorTrackingIssue,
-        ErrorTrackingIssueAssignment,
-        ErrorTrackingIssueFingerprintV2,
-        ErrorTrackingRelease,
-        ErrorTrackingSeverityRule,
-        ErrorTrackingSuppressionRule,
-        ErrorTrackingSymbolSet,
-    )
-else:
-    Account = apps.get_model("customer_analytics", "Account")
-    CustomPropertyDefinition = apps.get_model("customer_analytics", "CustomPropertyDefinition")
-    CustomPropertyValue = apps.get_model("customer_analytics", "CustomPropertyValue")
-    FeatureRequest = apps.get_model("customer_analytics", "FeatureRequest")
-    FeatureRequestAccountLink = apps.get_model("customer_analytics", "FeatureRequestAccountLink")
-    FeatureRequestEvidence = apps.get_model("customer_analytics", "FeatureRequestEvidence")
-    FeatureRequestHistory = apps.get_model("customer_analytics", "FeatureRequestHistory")
-    FeatureRequestProductArea = apps.get_model("customer_analytics", "FeatureRequestProductArea")
-    FeatureRequestProductAreaLink = apps.get_model("customer_analytics", "FeatureRequestProductAreaLink")
-    AccountRelationship = apps.get_model("customer_analytics", "AccountRelationship")
-    AccountRelationshipDefinition = apps.get_model("customer_analytics", "AccountRelationshipDefinition")
-    ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
-    ErrorTrackingSymbolSet = apps.get_model("error_tracking", "ErrorTrackingSymbolSet")
-    ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
-    ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
-    ErrorTrackingAssignmentRule = apps.get_model("error_tracking", "ErrorTrackingAssignmentRule")
-    ErrorTrackingBypassRule = apps.get_model("error_tracking", "ErrorTrackingBypassRule")
-    ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
-    ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
-    ErrorTrackingSeverityRule = apps.get_model("error_tracking", "ErrorTrackingSeverityRule")
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -140,6 +131,10 @@ class TestSystemTablesTeamScoping(BaseTest):
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
     def test_system_table_has_team_id_filter(self, table_name):
+        if table_name == "data_deletion_requests":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
         db = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(
             team_id=self.team.pk,
@@ -192,12 +187,40 @@ class TestSystemTablesTeamScoping(BaseTest):
         assert "storage_ptr" not in table.fields
         assert "content_hash" not in table.fields
 
+    def test_data_deletion_requests_exposes_only_customer_safe_fields(self):
+        table = SystemTables().children["data_deletion_requests"].get()
+        assert isinstance(table, Table)
+
+        assert {name for name, field in table.fields.items() if not field.hidden} == {
+            "id",
+            "status",
+            "query",
+            "variables",
+            "selected_count",
+            "created_by_id",
+            "created_by_staff",
+            "created_at",
+            "updated_at",
+            "approved_at",
+            "selection_calculated_at",
+        }
+
 
 def _create_batch_export(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+
+
+def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest:
+    return DataDeletionRequest.objects.create(
+        team_id=team.pk,
+        request_type=RequestType.HOGQL_EVENT_REMOVAL,
+        execution_mode=ExecutionMode.DEFERRED,
+        hogql_query=f"SELECT uuid FROM events WHERE event = '{label}'",
+        status=RequestStatus.PENDING,
+    )
 
 
 def _create_batch_export_backfill(team: Team, label: str):
@@ -207,7 +230,7 @@ def _create_batch_export_backfill(team: Team, label: str):
         BatchExportDestination,
     )
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
     )
@@ -217,7 +240,7 @@ def _create_batch_export_backfill(team: Team, label: str):
 def _create_batch_export_run(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
     )
@@ -227,7 +250,7 @@ def _create_batch_export_run(team: Team, label: str):
 def _create_batch_export_on_demand(team: Team, label: str):
     from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     with team_scope(team.pk):
         return BatchExportOnDemand.objects.create(team=team, destination=destination)
 
@@ -250,66 +273,61 @@ def _create_activity_log(team: Team, label: str) -> ActivityLog:
     return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
 
 
-def _create_account(team: Team, label: str) -> Account:
-    return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
+def _create_account(team: Team, label: str):
+    return create_account(team_id=team.pk, name=f"account_{label}", external_id=f"ext_{label}")
 
 
-def _create_custom_property_definition(team: Team, label: str) -> "CustomPropertyDefinition":
-    return CustomPropertyDefinition.objects.unscoped().create(team=team, name=f"def_{label}", display_type="text")
+def _create_custom_property_definition(team: Team, label: str):
+    return create_custom_property_definition(team_id=team.pk, name=f"def_{label}")
 
 
-def _create_account_relationship(team: Team, label: str) -> "AccountRelationship":
-    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
-    definition = AccountRelationshipDefinition.objects.unscoped().create(team=team, name=f"rel_{label}")
-    return AccountRelationship.objects.unscoped().create(team=team, account=account, definition=definition)
+def _create_customer_task(team: Team, label: str):
+    return create_customer_task(team_id=team.pk, name=f"customer_task_{label}")
 
 
-def _create_account_relationship_definition(team: Team, label: str) -> "AccountRelationshipDefinition":
-    return AccountRelationshipDefinition.objects.unscoped().create(team=team, name=f"rel_def_{label}")
+def _create_account_relationship(team: Team, label: str):
+    account = create_account(team_id=team.pk, name=f"account_{label}")
+    definition = create_account_relationship_definition(team_id=team.pk, name=f"rel_{label}")
+    return create_account_relationship(team_id=team.pk, account=account, definition=definition)
 
 
-def _create_feature_request(team: Team, label: str) -> "FeatureRequest":
-    account = Account.objects.unscoped().create(team=team, name=f"feature_request_account_{label}")
-    feature_request = FeatureRequest.objects.unscoped().create(team=team, title=f"feature_request_{label}")
-    FeatureRequestAccountLink.objects.unscoped().create(team=team, feature_request=feature_request, account=account)
+def _create_account_relationship_definition(team: Team, label: str):
+    return create_account_relationship_definition(team_id=team.pk, name=f"rel_def_{label}")
+
+
+def _create_feature_request(team: Team, label: str):
+    account = create_account(team_id=team.pk, name=f"feature_request_account_{label}")
+    feature_request = create_feature_request(team_id=team.pk, title=f"feature_request_{label}")
+    create_feature_request_account_link(team_id=team.pk, feature_request=feature_request, account=account)
     return feature_request
 
 
-def _create_feature_request_product_area(team: Team, label: str) -> "FeatureRequestProductArea":
-    return FeatureRequestProductArea.objects.unscoped().create(team=team, name=f"product_area_{label}")
+def _create_feature_request_product_area(team: Team, label: str):
+    return create_feature_request_product_area(team_id=team.pk, name=f"product_area_{label}")
 
 
-def _create_feature_request_account_link(team: Team, label: str) -> "FeatureRequestAccountLink":
-    account = Account.objects.unscoped().create(team=team, name=f"linked_account_{label}")
-    feature_request = FeatureRequest.objects.unscoped().create(team=team, title=f"linked_request_{label}")
-    return FeatureRequestAccountLink.objects.unscoped().create(
-        team=team, feature_request=feature_request, account=account
-    )
+def _create_feature_request_account_link(team: Team, label: str):
+    account = create_account(team_id=team.pk, name=f"linked_account_{label}")
+    feature_request = create_feature_request(team_id=team.pk, title=f"linked_request_{label}")
+    return create_feature_request_account_link(team_id=team.pk, feature_request=feature_request, account=account)
 
 
-def _create_feature_request_evidence(team: Team, label: str) -> "FeatureRequestEvidence":
+def _create_feature_request_evidence(team: Team, label: str):
     account_link = _create_feature_request_account_link(team, label)
-    return FeatureRequestEvidence.objects.unscoped().create(
-        team=team, account_link=account_link, source="conversation", summary=f"evidence_{label}"
-    )
+    return create_feature_request_evidence(team_id=team.pk, account_link=account_link, summary=f"evidence_{label}")
 
 
-def _create_feature_request_product_area_link(team: Team, label: str) -> "FeatureRequestProductAreaLink":
+def _create_feature_request_product_area_link(team: Team, label: str):
     feature_request = _create_feature_request(team, label)
     product_area = _create_feature_request_product_area(team, label)
-    return FeatureRequestProductAreaLink.objects.unscoped().create(
-        team=team, feature_request=feature_request, product_area=product_area
+    return create_feature_request_product_area_link(
+        team_id=team.pk, feature_request=feature_request, product_area=product_area
     )
 
 
-def _create_feature_request_history(team: Team, label: str) -> "FeatureRequestHistory":
+def _create_feature_request_history(team: Team, label: str):
     feature_request = _create_feature_request(team, label)
-    return FeatureRequestHistory.objects.unscoped().create(
-        team=team,
-        feature_request=feature_request,
-        changes=[],
-        changed_at=timezone.now(),
-    )
+    return create_feature_request_history(team_id=team.pk, feature_request=feature_request, changed_at=timezone.now())
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -322,6 +340,11 @@ def _create_cohort(team: Team, label: str) -> Cohort:
 
 def _create_annotation(team: Team, label: str) -> Annotation:
     return Annotation.objects.create(team=team, content=f"annotation_{label}")
+
+
+def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
+    # autoresearch is sealed: the row is planted through its facade, so only the id comes back.
+    return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -464,54 +487,42 @@ def _create_endpoint_version(team: Team, label: str) -> EndpointVersion:
     )
 
 
-def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
-    return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
+def _create_error_tracking_issue(team: Team, label: str) -> uuid.UUID:
+    return create_issue(team_id=team.pk, name=f"issue_{label}")
 
 
-def _create_error_tracking_issue_assignment(team: Team, label: str):
-    issue = ErrorTrackingIssue.objects.create(team=team, name=f"assigned_issue_{label}", status="active")
-    return ErrorTrackingIssueAssignment.objects.create(team=team, issue=issue)
+def _create_error_tracking_issue_assignment(team: Team, label: str) -> uuid.UUID:
+    issue_id = create_issue(team_id=team.pk, name=f"assigned_issue_{label}")
+    return create_issue_assignment(team_id=team.pk, issue_id=issue_id)
 
 
-def _create_error_tracking_issue_fingerprint(team: Team, label: str):
-    issue = ErrorTrackingIssue.objects.create(team=team, name=f"fp_issue_{label}", status="active")
-    return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
+def _create_error_tracking_issue_fingerprint(team: Team, label: str) -> uuid.UUID:
+    issue_id = create_issue(team_id=team.pk, name=f"fp_issue_{label}")
+    return create_issue_fingerprint(team_id=team.pk, issue_id=issue_id, fingerprint=f"fp_{label}")
 
 
-def _create_error_tracking_assignment_rule(team: Team, label: str):
-    return ErrorTrackingAssignmentRule.objects.create(
-        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
-    )
+def _create_error_tracking_assignment_rule(team: Team, label: str) -> uuid.UUID:
+    return create_assignment_rule(team_id=team.pk)
 
 
-def _create_error_tracking_bypass_rule(team: Team, label: str):
-    return ErrorTrackingBypassRule.objects.create(
-        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
-    )
+def _create_error_tracking_bypass_rule(team: Team, label: str) -> uuid.UUID:
+    return create_bypass_rule(team_id=team.pk)
 
 
-def _create_error_tracking_severity_rule(team: Team, label: str):
-    return ErrorTrackingSeverityRule.objects.unscoped().create(
-        team=team, filters={"type": "AND", "values": []}, bytecode=[], severity="high", order_key=0
-    )
+def _create_error_tracking_severity_rule(team: Team, label: str) -> uuid.UUID:
+    return create_severity_rule(team_id=team.pk)
 
 
-def _create_error_tracking_suppression_rule(team: Team, label: str):
-    return ErrorTrackingSuppressionRule.objects.create(
-        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0, sampling_rate=1.0
-    )
+def _create_error_tracking_suppression_rule(team: Team, label: str) -> uuid.UUID:
+    return create_suppression_rule(team_id=team.pk)
 
 
-def _create_error_tracking_release(team: Team, label: str):
-    return ErrorTrackingRelease.objects.create(
-        team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
-    )
+def _create_error_tracking_release(team: Team, label: str) -> uuid.UUID:
+    return create_release(team_id=team.pk, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}")
 
 
-def _create_error_tracking_symbol_set(team: Team, label: str) -> ErrorTrackingSymbolSet:
-    return ErrorTrackingSymbolSet.objects.create(
-        team=team, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}"
-    )
+def _create_error_tracking_symbol_set(team: Team, label: str) -> uuid.UUID:
+    return create_symbol_set(team_id=team.pk, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}")
 
 
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
@@ -738,23 +749,14 @@ def _create_support_ticket(team: Team, label: str) -> Ticket:
 
 
 def _create_account_meeting(team: Team, label: str):
-    Account = apps.get_model("customer_analytics", "Account")
-    Meeting = apps.get_model("customer_analytics", "Meeting")
-    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
-    return Meeting.objects.unscoped().create(
-        team=team,
-        account=account,
-        ical_uid=f"meeting_{label}",
-        start_time=timezone.now(),
-    )
+    account = create_account(team_id=team.pk, name=f"account_{label}")
+    return create_meeting(team_id=team.pk, account=account, ical_uid=f"meeting_{label}", start_time=timezone.now())
 
 
 def _create_account_channel_summary(team: Team, label: str):
-    Account = apps.get_model("customer_analytics", "Account")
-    AccountChannelSummary = apps.get_model("customer_analytics", "AccountChannelSummary")
-    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
-    return AccountChannelSummary.objects.unscoped().create(
-        team=team,
+    account = create_account(team_id=team.pk, name=f"account_{label}")
+    return create_account_channel_summary(
+        team_id=team.pk,
         account=account,
         slack_channel_id=f"channel_{label}",
         cadence="daily",
@@ -764,11 +766,8 @@ def _create_account_channel_summary(team: Team, label: str):
     )
 
 
-def _create_account_email_thread(team: Team, label: str):
-    Account = apps.get_model("customer_analytics", "Account")
-    EmailThread = apps.get_model("conversations", "EmailThread")
-    EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
-    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+def _create_account_email_thread(team: Team, label: str) -> EmailThread:
+    account = create_account(team_id=team.pk, name=f"account_{label}")
     thread = EmailThread.objects.for_team(team.id).create(
         team=team,
         canonical_thread_key=f"thread_{label}",
@@ -783,11 +782,8 @@ def _create_account_email_thread(team: Team, label: str):
     return thread
 
 
-def _create_account_email_thread_link(team: Team, label: str):
-    Account = apps.get_model("customer_analytics", "Account")
-    EmailThread = apps.get_model("conversations", "EmailThread")
-    EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
-    account = Account.objects.unscoped().create(team=team, name=f"account_{label}")
+def _create_account_email_thread_link(team: Team, label: str) -> EmailThreadAccountLink:
+    account = create_account(team_id=team.pk, name=f"account_{label}")
     thread = EmailThread.objects.for_team(team.id).create(
         team=team,
         canonical_thread_key=f"thread_{label}",
@@ -813,16 +809,12 @@ def _create_survey_response_archive(team: Team, label: str) -> SurveyResponseArc
     )
 
 
-def _create_public_task_channel(team: Team, label: str):
-    Channel = apps.get_model("tasks", "Channel")
-
+def _create_public_task_channel(team: Team, label: str) -> Channel:
     with team_scope(team.pk):
         return Channel.objects.create(team=team, name=f"channel_{label}")
 
 
-def _create_task(team: Team, label: str):
-    Task = apps.get_model("tasks", "Task")
-
+def _create_task(team: Team, label: str) -> Task:
     return Task.objects.create(
         team=team,
         channel=_create_public_task_channel(team, f"task_{label}"),
@@ -832,18 +824,13 @@ def _create_task(team: Team, label: str):
     )
 
 
-def _create_canvas(team: Team, label: str):
-    Canvas = apps.get_model("canvas", "Canvas")
-
+def _create_canvas(team: Team, label: str) -> Canvas:
     with team_scope(team.pk):
         channel = _create_public_task_channel(team, f"canvas_{label}")
         return Canvas.objects.create(team=team, channel=channel, name=f"canvas_{label}")
 
 
-def _create_task_run(team: Team, label: str):
-    Task = apps.get_model("tasks", "Task")
-    TaskRun = apps.get_model("tasks", "TaskRun")
-
+def _create_task_run(team: Team, label: str) -> TaskRun:
     task = Task.objects.create(
         team=team,
         channel=_create_public_task_channel(team, f"run_{label}"),
@@ -866,9 +853,7 @@ def _create_file_system(team: Team, label: str):
     )
 
 
-def _create_sandbox_environment(team: Team, label: str):
-    SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
-
+def _create_sandbox_environment(team: Team, label: str) -> SandboxEnvironment:
     # private=False so the row is queryable via HogQL — the privacy predicate
     # excludes private environments. Privacy filtering itself is covered by
     # TestSystemTablesSandboxEnvironmentPrivacy.
@@ -930,12 +915,14 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
+    ("aeo_citation_checks", create_citation_check),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_pipelines", _create_autoresearch_pipeline),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),
@@ -949,6 +936,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("custom_property_definitions", _create_custom_property_definition),
+    ("customer_tasks", _create_customer_task),
     ("_account_meetings", _create_account_meeting),
     ("_account_channel_summaries", _create_account_channel_summary),
     ("_account_email_threads", _create_account_email_thread),
@@ -959,6 +947,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("dataset_items", _create_dataset_item),
     ("dataset_revisions", _create_dataset_revision),
     ("datasets", _create_dataset),
+    ("data_deletion_requests", _create_data_deletion_request),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
@@ -1044,24 +1033,27 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
 
+    def _authorize_data_deletion_requests(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+
     @parameterized.expand(SYSTEM_TABLE_FACTORIES)
     def test_system_table_returns_only_own_team_data(self, table_name, factory):
+        if table_name == "data_deletion_requests":
+            self._authorize_data_deletion_requests()
+
         obj_team1 = factory(self.team, "team1")
         obj_team2 = factory(self.other_team, "team2")
 
         response = execute_hogql_query(f"SELECT id FROM system.{table_name}", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
-        assert str(obj_team1.pk) in ids
-        assert str(obj_team2.pk) not in ids
+        # A factory returns either a model instance or a bare id (error_tracking's testing door returns ids).
+        assert str(getattr(obj_team1, "pk", obj_team1)) in ids
+        assert str(getattr(obj_team2, "pk", obj_team2)) not in ids
 
     def test_error_tracking_issue_severity(self):
-        ErrorTrackingIssue.objects.create(
-            team=self.team,
-            name="high_severity_issue",
-            status=ErrorTrackingIssue.Status.ACTIVE,
-            severity=ErrorTrackingIssue.Severity.HIGH,
-        )
+        create_issue(team_id=self.team.pk, name="high_severity_issue", severity="high")
 
         response = execute_hogql_query(
             "SELECT severity FROM system.error_tracking_issues WHERE severity IS NOT NULL",
@@ -1070,6 +1062,32 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
 
         assert response.results == [("high",)]
+
+    def test_data_deletion_requests_excludes_non_query_backed_requests(self):
+        self._authorize_data_deletion_requests()
+
+        visible = _create_data_deletion_request(self.team, "visible")
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            events=["hidden"],
+            start_time=timezone.now(),
+            end_time=timezone.now(),
+            status=RequestStatus.PENDING,
+        )
+        DataDeletionRequest.objects.create(
+            team_id=self.team.pk,
+            request_type=RequestType.HOGQL_EVENT_REMOVAL,
+            execution_mode=ExecutionMode.DEFERRED,
+            hogql_query="",
+            status=RequestStatus.PENDING,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.data_deletion_requests", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert ids == {str(visible.pk)}
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):
@@ -1114,8 +1132,6 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_private_environments_excluded(self):
-        SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
-
         public_env = SandboxEnvironment.objects.create(team=self.team, name="public_env", private=False)
         private_env = SandboxEnvironment.objects.create(team=self.team, name="private_env", private=True)
 
@@ -1126,8 +1142,6 @@ class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
         assert str(private_env.pk) not in ids
 
     def test_internal_environments_excluded(self):
-        SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
-
         regular_env = SandboxEnvironment.objects.create(
             team=self.team, name="regular_env", private=False, internal=False
         )
@@ -1161,9 +1175,6 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_deleted_canvases_excluded(self):
-        Channel = apps.get_model("tasks", "Channel")
-        Canvas = apps.get_model("canvas", "Canvas")
-
         with team_scope(self.team.pk):
             channel = Channel.objects.create(team=self.team, name="canvas-exclusion-channel")
             live_canvas = Canvas.objects.create(team=self.team, channel=channel, name="live")
@@ -1174,6 +1185,36 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
 
         assert str(live_canvas.pk) in ids
         assert str(deleted_canvas.pk) not in ids
+
+
+class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
+    """The Canvas visibility rule compares `item_id` against canvas ids, which are UUIDs."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_numeric_item_id_readable_while_canvases_exist(self):
+        # One canvas is enough to make the rule's id set non-empty and UUID-typed. `item_id` is a
+        # String holding whatever object the row is about, and most of those ids are numeric, so
+        # ClickHouse coerced every row's item_id to UUID and the whole table failed to read.
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name="activity-log-canvas-channel")
+            Canvas.objects.create(team=self.team, channel=channel, name="live")
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            activity="created",
+            scope="Insight",
+            item_id="11510926",
+            detail={},
+        )
+
+        response = execute_hogql_query(
+            "SELECT item_id FROM system.activity_logs WHERE item_id = '11510926'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [row[0] for row in response.results] == ["11510926"]
 
 
 class TestSystemTablesTaskInternalExclusion(BaseTest):
@@ -1195,7 +1236,6 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_internal_tasks_excluded(self):
-        Task = apps.get_model("tasks", "Task")
         channel = _create_public_task_channel(self.team, "internal-exclusion")
 
         regular_task = Task.objects.create(
@@ -1226,11 +1266,6 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def test_private_and_unfiled_task_resources_are_excluded(self):
-        Channel = apps.get_model("tasks", "Channel")
-        Task = apps.get_model("tasks", "Task")
-        TaskRun = apps.get_model("tasks", "TaskRun")
-        Canvas = apps.get_model("canvas", "Canvas")
-
         with team_scope(self.team.pk):
             public_channel = Channel.objects.create(team=self.team, name="public-space")
             private_channel = Channel.objects.create(
@@ -1489,12 +1524,12 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
 
     def test_tags_lazy_join_returns_tag_names_array(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
+        account = create_account(team_id=self.team.pk, name="A")
         billing = Tag.objects.create(name="billing", team=self.team)
         urgent = Tag.objects.create(name="urgent", team=self.team)
         account.tagged_items.create(tag=billing)
         account.tagged_items.create(tag=urgent)
-        Account.objects.unscoped().create(team=self.team, name="B")  # untagged
+        create_account(team_id=self.team.pk, name="B")  # untagged
 
         response = execute_hogql_query(
             "SELECT id, accounts.tags.names FROM system.accounts AS accounts ORDER BY name",
@@ -1506,7 +1541,7 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert sorted(rows_by_id[str(account.id)]) == ["billing", "urgent"]
 
     def test_tags_lazy_join_isolated_per_team(self):
-        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
+        other_account = create_account(team_id=self.other_team.pk, name="Theirs")
         other_tag = Tag.objects.create(name="billing", team=self.other_team)
         other_account.tagged_items.create(tag=other_tag)
 
@@ -1518,11 +1553,11 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert response.results == []
 
     def test_notebooks_lazy_join_returns_count(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
+        account = create_account(team_id=self.team.pk, name="A")
         for label in ("n1", "n2", "n3"):
             notebook = Notebook.objects.create(team=self.team, title=label)
             ResourceNotebook.objects.create(notebook=notebook, account=account)
-        Account.objects.unscoped().create(team=self.team, name="B")  # no notebooks
+        create_account(team_id=self.team.pk, name="B")  # no notebooks
 
         response = execute_hogql_query(
             "SELECT id, accounts.notebooks.count FROM system.accounts AS accounts ORDER BY name",
@@ -1534,21 +1569,17 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert rows_by_id[str(account.id)] == 3
 
     def test_customer_context_lazy_joins_return_recent_account_records(self):
-        account = Account.objects.unscoped().create(team=self.team, name="Acme", external_id="acme-org")
-        Meeting = apps.get_model("customer_analytics", "Meeting")
-        AccountChannelSummary = apps.get_model("customer_analytics", "AccountChannelSummary")
-        EmailThread = apps.get_model("conversations", "EmailThread")
-        EmailThreadAccountLink = apps.get_model("conversations", "EmailThreadAccountLink")
+        account = create_account(team_id=self.team.pk, name="Acme", external_id="acme-org")
 
-        Meeting.objects.unscoped().create(
-            team=self.team,
+        create_meeting(
+            team_id=self.team.pk,
             account=account,
             ical_uid="acme-meeting",
             start_time=timezone.now(),
             title="Account review",
         )
-        AccountChannelSummary.objects.unscoped().create(
-            team=self.team,
+        create_account_channel_summary(
+            team_id=self.team.pk,
             account=account,
             slack_channel_id="C123",
             cadence="weekly",
@@ -1556,8 +1587,8 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
             period_end=timezone.now(),
             content="Account is healthy",
         )
-        request = FeatureRequest.objects.unscoped().create(team=self.team, title="Export reports")
-        FeatureRequestAccountLink.objects.unscoped().create(team=self.team, feature_request=request, account=account)
+        request = create_feature_request(team_id=self.team.pk, title="Export reports")
+        create_feature_request_account_link(team_id=self.team.pk, feature_request=request, account=account)
         ticket = Ticket.objects.create_with_number(
             team=self.team,
             channel_source="widget",
@@ -1614,13 +1645,13 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert json.loads(row[9])[0]["subject"] == "Quarterly review"
 
     def _custom_property_value(self, account, definition, **value_kwargs):
-        return CustomPropertyValue.objects.unscoped().create(
-            team=self.team, account=account, definition=definition, **value_kwargs
+        return create_custom_property_value(
+            team_id=self.team.pk, account=account, definition=definition, **value_kwargs
         )
 
     def test_custom_properties_lazy_join_returns_value_by_definition_id(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
-        definition = CustomPropertyDefinition.objects.unscoped().create(team=self.team, name="Plan")
+        account = create_account(team_id=self.team.pk, name="A")
+        definition = create_custom_property_definition(team_id=self.team.pk, name="Plan")
         self._custom_property_value(account, definition, value_str="enterprise")
 
         response = execute_hogql_query(
@@ -1634,8 +1665,8 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert rows_by_id[str(account.id)] == "enterprise"
 
     def test_custom_properties_lazy_join_excludes_deleted_values(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
-        definition = CustomPropertyDefinition.objects.unscoped().create(team=self.team, name="Plan")
+        account = create_account(team_id=self.team.pk, name="A")
+        definition = create_custom_property_definition(team_id=self.team.pk, name="Plan")
         self._custom_property_value(account, definition, value_str="old", is_deleted=True)
         self._custom_property_value(account, definition, value_str="current")
 
@@ -1649,11 +1680,14 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
     def test_custom_properties_lazy_join_isolated_per_team(self):
         # An account exists in self.team, so the query returns a row; the assertion only passes
         # if the other team's value is filtered out rather than leaking through the join.
-        account = Account.objects.unscoped().create(team=self.team, name="Ours")
-        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
-        other_definition = CustomPropertyDefinition.objects.unscoped().create(team=self.other_team, name="Plan")
-        CustomPropertyValue.objects.unscoped().create(
-            team=self.other_team, account=other_account, definition=other_definition, value_str="secret"
+        account = create_account(team_id=self.team.pk, name="Ours")
+        other_account = create_account(team_id=self.other_team.pk, name="Theirs")
+        other_definition = create_custom_property_definition(team_id=self.other_team.pk, name="Plan")
+        create_custom_property_value(
+            team_id=self.other_team.pk,
+            account=other_account,
+            definition=other_definition,
+            value_str="secret",
         )
 
         response = execute_hogql_query(
@@ -1668,18 +1702,18 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert rows_by_id[str(account.id)] in (None, "")
 
     def _create_relationship_definition(self, name="CSM", **kwargs):
-        return AccountRelationshipDefinition.objects.unscoped().create(team=self.team, name=name, **kwargs)
+        return create_account_relationship_definition(team_id=self.team.pk, name=name, **kwargs)
 
     def _create_relationship(self, account, definition, user, **kwargs):
-        return AccountRelationship.objects.unscoped().create(
-            team=self.team, account=account, definition=definition, user=user, **kwargs
+        return create_account_relationship(
+            team_id=self.team.pk, account=account, definition=definition, user=user, **kwargs
         )
 
     def test_relationships_lazy_join_returns_active_user_ids_by_definition_id(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
+        account = create_account(team_id=self.team.pk, name="A")
         definition = self._create_relationship_definition()
         self._create_relationship(account, definition, self.user)
-        Account.objects.unscoped().create(team=self.team, name="B")  # no relationships
+        create_account(team_id=self.team.pk, name="B")  # no relationships
 
         response = execute_hogql_query(
             f"SELECT id, accounts.relationships.values.`{definition.id}` "
@@ -1692,7 +1726,7 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert rows_by_id[str(account.id)] == [self.user.id]
 
     def test_relationships_lazy_join_excludes_ended_rows(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
+        account = create_account(team_id=self.team.pk, name="A")
         definition = self._create_relationship_definition()
         self._create_relationship(account, definition, self.user, ended_at=timezone.now())
 
@@ -1704,7 +1738,7 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert response.results[0][0] in ([], None)
 
     def test_relationships_lazy_join_multi_holder_returns_all_active(self):
-        account = Account.objects.unscoped().create(team=self.team, name="A")
+        account = create_account(team_id=self.team.pk, name="A")
         definition = self._create_relationship_definition(name="FDE", is_single_holder=False)
         other_user = self._create_user("fde2@posthog.com")
         self._create_relationship(account, definition, self.user)
@@ -1718,11 +1752,14 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
         assert sorted(response.results[0][0]) == sorted([self.user.id, other_user.id])
 
     def test_relationships_lazy_join_isolated_per_team(self):
-        account = Account.objects.unscoped().create(team=self.team, name="Ours")
-        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
-        other_definition = AccountRelationshipDefinition.objects.unscoped().create(team=self.other_team, name="CSM")
-        AccountRelationship.objects.unscoped().create(
-            team=self.other_team, account=other_account, definition=other_definition, user=self.user
+        account = create_account(team_id=self.team.pk, name="Ours")
+        other_account = create_account(team_id=self.other_team.pk, name="Theirs")
+        other_definition = create_account_relationship_definition(team_id=self.other_team.pk, name="CSM")
+        create_account_relationship(
+            team_id=self.other_team.pk,
+            account=other_account,
+            definition=other_definition,
+            user=self.user,
         )
 
         response = execute_hogql_query(

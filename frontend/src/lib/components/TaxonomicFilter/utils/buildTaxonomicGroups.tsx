@@ -16,6 +16,7 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import { withKeywordShortcuts } from 'lib/components/TaxonomicFilter/utils/keywordShortcuts'
 import {
     MCP_TOOL_CALL_EVENT,
@@ -43,7 +44,7 @@ import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constant
 import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
-} from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
+} from 'scenes/hog-functions/filters/productEventFilterOptions'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
@@ -67,14 +68,17 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
-    QueryBasedInsightModel,
+    InsightModel,
     SessionRecordingPlaylistType,
     TeamType,
 } from '~/types'
 
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
-import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+import { PersonSearchMatchTags } from 'products/persons/frontend/components/PersonSearchMatchTags'
+import type { PersonListRecordApi } from 'products/persons/frontend/generated/api.schemas'
+import { LazyHogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/LazyHogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from '../InlineHogQLEditor'
 
@@ -167,12 +171,16 @@ export interface BuildTaxonomicGroupsContext {
     personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
+    /** Mark each cohort row with what feature flags can do with it. See `TaxonomicFilterProps`. */
+    showCohortFlagTargeting: boolean
     endpointFilters: Record<string, any> | undefined
     hogQLExpressionComponentProps: {
         globals?: Record<string, any>
         showBreakdownLabelHint: boolean
     }
     featureFlags: Record<string, boolean | string | undefined>
+    /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
+    includeHiddenEvents?: boolean
 }
 
 export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): TaxonomicFilterGroup[] {
@@ -192,9 +200,11 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
+        showCohortFlagTargeting,
         endpointFilters,
         hogQLExpressionComponentProps,
         featureFlags,
+        includeHiddenEvents,
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
@@ -215,7 +225,15 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 event_type: EventDefinitionType.Event,
                 exclude_hidden: true,
             }).url,
-            excludedProperties: excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? [],
+            // The caller's record already carries the hidden names. Appending them again keeps the
+            // group hiding them even if some future caller passes a record that skipped the fold,
+            // and the set drops the repeat so it stays out of `useGroupList`'s cache key.
+            excludedProperties: [
+                ...new Set([
+                    ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
+                    ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                ]),
+            ],
             ...withKeywordShortcuts<Record<string, any>>(
                 {
                     getName: (eventDefinition) => eventDefinition.name,
@@ -263,7 +281,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'variable key',
             type: TaxonomicFilterGroupType.WorkflowVariables,
             categoryLabel: () => 'Workflow variables',
-            render: HogFlowTaxonomicFilters,
+            render: LazyHogFlowTaxonomicFilters,
             getPopoverHeader: () => 'Workflow variables',
         },
         {
@@ -476,7 +494,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 .filter((o) => !excludedProperties[TaxonomicFilterGroupType.ErrorTrackingIssues]?.includes(o.value)),
             getName: (option) => option.name,
             getValue: (option) => option.value,
-            valuesEndpoint: (key) => `api/environments/${projectId}/error_tracking/issues/values?key=` + key,
+            valuesEndpoint: (key) => `api/projects/${projectId}/error_tracking/issues/values?key=` + key,
             getPopoverHeader: () => 'Issues',
         },
         {
@@ -532,7 +550,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             },
             getValue: (option: PropertyDefinition) => option.id,
             valuesEndpoint: (key) => {
-                return `api/environments/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(key)}`
+                return `api/projects/${projectId}/revenue_analytics/taxonomy/values?key=${encodeURIComponent(key)}`
             },
             getPopoverHeader: () => 'Revenue analytics properties',
         },
@@ -544,6 +562,15 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getName: (option: PropertyDefinition) => option.name,
             getValue: (option: PropertyDefinition) => option.id,
             getPopoverHeader: () => 'Account field',
+        },
+        {
+            name: 'Account relationships',
+            searchPlaceholder: 'account relationships',
+            type: TaxonomicFilterGroupType.AccountRelationships,
+            getIcon: getAccountFieldDefinitionIcon,
+            getName: (option: PropertyDefinition) => option.name,
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Account relationship',
         },
         {
             name: 'Account custom properties',
@@ -597,13 +624,13 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Log attributes',
             searchPlaceholder: 'attributes',
             type: TaxonomicFilterGroupType.LogAttributes,
-            endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+            endpoint: combineUrl(`api/projects/${projectId}/logs/attributes`, {
                 attribute_type: 'log',
                 search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
-                combineUrl(`api/environments/${projectId}/logs/values`, {
+                combineUrl(`api/projects/${projectId}/logs/values`, {
                     attribute_type: 'log',
                     key: key,
                     ...endpointFilters,
@@ -616,13 +643,13 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Resource attributes',
             searchPlaceholder: 'resources',
             type: TaxonomicFilterGroupType.LogResourceAttributes,
-            endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+            endpoint: combineUrl(`api/projects/${projectId}/logs/attributes`, {
                 attribute_type: 'resource',
                 search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
-                combineUrl(`api/environments/${projectId}/logs/values`, {
+                combineUrl(`api/projects/${projectId}/logs/values`, {
                     attribute_type: 'resource',
                     key: key,
                     ...endpointFilters,
@@ -635,11 +662,11 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Metric attributes',
             searchPlaceholder: 'attributes',
             type: TaxonomicFilterGroupType.MetricAttributes,
-            endpoint: combineUrl(`api/environments/${projectId}/metrics/attributes`, {
+            endpoint: combineUrl(`api/projects/${projectId}/metrics/attributes`, {
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
-                combineUrl(`api/environments/${projectId}/metrics/attribute_values`, {
+                combineUrl(`api/projects/${projectId}/metrics/attribute_values`, {
                     key: key,
                     ...endpointFilters,
                 }).url,
@@ -661,7 +688,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             ],
             valuesEndpoint: (key) =>
                 key === 'name'
-                    ? combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                    ? combineUrl(`api/projects/${projectId}/tracing/spans/values`, {
                           attribute_type: 'span',
                           key: key,
                           ...endpointFilters,
@@ -675,13 +702,13 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Span attributes',
             searchPlaceholder: 'span attributes',
             type: TaxonomicFilterGroupType.SpanAttributes,
-            endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
+            endpoint: combineUrl(`api/projects/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_attribute',
                 search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
-                combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                combineUrl(`api/projects/${projectId}/tracing/spans/values`, {
                     attribute_type: 'span_attribute',
                     key: key,
                     ...endpointFilters,
@@ -694,13 +721,13 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Span resource attributes',
             searchPlaceholder: 'span resources',
             type: TaxonomicFilterGroupType.SpanResourceAttributes,
-            endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
+            endpoint: combineUrl(`api/projects/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_resource_attribute',
                 search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
-                combineUrl(`api/environments/${projectId}/tracing/spans/values`, {
+                combineUrl(`api/projects/${projectId}/tracing/spans/values`, {
                     attribute_type: 'span_resource_attribute',
                     key: key,
                     ...endpointFilters,
@@ -763,6 +790,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             clientFilterFirstPage: true,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
+            getTag: showCohortFlagTargeting
+                ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                : undefined,
             getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -784,6 +814,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
+            getTag: showCohortFlagTargeting
+                ? (cohort: CohortType) => <CohortRealtimeTag realtime={cohort.realtime} />
+                : undefined,
             getPopoverHeader: () => `All Users`,
             getIcon: function _getIcon(): JSX.Element {
                 return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
@@ -796,7 +829,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Pageview URLs',
             searchPlaceholder: 'pageview URLs',
             type: TaxonomicFilterGroupType.PageviewUrls,
-            endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
+            endpoint: `api/projects/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
             searchAlias: 'value',
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
@@ -808,7 +841,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Pageview events',
             searchPlaceholder: 'pageview events',
             type: TaxonomicFilterGroupType.PageviewEvents,
-            endpoint: `api/environments/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
+            endpoint: `api/projects/${teamId}/events/values/?key=$current_url&event_name=$pageview`,
             searchAlias: 'value',
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
@@ -823,7 +856,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Screens',
             searchPlaceholder: 'screens',
             type: TaxonomicFilterGroupType.Screens,
-            endpoint: `api/environments/${teamId}/events/values/?key=$screen_name&event_name=$screen`,
+            endpoint: `api/projects/${teamId}/events/values/?key=$screen_name&event_name=$screen`,
             searchAlias: 'value',
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
@@ -835,7 +868,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Screen events',
             searchPlaceholder: 'screen events',
             type: TaxonomicFilterGroupType.ScreenEvents,
-            endpoint: `api/environments/${teamId}/events/values/?key=$screen_name&event_name=$screen`,
+            endpoint: `api/projects/${teamId}/events/values/?key=$screen_name&event_name=$screen`,
             searchAlias: 'value',
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
@@ -847,7 +880,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Email addresses',
             searchPlaceholder: 'email addresses',
             type: TaxonomicFilterGroupType.EmailAddresses,
-            endpoint: `api/environments/${teamId}/persons/values/?key=email`,
+            endpoint: `api/projects/${teamId}/persons/values/?key=email`,
             searchAlias: 'value',
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
@@ -859,7 +892,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Autocapture events',
             searchPlaceholder: 'autocapture events',
             type: TaxonomicFilterGroupType.AutocaptureEvents,
-            endpoint: `api/environments/${teamId}/events/values/?key=$el_text&event_name=$autocapture`,
+            endpoint: `api/projects/${teamId}/events/values/?key=$el_text&event_name=$autocapture`,
             searchAlias: 'value',
             getName: (option: SimpleOption) => option.name,
             getValue: (option: SimpleOption) => option.name,
@@ -892,20 +925,21 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             name: 'Persons',
             searchPlaceholder: 'persons',
             type: TaxonomicFilterGroupType.Persons,
-            endpoint: `api/environments/${teamId}/persons/`,
+            endpoint: `api/projects/${teamId}/persons/?include_matched_fields=true`,
             getName: (person: PersonType) => person.name || 'Anon user?',
             getValue: (person: PersonType) => person.distinct_ids?.[0],
+            getTag: (person: PersonListRecordApi) => <PersonSearchMatchTags matchedFields={person.matched_fields} />,
             getPopoverHeader: () => `Person`,
         },
         {
             name: 'Insights',
             searchPlaceholder: 'insights',
             type: TaxonomicFilterGroupType.Insights,
-            endpoint: combineUrl(`api/environments/${teamId}/insights/`, {
+            endpoint: combineUrl(`api/projects/${teamId}/insights/`, {
                 saved: true,
             }).url,
-            getName: (insight: QueryBasedInsightModel) => insight.name,
-            getValue: (insight: QueryBasedInsightModel) => insight.short_id,
+            getName: (insight: InsightModel) => insight.name,
+            getValue: (insight: InsightModel) => insight.short_id,
             getPopoverHeader: () => `Insights`,
         },
         {
@@ -966,6 +1000,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.Dashboards,
             logic: dashboardsModel,
             value: 'nameSortedDashboards',
+            valueLoading: 'dashboardsLoading',
             getName: (dashboard: DashboardType) => dashboard.name,
             getValue: (dashboard: DashboardType) => dashboard.id,
             getPopoverHeader: () => `Dashboards`,
@@ -994,7 +1029,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                           })),
                   }
                 : {
-                      endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                      endpoint: `api/projects/${teamId}/sessions/property_definitions`,
                   }),
             getName: (option: any) => option.name,
             getValue: (option) => option.name,
@@ -1065,7 +1100,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             valuesEndpoint: (key) => {
                 if (key === 'visited_page') {
                     return (
-                        `api/environments/${teamId}/events/values/?key=` +
+                        `api/projects/${teamId}/events/values/?key=` +
                         encodeURIComponent('$current_url') +
                         '&event_name=' +
                         encodeURIComponent('$pageview')

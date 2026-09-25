@@ -19,13 +19,10 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.object_names import display_model, resources_with_object_access_controls
 from products.access_control.backend.facade.user_access_control import AccessSource
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.access_control.backend.presentation.access_control_settings import (
-    _display_model,
-    resources_with_object_access_controls,
-)
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -1259,7 +1256,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         # endpoint is the only one here that doesn't already load it for other reasons.
         baseline = 9
         # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 10):
+        with self.assertNumQueries(baseline + 9):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
@@ -1310,7 +1307,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         # endpoint is the only one here that doesn't already load it for other reasons.
         baseline = 9
         # Project access doesn't double query the object
-        with self.assertNumQueries(baseline + 10):
+        with self.assertNumQueries(baseline + 9):
             # We call this endpoint as we don't want to include all the extra queries that rendering the project uses
             self.client.get("/api/projects/@current/is_generating_demo_data")
 
@@ -1332,15 +1329,17 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
-        with self.assertNumQueries(baseline + 7):
+        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
+        # IDs, the project's replay gates
+        with self.assertNumQueries(baseline + 8):
             self.client.get("/api/projects/@current/feature_flags/")
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
-        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
-        with self.assertNumQueries(baseline + 7):
+        # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag
+        # IDs, the project's replay gates
+        with self.assertNumQueries(baseline + 8):
             self.client.get("/api/projects/@current/feature_flags/")
 
 
@@ -1777,6 +1776,7 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
         assert "dashboard" in data["resource_access_levels"]
         assert "feature_flag" in data["resource_access_levels"]
         assert "insight" in data["resource_access_levels"]
+        assert "data_catalog" in data["resource_access_levels"]
 
     def test_only_returns_current_team_defaults(self):
         """Access controls from other teams are not included."""
@@ -2028,9 +2028,17 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         # Member entry: user info, org level, project access, per-resource access
         member_data = self._find_member(data["results"], self.user2_membership.id)
         assert member_data is not None
-        expected_member_keys = {"organization_membership_id", "user", "organization_level", "project", "resources"}
+        expected_member_keys = {
+            "organization_membership_id",
+            "user",
+            "organization_level",
+            "role_ids",
+            "project",
+            "resources",
+        }
         assert expected_member_keys <= set(member_data.keys())
         assert member_data["organization_membership_id"] == str(self.user2_membership.id)
+        assert member_data["role_ids"] == []
 
         # User object: identity fields
         expected_user_keys = {"uuid", "first_name", "last_name", "email"}
@@ -2091,6 +2099,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert member_data["project"]["effective_access_level"] == "admin"
         assert member_data["project"]["inherited_access"]["access_level"] == "admin"
         assert member_data["project"]["inherited_access"]["source_subject"] == "role"
+        assert member_data["role_ids"] == [str(self.role.id)]
 
     def test_project_admin_does_not_affect_resource_effective_level(self):
         """Project-level admin default does not grant resource-level access."""
@@ -2265,7 +2274,7 @@ def test_resources_with_object_access_controls_snapshot(snapshot):
 # snapshot above but missing here dropped out silently and needs an entry in
 # _MODELS_NOT_IN_ENTITY_MAP, or has no objects worth picking.
 def test_resources_served_to_the_object_rule_picker_snapshot(snapshot):
-    assert sorted(r for r in resources_with_object_access_controls() if _display_model(r)) == snapshot
+    assert sorted(r for r in resources_with_object_access_controls() if display_model(r)) == snapshot
 
 
 class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
@@ -2361,6 +2370,13 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(insight.id), "Weekly signups")]
 
+        # Notebook URLs carry a short_id too
+        res = self.client.get(
+            f"/api/projects/@current/access_control_object_search?resource=notebook&id={notebook.short_id}"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(notebook.id), "Q3 planning")]
+
         res = self.client.get("/api/projects/@current/access_control_object_search?resource=webhook")
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
@@ -2432,6 +2448,25 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
             "results"
         ]
         assert rows == []
+
+    def test_object_rules_write_only_clears_rules_on_a_soft_deleted_object(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="Retired", created_by=self.user, deleted=True)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+        )
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
+        res = self.client.put(
+            "/api/projects/@current/access_control_object_rules",
+            {"resource": "dashboard", "resource_id": str(dashboard.id), "access_level": None},
+        )
+        assert res.status_code == status.HTTP_204_NO_CONTENT, res.content
+        assert not AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).exists()
 
     # product_tour guards the resources model_to_resource cannot map by model name (ProductTour
     # lowercases to "producttour"): the endpoints must pass the resource explicitly or the
@@ -2638,3 +2673,107 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
         assert block["total"] == 2
         assert block["has_more"] is False
+
+
+class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        self.user2 = self._create_user("user2@example.com")
+        self.user2_membership = self.user2.organization_memberships.get(organization=self.organization)
+        self.role = Role.objects.create(name="Engineering", organization=self.organization)
+        self.team_b = Team.objects.create(organization=self.organization, name="Team B")
+        self.team_c = Team.objects.create(organization=self.organization, name="Team C")
+
+    def _project_rule(self, team: Team, access_level: str, **subject) -> AccessControl:
+        return AccessControl.objects.create(
+            team=team, resource="project", resource_id=str(team.id), access_level=access_level, **subject
+        )
+
+    def _get(self, member_id=None):
+        url = "/api/organizations/@current/members/project_access"
+        res = self.client.get(url if member_id is None else f"{url}?member_id={member_id}")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        return res.json()["results"]
+
+    def _projects(self, results, membership_id) -> dict[str, dict]:
+        entry = next(m for m in results if m["organization_membership_id"] == str(membership_id))
+        return {p["team_name"]: p for p in entry["projects"]}
+
+    def test_lists_every_project_with_the_level_and_the_rule_behind_it(self):
+        self._project_rule(self.team, "admin", organization_member=self.user2_membership)
+        self._project_rule(self.team_b, "member", role=self.role)
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+        self._project_rule(self.team_c, "none")
+
+        projects = self._projects(self._get(), self.user2_membership.id)
+        assert [(name, p["access_level"]) for name, p in projects.items()] == [
+            ("Default project", "admin"),
+            ("Team B", "member"),
+            ("Team C", "none"),
+        ]
+        assert projects["Default project"]["resolved"]["source_subject"] == "member"
+        assert projects["Team B"]["resolved"]["source_subject"] == "role"
+        assert projects["Team B"]["resolved"]["subject_name"] == "Engineering"
+        assert projects["Team C"]["resolved"]["source_subject"] == "default"
+
+        # Org admins bypass the rules on every project
+        admin_projects = self._projects(self._get(), self.organization_membership.id)
+        assert {p["access_level"] for p in admin_projects.values()} == {"admin"}
+        assert admin_projects["Team C"]["resolved"]["source"] == "org_admin"
+
+    def test_hides_projects_the_requester_cannot_reach(self):
+        self._project_rule(self.team_b, "none")
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        projects = self._projects(self._get(), self.user2_membership.id)
+        assert set(projects) == {"Default project", "Team C"}
+
+    def test_restricted_member_list_visibility_narrows_the_roster(self):
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        hidden_user = self._create_user("hidden@example.com")
+        hidden_membership = hidden_user.organization_memberships.get(organization=self.organization)
+        # user2 shares the default project with the requester; the hidden user shares nothing
+        self._project_rule(self.team, "none")
+        self._project_rule(self.team, "member", organization_member=self.user2_membership)
+        self._project_rule(self.team, "member", organization_member=self.organization_membership)
+        self._project_rule(self.team_b, "none")
+        self._project_rule(self.team_c, "none")
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        results = self._get()
+        assert {m["organization_membership_id"] for m in results} == {
+            str(self.organization_membership.id),
+            str(self.user2_membership.id),
+        }
+        assert str(hidden_membership.id) not in {m["organization_membership_id"] for m in results}
+
+    def test_member_id_narrows_to_one_member_and_unknown_member_is_404(self):
+        results = self._get(self.user2_membership.id)
+        assert [m["organization_membership_id"] for m in results] == [str(self.user2_membership.id)]
+
+        other_org = Organization.objects.create(name="Other org")
+        other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", None)
+        other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
+        res = self.client.get(f"/api/organizations/@current/members/project_access?member_id={other_membership.id}")
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def test_query_count_does_not_grow_with_members_or_projects(self):
+        def query_count() -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                res = self.client.get("/api/organizations/@current/members/project_access")
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            return len(ctx.captured_queries)
+
+        query_count()  # warms the per-process caches so the baseline counts only the request
+        baseline = query_count()
+        for i in range(3):
+            user = self._create_user(f"extra-{i}@example.com")
+            membership = user.organization_memberships.get(organization=self.organization)
+            RoleMembership.objects.create(user=user, role=self.role, organization_member=membership)
+        assert query_count() == baseline
+
+        # Each project costs one query for its rules; nothing per (member, project) pair
+        Team.objects.create(organization=self.organization, name="Team D")
+        assert query_count() == baseline + 1

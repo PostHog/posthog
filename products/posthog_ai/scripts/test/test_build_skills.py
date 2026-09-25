@@ -11,15 +11,12 @@ from typing import Any, cast
 
 import pytest
 
-from products.posthog_ai.scripts.build_skills import (
-    DiscoveredSkill,
-    SkillBuilder,
-    SkillDiscoverer,
-    SkillRenderer,
-    _check_tool_references,
-    parse_frontmatter,
-    validate_frontmatter,
-)
+from products.posthog_ai.scripts.build_skills.discovery import SkillDiscoverer
+from products.posthog_ai.scripts.build_skills.frontmatter import parse_frontmatter, validate_frontmatter
+from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
+from products.posthog_ai.scripts.build_skills.skill_builder import SkillBuilder
+from products.posthog_ai.scripts.build_skills.skill_manifest import DiscoveredSkill
+from products.posthog_ai.scripts.build_skills.tool_references import _check_tool_references
 
 
 @pytest.mark.parametrize(
@@ -339,6 +336,21 @@ def test_build_skill_entry_point_first(tmp_path: Path) -> None:
     assert len(result.files) == 3
 
 
+@pytest.mark.parametrize("filename", ["my-skill.md", "my-skill.md.j2"], ids=["static", "template"])
+def test_build_all_ships_a_loose_skill_as_skill_md(tmp_path: Path, filename: str) -> None:
+    # Every consumer reads <skill>/SKILL.md, so a loose source file named anything
+    # else would build and publish but never load.
+    skills_dir = tmp_path / "products" / "alpha" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / filename).write_text("---\nname: my-skill\ndescription: Loose\n---\n# Body\n")
+
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+    manifest = builder.build_all()
+
+    assert [f.path for f in manifest.resources[0].files] == ["SKILL.md"]
+    assert (tmp_path / "output" / "dist" / "skills" / "my-skill" / "SKILL.md").exists()
+
+
 def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
     products = tmp_path / "products"
     for skill_name in ("skill-a", "skill-b"):
@@ -358,6 +370,23 @@ def test_build_manifest_produces_valid_structure(tmp_path: Path) -> None:
     assert manifest.resources[1].name == "skill-b"
     assert manifest.resources[0].files[0].path == "SKILL.md"
     assert manifest.resources[0].description == "desc"
+
+
+def test_build_manifest_rejects_duplicate_rendered_names(tmp_path: Path) -> None:
+    # Distinct source directories, one frontmatter name: the lint deduplicates the
+    # source names, so only the manifest can catch this collision.
+    products = tmp_path / "products"
+    for product, dir_name in (("alpha", "first-copy"), ("beta", "second-copy")):
+        skill_dir = products / product / "skills" / dir_name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("---\nname: shared-name\ndescription: desc\n---\n# Body\n")
+
+    discoverer = SkillDiscoverer(products_dir=products)
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=products, output_dir=tmp_path / "output")
+
+    assert builder.lint_all() is True
+    with pytest.raises(ValueError, match="Duplicate skill name 'shared-name'"):
+        builder.build_manifest(discoverer.discover(), SkillRenderer())
 
 
 def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
@@ -411,6 +440,7 @@ def test_end_to_end_template_with_pydantic(tmp_path: Path) -> None:
         with zipfile.ZipFile(zip_path) as zf:
             assert "e2e-skill/SKILL.md" in zf.namelist()
             assert '"title"' in zf.read("e2e-skill/SKILL.md").decode()
+            assert zf.getinfo("e2e-skill/SKILL.md").compress_type == zipfile.ZIP_DEFLATED
 
     finally:
         del sys.modules["_test_e2e_models"]
@@ -540,6 +570,69 @@ def test_lint_all_catches_duplicate_skill_names(tmp_path: Path) -> None:
         output_dir=tmp_path / "output",
     )
     assert builder.lint_all() is False
+
+
+@pytest.mark.parametrize(
+    "relpath,reserved_name,content",
+    [
+        (
+            "local-copy.md",
+            "instrument-feature-flags",
+            "---\nname: instrument-feature-flags\ndescription: Copy\n---\nBody\n",
+        ),
+        (
+            "local-copy/SKILL.md",
+            "instrument-logs",
+            "---\nname: instrument-logs\ndescription: Copy\n---\nBody\n",
+        ),
+        (
+            "local-copy/SKILL.md.j2",
+            "instrument-error-tracking",
+            "---\nname: instrument-error-tracking\ndescription: Copy\n---\n# {{ 'x' }}\n",
+        ),
+        (
+            "local-copy/SKILL.md",
+            "instrument-metrics",
+            "---\nname: instrument-metrics\ndescription: Copy\n---\nBody\n",
+        ),
+    ],
+    ids=["loose-file", "renamed-dir", "j2-entry", "metrics"],
+)
+def test_lint_all_catches_reserved_name_in_frontmatter(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], relpath: str, reserved_name: str, content: str
+) -> None:
+    skill_file = tmp_path / "products" / "alpha" / "skills" / relpath
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(content)
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is False
+    stderr = capsys.readouterr().err
+    assert f"'{reserved_name}' is owned by PostHog/context-mill" in stderr
+    # The path is the only part that tells an author which file to delete.
+    assert str(skill_file.relative_to(tmp_path)) in stderr
+
+
+def test_build_skill_rejects_reserved_name_after_rendering(tmp_path: Path) -> None:
+    # A templated name that only becomes an omnibus name once rendered slips past
+    # lint_all, which reads the raw frontmatter. build_skill sees the rendered
+    # name, so it must still refuse it.
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "local-copy"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md.j2").write_text("---\nname: instrument-{{ 'logs' }}\ndescription: Copy\n---\n# Body\n")
+
+    renderer = SkillRenderer()
+    skill = DiscoveredSkill(
+        name="local-copy", source_file=skill_dir / "SKILL.md.j2", product_dir=tmp_path / "products" / "alpha", depth=1
+    )
+    builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
+
+    with pytest.raises(ValueError, match="owned by PostHog/context-mill"):
+        builder.build_skill(skill, renderer)
 
 
 def test_build_skill_rejects_binary_file(tmp_path: Path) -> None:

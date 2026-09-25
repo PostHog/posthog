@@ -1,10 +1,14 @@
+from django.db import transaction
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
 from products.access_control.backend.models.role import Role
+from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest, ChangeRequestState
+from products.approvals.backend.policies import lock_approval_policies
 
 
 class ChangeRequestSummarySerializer(serializers.ModelSerializer):
@@ -127,10 +131,14 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
                 # but RoleMembership.role_id is a UUID, so a raw set intersection always misses.
                 user_role_ids = {
                     str(rid)
-                    for rid in RoleMembership.objects.filter(
-                        user=user,
-                        role__organization=obj.organization,
-                    ).values_list("role_id", flat=True)
+                    for rid in (
+                        RoleMembership.objects.filter(
+                            user=user,
+                            role__organization=obj.organization,
+                        )
+                        .valid_for_authorization()
+                        .values_list("role_id", flat=True)
+                    )
                 }
 
                 if user_role_ids & {str(r) for r in approver_roles}:
@@ -237,6 +245,13 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "updated_at"]
 
+    # TODO(experiment-approval-policies): temporary. Only the sync may write experiment policies.
+    # See experiment_policy_sync.py.
+    def validate_action_key(self, value: str) -> str:
+        if value in SYNCED_ACTION_KEYS:
+            raise serializers.ValidationError("This approval action isn't available yet.")
+        return value
+
     def validate_approver_config(self, value):
         quorum = value.get("quorum", 0)
         if quorum < 1:
@@ -280,14 +295,18 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
 
         return value
 
+    @transaction.atomic
     def create(self, validated_data):
+        lock_approval_policies(validated_data["organization"].id)
         bypass_role_ids = validated_data.pop("bypass_roles", [])
         instance = super().create(validated_data)
         if bypass_role_ids:
             instance.set_bypass_roles([str(rid) for rid in bypass_role_ids])
         return instance
 
+    @transaction.atomic
     def update(self, instance, validated_data):
+        lock_approval_policies(instance.organization_id)
         bypass_role_ids = validated_data.pop("bypass_roles", None)
         instance = super().update(instance, validated_data)
         if bypass_role_ids is not None:

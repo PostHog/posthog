@@ -2,18 +2,18 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { ReactNode } from 'react'
 
-import { IconChevronLeft, IconSend } from '@posthog/icons'
+import { IconChevronLeft, IconInfo, IconSend } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -42,21 +42,22 @@ import type { SubscriptionDeliveryApi } from 'products/subscriptions/frontend/ge
 
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from '../AiPromptFields'
 import { InsightSelector } from '../InsightSelector'
+import { getNextDeliveryDate } from '../nextDeliveryDate'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { SubscriptionDayPicker } from '../SubscriptionDayPicker'
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
+import { SubscriptionTimePicker } from '../SubscriptionTimePicker'
 import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     getAiSubscriptionGate,
-    getNextDeliveryDate,
+    integrationHasFilesWrite,
     intervalOptions,
     monthlyWeekdayOptions,
     shouldShowDayPicker,
     targetTypeOptions,
-    timeOptions,
     WEEKDAYS,
     weekdayOptions,
     isFreeTierCreateAtLimit,
@@ -111,24 +112,11 @@ function LastDeliveryStatus({
 }
 
 interface EditSubscriptionProps {
-    id: number | 'new'
+    id: number
     insightShortId?: InsightShortId
-    dashboard?: DashboardType<any> | null
+    dashboard?: DashboardType | null
     onCancel: () => void
     onDelete: () => void
-}
-
-export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
-    const isCreating = props.id === 'new'
-
-    if (!isCreating) {
-        return <EditSubscriptionForm {...props} />
-    }
-    return (
-        <SubscriptionCreationGate onCancel={props.onCancel}>
-            <EditSubscriptionForm {...props} />
-        </SubscriptionCreationGate>
-    )
 }
 
 export function SubscriptionCreationGate({
@@ -219,7 +207,7 @@ function DashboardInsightsField({
     dashboard,
     onDefaultsApplied,
 }: {
-    dashboard: DashboardType<any>
+    dashboard: DashboardType
     onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (
@@ -238,7 +226,7 @@ function DashboardInsightsField({
     )
 }
 
-function EditSubscriptionForm({
+export function EditSubscription({
     id,
     insightShortId,
     dashboard,
@@ -262,6 +250,7 @@ function EditSubscriptionForm({
     const {
         subscription,
         subscriptionLoading,
+        subscriptionErrors,
         isSubscriptionSubmitting,
         subscriptionChanged,
         lastDelivery,
@@ -269,15 +258,18 @@ function EditSubscriptionForm({
         lastDeliveryLoading,
         summaryQuota,
         testDeliveryLoading,
+        storedTeamsWebhookHost,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
+    const slackReconnectRestriction = useIntegrationManagementRestriction()
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -287,38 +279,46 @@ function EditSubscriptionForm({
     const isParentless = !insightShortId && !dashboardId
     const availableFrequencyOptions = subscription?.interval === 1 ? frequencyOptionsSingular : frequencyOptionsPlural
 
-    // For new subscriptions, show InsightSelector immediately (useEffect will auto-select)
-    // For editing, wait until subscription data has loaded from API (target_type exists)
-    // We check target_type instead of dashboard_export_insights because old subscriptions
-    // may have no insights selected yet
-    const isEditing = id !== 'new'
     const aiGate = getAiSubscriptionGate({
         isAiPrompt,
         isParentless,
-        isEditing,
+        isEditing: true,
         aiConsentApproved: Boolean(currentOrganization?.is_ai_data_processing_approved),
         isCloud: Boolean(preflight?.cloud),
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
     const subscriptionLoaded = !!subscription?.target_type
-    const selectionReady = !isEditing || subscriptionLoaded
 
-    if (subscriptionLoading || (isEditing && !subscriptionLoaded)) {
+    if (subscriptionLoading) {
         return <SubscriptionFormSkeleton />
     }
 
+    if (!subscriptionLoaded) {
+        return (
+            <div className="p-4 text-center">
+                <h2>Not found</h2>
+                <p>This subscription could not be found. It may have been deleted.</p>
+            </div>
+        )
+    }
+
     const _onDelete = (): void => {
-        if (isEditing) {
-            deleteSubscription(id)
-            onDelete()
-        }
+        deleteSubscription(id)
+        onDelete()
     }
 
     const formatter = new Intl.DateTimeFormat('en-US', { timeZoneName: 'shortGeneric' })
     const parts = formatter.formatToParts(new Date())
     const currentTimezone = parts?.find((part) => part.type === 'timeZoneName')?.value
     const nextDeliveryDate = subscription ? getNextDeliveryDate(subscription) : null
+
+    let saveDisabledReason: string | undefined = undefined
+    if (aiGate.submitBlocked) {
+        saveDisabledReason = AI_NOT_ALLOWED_REASON
+    } else if (!subscriptionChanged) {
+        saveDisabledReason = 'No changes to save'
+    }
 
     return (
         <Form
@@ -332,7 +332,7 @@ function EditSubscriptionForm({
                 <div className="flex items-center gap-2">
                     <LemonButton icon={<IconChevronLeft />} onClick={onCancel} size="xsmall" />
 
-                    <h3>{id === 'new' ? 'New' : 'Edit '} Subscription</h3>
+                    <h3>Edit subscription</h3>
                 </div>
             </LemonModal.Header>
 
@@ -431,7 +431,7 @@ function EditSubscriptionForm({
                             </LemonField>
                         )}
 
-                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
+                        {dashboard?.tiles && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
                                 onDefaultsApplied={applyDefaultSelectedInsights}
@@ -449,6 +449,7 @@ function EditSubscriptionForm({
                                 <AiPromptSubscriptionIntroduction />
                                 <AiPromptFields
                                     prompt={subscription.prompt}
+                                    targetType={subscription.target_type}
                                     windowMode={subscription.ai_prompt_config?.window?.mode}
                                     consentBanner={
                                         aiGate.showAiFormConsentBanner ? <AiConsentGateMessage /> : undefined
@@ -520,9 +521,13 @@ function EditSubscriptionForm({
                                                     integration="slack"
                                                     value={value}
                                                     onChange={(newValue) => {
+                                                        // value === null is the initial auto-select
+                                                        // rather than a user switch.
+                                                        if (value === null && typeof newValue === 'number') {
+                                                            logic.actions.applyDefaultIntegration(newValue)
+                                                            return
+                                                        }
                                                         onChange(newValue)
-                                                        // Only clear channel when user actively switches,
-                                                        // not on initial auto-select (value is null)
                                                         if (value !== null && newValue !== value) {
                                                             logic.actions.setSubscriptionValue('target_value', '')
                                                         }
@@ -565,9 +570,108 @@ function EditSubscriptionForm({
                                                 }}
                                             </LemonField>
                                         )}
+
+                                        {!isAiPrompt &&
+                                            (slackGalleryEnabled ||
+                                                subscription.delivery_config?.post_all_insights_in_main_message) &&
+                                            subscription.integration_id &&
+                                            subscription.target_value &&
+                                            (() => {
+                                                const selectedIntegration = integrations?.find(
+                                                    (integration) => integration.id === subscription.integration_id
+                                                )
+                                                if (!selectedIntegration?.files_write_requestable) {
+                                                    return null
+                                                }
+                                                const hasFilesWrite = integrationHasFilesWrite(selectedIntegration)
+                                                return (
+                                                    <LemonField
+                                                        name={['delivery_config', 'post_all_insights_in_main_message']}
+                                                        help="Posts all insight images together in the main Slack message instead of one per threaded reply."
+                                                    >
+                                                        {({ value, onChange }) => (
+                                                            <div className="border rounded">
+                                                                <LemonSwitch
+                                                                    className="py-2"
+                                                                    checked={Boolean(value && hasFilesWrite)}
+                                                                    onChange={onChange}
+                                                                    disabledReason={
+                                                                        hasFilesWrite
+                                                                            ? undefined
+                                                                            : 'Reconnect Slack below to grant the file-upload permission.'
+                                                                    }
+                                                                    fullWidth
+                                                                    label="Post all insights in the main message"
+                                                                />
+                                                                {!hasFilesWrite && (
+                                                                    <div className="flex items-center gap-2 border-t px-2 py-2">
+                                                                        <IconInfo className="text-base text-secondary shrink-0" />
+                                                                        <span className="flex-1 text-xs text-secondary">
+                                                                            Posting all insights together needs the
+                                                                            Slack file-upload permission (
+                                                                            <code>files:write</code>). Reconnect Slack
+                                                                            to grant it, then return here.
+                                                                        </span>
+                                                                        <LemonButton
+                                                                            type="secondary"
+                                                                            size="xsmall"
+                                                                            to={api.integrations.authorizeUrl({
+                                                                                kind: selectedIntegration.kind,
+                                                                                next: window.location.pathname,
+                                                                            })}
+                                                                            disableClientSideRouting
+                                                                            disabledReason={slackReconnectRestriction}
+                                                                            data-attr="subscription-slack-reconnect"
+                                                                        >
+                                                                            Reconnect Slack
+                                                                        </LemonButton>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </LemonField>
+                                                )
+                                            })()}
                                     </>
                                 )}
                             </>
+                        ) : null}
+
+                        {subscription.target_type === 'teams' ? (
+                            <LemonField
+                                name="target_value"
+                                label="Microsoft Teams webhook URL"
+                                help={
+                                    <>
+                                        In Teams, add the Workflows app to the channel you want reports in, then pick
+                                        the template for posting to a channel when a webhook request is received. Paste
+                                        the URL it gives you here. Anyone with that URL can post to the channel, so keep
+                                        it private.
+                                    </>
+                                }
+                            >
+                                {storedTeamsWebhookHost ? (
+                                    <div className="flex gap-2 items-center p-1 rounded border border-dashed">
+                                        <span className="flex-1 p-1 text-secondary">
+                                            Posting to {storedTeamsWebhookHost}. The saved URL is not shown here.
+                                        </span>
+                                        <LemonButton
+                                            onClick={replaceTeamsWebhook}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="subscription-teams-webhook-replace"
+                                        >
+                                            Replace
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <LemonInput
+                                        placeholder="https://prod-00.westeurope.logic.azure.com/workflows/..."
+                                        autoComplete="off"
+                                        data-attr="subscription-teams-webhook-url"
+                                    />
+                                )}
+                            </LemonField>
                         ) : null}
 
                         <div>
@@ -578,6 +682,8 @@ function EditSubscriptionForm({
                                     <LemonField name="interval">
                                         <LemonSelect options={intervalOptions} />
                                     </LemonField>
+                                    {/* The error renders under the box instead, because an error node
+                                        inside this inline row breaks the "Send every ... at ..." layout. */}
                                     <LemonField name="frequency" renderError={() => null}>
                                         <LemonSelect options={availableFrequencyOptions} />
                                     </LemonField>
@@ -644,23 +750,16 @@ function EditSubscriptionForm({
                                     <span>at</span>
                                     <LemonField name="start_date">
                                         {({ value, onChange }) => (
-                                            <LemonSelect
-                                                options={timeOptions}
-                                                value={dayjs(value).hour().toString()}
-                                                onChange={(val) => {
-                                                    onChange(
-                                                        dayjs()
-                                                            .hour(Number(val ?? 0))
-                                                            .minute(0)
-                                                            .second(0)
-                                                            .toISOString()
-                                                    )
-                                                }}
-                                            />
+                                            <SubscriptionTimePicker value={value} onChange={onChange} />
                                         )}
                                     </LemonField>
                                 </div>
                             </div>
+                            {typeof subscriptionErrors.frequency === 'string' && (
+                                <div className="mt-1">
+                                    <LemonField.Error error={subscriptionErrors.frequency} />
+                                </div>
+                            )}
                             {nextDeliveryDate && (
                                 <div className="text-sm text-secondary mt-1">
                                     Next delivery:{' '}
@@ -673,34 +772,32 @@ function EditSubscriptionForm({
                                     {currentTimezone}
                                 </div>
                             )}
-                            {id !== 'new' && (
-                                <div className="flex items-center justify-between gap-2 mt-1">
-                                    <div className="text-sm text-secondary">
-                                        <LastDeliveryStatus
-                                            lastDelivery={lastDelivery}
-                                            loading={lastDeliveryLoading}
-                                            failed={lastDeliveryLoadFailed}
-                                            currentTimezone={currentTimezone}
-                                        />
-                                        {' · '}
-                                        <Link to={urls.subscription(id)}>View history</Link>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSend />}
-                                        onClick={sendTestDelivery}
-                                        loading={testDeliveryLoading}
-                                        disabledReason={
-                                            subscription.enabled === false
-                                                ? 'Re-enable this subscription before sending a test delivery'
-                                                : undefined
-                                        }
-                                    >
-                                        Send test delivery
-                                    </LemonButton>
+                            <div className="flex items-center justify-between gap-2 mt-1">
+                                <div className="text-sm text-secondary">
+                                    <LastDeliveryStatus
+                                        lastDelivery={lastDelivery}
+                                        loading={lastDeliveryLoading}
+                                        failed={lastDeliveryLoadFailed}
+                                        currentTimezone={currentTimezone}
+                                    />
+                                    {' · '}
+                                    <Link to={urls.subscription(id)}>View history</Link>
                                 </div>
-                            )}
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSend />}
+                                    onClick={sendTestDelivery}
+                                    loading={testDeliveryLoading}
+                                    disabledReason={
+                                        subscription.enabled === false
+                                            ? 'Re-enable this subscription before sending a test delivery'
+                                            : undefined
+                                    }
+                                >
+                                    Send test delivery
+                                </LemonButton>
+                            </div>
                         </div>
 
                         {/*
@@ -746,18 +843,16 @@ function EditSubscriptionForm({
                                         )}
 
                                     {subscription.summary_enabled && (
-                                        <FlaggedFeature flag={FEATURE_FLAGS.SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE}>
-                                            <LemonField
-                                                name="summary_prompt_guide"
-                                                label="Context for the AI summary"
-                                                showOptional
-                                            >
-                                                <LemonTextArea
-                                                    placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
-                                                    maxLength={500}
-                                                />
-                                            </LemonField>
-                                        </FlaggedFeature>
+                                        <LemonField
+                                            name="summary_prompt_guide"
+                                            label="Context for the AI summary"
+                                            showOptional
+                                        >
+                                            <LemonTextArea
+                                                placeholder="e.g. This is a daily revenue health check - focus on revenue drop-off and churn signals"
+                                                maxLength={500}
+                                            />
+                                        </LemonField>
                                     )}
                                 </>
                             )}
@@ -837,7 +932,7 @@ function EditSubscriptionForm({
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {subscription && id !== 'new' && (
+                    {subscription && (
                         <LemonButton
                             type="secondary"
                             status="danger"
@@ -855,9 +950,9 @@ function EditSubscriptionForm({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
+                    disabledReason={saveDisabledReason}
                 >
-                    {id === 'new' ? 'Create subscription' : 'Save'}
+                    Save
                 </LemonButton>
             </LemonModal.Footer>
         </Form>

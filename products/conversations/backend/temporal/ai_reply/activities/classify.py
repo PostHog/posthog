@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json as json_module
+from dataclasses import replace
+from typing import Literal
 
 import structlog
+from pydantic import BaseModel, Field
 from temporalio import activity
 
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
@@ -10,8 +13,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPES, UTILITY_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_output_config,
     anthropic_text,
     create_message,
+    llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
@@ -20,11 +25,17 @@ from products.conversations.backend.temporal.ai_reply.schemas import ClassifyInp
 logger = structlog.get_logger(__name__)
 
 
+class ClassifyResult(BaseModel):
+    ticket_type: Literal["how_to", "diagnostic", "account_billing", "bug", "unactionable"]
+    needs_diagnostics: bool = Field(description="True only when answering requires the customer's own data")
+    seed_queries: list[str] = Field(description="2-4 concise search queries; empty for unactionable")
+
+
 @activity.defn
 async def support_classify_activity(input: ClassifyInput) -> ClassifyOutput:
     """One-shot LLM triage of a ticket into a type + diagnostics flag + seed search queries."""
     async with Heartbeater():
-        return await _classify(input)
+        return replace(await _classify(input), llm_attempts=llm_attempts())
 
 
 async def _classify(input: ClassifyInput) -> ClassifyOutput:
@@ -59,6 +70,7 @@ classify the customer's support question."""
         max_tokens=512,
         system=system,
         messages=[{"role": "user", "content": user_content}],
+        **anthropic_output_config(ClassifyResult),
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)

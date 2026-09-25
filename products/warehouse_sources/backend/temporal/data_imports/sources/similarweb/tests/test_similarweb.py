@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -398,7 +398,7 @@ class TestSimilarwebTransport:
     ) -> None:
         session = _session(_response(json_body=_series_body("visits", [])))
 
-        with freeze_time("2024-06-15"):
+        with time_machine.travel("2024-06-15", tick=False):
             _run(
                 VISITS,
                 session,

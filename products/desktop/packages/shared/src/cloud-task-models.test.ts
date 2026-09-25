@@ -1,13 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  adapterForModelId,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
   getClaudeModelRecency,
+  getCloudTaskGatewayUrl,
   isAnthropicModel,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isDeepseekModelId,
   isModalModel,
@@ -15,6 +17,8 @@ import {
   normalizeGatewayModelsResponse,
   pickAllowedModel,
 } from "./cloud-task-models";
+import { configureCustomCloud } from "./custom-cloud";
+import { isCustomModelOption } from "./models";
 
 const model = (
   id: string,
@@ -52,9 +56,9 @@ describe("formatGatewayModelName", () => {
 });
 
 describe("normalizeGatewayModelsResponse", () => {
-  it("passes through the gateway's advertised context window for GLM 5.2 unmodified", () => {
+  it("passes through the gateway's advertised context window unmodified", () => {
     const models = normalizeGatewayModelsResponse([
-      model("@cf/zai-org/glm-5.2", "cloudflare"),
+      model("zai-org/glm-5.3", "baseten"),
     ]);
 
     expect(models[0]?.context_window).toBe(128000);
@@ -62,25 +66,10 @@ describe("normalizeGatewayModelsResponse", () => {
 
   it("does not override any model's context window", () => {
     const models = normalizeGatewayModelsResponse([
-      { ...model("@cf/zai-org/glm-5.2", "cloudflare"), context_window: 256000 },
+      { ...model("zai-org/glm-5.3", "baseten"), context_window: 256000 },
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
-  });
-});
-
-describe("isBlockedModelId", () => {
-  it.each([
-    "claude-opus-4-5",
-    "claude-opus-4-6",
-    "claude-sonnet-4-5",
-    "ANTHROPIC/CLAUDE-HAIKU-4-5",
-    "gpt-5.2",
-    "gpt-5.3",
-    "gpt-5.3-codex",
-    "OPENAI/GPT-5.3-CODEX",
-  ])("blocks %s", (modelId) => {
-    expect(isBlockedModelId(modelId)).toBe(true);
   });
 });
 
@@ -177,7 +166,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("gpt-5.5", "openai"),
         model("claude-opus-4-7", "anthropic"),
-        model("claude-opus-4-8", "anthropic", false),
+        model("claude-opus-5-5", "anthropic", false),
         model("@cf/zai-org/glm-5.2", "cloudflare"),
       ],
       "claude",
@@ -190,11 +179,11 @@ describe("buildCloudTaskConfigOptions", () => {
         currentValue: "@cf/zai-org/glm-5.2",
         options: [
           { value: "claude-opus-4-7" },
+          { value: "@cf/zai-org/glm-5.2" },
           {
-            value: "claude-opus-4-8",
+            value: "claude-opus-5-5",
             _meta: { "posthog.code/restrictedModel": true },
           },
-          { value: "@cf/zai-org/glm-5.2" },
         ],
       },
       {
@@ -215,7 +204,7 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("claude-opus-4-8"),
         model("gpt-5.6", "openai"),
-        model("gpt-5.5", "openai"),
+        model("gpt-6-sol", "openai"),
       ],
       "codex",
     );
@@ -224,8 +213,8 @@ describe("buildCloudTaskConfigOptions", () => {
       { id: "mode", currentValue: "auto" },
       {
         id: "model",
-        currentValue: "gpt-5.5",
-        options: [{ value: "gpt-5.6" }, { value: "gpt-5.5" }],
+        currentValue: "gpt-6-sol",
+        options: [{ value: "gpt-5.6" }, { value: "gpt-6-sol" }],
       },
       {
         id: "reasoning_effort",
@@ -235,6 +224,7 @@ describe("buildCloudTaskConfigOptions", () => {
           { value: "medium" },
           { value: "high" },
           { value: "xhigh" },
+          { value: "max" },
         ],
       },
     ]);
@@ -273,6 +263,158 @@ describe("buildCloudTaskConfigOptions", () => {
     )?.options;
     expect(codexModelOptions).not.toContainEqual(
       expect.objectContaining({ value: "deepseek-ai/deepseek-v4-flash-0731" }),
+    );
+  });
+});
+
+describe("adapterForModelId", () => {
+  it.each([
+    ["gpt-5.6-sol", "codex"],
+    ["openai/gpt-5.5", "codex"],
+    ["claude-opus-5", "claude"],
+    ["@cf/zai-org/glm-5.2", "claude"],
+    ["moonshotai/kimi-k3", "claude"],
+    ["deepseek-ai/deepseek-v4-flash-0731", "claude"],
+  ])("maps %s to the %s harness", (modelId, adapter) => {
+    expect(adapterForModelId(modelId)).toBe(adapter);
+  });
+});
+
+describe("buildProviderModelGroups", () => {
+  const catalog = [
+    model("gpt-5.6-sol", "openai"),
+    model("claude-opus-5", "anthropic"),
+    model("claude-opus-4-8", "anthropic", false),
+    model("moonshotai/kimi-k3", "modal"),
+  ];
+
+  it.each(["claude", "codex"] as const)(
+    "keeps the same groups in the same order on the %s harness",
+    (adapter) => {
+      const groups = buildProviderModelGroups(catalog, adapter);
+      expect(groups.map((group) => group.group)).toEqual([
+        "anthropic",
+        "openai",
+        "moonshotai",
+      ]);
+    },
+  );
+
+  it("groups models by vendor and stamps each option with its harness", () => {
+    const groups = buildProviderModelGroups(catalog, "claude");
+
+    expect(groups).toMatchObject([
+      {
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          { value: "claude-opus-5" },
+          {
+            value: "claude-opus-4-8",
+            _meta: {
+              "posthog.code/modelHarness": "claude",
+              "posthog.code/restrictedModel": true,
+            },
+          },
+        ],
+      },
+      {
+        group: "openai",
+        name: "OpenAI",
+        options: [
+          {
+            value: "gpt-5.6-sol",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+      {
+        group: "moonshotai",
+        name: "Moonshot AI",
+        options: [
+          {
+            value: "moonshotai/kimi-k3",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a current model missing from the catalog as a custom entry", () => {
+    const groups = buildProviderModelGroups(catalog, "claude", "my-custom");
+    expect(groups.at(-1)).toMatchObject({
+      options: [{ value: "my-custom", description: "Custom model" }],
+    });
+    expect(isCustomModelOption(groups.at(-1)?.options[0]?._meta)).toBe(true);
+  });
+
+  // A gateway blip answers with an empty or one-sided catalog. The picker must
+  // still offer the model the task will run on, under its own vendor.
+  it.each([
+    { label: "an empty catalog", models: [] },
+    {
+      label: "a catalog holding only another vendor",
+      models: [model("gpt-5.6-sol", "openai")],
+    },
+  ])(
+    "keeps the current model under its own vendor with $label",
+    ({ models }) => {
+      const groups = buildProviderModelGroups(
+        models,
+        "claude",
+        "claude-opus-5",
+      );
+
+      expect(groups[0]).toMatchObject({
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          {
+            value: "claude-opus-5",
+            description: "Custom model",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      });
+      expect(isCustomModelOption(groups[0]?.options[0]?._meta)).toBe(true);
+    },
+  );
+});
+
+describe("getCloudTaskGatewayUrl with a custom cloud", () => {
+  afterEach(() => {
+    configureCustomCloud(null);
+  });
+
+  it("uses the gateway of the custom cloud for its own host only", () => {
+    configureCustomCloud({
+      url: "https://posthog.example.com",
+      oauthClientId: "client-id",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
+      "https://gateway.example.com/posthog_code",
+    );
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
+
+  it("keeps the derived gateway when the custom cloud has none", () => {
+    configureCustomCloud({ url: "https://posthog.example.com" });
+    expect(getCloudTaskGatewayUrl("https://posthog.example.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
+    );
+  });
+
+  it("refuses a built-in host as the target, so its gateway never moves", () => {
+    configureCustomCloud({
+      url: "https://us.posthog.com",
+      gatewayUrl: "https://gateway.example.com",
+    });
+    expect(getCloudTaskGatewayUrl("https://us.posthog.com")).toBe(
+      "https://gateway.us.posthog.com/posthog_code",
     );
   });
 });

@@ -10,12 +10,12 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { AI_EVENT_NAME_PREFIX } from '~/ingestion/common/ai-event-types'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
-import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
+import { createAllowEventPrefixStep } from '~/ingestion/common/steps/allow-events'
 import {
     createApplyEventFiltersStep,
     createEventFiltersBatchAppMetricsBeforeBatchStep,
@@ -25,9 +25,8 @@ import {
     createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
-    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
-    createSkipCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
@@ -92,7 +91,7 @@ export interface AiIngestionPipelineConfig {
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
     aiBlobOffloadConfig: OffloadAiBlobsConfig
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 interface AiIngestionPipelineInput {
@@ -140,7 +139,7 @@ export function createAiIngestionPipeline<
         topHog,
         aiBlobStore,
         aiBlobOffloadConfig,
-        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
+        createEventUsageBatch,
     } = config
 
     return (
@@ -158,7 +157,7 @@ export function createAiIngestionPipeline<
             )
             // Header-only steps: allow only AI events, apply token restrictions.
             .parseHeaders()
-            .pipe(createAllowEventsStep([...AI_EVENT_TYPES]))
+            .pipe(createAllowEventPrefixStep(AI_EVENT_NAME_PREFIX))
             .pipe(
                 createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                     overflowMode,
@@ -167,9 +166,10 @@ export function createAiIngestionPipeline<
                     pipelineWritesPersons: false,
                 })
             )
-            // Rate-limit non-cookieless events to overflow before parsing the body.
-            // Cookieless events pass through and are handled post-cookieless below.
-            .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Rate-limit events to overflow before parsing the body, keyed on the
+            // Kafka message key — the partition key capture computed. Cookieless
+            // events count under token:client_ip.
+            .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .parseMessage()
             .resolveTeam()
             .pipe(createValidateHistoricalMigrationStep())
@@ -186,7 +186,6 @@ export function createAiIngestionPipeline<
             // final distinct_id, so it must run after this batch step.
             .gather()
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
-            .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Read-only batch person fetch (no person writes). The personhog
             // client retries transient gRPC errors for ~150ms; this outer

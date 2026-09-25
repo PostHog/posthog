@@ -8,15 +8,12 @@ import { inject, injectable } from "inversify";
 import { composeUtterance } from "./composeUtterance";
 import {
   type ISpeechQueue,
-  SPEECH_QUEUE_SERVICE,
   SPEECH_SETTINGS_PROVIDER,
   SPEECH_USER_NAME_PROVIDER,
   type SpeechRequest,
   type SpeechSettingsProvider,
   type UserNameProvider,
 } from "./identifiers";
-
-export { SPEECH_QUEUE_SERVICE };
 
 /** Max queued utterances (excluding the one currently playing) before we drop. */
 const MAX_QUEUE = 3;
@@ -120,7 +117,12 @@ export class SpeechQueueService implements ISpeechQueue {
       while (this.queue.length > 0) {
         const next = this.queue.shift();
         if (!next) break;
-        const { voiceId } = this.settings.get();
+        // A pause or an opt-out also silences the lines that already wait.
+        const { enabled, voiceId } = this.settings.get();
+        if (!enabled) {
+          this.queue.length = 0;
+          break;
+        }
         try {
           await this.speech.speak(next.text, { voiceId });
         } catch (err) {

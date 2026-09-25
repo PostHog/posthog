@@ -148,6 +148,8 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
 
 ### Step 3: Choose metric type
 
+Start from a template in `references/metric-templates.md`: it maps common requests ("more revenue", "people come back") to a metric type and the defaults to set with it (window units, winsorization, goal).
+
 There are four metric types. Each has `kind: "ExperimentMetric"`:
 
 | metric_type   | When to use                                                                            | Required fields                                                                                                                |

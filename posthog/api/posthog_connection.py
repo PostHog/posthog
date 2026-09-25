@@ -39,6 +39,7 @@ from posthog.auth import (
     is_mcp_request,
 )
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
+from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
 
@@ -159,6 +160,7 @@ def _forward_through_connection(
     query: dict[str, Any] | None = None,
     data: Any = None,
     mcp_origin: bool = False,
+    sandbox_origin: bool = False,
 ) -> ForwardResult:
     """Replay one request against the connected project, injecting the connection's token.
 
@@ -169,6 +171,8 @@ def _forward_through_connection(
     token = _connection_access_token(integration)
     base = posthog_connect_base_url(integration.config.get("region"))
     headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
+    if sandbox_origin:
+        headers[SANDBOX_ORIGIN_HEADER] = "1"
     if mcp_origin:
         headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
 
@@ -333,6 +337,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query=payload.get("query"),
             data=payload.get("data"),
             mcp_origin=is_mcp_request(request),
+            sandbox_origin=is_sandbox_origin_request(request),
         )
         body = {"status": result.status, "data": result.data}
         # A failure on this side is mirrored as the outer status too, so a caller that only reads the

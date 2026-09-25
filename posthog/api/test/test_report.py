@@ -1,6 +1,6 @@
 import json
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -142,7 +142,7 @@ class TestCspReport(BaseTest):
     def test_crash_report_becomes_backdated_event(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
 
-        with freeze_time("2026-08-12T10:00:00Z"):
+        with time_machine.travel("2026-08-12T10:00:00Z", tick=False):
             response = self.client.post(
                 f"/report/?token={self.team.api_token}&distinct_id=user-distinct-id",
                 data=json.dumps([CRASH_REPORT]),
@@ -190,31 +190,84 @@ class TestCspReport(BaseTest):
         assert [e["event"] for e in events] == ["$csp_violation", "$browser_crash_report"]
         assert events[1]["properties"]["$browser_crash_reason"] == "unknown"
 
+    @parameterized.expand(
+        [
+            ("crash_report", "application/reports+json", lambda url: [{**CRASH_REPORT, "url": url}]),
+            # A violation repeats the document URL as its source file, and a same-origin resource puts it
+            # in the blocked URL too, so masking the document URL alone would still store the token.
+            (
+                "violation_report_to",
+                "application/reports+json",
+                lambda url: [
+                    {
+                        "type": "csp-violation",
+                        "url": url,
+                        "body": {
+                            "documentURL": url,
+                            "referrer": url,
+                            "blockedURL": url,
+                            "sourceFile": url,
+                            "effectiveDirective": "img-src",
+                        },
+                    }
+                ],
+            ),
+            # Not a shape browsers send, but the endpoint accepts it, so it must not store URLs verbatim.
+            (
+                "violation_report_to_with_top_level_fields",
+                "application/reports+json",
+                lambda url: [
+                    {
+                        "type": "csp-violation",
+                        "url": url,
+                        "document-uri": url,
+                        "referrer": url,
+                        "blocked-uri": url,
+                        "source-file": url,
+                        "effective-directive": "img-src",
+                    }
+                ],
+            ),
+            (
+                "violation_report_uri",
+                "application/csp-report",
+                lambda url: {
+                    "csp-report": {
+                        "document-uri": url,
+                        "referrer": url,
+                        "blocked-uri": url,
+                        "source-file": url,
+                        "violated-directive": "img-src",
+                    }
+                },
+            ),
+        ]
+    )
     @patch("posthog.api.report.capture_batch_internal")
-    def test_crash_url_credentials_are_redacted(self, mock_batch_capture):
+    @patch("posthog.api.report.capture_internal")
+    def test_report_url_credentials_are_redacted(
+        self, _name, content_type, build_payload, mock_capture, mock_batch_capture
+    ):
+        mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
         # shaped like a Django reset token, so the length-plus-digit heuristic must mask it
         reset_token = "abc123-0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
-        crash_on_reset_page = {
-            **CRASH_REPORT,
-            "url": f"https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/{reset_token}?next=/replay",
-        }
+        reset_page = f"https://app.example.com/reset/0198aaaa-bbbb-cccc-dddd-eeeeffff0000/{reset_token}?next=/replay"
 
         response = self.client.post(
             f"/report/?token={self.team.api_token}",
-            data=json.dumps([crash_on_reset_page]),
-            content_type="application/reports+json",
+            data=json.dumps(build_payload(reset_page)),
+            content_type=content_type,
         )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        events = mock_batch_capture.call_args.kwargs["events"]
-        assert len(events) == 1
-        event = events[0]
-        assert reset_token not in json.dumps(event)
-        assert event["properties"]["$current_url"] == "https://app.example.com/reset/<redacted>/<redacted>"
-        assert event["properties"]["$browser_crash_raw_report"]["url"] == (
-            "https://app.example.com/reset/<redacted>/<redacted>"
-        )
+        if mock_batch_capture.called:
+            (event,) = mock_batch_capture.call_args.kwargs["events"]
+            properties = event["properties"]
+        else:
+            properties = mock_capture.call_args.kwargs["properties"]
+        assert reset_token not in json.dumps(properties)
+        assert properties["$current_url"] == "https://app.example.com/reset/<redacted>/<redacted>"
 
     def test_csp_report_never_logs_request_headers(self):
         with capture_logs() as logs, patch("posthog.api.report.capture_internal") as mock_capture:
@@ -346,6 +399,38 @@ class TestCspReport(BaseTest):
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
         assert mock_capture.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_violation"),
+            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], "$csp_violation"),
+            ("crash", "application/reports+json", [CRASH_REPORT], "$browser_crash_report"),
+        ]
+    )
+    @patch("posthog.api.report.capture_batch_internal")
+    @patch("posthog.api.report.capture_internal")
+    def test_report_events_carry_the_reporting_client_ip(
+        self, _name, content_type, payload, event_name, mock_capture, mock_batch_capture
+    ):
+        mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        response = self.client.post(
+            f"/report/?token={self.team.api_token}",
+            data=json.dumps(payload),
+            content_type=content_type,
+            HTTP_X_FORWARDED_FOR="203.0.113.7, 10.0.0.1",
+        )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        if mock_capture.called:
+            assert mock_capture.call_args.kwargs["event_name"] == event_name
+            properties = mock_capture.call_args.kwargs["properties"]
+        else:
+            (event,) = mock_batch_capture.call_args.kwargs["events"]
+            assert event["event"] == event_name
+            properties = event["properties"]
+        assert properties["$ip"] == "203.0.113.7"
 
     @patch("posthog.api.report.capture_internal")
     def test_capture_csp_no_trailing_slash(self, mock_capture):

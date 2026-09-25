@@ -395,6 +395,7 @@ export interface accessControlsLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
@@ -404,14 +405,17 @@ export interface accessControlsLogicActions {
             | 'clickhouse_test_cluster_perf'
             | 'cohort'
             | 'comment'
+            | 'context_layer_internal'
             | 'conversation'
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -477,6 +481,7 @@ export interface accessControlsLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -565,6 +570,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -574,14 +580,17 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -647,6 +656,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -712,6 +722,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -721,14 +732,17 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -794,6 +808,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -831,6 +846,7 @@ export interface accessControlsLogicMeta {
                 | 'alert'
                 | 'annotation'
                 | 'approvals'
+                | 'autoresearch'
                 | 'batch_export'
                 | 'batch_import'
                 | 'batch_import_support'
@@ -840,14 +856,17 @@ export interface accessControlsLogicMeta {
                 | 'clickhouse_test_cluster_perf'
                 | 'cohort'
                 | 'comment'
+                | 'context_layer_internal'
                 | 'conversation'
                 | 'customer_analytics'
                 | 'customer_journey'
                 | 'customer_profile_config'
+                | 'customer_task'
                 | 'dashboard'
                 | 'dashboard_template'
                 | 'data_catalog'
                 | 'data_catalog_approval'
+                | 'data_deletion'
                 | 'dataset'
                 | 'early_access_feature'
                 | 'element'
@@ -913,6 +932,7 @@ export interface accessControlsLogicMeta {
                 | 'signal_scout'
                 | 'signal_scout_internal'
                 | 'signal_scout_report'
+                | 'signal_scratchpad_internal'
                 | 'stamphog'
                 | 'streamlit_app'
                 | 'subscription'
@@ -1019,6 +1039,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlDefaultsResponse | null,
             {
                 loadDefaults: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlDefaultsRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlDefaultsResponse>(`api/projects/${props.projectId}/access_control_defaults`),
             },
         ],
@@ -1026,6 +1047,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlRolesResponse | null,
             {
                 loadRoles: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlRolesRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlRolesResponse>(`api/projects/${props.projectId}/access_control_roles`),
             },
         ],
@@ -1033,6 +1055,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             null as AccessControlMembersResponse | null,
             {
                 loadMembers: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsAccessControlMembersRetrieve() from 'products/access_control/frontend/generated/api' instead.
                     api.get<AccessControlMembersResponse>(`api/projects/${props.projectId}/access_control_members`),
             },
         ],
@@ -1046,6 +1069,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                             ? `access_control_roles?role_id=${subject.subjectId}`
                             : `access_control_members?member_id=${subject.subjectId}`
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<{ results: AccessControlSettingsEntry[] }>(
                             `api/projects/${props.projectId}/${query}`
                         )
@@ -1571,8 +1595,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         // Settings navigation carries search params across sections, so our params would otherwise follow the
         // user to other settings pages and re-apply the same tab and filters on their way back. Drop them on the way out.
         const { pathname, searchParams, hashParams } = router.values.currentLocation
-        const { access_tab, access_role_id, ...rest } = searchParams
-        if (access_tab !== undefined || access_role_id !== undefined) {
+        const { access_tab, access_role_id, access_member_id, ...rest } = searchParams
+        if (access_tab !== undefined || access_role_id !== undefined || access_member_id !== undefined) {
             router.actions.replace(pathname, rest, hashParams)
         }
     }),
@@ -1585,6 +1609,12 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             }
             if (tab === 'roles' && searchParams.access_role_id) {
                 actions.setFilters({ roleIds: [searchParams.access_role_id] })
+            }
+            if (tab === 'members' && searchParams.access_member_id) {
+                sidePanelStateLogic.actions.openSidePanel(
+                    SidePanelTab.AccessDetail,
+                    `member:${searchParams.access_member_id}`
+                )
             }
         },
     })),

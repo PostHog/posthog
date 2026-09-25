@@ -21,6 +21,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.models import PropertyDefinition
+
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
 
@@ -58,12 +60,13 @@ class TestConversionGoalProcessorRefactor(BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
     snapshot: Any
 
-    def _processor(self, **goal_overrides) -> ConversionGoalProcessor:
+    def _processor(self, filter_test_accounts: bool = False, **goal_overrides) -> ConversionGoalProcessor:
         return ConversionGoalProcessor(
             goal=_make_event_goal(**goal_overrides),
             index=0,
             team=self.team,
             config=MarketingAnalyticsConfig(),
+            filter_test_accounts=filter_test_accounts,
         )
 
     def _print_sql(self, node: ast.SelectQuery) -> str:
@@ -141,6 +144,36 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
         with patch(target, return_value={restricted_property}):
             assert processor._should_use_precompute(date_from, date_to) is False
+
+    @parameterized.expand(
+        [
+            ("filtering_and_restricted", True, {("email", PropertyDefinition.Type.PERSON)}, False),
+            # Nothing is masked for this user, so evaluating the rules userless reveals nothing.
+            ("filtering_but_unrestricted", True, set(), True),
+            # The rules never reach the precompute, so there is nothing to leak through.
+            ("restricted_but_not_filtering", False, {("email", PropertyDefinition.Type.PERSON)}, True),
+        ]
+    )
+    def test_precompute_skipped_when_dropping_test_accounts_could_leak_a_restricted_property(
+        self, _name: str, filter_test_accounts: bool, restricted: set, expected: bool
+    ):
+        # The precompute evaluates the team's test-account rules with no user attached, so a rule reading
+        # a property this user can't see is compared against real values. Without this guard, toggling the
+        # filter and diffing the aggregates reports how many rows match it. The person-typed property here
+        # is the case the existing guard misses entirely: it only inspects event properties.
+        self.team.test_account_filters = [
+            {"key": "email", "value": "@internal.example.com", "operator": "not_icontains", "type": "person"}
+        ]
+        self.team.save()
+        processor = self._processor(filter_test_accounts=filter_test_accounts)
+        processor.config.conversion_goal_precomputation_enabled = True
+        target = "products.marketing_analytics.backend.hogql_queries.conversion_goal_processor.get_restricted_properties_for_team"
+
+        with patch(target, return_value=restricted):
+            assert (
+                processor._should_use_precompute(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+                is expected
+            )
 
     def test_tracked_fields_match_touchpoints_table_schema(self):
         from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import (

@@ -1,4 +1,7 @@
-"""Slack link unfurling for PostHog resource URLs (metadata only)."""
+"""Slack link unfurling for PostHog resource URLs (metadata only).
+
+Ticket subjects and messages are customer-authored, so every one goes through `escape_slack_mrkdwn`.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import (
@@ -23,6 +27,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -224,11 +229,6 @@ def _find_ticket(team_id: int, ref: str) -> Ticket | None:
         return None
 
 
-def _escape_mrkdwn(text: str) -> str:
-    """Escape mrkdwn control chars — ticket subjects/messages are customer-authored."""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 def _ticket_requester(team: Team, ticket: Ticket) -> str:
     """Display the ticket's requester using the project's person display-name settings.
 
@@ -259,7 +259,7 @@ def _ticket_opening_message(team_id: int, ticket_id: UUID) -> str | None:
         .values_list("content", flat=True)
         .first()
     )
-    return _truncate(_escape_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
+    return _truncate(escape_slack_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
 
 
 def _unfurl_payload(*, resource_label: str, title: str, description: str | None) -> dict:
@@ -427,6 +427,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     uac = UserAccessControl(user, team=team)
 
     unfurls: dict[str, dict] = {}
+    unfurled_kinds: list[str] = []
     # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
     # can be answered from logs instead of by re-deriving the path by hand.
     skipped: list[dict[str, str]] = []
@@ -502,7 +503,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             unfurls[raw_url] = _ticket_unfurl_payload(
                 url=raw_url,
                 ticket=ticket,
-                requester=_escape_mrkdwn(_ticket_requester(team, ticket)),
+                requester=escape_slack_mrkdwn(_ticket_requester(team, ticket)),
                 opening_message=_ticket_opening_message(team.pk, ticket.id),
             )
         elif kind == "task":
@@ -517,7 +518,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 skipped.append({"kind": kind, "ref": ref, "reason": "not_found_or_no_access"})
                 continue
             label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
-            unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
+            unfurls[raw_url] = _unfurl_payload(
+                resource_label=label, title=escape_slack_mrkdwn(task.title), description=None
+            )
             try:
                 _attach_public_slack_thread_reference(
                     slack=slack,
@@ -530,6 +533,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 )
             except Exception:
                 logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
+
+        if raw_url in unfurls:
+            unfurled_kinds.append(kind)
 
     logger.info(
         "slack_app_link_unfurl_result",
@@ -553,3 +559,13 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         slack.client.chat_unfurl(**unfurl_kwargs)
     except Exception:
         logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
+    else:
+        capture_slack_event(
+            integration,
+            "slack app link unfurled",
+            slack_user_id=slack_user_id,
+            posthog_user=user,
+            kinds=sorted(set(unfurled_kinds)),
+            unfurled_count=len(unfurls),
+            skipped_count=len(skipped),
+        )

@@ -11,6 +11,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    TrunkQuarantineDebt,
+    TrunkQuarantinedTest,
+    TrunkQuarantineTeamDebt,
 )
 from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
@@ -62,10 +65,90 @@ class FlakyTestItemSerializer(DataclassSerializer):
         }
 
 
+class TrunkQuarantinedTestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkQuarantinedTest
+        extra_kwargs = {
+            "runner": {"help_text": "Test runner: 'pytest' or 'jest'."},
+            "nodeid": {
+                "help_text": "Runner-native test id reconstructed from Trunk's (file, classname, name) key.",
+            },
+            "file": {
+                "help_text": "Repo-relative path of the test file, empty when neither the repository nor "
+                "Trunk places it.",
+            },
+            "owner_team": {
+                "help_text": "Owning team slug from the repository's ownership files, or 'unowned' when the "
+                "test's file cannot be placed or no team claims its path.",
+            },
+            "status": {"help_text": "Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'."},
+            "quarantine_setting": {
+                "help_text": "How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'.",
+            },
+            "quarantined_at": {"help_text": "When Trunk quarantined the test."},
+            "age_days": {"help_text": "Whole days since the quarantine started."},
+            "overdue": {"help_text": "True once age_days exceeds ttl_days: the quarantine has outlived the TTL."},
+            "trunk_url": {
+                "help_text": "The Trunk app's page for this test; null when the connected source has no "
+                "organization slug or the row carries no test case id.",
+            },
+        }
+
+
+class TrunkQuarantineTeamDebtSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkQuarantineTeamDebt
+        extra_kwargs = {
+            "owner_team": {"help_text": "Owning team slug, or 'unowned'."},
+            "test_count": {"help_text": "Tests this team owns that Trunk currently quarantines."},
+            "overdue_count": {"help_text": "Of those, tests quarantined longer than ttl_days."},
+            "oldest_age_days": {"help_text": "Age in days of the team's oldest standing quarantine."},
+        }
+
+
+class TrunkQuarantineDebtSerializer(DataclassSerializer):
+    teams = TrunkQuarantineTeamDebtSerializer(
+        many=True,
+        help_text="Per-team rollup, most indebted first: overdue count, then test count, then oldest age.",
+    )
+    tests = TrunkQuarantinedTestSerializer(
+        many=True,
+        help_text="Every currently quarantined test, oldest first.",
+    )
+
+    class Meta:
+        dataclass = TrunkQuarantineDebt
+        extra_kwargs = {
+            "available": {
+                "help_text": "False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error.",
+            },
+            "owners_resolved": {
+                "help_text": "False when the repository's ownership files could not be read, so every "
+                "test reads as 'unowned' for that reason rather than because no team claims it.",
+            },
+            "ttl_days": {"help_text": "Days a quarantine may stand before it counts as overdue."},
+            "repository": {
+                "help_text": "The 'owner/name' repository the debt was read for; test file paths are relative to it.",
+            },
+            "trunk_url": {
+                "help_text": "The Trunk app's flaky-tests page for this repository; null when the connected "
+                "source has no organization slug.",
+            },
+            "truncated": {
+                "help_text": "True when more tests are quarantined than limit. The per-team counts then "
+                "cover only the returned tests, so treat them as lower bounds.",
+            },
+            "limit": {"help_text": "Maximum tests returned, oldest quarantine first."},
+        }
+
+
 class FlakyTestListSerializer(DataclassSerializer):
     items = FlakyTestItemSerializer(
         many=True,
-        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs.",
+        help_text="Tests worth acting on now, ranked by blast radius: master failures, then PRs hit, then runs. "
+        "A CI setup break (a run attempt whose tests errored in 3 or more jobs or for 3 or more owning teams, or a "
+        "job attempt with 100 or more distinct failed or errored tests) excludes every trial of that attempt, not "
+        "only its failures.",
     )
 
     class Meta:
@@ -86,7 +169,7 @@ class BrokenTestRowSerializer(DataclassSerializer):
                 "help_text": "Stable identity of this distinct failure: the failing test's node id plus a "
                 "normalized error signature, so the same failure across runs groups into one row.",
             },
-            "test_id": {"help_text": "The pytest node id from the CI 'FAILED <id>' line — the failing test."},
+            "test_id": {"help_text": "The pytest node id from the CI 'FAILED <id>' line: the failing test."},
             "error_signature": {
                 "help_text": "The trailing failure detail with volatile bits (numbers, hashes) normalized, shared "
                 "across runs of the same failure. Empty when the FAILED line carried no detail.",
@@ -102,20 +185,20 @@ class BrokenTestRowSerializer(DataclassSerializer):
                 "a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new "
                 "within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk "
                 "but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
-                "(confined to one branch — one PR's own problem).",
+                "(confined to one branch: one PR's own problem).",
             },
             "first_seen": {"help_text": "Earliest failure line for this fingerprint in the analysis window."},
             "last_seen": {"help_text": "Most recent failure line for this fingerprint in the analysis window."},
             "occurrences": {
                 "help_text": "Total failure lines for this fingerprint in the window. An absolute count, never a "
-                "rate — passing runs aren't in this data.",
+                "rate: passing runs aren't in this data.",
             },
             "branches": {"help_text": "Distinct branches the failure appeared on in the window."},
             "master_hits": {
                 "help_text": "Failure lines on the default branch (master/main). 0 means it never reached trunk.",
             },
             "latest_run_id": {
-                "help_text": "The most recent failing workflow run for this fingerprint — pass it to "
+                "help_text": "The most recent failing workflow run for this fingerprint: pass it to "
                 "run_failure_logs to fetch the actual failing log lines.",
             },
             "latest_branch": {"help_text": "The branch of the most recent failing run."},
@@ -129,14 +212,14 @@ class BrokenTestRowSerializer(DataclassSerializer):
 class BrokenTestsResultSerializer(DataclassSerializer):
     rows = BrokenTestRowSerializer(
         many=True,
-        help_text="Classified failures ranked by triage urgency — breaking trunk first, single-PR failures last.",
+        help_text="Classified failures ranked by triage urgency: breaking trunk first, single-PR failures last.",
     )
 
     class Meta:
         dataclass = BrokenTestsResult
         extra_kwargs = {
             "breaking_master_jobs": {
-                "help_text": "Default-branch job names whose latest completed run is failing — the 'what's on fire "
+                "help_text": "Default-branch job names whose latest completed run is failing: the 'what's on fire "
                 "right now' summary. Empty when the job-level source isn't synced or trunk is green.",
             },
             "window_days": {"help_text": "Length in days of the analysis window the counts cover."},

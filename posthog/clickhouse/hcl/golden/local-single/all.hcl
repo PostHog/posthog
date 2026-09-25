@@ -38,6 +38,9 @@ database "posthog" {
     column "uuid" {
       type = "UUID"
     }
+    column "data_deletion_request_id" {
+      type = "Nullable(UUID)"
+    }
     column "created_at" {
       type    = "DateTime64(6, 'UTC')"
       default = "now64()"
@@ -383,7 +386,7 @@ database "posthog" {
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
       sharding_key    = "cityHash64(team_id)"
@@ -413,6 +416,130 @@ database "posthog" {
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.channel_definition"
       replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "clickhouse_cleanup_deleted_persons" {
+    order_by     = ["run_id", "team_id", "person_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "max_version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_deleted_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_orphaned_distinct_ids" {
+    order_by     = ["run_id", "team_id", "distinct_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "own_tombstone" {
+      type = "UInt8"
+    }
+    column "max_version" {
+      type = "Int64"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_orphaned_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_revived_distinct_ids" {
+    order_by     = ["run_id", "team_id", "distinct_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_distinct_ids"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
+    }
+  }
+
+  table "clickhouse_cleanup_revived_persons" {
+    order_by     = ["run_id", "team_id", "person_id"]
+    partition_by = "run_id"
+    ttl          = "created_at + toIntervalDay(14)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "run_id" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "created_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now64()"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.clickhouse_cleanup_revived_persons"
+      replica_name   = "{replica}-{shard}"
+      version_column = "created_at"
     }
   }
 
@@ -1423,7 +1550,10 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
+      type = "JSON(max_dynamic_paths=0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_origin` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_session_id` String, `$ai_span_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_tools_called` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.instance` String, `$groups.organization` String, `$groups.project` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$raw_user_agent` LowCardinality(String), `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$search_engine` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_id` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_completed` String, `$survey_id` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, _kx String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, dclid String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, entity_detection String, env String, environment String, epik String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, igshid String, index String, initial__kx String, initial_dclid String, initial_epik String, initial_fbclid String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_gclsrc String, initial_igshid String, initial_irclid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_step String, initial_ttclid String, initial_twclid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, irclid String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, li_fat_id String, machine_id String, mc_cid String, message String, method String, mode String, most_recent_app_os String, msclkid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, qclid String, query String, ramp String, rdt_cid String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, sccid String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, ttclid String, twclid String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -1434,12 +1564,9 @@ database "posthog" {
     column "distinct_id" {
       type = "String"
     }
-    column "elements_hash" {
-      type    = "String"
-      default = "''"
-    }
     column "created_at" {
-      type = "DateTime64(6, 'UTC')"
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -1454,27 +1581,22 @@ database "posthog" {
       type = "UUID"
     }
     column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
+      type = "JSON(max_dynamic_paths=0, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$email` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial__kx` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_current_url` String, `$initial_dclid` String, `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_epik` String, `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_igshid` String, `$initial_irclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_msclkid` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_pathname` String, `$initial_qclid` String, `$initial_raw_user_agent` LowCardinality(String), `$initial_rdt_cid` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_sccid` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_ttclid` String, `$initial_twclid` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$last_seen_survey_date` String, `$organization_id` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pathname` String, `$product_tour_last_seen_date` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$referring_domain` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$survey_last_seen_date` String, `$viewport_height` String, `$viewport_width` String, `Email Domain` String, _kx String, companyName String, customer String, dclid String, email String, epik String, fbclid String, first_name String, gad_source String, gbraid String, gclid String, gclsrc String, hubspot_score String, icp_role String, id String, igshid String, irclid String, is_email_verified String, is_signed_up String, last_name String, li_fat_id String, mc_cid String, msclkid String, name String, organization_id String, organization_member_count String, qclid String, rdt_cid String, role String, role_at_organization String, sccid String, serverMarketing String, serverMasterclass String, ttclid String, twclid String, user_email_domain String, username String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, val_region String, wbraid String)"
     }
     column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "person_created_at" {
       type = "DateTime64(3)"
@@ -1495,46 +1617,27 @@ database "posthog" {
       type = "DateTime64(3)"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
-    column "is_deleted" {
-      type    = "Bool"
-      default = "false"
-    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
     }
     column "historical_migration" {
-      type    = "Bool"
-      default = "false"
+      type = "Bool"
     }
-    column "$group_0" {
-      type = "String"
+    column "total_event_size" {
+      type = "UInt32"
     }
-    column "$group_1" {
-      type = "String"
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
     }
-    column "$group_2" {
-      type = "String"
-    }
-    column "$group_3" {
-      type = "String"
-    }
-    column "$group_4" {
-      type = "String"
-    }
-    column "$window_id" {
-      type = "String"
-    }
-    column "$session_id" {
-      type = "String"
-    }
-    column "$session_id_uuid" {
-      type = "Nullable(UInt128)"
+    column "_partition" {
+      type = "UInt64"
     }
     column "elements_chain_href" {
       type = "String"
@@ -1547,6 +1650,38 @@ database "posthog" {
     }
     column "elements_chain_elements" {
       type = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
+    }
+    column "$group_0" {
+      type  = "String"
+      alias = "ifNull(properties.`$group_0`, '')"
+    }
+    column "$group_1" {
+      type  = "String"
+      alias = "ifNull(properties.`$group_1`, '')"
+    }
+    column "$group_2" {
+      type  = "String"
+      alias = "ifNull(properties.`$group_2`, '')"
+    }
+    column "$group_3" {
+      type  = "String"
+      alias = "ifNull(properties.`$group_3`, '')"
+    }
+    column "$group_4" {
+      type  = "String"
+      alias = "ifNull(properties.`$group_4`, '')"
+    }
+    column "$window_id" {
+      type  = "String"
+      alias = "ifNull(properties.`$window_id`, '')"
+    }
+    column "$session_id" {
+      type  = "String"
+      alias = "ifNull(properties.`$session_id`, '')"
+    }
+    column "$session_id_uuid" {
+      type  = "Nullable(UInt128)"
+      alias = "toUInt128(toUUIDOrNull(properties.`$session_id`))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1840,24 +1975,6 @@ database "posthog" {
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -2397,10 +2514,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ai_events_json'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ai_events_json"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2440,10 +2557,10 @@ database "posthog" {
       codec = "ZSTD(3)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_app_metrics"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2473,10 +2590,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_app_metrics2"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2506,10 +2623,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_app_metrics2'"
-      group_name  = "kafka_group_name = 'clickhouse_app_metrics2_ws'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_app_metrics2"
+      group_name = "clickhouse_app_metrics2_ws"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2548,10 +2665,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_billing_usage_records'"
-      group_name  = "kafka_group_name = 'clickhouse_billing_usage_records'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_billing_usage_records"
+      group_name = "clickhouse_billing_usage_records"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2572,10 +2689,10 @@ database "posthog" {
       type = "DateTime64(6)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'cohort_membership_changed'"
-      group_name  = "kafka_group_name = 'clickhouse_cohort_membership_changed'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "cohort_membership_changed"
+      group_name = "clickhouse_cohort_membership_changed"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2590,10 +2707,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'distinct_id_usage_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_distinct_id_usage'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "distinct_id_usage_events_json"
+      group_name           = "clickhouse_distinct_id_usage"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -2648,10 +2765,10 @@ database "posthog" {
       type = "DateTime64(3, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_events_duplicates'"
-      group_name  = "kafka_group_name = 'clickhouse_duplicate_events'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ingestion_events_duplicates"
+      group_name = "clickhouse_duplicate_events"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2693,10 +2810,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_fingerprint_issue_state'"
-      group_name  = "kafka_group_name = 'clickhouse-error-tracking-fingerprint-issue-state'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_fingerprint_issue_state"
+      group_name = "clickhouse-error-tracking-fingerprint-issue-state"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2720,10 +2837,10 @@ database "posthog" {
       type = "Array(Float64)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint_embeddings'"
-      group_name  = "kafka_group_name = 'clickhouse_error_tracking_fingerprint_embeddings'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_issue_fingerprint_embeddings"
+      group_name = "clickhouse_error_tracking_fingerprint_embeddings"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2744,10 +2861,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint'"
-      group_name  = "kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_error_tracking_issue_fingerprint"
+      group_name = "clickhouse-error-tracking-issue-fingerprint-overrides"
+      format     = "JSONEachRow"
     }
   }
 
@@ -2801,10 +2918,10 @@ database "posthog" {
       type = "Array(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'events_dead_letter_queue'"
-      group_name           = "kafka_group_name = 'group1'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "events_dead_letter_queue"
+      group_name           = "group1"
+      format               = "JSONEachRow"
       skip_broken_messages = 1000
     }
   }
@@ -2917,10 +3034,10 @@ database "posthog" {
       type = "Nullable(String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'group1'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "group1"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3032,11 +3149,14 @@ database "posthog" {
     column "dmat_string_9" {
       type = "Nullable(String)"
     }
+    column "captured_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_events_json_native_json'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_events_json_native_json"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3066,33 +3186,20 @@ database "posthog" {
     column "person_id" {
       type = "UUID"
     }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
-    }
     column "inserted_at" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_flag_evaluations'"
-      group_name           = "kafka_group_name = 'clickhouse_flag_evaluations'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_flag_evaluations"
+      group_name           = "clickhouse_flag_evaluations"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 10000
       skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 10000
+      flush_interval_ms    = 7500
     }
   }
 
@@ -3113,10 +3220,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_groups'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_groups"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3158,10 +3265,10 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_heatmap_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_heatmap_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3230,10 +3337,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_hog_invocation_results'"
-      group_name           = "kafka_group_name = 'clickhouse_hog_invocation_results'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_hog_invocation_results"
+      group_name           = "clickhouse_hog_invocation_results"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3256,10 +3363,10 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ingestion_warnings"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3280,10 +3387,45 @@ database "posthog" {
       type = "DateTime64(6, 'UTC')"
     }
     engine "kafka" {
-      broker_list = "warpstream_ingestion"
-      topic_list  = "kafka_topic_list = 'clickhouse_ingestion_warnings'"
-      group_name  = "kafka_group_name = 'clickhouse_ingestion_warnings_v2'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "warpstream_ingestion"
+      topic_list = "clickhouse_ingestion_warnings"
+      group_name = "clickhouse_ingestion_warnings_v2"
+      format     = "JSONEachRow"
+    }
+  }
+
+  table "kafka_log_entries_aux" {
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "log_entries"
+      group_name           = "clickhouse_log_entries_aux"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
     }
   }
 
@@ -3310,10 +3452,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'log_entries'"
-      group_name           = "kafka_group_name = 'clickhouse_log_entries'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "log_entries"
+      group_name           = "clickhouse_log_entries"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3341,10 +3483,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'log_entries'"
-      group_name           = "kafka_group_name = 'clickhouse_log_entries_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "log_entries"
+      group_name           = "clickhouse_log_entries_ws"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -3405,11 +3547,11 @@ database "posthog" {
       type = "Nullable(Int32)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_logs"
-      topic_list           = "kafka_topic_list = 'clickhouse_logs'"
-      group_name           = "kafka_group_name = 'clickhouse-logs-avro-new'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
+      collection           = "warpstream_logs"
+      topic_list           = "clickhouse_logs"
+      group_name           = "clickhouse-logs-avro-new"
+      format               = "Avro"
+      num_consumers        = 1
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
@@ -3467,11 +3609,251 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "warpstream_cyclotron"
-      topic_list           = "kafka_topic_list = 'clickhouse_message_assets'"
-      group_name           = "kafka_group_name = 'clickhouse_message_assets'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_message_assets"
+      group_name           = "clickhouse_message_assets"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
+    }
+  }
+
+  table "kafka_metrics_avro" {
+    column "uuid" {
+      type = "String"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Nullable(Int32)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "Nullable(String)"
+    }
+    column "metric_name" {
+      type = "Nullable(String)"
+    }
+    column "metric_type" {
+      type = "Nullable(String)"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "count" {
+      type = "Nullable(Int64)"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(Int64)"
+    }
+    column "unit" {
+      type = "Nullable(String)"
+    }
+    column "aggregation_temporality" {
+      type = "Nullable(String)"
+    }
+    column "is_monotonic" {
+      type = "Nullable(UInt8)"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "instrumentation_scope" {
+      type = "Nullable(String)"
+    }
+    column "attributes" {
+      type = "Map(String, String)"
+    }
+    column "series_fingerprint" {
+      type = "Nullable(Int64)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro-new"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
+  table "kafka_metrics_avro2" {
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+    column "uuid" {
+      type = "String"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Nullable(Int32)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "Nullable(String)"
+    }
+    column "metric_name" {
+      type = "Nullable(String)"
+    }
+    column "metric_type" {
+      type = "Nullable(String)"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "count" {
+      type = "Nullable(Int64)"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(Int64)"
+    }
+    column "unit" {
+      type = "Nullable(String)"
+    }
+    column "aggregation_temporality" {
+      type = "Nullable(String)"
+    }
+    column "is_monotonic" {
+      type = "Nullable(UInt8)"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "instrumentation_scope" {
+      type = "Nullable(String)"
+    }
+    column "attributes" {
+      type = "Map(String, String)"
+    }
+    column "series_fingerprint" {
+      type = "Nullable(Int64)"
+    }
+    column "has_labels" {
+      type = "Nullable(UInt8)"
+    }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro2"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
+    }
+  }
+
+  table "kafka_metrics_avro4" {
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
+    column "uuid" {
+      type = "String"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Nullable(Int32)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "Nullable(String)"
+    }
+    column "metric_name" {
+      type = "Nullable(String)"
+    }
+    column "metric_type" {
+      type = "Nullable(String)"
+    }
+    column "value" {
+      type = "Nullable(Float64)"
+    }
+    column "count" {
+      type = "Nullable(Int64)"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(Int64)"
+    }
+    column "unit" {
+      type = "Nullable(String)"
+    }
+    column "aggregation_temporality" {
+      type = "Nullable(String)"
+    }
+    column "is_monotonic" {
+      type = "Nullable(UInt8)"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "instrumentation_scope" {
+      type = "Nullable(String)"
+    }
+    column "attributes" {
+      type = "Map(String, String)"
+    }
+    column "series_fingerprint" {
+      type = "Nullable(Int64)"
+    }
+    column "has_labels" {
+      type = "Nullable(UInt8)"
+    }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_metrics"
+      topic_list           = "clickhouse_metrics"
+      group_name           = "clickhouse-metrics-avro4"
+      format               = "Avro"
+      num_consumers        = 1
+      skip_broken_messages = 100
+      poll_timeout_ms      = 3000
+      poll_max_batch_size  = 1000
+      thread_per_consumer  = true
     }
   }
 
@@ -3618,10 +4000,10 @@ database "posthog" {
       type = "Float64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_performance_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_performance_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3651,10 +4033,10 @@ database "posthog" {
       type = "Nullable(DateTime64(3))"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3675,10 +4057,10 @@ database "posthog" {
       type = "Nullable(Int8)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_unique_id'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_unique_id"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3699,10 +4081,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_distinct_id'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_distinct_id"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3723,10 +4105,10 @@ database "posthog" {
       type = "Int64"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_person_distinct_id'"
-      group_name  = "kafka_group_name = 'clickhouse-person-distinct-id-overrides'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_person_distinct_id"
+      group_name = "clickhouse-person-distinct-id-overrides"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3754,6 +4136,25 @@ database "posthog" {
       topic_list  = "clickhouse_person_override"
       group_name  = "clickhouse-person-overrides"
       format      = "JSONEachRow"
+    }
+  }
+
+  table "kafka_person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_property_mutation_log"
+      format               = "JSONEachRow"
+      skip_broken_messages = 100
     }
   }
 
@@ -3786,10 +4187,10 @@ database "posthog" {
       type = "UUID"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'plugin_log_entries'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "plugin_log_entries"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3828,10 +4229,10 @@ database "posthog" {
       type = "Array(Float64)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_document_embeddings'"
-      group_name  = "kafka_group_name = 'clickhouse_document_embeddings'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_document_embeddings"
+      group_name = "clickhouse_document_embeddings"
+      format     = "JSONEachRow"
     }
   }
 
@@ -3858,10 +4259,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_prefiltered_events'"
-      group_name           = "kafka_group_name = 'clickhouse_prefiltered_events'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_prefiltered_events"
+      group_name           = "clickhouse_prefiltered_events"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 1000000
       skip_broken_messages = 100
@@ -3891,10 +4292,10 @@ database "posthog" {
       type = "String"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_precalculated_person_properties'"
-      group_name           = "kafka_group_name = 'clickhouse_precalculated_person_properties'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_precalculated_person_properties"
+      group_name           = "clickhouse_precalculated_person_properties"
+      format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 1000000
       skip_broken_messages = 100
@@ -3921,11 +4322,11 @@ database "posthog" {
       type = "UInt64"
     }
     engine "kafka" {
-      broker_list         = "warpstream_ingestion"
-      topic_list          = "kafka_topic_list = 'clickhouse_property_values'"
-      group_name          = "kafka_group_name = 'clickhouse_property_values'"
-      format              = "kafka_format = 'JSONEachRow'"
-      num_consumers       = 8
+      collection          = "warpstream_ingestion"
+      topic_list          = "clickhouse_property_values"
+      group_name          = "clickhouse_property_values"
+      format              = "JSONEachRow"
+      num_consumers       = 1
       thread_per_consumer = true
     }
   }
@@ -3991,6 +4392,9 @@ database "posthog" {
     column "snapshot_library" {
       type = "Nullable(String)"
     }
+    column "snapshot_mode" {
+      type = "LowCardinality(Nullable(String))"
+    }
     column "retention_period_days" {
       type = "Nullable(Int64)"
     }
@@ -4010,10 +4414,10 @@ database "posthog" {
       type = "Nullable(Float32)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_session_replay_events'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_session_replay_events"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4226,10 +4630,10 @@ database "posthog" {
       type = "UInt8"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_session_replay_features'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_session_replay_features"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
 
@@ -4265,10 +4669,10 @@ database "posthog" {
       type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
-      broker_list          = "msk_cluster"
-      topic_list           = "kafka_topic_list = 'clickhouse_tophog'"
-      group_name           = "kafka_group_name = 'clickhouse_tophog'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "msk_cluster"
+      topic_list           = "clickhouse_tophog"
+      group_name           = "clickhouse_tophog"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
@@ -4305,15 +4709,18 @@ database "posthog" {
       type = "Map(LowCardinality(String), String)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_tophog'"
-      group_name           = "kafka_group_name = 'clickhouse_tophog_ws'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_tophog"
+      group_name           = "clickhouse_tophog_ws"
+      format               = "JSONEachRow"
       skip_broken_messages = 100
     }
   }
 
   table "kafka_trace_spans_avro" {
+    settings = {
+      input_format_avro_allow_missing_fields = "1"
+    }
     column "uuid" {
       type = "String"
     }
@@ -4377,12 +4784,15 @@ database "posthog" {
     column "status_code" {
       type = "Int32"
     }
+    column "retention_days" {
+      type = "Nullable(Int32)"
+    }
     engine "kafka" {
-      broker_list          = "warpstream_traces"
-      topic_list           = "kafka_topic_list = 'clickhouse_traces'"
-      group_name           = "kafka_group_name = 'clickhouse-traces-avro'"
-      format               = "kafka_format = 'Avro'"
-      num_consumers        = 8
+      collection           = "warpstream_traces"
+      topic_list           = "clickhouse_traces"
+      group_name           = "clickhouse-traces-avro"
+      format               = "Avro"
+      num_consumers        = 1
       skip_broken_messages = 100
       poll_timeout_ms      = 3000
       poll_max_batch_size  = 1000
@@ -4414,10 +4824,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list          = "warpstream_ingestion"
-      topic_list           = "kafka_topic_list = 'clickhouse_events_json'"
-      group_name           = "kafka_group_name = 'clickhouse_usage_report_events_preagg'"
-      format               = "kafka_format = 'JSONEachRow'"
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_usage_report_events_preagg"
+      format               = "JSONEachRow"
       num_consumers        = 1
       skip_broken_messages = 100
       thread_per_consumer  = true
@@ -4728,6 +5138,83 @@ database "posthog" {
     }
   }
 
+  table "log_entries_data" {
+    order_by     = ["team_id", "log_source", "log_source_id", "instance_id", "timestamp"]
+    partition_by = "toYYYYMMDD(timestamp)"
+    ttl          = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.log_entries_data"
+      replica_name   = "{replica}"
+      version_column = "_timestamp"
+    }
+  }
+
+  table "log_entries_distributed" {
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "log_entries_data"
+    }
+  }
+
   table "logs" {
     column "time_bucket" {
       type         = "DateTime"
@@ -4856,6 +5343,12 @@ database "posthog" {
     column "_record_count" {
       type  = "UInt64"
       codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
@@ -5003,6 +5496,12 @@ database "posthog" {
     column "_record_count" {
       type  = "UInt64"
       codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     index "idx_severity_text_set" {
       expr        = "severity_text"
@@ -5482,8 +5981,9 @@ SQL
     }
   }
 
-  table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+  table "logs_pattern_buckets" {
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(42)"
     settings = {
@@ -5508,6 +6008,87 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.logs_pattern_buckets"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "logs_pattern_buckets_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "logs_pattern_buckets"
+    }
+  }
+
+  table "logs_volume_buckets" {
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    partition_by = "toDate(time_bucket)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "0"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type  = "DateTime('UTC')"
+      codec = "DoubleDelta, ZSTD(1)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -5537,6 +6118,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -5896,6 +6480,243 @@ SQL
     }
   }
 
+  table "metric_attributes" {
+    order_by     = ["team_id", "attribute_type", "time_bucket", "resource_fingerprint", "attribute_key", "attribute_value"]
+    partition_by = "toDate(time_bucket)"
+    settings = {
+      deduplicate_merge_projection_mode = "drop"
+      index_granularity                 = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "resource_fingerprint" {
+      type    = "UInt64"
+      default = "0"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    index "idx_attribute_key" {
+      expr        = "attribute_key"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_value" {
+      expr        = "attribute_value"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_key_n3" {
+      expr        = "attribute_key"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    index "idx_attribute_value_n3" {
+      expr        = "attribute_value"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes"
+      replica_name = "{replica}"
+    }
+  }
+
+  table "metric_attributes2" {
+    order_by     = ["team_id", "attribute_type", "time_bucket", "attribute_key", "attribute_value"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_time_bucket"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    index "idx_attribute_key" {
+      expr        = "attribute_key"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_value" {
+      expr        = "attribute_value"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_key_n3" {
+      expr        = "attribute_key"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    index "idx_attribute_value_n3" {
+      expr        = "attribute_value"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes2"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "metric_attributes3" {
+    order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value", "service_name", "original_expiry_time_bucket"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_time_bucket"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    index "idx_attribute_key" {
+      expr        = "attribute_key"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_value" {
+      expr        = "attribute_value"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_key_n3" {
+      expr        = "attribute_key"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    index "idx_attribute_value_n3" {
+      expr        = "attribute_value"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes3"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "metric_attributes_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "metric_attributes2"
+    }
+  }
+
+  table "metric_names3" {
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metric_names3"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
   table "metric_samples" {
     column "team_id" {
       type = "Int32"
@@ -6102,6 +6923,1221 @@ SQL
       zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series1"
       replica_name   = "{replica}-{shard}"
       version_column = "last_seen"
+    }
+  }
+
+  table "metric_series2" {
+    order_by = ["team_id", "metric_name", "series_fingerprint"]
+    ttl      = "original_expiry_timestamp"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "last_seen" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    index "idx_service_set" {
+      expr        = "service_name"
+      type        = "set(1000)"
+      granularity = 1
+    }
+    index "idx_resource_fingerprint" {
+      expr        = "resource_fingerprint"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attr_keys" {
+      expr        = "mapKeys(attributes)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attr_values" {
+      expr        = "mapValues(attributes)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series2"
+      replica_name   = "{replica}-{shard}"
+      version_column = "last_seen"
+    }
+  }
+
+  table "metric_series3" {
+    order_by     = ["team_id", "metric_name", "series_fingerprint"]
+    partition_by = "toDate(original_expiry_timestamp)"
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "last_seen" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    index "idx_service_set" {
+      expr        = "service_name"
+      type        = "set(1000)"
+      granularity = 1
+    }
+    index "idx_resource_fingerprint" {
+      expr        = "resource_fingerprint"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attr_keys" {
+      expr        = "mapKeys(attributes)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attr_values" {
+      expr        = "mapValues(attributes)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_last_seen_minmax" {
+      expr        = "last_seen"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.metric_series3"
+      replica_name   = "{replica}-{shard}"
+      version_column = "last_seen"
+    }
+  }
+
+  table "metric_series_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "last_seen" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "metric_series2"
+    }
+  }
+
+  table "metrics" {
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfDay(timestamp)"
+    }
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "created_at" {
+      type         = "DateTime64(6)"
+      materialized = "now()"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type  = "Float64"
+      codec = "Gorilla(8)"
+    }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+      codec   = "T64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "attributes_map_str" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes_map_float" {
+      type = "Map(LowCardinality(String), Float64)"
+    }
+    column "time_minute" {
+      type  = "DateTime"
+      alias = "toStartOfMinute(timestamp)"
+    }
+    column "attributes" {
+      type  = "Map(String, String)"
+      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "metrics1"
+    }
+  }
+
+  table "metrics1" {
+    order_by     = ["team_id", "time_bucket", "service_name", "metric_name", "resource_fingerprint", "timestamp"]
+    partition_by = "toDate(timestamp)"
+    settings = {
+      index_granularity       = "8192"
+      index_granularity_bytes = "104857600"
+      ttl_only_drop_parts     = "1"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfDay(timestamp)"
+    }
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "created_at" {
+      type         = "DateTime64(6)"
+      materialized = "now()"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type  = "Float64"
+      codec = "Gorilla(8)"
+    }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+      codec   = "T64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "attributes_map_str" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes_map_float" {
+      type = "Map(LowCardinality(String), Float64)"
+    }
+    column "time_minute" {
+      type  = "DateTime"
+      alias = "toStartOfMinute(timestamp)"
+    }
+    column "attributes" {
+      type  = "Map(String, String)"
+      alias = "mapApply((k, v) -> (left(k, -5), v), attributes_map_str)"
+    }
+    index "idx_metric_name_set" {
+      expr        = "metric_name"
+      type        = "set(100)"
+      granularity = 1
+    }
+    index "idx_metric_type_set" {
+      expr        = "metric_type"
+      type        = "set(10)"
+      granularity = 1
+    }
+    index "idx_attributes_str_keys" {
+      expr        = "mapKeys(attributes_map_str)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attributes_str_values" {
+      expr        = "mapValues(attributes_map_str)"
+      type        = "bloom_filter(0.001)"
+      granularity = 1
+    }
+    index "idx_observed_minmax" {
+      expr        = "observed_timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    projection "projection_aggregate_counts" {
+      query = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  toStartOfMinute(timestamp),
+  service_name,
+  metric_name,
+  metric_type,
+  resource_fingerprint,
+  count() AS event_count,
+  sum(value) AS total_value,
+  min(value) AS min_value,
+  max(value) AS max_value
+GROUP BY
+  team_id, time_bucket, toStartOfMinute(timestamp), service_name, metric_name, metric_type, resource_fingerprint
+SQL
+
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics1"
+      replica_name = "{replica}"
+    }
+  }
+
+  table "metrics2" {
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint", "timestamp"]
+    partition_by = "toDate(original_expiry_timestamp)"
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity       = "8192"
+      index_granularity_bytes = "104857600"
+      ttl_only_drop_parts     = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfHour(timestamp)"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "resource_fingerprint" {
+      type    = "UInt64"
+      default = "0"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6)"
+      codec = "DoubleDelta"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "created_at" {
+      type         = "DateTime64(6)"
+      materialized = "now()"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type  = "Float64"
+      codec = "Gorilla(8)"
+    }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+      codec   = "T64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    index "idx_metric_type_set" {
+      expr        = "metric_type"
+      type        = "set(10)"
+      granularity = 1
+    }
+    index "idx_service_set" {
+      expr        = "service_name"
+      type        = "set(1000)"
+      granularity = 1
+    }
+    index "idx_trace_id_bf" {
+      expr        = "trace_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_resource_fingerprint" {
+      expr        = "resource_fingerprint"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_observed_minmax" {
+      expr        = "observed_timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_minmax" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    projection "projection_series_activity" {
+      query = <<SQL
+SELECT
+  team_id,
+  service_name,
+  metric_name,
+  metric_type,
+  resource_fingerprint,
+  series_fingerprint,
+  toStartOfHour(timestamp) AS hour,
+  count() AS sample_count,
+  max(timestamp) AS last_seen
+GROUP BY
+  team_id, service_name, metric_name, metric_type, resource_fingerprint, series_fingerprint, hour
+SQL
+
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics2"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "metrics2_input" {
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "null" {
+    }
+  }
+
+  table "metrics4_attributes" {
+    order_by     = ["team_id", "metric_name", "attribute_type", "time_bucket", "attribute_key", "attribute_value", "service_name", "original_expiry_time_bucket"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_time_bucket"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    index "idx_attribute_key" {
+      expr        = "attribute_key"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_value" {
+      expr        = "attribute_value"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attribute_key_n3" {
+      expr        = "attribute_key"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    index "idx_attribute_value_n3" {
+      expr        = "attribute_value"
+      type        = "ngrambf_v1(3, 32768, 3, 0)"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_attributes"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "metrics4_input" {
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "null" {
+    }
+  }
+
+  table "metrics4_names" {
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
+    partition_by = "toDate(original_expiry_time_bucket)"
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "metrics4_samples" {
+    order_by     = ["team_id", "metric_name", "time_bucket", "series_fingerprint"]
+    partition_by = "original_expiry_date"
+    ttl          = "original_expiry_date"
+    settings = {
+      index_granularity   = "128"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "original_expiry_date" {
+      type = "Date32"
+    }
+    column "resource_fingerprint" {
+      type = "SimpleAggregateFunction(any, UInt64)"
+    }
+    column "service_name" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "metric_type" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "unit" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "aggregation_temporality" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "is_monotonic" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "has_labels" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "instrumentation_scope" {
+      type = "SimpleAggregateFunction(any, String)"
+    }
+    column "histogram_bounds" {
+      type = "SimpleAggregateFunction(anyLast, Array(Float64))"
+    }
+    column "_topic" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "timestamp_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
+      codec = "DoubleDelta, Default"
+    }
+    column "observed_timestamp_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
+      codec = "DoubleDelta, Default"
+    }
+    column "value_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))"
+      codec = "Gorilla(8), Default"
+    }
+    column "count_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))"
+      codec = "T64, Default"
+    }
+    column "histogram_counts_arr" {
+      type  = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))"
+      codec = "T64, Default"
+    }
+    column "trace_id_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
+    }
+    column "span_id_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
+    }
+    column "trace_flags_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
+    }
+    column "timestamp_min" {
+      type  = "DateTime64(6)"
+      alias = "arrayMin(timestamp_arr)"
+    }
+    column "timestamp_max" {
+      type  = "DateTime64(6)"
+      alias = "arrayMax(timestamp_arr)"
+    }
+    index "idx_metric_type_set" {
+      expr        = "metric_type"
+      type        = "set(10)"
+      granularity = 1
+    }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_trace_id_bf" {
+      expr        = "trace_id_arr"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_timestamp_min_minmax" {
+      expr        = "timestamp_min"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_max_minmax" {
+      expr        = "timestamp_max"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_samples"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
+  table "metrics4_series" {
+    order_by     = ["team_id", "metric_name", "series_fingerprint", "time_bucket"]
+    partition_by = "toStartOfWeek(original_expiry_timestamp)"
+    ttl          = "original_expiry_timestamp"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfHour(timestamp)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    index "idx_service_set" {
+      expr        = "service_name"
+      type        = "set(1000)"
+      granularity = 1
+    }
+    index "idx_resource_fingerprint" {
+      expr        = "resource_fingerprint"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attr_keys" {
+      expr        = "mapKeys(attributes)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_attr_values" {
+      expr        = "mapValues(attributes)"
+      type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_timestamp_minmax" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_time_bucket_minmax" {
+      expr        = "time_bucket"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.metrics4_series"
+      replica_name   = "{replica}-{shard}"
+      version_column = "timestamp"
+    }
+  }
+
+  table "metrics_distributed" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfHour(timestamp)"
+    }
+    column "series_fingerprint" {
+      type  = "UInt64"
+      codec = "Delta(8), Default"
+    }
+    column "resource_fingerprint" {
+      type    = "UInt64"
+      default = "0"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6)"
+      codec = "DoubleDelta"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "created_at" {
+      type         = "DateTime64(6)"
+      materialized = "now()"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type  = "Float64"
+      codec = "Gorilla(8)"
+    }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+      codec   = "T64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "posthog_single_shard"
+      remote_database = "posthog"
+      remote_table    = "metrics2"
+    }
+  }
+
+  table "metrics_kafka_metrics" {
+    order_by = ["_topic", "_partition"]
+    settings = {
+      index_granularity = "8192"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime64(9))"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
+      replica_name = "{replica}"
     }
   }
 
@@ -6525,6 +8561,53 @@ SQL
       zoo_path       = "/clickhouse/tables/noshard/posthog.person_overrides"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
+    }
+  }
+
+  table "person_property_mutation_log" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_property_mutation_log_data"
+    }
+  }
+
+  table "person_property_mutation_log_data" {
+    order_by     = ["team_id", "event_uuid"]
+    partition_by = "toDate(ingested_at)"
+    ttl          = "ingested_at + toIntervalDay(30)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.person_property_mutation_log_data"
+      replica_name   = "{replica}-{shard}"
+      version_column = "ingested_at"
     }
   }
 
@@ -7962,8 +10045,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -8032,20 +10115,8 @@ SQL
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -8077,14 +10148,29 @@ SQL
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -8103,8 +10189,8 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -9326,18 +11412,19 @@ SQL
   }
 
   table "sharded_events_json" {
-    primary_key  = ["team_id", "toDate(timestamp)", "event", "timestamp", "cityHash64(distinct_id)"]
-    order_by     = ["team_id", "toDate(timestamp)", "event", "timestamp", "cityHash64(distinct_id)", "distinct_id", "uuid"]
-    partition_by = "toYYYYMM(timestamp)"
+    primary_key  = ["team_id", "toDate(timestamp)", "event", "cityHash64(distinct_id)"]
+    order_by     = ["team_id", "toDate(timestamp)", "event", "cityHash64(distinct_id)", "timestamp", "uuid"]
+    partition_by = "clamp(toYYYYMM(timestamp), 202001, 203512)"
     sample_by    = "cityHash64(distinct_id)"
     settings = {
-      index_granularity                                             = "8192"
-      merge_max_block_size                                          = "131072"
-      merge_max_block_size_bytes                                    = "67108864"
-      object_serialization_version                                  = "v3"
-      object_shared_data_serialization_version                      = "map_with_buckets"
-      object_shared_data_serialization_version_for_zero_level_parts = "map"
-      vertical_merge_algorithm_min_rows_to_activate                 = "0"
+      enable_block_number_column                             = "1"
+      enable_block_offset_column                             = "1"
+      index_granularity                                      = "8192"
+      map_serialization_version                              = "with_buckets"
+      object_serialization_version                           = "v3"
+      object_shared_data_serialization_version               = "map_with_buckets"
+      propagate_types_serialization_versions_to_nested_types = "1"
+      string_serialization_version                           = "single_stream"
     }
     column "uuid" {
       type = "UUID"
@@ -9346,10 +11433,15 @@ SQL
       type = "String"
     }
     column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
+      type = "JSON(max_dynamic_paths=0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_origin` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_session_id` String, `$ai_span_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_tools_called` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.instance` String, `$groups.organization` String, `$groups.project` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$raw_user_agent` LowCardinality(String), `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$search_engine` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_id` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_completed` String, `$survey_id` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, _kx String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, dclid String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, entity_detection String, env String, environment String, epik String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, igshid String, index String, initial__kx String, initial_dclid String, initial_epik String, initial_fbclid String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_gclsrc String, initial_igshid String, initial_irclid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_step String, initial_ttclid String, initial_twclid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, irclid String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, li_fat_id String, machine_id String, mc_cid String, message String, method String, mode String, most_recent_app_os String, msclkid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, qclid String, query String, ramp String, rdt_cid String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, sccid String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, ttclid String, twclid String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
+      ttl  = "toDateTime(inserted_at) + toIntervalDay(60)"
     }
     column "timestamp" {
-      type = "DateTime64(6, 'UTC')"
+      type  = "DateTime64(6, 'UTC')"
+      codec = "GCD, Default"
     }
     column "team_id" {
       type = "Int64"
@@ -9357,18 +11449,18 @@ SQL
     column "distinct_id" {
       type = "String"
     }
-    column "elements_hash" {
-      type    = "String"
-      default = "''"
-    }
     column "created_at" {
-      type = "DateTime64(6, 'UTC')"
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+      codec   = "GCD, Default"
     }
     column "_timestamp" {
-      type = "DateTime"
+      type  = "DateTime"
+      codec = "T64, Default"
     }
     column "_offset" {
-      type = "UInt64"
+      type  = "UInt64"
+      codec = "T64, Default"
     }
     column "elements_chain" {
       type = "String"
@@ -9377,30 +11469,26 @@ SQL
       type = "UUID"
     }
     column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
+      type = "JSON(max_dynamic_paths=0, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$email` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial__kx` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_current_url` String, `$initial_dclid` String, `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_epik` String, `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_igshid` String, `$initial_irclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_msclkid` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_pathname` String, `$initial_qclid` String, `$initial_raw_user_agent` LowCardinality(String), `$initial_rdt_cid` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_sccid` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_ttclid` String, `$initial_twclid` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$last_seen_survey_date` String, `$organization_id` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pathname` String, `$product_tour_last_seen_date` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$referring_domain` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$survey_last_seen_date` String, `$viewport_height` String, `$viewport_width` String, `Email Domain` String, _kx String, companyName String, customer String, dclid String, email String, epik String, fbclid String, first_name String, gad_source String, gbraid String, gclid String, gclsrc String, hubspot_score String, icp_role String, id String, igshid String, irclid String, is_email_verified String, is_signed_up String, last_name String, li_fat_id String, mc_cid String, msclkid String, name String, organization_id String, organization_member_count String, qclid String, rdt_cid String, role String, role_at_organization String, sccid String, serverMarketing String, serverMasterclass String, ttclid String, twclid String, user_email_domain String, username String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, val_region String, wbraid String)"
     }
     column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "person_created_at" {
-      type = "DateTime64(3)"
+      type  = "DateTime64(3)"
+      codec = "GCD, Default"
     }
     column "group0_created_at" {
       type = "DateTime64(3)"
@@ -9418,54 +11506,31 @@ SQL
       type = "DateTime64(3)"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
+      codec   = "GCD, Default"
     }
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
-    }
-    column "is_deleted" {
-      type    = "Bool"
-      default = "false"
     }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
     }
     column "historical_migration" {
-      type    = "Bool"
-      default = "false"
+      type = "Bool"
     }
-    column "$group_0" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_0`, '')"
+    column "total_event_size" {
+      type  = "UInt32"
+      codec = "T64, Default"
     }
-    column "$group_1" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_1`, '')"
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+      codec   = "GCD, Default"
     }
-    column "$group_2" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_2`, '')"
-    }
-    column "$group_3" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_3`, '')"
-    }
-    column "$group_4" {
-      type  = "String"
-      alias = "ifNull(properties.`$group_4`, '')"
-    }
-    column "$window_id" {
-      type  = "String"
-      alias = "ifNull(properties.`$window_id`, '')"
-    }
-    column "$session_id" {
-      type  = "String"
-      alias = "ifNull(properties.`$session_id`, '')"
-    }
-    column "$session_id_uuid" {
-      type  = "Nullable(UInt128)"
-      alias = "toUInt128(toUUIDOrNull(properties.`$session_id`))"
+    column "_partition" {
+      type  = "UInt64"
+      codec = "T64, Default"
     }
     column "elements_chain_href" {
       type         = "String"
@@ -9483,427 +11548,37 @@ SQL
       type         = "Array(Enum8('a'=1, 'button'=2, 'form'=3, 'input'=4, 'select'=5, 'textarea'=6, 'label'=7))"
       materialized = "arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\\\.|$|:)'))"
     }
-    index "kafka_timestamp_minmax_sharded_events" {
-      expr        = "_timestamp"
-      type        = "minmax"
-      granularity = 3
-    }
-    index "minmax_$group_0" {
-      expr        = "properties.`$group_0`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_1" {
-      expr        = "properties.`$group_1`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_2" {
-      expr        = "properties.`$group_2`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_3" {
-      expr        = "properties.`$group_3`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$group_4" {
-      expr        = "properties.`$group_4`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$window_id" {
-      expr        = "properties.`$window_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_$session_id" {
-      expr        = "properties.`$session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$sent_at" {
-      expr        = "properties.`$sent_at`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$initial_pathname" {
-      expr        = "properties.`$initial_pathname`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$lib_version" {
-      expr        = "properties.`$lib_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_campaign" {
-      expr        = "person_properties.`$initial_utm_campaign`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_medium" {
-      expr        = "person_properties.`$initial_utm_medium`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_gclid" {
-      expr        = "person_properties.`$initial_gclid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_gad_source" {
-      expr        = "person_properties.`$initial_gad_source`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_source" {
-      expr        = "person_properties.`$initial_utm_source`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_referring_domain" {
-      expr        = "person_properties.`$initial_referring_domain`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_term" {
-      expr        = "person_properties.`$initial_utm_term`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_utm_content" {
-      expr        = "person_properties.`$initial_utm_content`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_gbraid" {
-      expr        = "person_properties.`$initial_gbraid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_wbraid" {
-      expr        = "person_properties.`$initial_wbraid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_msclkid" {
-      expr        = "person_properties.`$initial_msclkid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_fbclid" {
-      expr        = "person_properties.`$initial_fbclid`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$geoip_subdivision_1_code" {
-      expr        = "properties.`$geoip_subdivision_1_code`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$prev_pageview_max_scroll_percentage" {
-      expr        = "properties.`$prev_pageview_max_scroll_percentage`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$prev_pageview_max_content_percentage" {
-      expr        = "properties.`$prev_pageview_max_content_percentage`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$prev_pageview_pathname" {
-      expr        = "properties.`$prev_pageview_pathname`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_pathname" {
-      expr        = "person_properties.`$initial_pathname`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$geoip_country_code" {
-      expr        = "person_properties.`$geoip_country_code`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$browser_version" {
-      expr        = "properties.`$browser_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$initial_current_url" {
-      expr        = "person_properties.`$initial_current_url`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$current_url" {
-      expr        = "person_properties.`$current_url`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$app_namespace" {
-      expr        = "properties.`$app_namespace`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$os_name" {
-      expr        = "properties.`$os_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$os_name" {
-      expr        = "person_properties.`$os_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$app_version" {
-      expr        = "person_properties.`$app_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$screen_height" {
-      expr        = "properties.`$screen_height`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$screen_width" {
-      expr        = "properties.`$screen_width`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$app_build" {
-      expr        = "properties.`$app_build`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$geoip_country_code" {
-      expr        = "properties.`$geoip_country_code`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$survey_id" {
-      expr        = "properties.`$survey_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$survey_response_1" {
-      expr        = "properties.`$survey_response_1`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$survey_response" {
-      expr        = "properties.`$survey_response`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$el_text" {
-      expr        = "properties.`$el_text`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$os_version" {
-      expr        = "properties.`$os_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$feature_flag_payloads" {
-      expr        = "properties.`$feature_flag_payloads`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$groups" {
-      expr        = "properties.`$groups`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$feature_flag" {
-      expr        = "properties.`$feature_flag`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bf_active_feature_flags" {
-      expr        = "properties.`$active_feature_flags`"
-      type        = "bloom_filter(0.01)"
-      granularity = 1
-    }
-    index "minmax_mat_$device_id" {
-      expr        = "properties.`$device_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$geoip_continent_name" {
-      expr        = "person_properties.`$geoip_continent_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$feature_flag_response" {
-      expr        = "properties.`$feature_flag_response`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$referring_domain" {
-      expr        = "person_properties.`$referring_domain`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$lib_version__minor" {
-      expr        = "properties.`$lib_version__minor`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_inserted_at" {
-      expr        = "coalesce(inserted_at, _timestamp)"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$lib_custom_api_host" {
-      expr        = "properties.`$lib_custom_api_host`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_pp_$geoip_country_name" {
-      expr        = "person_properties.`$geoip_country_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "is_deleted_idx" {
-      expr        = "is_deleted"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$device" {
-      expr        = "properties.`$device`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$exception_issue_id" {
-      expr        = "properties.`$exception_issue_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$exception_fingerprint" {
-      expr        = "properties.`$exception_fingerprint`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_LCP_value" {
-      expr        = "properties.`$web_vitals_LCP_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_FCP_value" {
-      expr        = "properties.`$web_vitals_FCP_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_CLS_value" {
-      expr        = "properties.`$web_vitals_CLS_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$web_vitals_INP_value" {
-      expr        = "properties.`$web_vitals_INP_value`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$viewport_width" {
-      expr        = "properties.`$viewport_width`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$viewport_height" {
-      expr        = "properties.`$viewport_height`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$anon_distinct_id" {
-      expr        = "properties.`$anon_distinct_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_trace_id" {
-      expr        = "properties.`$ai_trace_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_model" {
-      expr        = "properties.`$ai_model`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_provider" {
-      expr        = "properties.`$ai_provider`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_parent_id" {
-      expr        = "properties.`$ai_parent_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_span_id" {
-      expr        = "properties.`$ai_span_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_http_status" {
-      expr        = "properties.`$ai_http_status`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$process_person_profile" {
-      expr        = "properties.`$process_person_profile`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "minmax_mat_$app_version" {
-      expr        = "properties.`$app_version`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_mat_$is_identified" {
-      expr        = "properties.`$is_identified`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$session_id_uuid" {
-      expr        = "toUInt128(toUUIDOrNull(properties.`$session_id`))"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_trace_id" {
-      expr        = "properties.`$ai_trace_id`"
-      type        = "bloom_filter(0.001)"
-      granularity = 2
-    }
-    index "bloom_filter_$ai_session_id" {
-      expr        = "properties.`$ai_session_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_session_id" {
-      expr        = "properties.`$ai_session_id`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "set_$ai_is_error" {
-      expr        = "properties.`$ai_is_error`"
-      type        = "set(7)"
-      granularity = 1
-    }
-    index "minmax_mat_$ai_total_cost_usd" {
-      expr        = "properties.`$ai_total_cost_usd`"
-      type        = "minmax"
-      granularity = 1
-    }
     index "bloom_filter_distinct_id" {
       expr        = "distinct_id"
       type        = "bloom_filter"
       granularity = 1
     }
-    index "minmax_sharded_events_timestamp" {
+    index "bloom_filter_uuid" {
+      expr        = "uuid"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "bloom_filter_person_id" {
+      expr        = "person_id"
+      type        = "bloom_filter"
+      granularity = 1
+    }
+    index "minmax_captured_at" {
+      expr        = "captured_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_kafka_timestamp" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_inserted_at" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "minmax_timestamp" {
       expr        = "timestamp"
       type        = "minmax"
       granularity = 1
@@ -9913,28 +11588,8 @@ SQL
       type        = "minmax"
       granularity = 1
     }
-    index "bloom_mat_$feature_flag" {
-      expr        = "properties.`$feature_flag`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_prompt_name" {
-      expr        = "properties.`$ai_prompt_name`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_prompt_name" {
-      expr        = "properties.`$ai_prompt_name`"
-      type        = "minmax"
-      granularity = 1
-    }
-    index "bloom_filter_$ai_experiment_id" {
-      expr        = "properties.`$ai_experiment_id`"
-      type        = "bloom_filter"
-      granularity = 1
-    }
-    index "minmax_$ai_experiment_id" {
-      expr        = "properties.`$ai_experiment_id`"
+    index "minmax_created_at" {
+      expr        = "created_at"
       type        = "minmax"
       granularity = 1
     }
@@ -9948,7 +11603,7 @@ SQL
   table "sharded_events_recent" {
     order_by     = ["team_id", "toStartOfHour(inserted_at)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toStartOfDay(inserted_at)"
-    ttl          = "toDateTime(inserted_at) + toIntervalDay(7)"
+    ttl          = "toDate(inserted_at) + toIntervalDay(9)"
     settings = {
       index_granularity   = "8192"
       ttl_only_drop_parts = "1"
@@ -10176,24 +11831,6 @@ SQL
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -12070,8 +13707,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -12090,6 +13727,11 @@ SQL
     }
     index "event_names_bloom_filter" {
       expr        = "event_names"
+      type        = "bloom_filter()"
+      granularity = 1
+    }
+    index "flag_key_values_bloom_filter" {
+      expr        = "flag_key_values"
       type        = "bloom_filter()"
       granularity = 1
     }
@@ -12167,20 +13809,8 @@ SQL
     column "max_last_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
     }
-    column "block_first_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_last_timestamps" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
-    }
-    column "block_urls" {
-      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
-    }
     column "first_url" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
-    }
-    column "all_urls" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "click_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
@@ -12212,14 +13842,29 @@ SQL
     column "event_count" {
       type = "SimpleAggregateFunction(sum, Int64)"
     }
+    column "_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "all_urls" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "snapshot_library" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
-    column "_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime)"
+    column "block_first_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_last_timestamps" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC')))"
+    }
+    column "block_urls" {
+      type = "SimpleAggregateFunction(groupArrayArray, Array(String))"
+    }
+    column "retention_period_days" {
+      type = "SimpleAggregateFunction(max, Nullable(Int64))"
     }
     column "is_deleted" {
       type    = "SimpleAggregateFunction(max, UInt8)"
@@ -12238,8 +13883,8 @@ SQL
     column "surfacing_score" {
       type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
-    column "retention_period_days" {
-      type = "SimpleAggregateFunction(max, Nullable(Int64))"
+    column "snapshot_mode_v2" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_events"
@@ -12882,6 +14527,80 @@ SQL
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.web_overview_preaggregated"
+      replica_name   = "{replica}"
+      version_column = "computed_at"
+    }
+  }
+
+  table "sharded_web_sessions_dimensional_preaggregated" {
+    order_by     = ["team_id", "job_id", "person_id", "start_timestamp", "session_id_v7"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/{shard}/posthog.web_sessions_dimensional_preaggregated"
       replica_name   = "{replica}"
       version_column = "computed_at"
     }
@@ -14468,6 +16187,74 @@ SQL
     }
   }
 
+  table "web_sessions_dimensional_preaggregated" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "period_bucket" {
+      type = "DateTime"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "person_id" {
+      type = "UUID"
+    }
+    column "start_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "min_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_event_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "channel_type" {
+      type = "String"
+    }
+    column "utm_source" {
+      type = "String"
+    }
+    column "utm_medium" {
+      type = "String"
+    }
+    column "utm_campaign" {
+      type = "String"
+    }
+    column "utm_term" {
+      type = "String"
+    }
+    column "utm_content" {
+      type = "String"
+    }
+    column "referring_domain" {
+      type = "String"
+    }
+    column "entry_pathname" {
+      type = "String"
+    }
+    column "pageview_count" {
+      type = "UInt64"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_web_sessions_dimensional_preaggregated"
+      sharding_key    = "cityHash64(person_id)"
+    }
+  }
+
   table "web_stats_dimensional_preaggregated" {
     column "team_id" {
       type = "Int64"
@@ -14903,7 +16690,7 @@ SQL
       type = "UInt64"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
       sharding_key    = "cityHash64(team_id)"
@@ -15334,7 +17121,10 @@ SQL
       type = "String"
     }
     column "properties" {
-      type = "JSON(max_dynamic_types=8, max_dynamic_paths=256, `$active_feature_flags` Array(String), `$ai_experiment_id` Nullable(String), `$ai_http_status` Nullable(String), `$ai_is_error` Nullable(String), `$ai_model` Nullable(String), `$ai_parent_id` Nullable(String), `$ai_prompt_name` Nullable(String), `$ai_provider` Nullable(String), `$ai_session_id` Nullable(String), `$ai_span_id` Nullable(String), `$ai_total_cost_usd` Nullable(String), `$ai_trace_id` Nullable(String), `$anon_distinct_id` Nullable(String), `$app_build` Nullable(String), `$app_namespace` Nullable(String), `$app_version` Nullable(String), `$browser` Nullable(String), `$browser_version` Nullable(String), `$current_url` Nullable(String), `$device` Nullable(String), `$device_id` Nullable(String), `$device_model` Nullable(String), `$device_type` Nullable(String), `$el_text` Nullable(String), `$event_type` Nullable(String), `$exception_fingerprint` Nullable(String), `$exception_functions` Array(String), `$exception_issue_id` Nullable(String), `$exception_sources` Array(String), `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flag` Nullable(String), `$feature_flag_payloads` Nullable(String), `$feature_flag_response` Nullable(String), `$geoip_city_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$geoip_subdivision_1_code` Nullable(String), `$group_0` Nullable(String), `$group_1` Nullable(String), `$group_2` Nullable(String), `$group_3` Nullable(String), `$group_4` Nullable(String), `$groups` Nullable(String), `$host` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referrer` Nullable(String), `$initial_referring_domain` Nullable(String), `$ip` Nullable(String), `$is_identified` Nullable(String), `$lib` Nullable(String), `$lib_custom_api_host` Nullable(String), `$lib_version` Nullable(String), `$lib_version__minor` Nullable(String), `$os` Nullable(String), `$os_name` Nullable(String), `$os_version` Nullable(String), `$pathname` Nullable(String), `$prev_pageview_max_content_percentage` Nullable(String), `$prev_pageview_max_scroll_percentage` Nullable(String), `$prev_pageview_pathname` Nullable(String), `$process_person_profile` Nullable(String), `$referrer` Nullable(String), `$referring_domain` Nullable(String), `$screen_height` Nullable(String), `$screen_name` Nullable(String), `$screen_width` Nullable(String), `$sent_at` Nullable(String), `$session_id` Nullable(String), `$survey_id` Nullable(String), `$survey_response` Nullable(String), `$survey_response_1` Nullable(String), `$time` Nullable(String), `$user_id` Nullable(String), `$viewport_height` Nullable(String), `$viewport_width` Nullable(String), `$web_vitals_CLS_value` Nullable(String), `$web_vitals_FCP_value` Nullable(String), `$web_vitals_INP_value` Nullable(String), `$web_vitals_LCP_value` Nullable(String), `$window_id` Nullable(String))"
+      type = "JSON(max_dynamic_paths=0, `$agent_application_id` String, `$agent_revision_id` String, `$agent_session_id` String, `$agent_turn` String, `$ai_audio_cost_usd` String, `$ai_audio_input_tokens` String, `$ai_audio_output_tokens` String, `$ai_batch_run_id` String, `$ai_cache_creation_input_tokens` String, `$ai_cache_read_input_tokens` String, `$ai_error` String, `$ai_error_normalized` String, `$ai_error_type` String, `$ai_evaluation_allows_na` String, `$ai_evaluation_applicable` String, `$ai_evaluation_id` String, `$ai_evaluation_name` String, `$ai_evaluation_reasoning` String, `$ai_evaluation_result` String, `$ai_evaluation_result_type` String, `$ai_evaluation_runtime` String, `$ai_evaluation_skipped` String, `$ai_evaluation_start_time` String, `$ai_evaluation_type` String, `$ai_experiment_id` String, `$ai_framework` String, `$ai_generation_id` String, `$ai_http_status` String, `$ai_image_cost_usd` String, `$ai_image_input_tokens` String, `$ai_image_output_tokens` String, `$ai_input_cost_usd` String, `$ai_input_tokens` String, `$ai_is_error` String, `$ai_latency` String, `$ai_model` String, `$ai_origin` String, `$ai_output_cost_usd` String, `$ai_output_tokens` String, `$ai_parent_id` String, `$ai_prompt_name` String, `$ai_provider` String, `$ai_reasoning_tokens` String, `$ai_request_cost_usd` String, `$ai_sentiment_label` String, `$ai_sentiment_message_count` String, `$ai_sentiment_score` String, `$ai_session_id` String, `$ai_span_id` String, `$ai_span_name` String, `$ai_span_type` String, `$ai_target_event_id` String, `$ai_text_input_tokens` String, `$ai_text_output_tokens` String, `$ai_time_to_first_token` String, `$ai_tools_called` String, `$ai_total_cost_usd` String, `$ai_total_tokens` String, `$ai_trace_id` String, `$ai_trace_name` String, `$ai_video_cost_usd` String, `$ai_video_input_tokens` String, `$ai_video_output_tokens` String, `$ai_web_search_cost_usd` String, `$ai_web_search_count` String, `$anon_distinct_id` String, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$autocapture_disabled_server_side` LowCardinality(String), `$browser` LowCardinality(String), `$browser_language` LowCardinality(String), `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$client_session_initial_pathname` String, `$client_session_initial_referring_host` String, `$client_session_initial_utm_campaign` String, `$client_session_initial_utm_content` String, `$client_session_initial_utm_medium` String, `$client_session_initial_utm_source` String, `$client_session_initial_utm_term` String, `$config_defaults` LowCardinality(String), `$configured_session_timeout_ms` String, `$current_url` String, `$dead_clicks_enabled_server_side` LowCardinality(String), `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$el_text` String, `$event_type` String, `$exception_capture_enabled_server_side` LowCardinality(String), `$exception_fingerprint` String, `$exception_functions` Array(String), `$exception_handled` String, `$exception_is_synthetic` String, `$exception_issue_id` String, `$exception_level` String, `$exception_list` Array(JSON(max_dynamic_paths=0, type String, value String)), `$exception_message` String, `$exception_proposed_fingerprint` String, `$exception_sources` Array(String), `$exception_type` String, `$exception_types` Array(String), `$exception_values` Array(String), `$feature_flags` Map(LowCardinality(String), LowCardinality(String)), `$geoip_accuracy_radius` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_latitude` String, `$geoip_longitude` String, `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$group_0` String, `$group_1` String, `$group_2` String, `$group_3` String, `$group_4` String, `$groups.instance` String, `$groups.organization` String, `$groups.project` String, `$host` String, `$initial_pathname` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_search_engine` String, `$initialization_time` String, `$ip` String, `$is_identified` String, `$lib` String, `$lib_version` LowCardinality(String), `$lib_version__minor` String, `$mcp_client_name` String, `$mcp_client_user_agent` String, `$mcp_duration_ms` String, `$mcp_error_message` String, `$mcp_exec_tool_call_description` String, `$mcp_exec_tool_call_name` String, `$mcp_intent` String, `$mcp_intent_source` String, `$mcp_is_error` String, `$mcp_listed_tool_names` Array(String), `$mcp_oauth_client_name` String, `$mcp_organization_id` String, `$mcp_project_id` String, `$mcp_session_id` String, `$mcp_source` String, `$mcp_tool_category` String, `$mcp_tool_description` String, `$mcp_tool_name` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pageview_id` String, `$pathname` String, `$prev_pageview_max_content_percentage` String, `$prev_pageview_max_scroll_percentage` String, `$prev_pageview_pathname` String, `$process_person_profile` String, `$raw_user_agent` LowCardinality(String), `$recording_status` String, `$referrer` String, `$referring_domain` String, `$replay_minimum_duration` String, `$replay_sample_rate` String, `$screen_height` LowCardinality(String), `$screen_name` String, `$screen_width` LowCardinality(String), `$search_engine` String, `$session_entry_host` String, `$session_entry_pathname` String, `$session_entry_referrer` String, `$session_entry_referring_domain` String, `$session_entry_search_engine` String, `$session_entry_url` String, `$session_entry_utm_campaign` String, `$session_entry_utm_content` String, `$session_entry_utm_medium` String, `$session_entry_utm_source` String, `$session_entry_utm_term` String, `$session_id` String, `$session_recording_event_trigger_activated_session` String, `$session_recording_start_reason` String, `$session_recording_url_trigger_status` String, `$survey_completed` String, `$survey_id` String, `$survey_iteration` String, `$survey_iteration_start_date` String, `$survey_name` String, `$survey_partially_completed` String, `$survey_response` String, `$survey_response_1` String, `$survey_submission_id` String, `$time` String, `$timezone` LowCardinality(String), `$timezone_offset` LowCardinality(String), `$user_id` String, `$viewport_height` String, `$viewport_width` String, `$web_vitals_CLS_value` String, `$web_vitals_FCP_value` String, `$web_vitals_INP_value` String, `$web_vitals_LCP_value` String, `$web_vitals_enabled_server_side` LowCardinality(String), `$window_id` String, _kx String, action String, action_name String, address String, apiErrorMessage String, apiName String, app_name String, app_version String, arguments String, audio_duration String, authentication_method String, auto_chapters String, auto_highlights String, category String, chain String, channel String, client_id String, client_name String, commit_sha String, community_id String, conceptName String, content_length String, content_safety String, context String, contributionError String, created_at String, created_by String, created_by_system String, currentScreen String, current_member_guid String, customer_email String, dclid String, deal_id String, device_type String, disable_institution_search String, disfluencies String, distinct_id String, dual_channel String, duration String, email String, email_domain String, entity_detection String, env String, environment String, epik String, event String, event_count_in_month String, event_count_in_period String, events_projected_amount String, fbclid String, filter_profanity String, filters_count String, function String, gad_source String, gbraid String, gclid String, gclsrc String, gross String, group_id String, historical_migration String, iab_categories String, id String, igshid String, index String, initial__kx String, initial_dclid String, initial_epik String, initial_fbclid String, initial_gad_source String, initial_gbraid String, initial_gclid String, initial_gclsrc String, initial_igshid String, initial_irclid String, initial_li_fat_id String, initial_mc_cid String, initial_msclkid String, initial_qclid String, initial_rdt_cid String, initial_sccid String, initial_step String, initial_ttclid String, initial_twclid String, initial_utm_campaign String, initial_utm_content String, initial_utm_medium String, initial_utm_source String, initial_utm_term String, initial_wbraid String, initiator String, insight String, institution_name String, inviteCode String, irclid String, is_demo_project String, is_first_component_load String, is_first_event_for_user String, is_initial_aggregation String, is_oauth String, is_organization_first_user String, is_test_user String, item_count String, job_type String, key String, kind String, language_detection String, li_fat_id String, machine_id String, mc_cid String, message String, method String, mode String, most_recent_app_os String, msclkid String, name String, nativeBuildVersion String, numberOfSecrets String, orderId String, orderType String, organization String, organization_id String, organization_name String, organizations String, origin String, osName String, owner_type String, page String, payment_status String, phone String, platform String, product String, product_analytics_projected_amount String, product_key String, progress String, protocol String, qclid String, query String, ramp String, rdt_cid String, realm String, `record-id` String, recording_count_in_period String, recordings_projected_amount String, redact_pii String, referrer String, referrer_id String, region String, revenue String, sccid String, screen_name String, sdk String, search_term String, sentiment_analysis String, session_replay_projected_amount String, sku String, source String, speaker_labels String, statusCode String, status_message String, store_url String, stripe_amount_paid String, subdomain String, subscriptionStatus String, summarization String, surface_tag String, survey_responses_count_in_period String, symbol String, tag String, target String, team String, testSessionId String, thread_id String, ticketId String, title String, token String, total_event_actions_count String, total_usd String, ttclid String, twclid String, type String, url String, url_promotion_id String, usd String, user_agent String, user_email_domain String, user_platform String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, valid_ach_accounts String, wbraid String, wlo_enabled String, workplace_billing_plan String, workspace String, workspaceId String)"
+    }
+    column "temporary_properties" {
+      type = "JSON(max_dynamic_paths=32)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -15345,12 +17135,9 @@ SQL
     column "distinct_id" {
       type = "String"
     }
-    column "elements_hash" {
-      type    = "String"
-      default = "''"
-    }
     column "created_at" {
-      type = "DateTime64(6, 'UTC')"
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -15365,27 +17152,22 @@ SQL
       type = "UUID"
     }
     column "person_properties" {
-      type = "JSON(max_dynamic_types=6, max_dynamic_paths=32, `$app_version` Nullable(String), `$browser` Nullable(String), `$current_url` Nullable(String), `$geoip_continent_name` Nullable(String), `$geoip_country_code` Nullable(String), `$geoip_country_name` Nullable(String), `$initial_current_url` Nullable(String), `$initial_fbclid` Nullable(String), `$initial_gad_source` Nullable(String), `$initial_gbraid` Nullable(String), `$initial_gclid` Nullable(String), `$initial_msclkid` Nullable(String), `$initial_pathname` Nullable(String), `$initial_referring_domain` Nullable(String), `$initial_utm_campaign` Nullable(String), `$initial_utm_content` Nullable(String), `$initial_utm_medium` Nullable(String), `$initial_utm_source` Nullable(String), `$initial_utm_term` Nullable(String), `$initial_wbraid` Nullable(String), `$os_name` Nullable(String), `$referring_domain` Nullable(String))"
+      type = "JSON(max_dynamic_paths=0, `$app_build` String, `$app_name` String, `$app_namespace` String, `$app_version` String, `$browser` LowCardinality(String), `$browser_language` String, `$browser_language_prefix` String, `$browser_type` String, `$browser_version` LowCardinality(String), `$current_url` String, `$device` String, `$device_id` String, `$device_manufacturer` String, `$device_model` String, `$device_name` String, `$device_type` LowCardinality(String), `$email` String, `$geoip_city_name` LowCardinality(String), `$geoip_continent_code` LowCardinality(String), `$geoip_continent_name` LowCardinality(String), `$geoip_country_code` LowCardinality(String), `$geoip_country_name` LowCardinality(String), `$geoip_postal_code` String, `$geoip_subdivision_1_code` String, `$geoip_subdivision_1_name` LowCardinality(String), `$geoip_subdivision_2_code` String, `$geoip_subdivision_2_name` String, `$geoip_time_zone` LowCardinality(String), `$initial__kx` String, `$initial_app_build` String, `$initial_app_name` String, `$initial_app_namespace` String, `$initial_app_version` String, `$initial_browser` LowCardinality(String), `$initial_browser_language` String, `$initial_browser_language_prefix` String, `$initial_browser_type` String, `$initial_browser_version` LowCardinality(String), `$initial_current_url` String, `$initial_dclid` String, `$initial_device` String, `$initial_device_id` String, `$initial_device_manufacturer` String, `$initial_device_model` String, `$initial_device_name` String, `$initial_device_type` LowCardinality(String), `$initial_epik` String, `$initial_fbclid` String, `$initial_gad_source` String, `$initial_gbraid` String, `$initial_gclid` String, `$initial_gclsrc` String, `$initial_geoip_city_name` String, `$initial_geoip_continent_code` String, `$initial_geoip_continent_name` String, `$initial_geoip_country_code` String, `$initial_geoip_country_name` LowCardinality(String), `$initial_geoip_postal_code` String, `$initial_geoip_subdivision_1_code` String, `$initial_geoip_subdivision_1_name` LowCardinality(String), `$initial_geoip_subdivision_2_code` String, `$initial_geoip_subdivision_2_name` String, `$initial_geoip_time_zone` LowCardinality(String), `$initial_igshid` String, `$initial_irclid` String, `$initial_li_fat_id` String, `$initial_mc_cid` String, `$initial_msclkid` String, `$initial_os` LowCardinality(String), `$initial_os_name` String, `$initial_os_version` LowCardinality(String), `$initial_pathname` String, `$initial_qclid` String, `$initial_raw_user_agent` LowCardinality(String), `$initial_rdt_cid` String, `$initial_referrer` String, `$initial_referring_domain` String, `$initial_sccid` String, `$initial_screen_height` LowCardinality(String), `$initial_screen_width` LowCardinality(String), `$initial_search_engine` String, `$initial_ttclid` String, `$initial_twclid` String, `$initial_utm_campaign` String, `$initial_utm_content` String, `$initial_utm_medium` String, `$initial_utm_source` String, `$initial_utm_term` String, `$initial_viewport_height` String, `$initial_viewport_width` String, `$initial_wbraid` String, `$last_seen_survey_date` String, `$organization_id` String, `$os` LowCardinality(String), `$os_name` String, `$os_version` LowCardinality(String), `$pathname` String, `$product_tour_last_seen_date` String, `$raw_user_agent` LowCardinality(String), `$referrer` String, `$referring_domain` String, `$screen_height` LowCardinality(String), `$screen_width` LowCardinality(String), `$search_engine` String, `$survey_last_seen_date` String, `$viewport_height` String, `$viewport_width` String, `Email Domain` String, _kx String, companyName String, customer String, dclid String, email String, epik String, fbclid String, first_name String, gad_source String, gbraid String, gclid String, gclsrc String, hubspot_score String, icp_role String, id String, igshid String, irclid String, is_email_verified String, is_signed_up String, last_name String, li_fat_id String, mc_cid String, msclkid String, name String, organization_id String, organization_member_count String, qclid String, rdt_cid String, role String, role_at_organization String, sccid String, serverMarketing String, serverMasterclass String, ttclid String, twclid String, user_email_domain String, username String, utm_campaign String, utm_content String, utm_medium String, utm_source String, utm_term String, val_region String, wbraid String)"
     }
     column "group0_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group1_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group2_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group3_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "group4_properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "person_created_at" {
       type = "DateTime64(3)"
@@ -15406,22 +17188,27 @@ SQL
       type = "DateTime64(3)"
     }
     column "inserted_at" {
-      type    = "Nullable(DateTime64(6, 'UTC'))"
+      type    = "DateTime64(6, 'UTC')"
       default = "now64()"
     }
     column "person_mode" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
-    column "is_deleted" {
-      type    = "Bool"
-      default = "false"
-    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
     }
     column "historical_migration" {
-      type    = "Bool"
-      default = "false"
+      type = "Bool"
+    }
+    column "total_event_size" {
+      type = "UInt32"
+    }
+    column "captured_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "_partition" {
+      type = "UInt64"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -15546,24 +17333,6 @@ SQL
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type    = "DateTime64(6, 'UTC')"
@@ -15739,6 +17508,41 @@ SQL
     }
   }
 
+  table "writable_log_entries_aux" {
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "log_entries_data"
+    }
+  }
+
   table "writable_logs34" {
     settings = {
       background_insert_batch = "1"
@@ -15856,6 +17660,197 @@ SQL
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "logs34"
+    }
+  }
+
+  table "writable_metrics4_attributes" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics4_attributes"
+    }
+  }
+
+  table "writable_metrics4_names" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics4_names"
+    }
+  }
+
+  table "writable_metrics4_samples" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "original_expiry_date" {
+      type = "Date32"
+    }
+    column "resource_fingerprint" {
+      type = "SimpleAggregateFunction(any, UInt64)"
+    }
+    column "service_name" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "metric_type" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "unit" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "aggregation_temporality" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "is_monotonic" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "has_labels" {
+      type = "SimpleAggregateFunction(max, UInt8)"
+    }
+    column "instrumentation_scope" {
+      type = "SimpleAggregateFunction(any, String)"
+    }
+    column "histogram_bounds" {
+      type = "SimpleAggregateFunction(anyLast, Array(Float64))"
+    }
+    column "_topic" {
+      type = "SimpleAggregateFunction(any, LowCardinality(String))"
+    }
+    column "timestamp_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
+    }
+    column "observed_timestamp_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6)))"
+    }
+    column "value_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Float64))"
+    }
+    column "count_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64))"
+    }
+    column "histogram_counts_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64)))"
+    }
+    column "trace_id_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
+    }
+    column "span_id_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))"
+    }
+    column "trace_flags_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics4_samples"
+    }
+  }
+
+  table "writable_metrics4_series" {
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "resource_fingerprint" {
+      type         = "UInt64"
+      materialized = "cityHash64(resource_attributes)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "time_bucket" {
+      type         = "DateTime"
+      materialized = "toStartOfHour(timestamp)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics4_series"
     }
   }
 
@@ -16686,8 +18681,8 @@ SQL
     column "has_autocapture" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
+    column "flag_key_values" {
+      type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
     column "flag_keys" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -16802,9 +18797,12 @@ SQL
       type = "SimpleAggregateFunction(sum, Int64)"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_library" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
@@ -18411,45 +20409,64 @@ SQL
     to_table = "posthog.writable_events_json"
     query    = <<SQL
 SELECT
-  uuid,
-  event,
-  ifNull(
-    accurateCastOrNull(properties, 'JSON'),
-    CAST(concat('{"$unparseable_properties":', toJSONString(properties), '}'), 'JSON')
-  ) AS properties,
-  timestamp,
-  team_id,
-  distinct_id,
-  elements_chain,
-  created_at,
-  person_id,
-  person_created_at,
-  ifNull(
-    accurateCastOrNull(person_properties, 'JSON'),
-    CAST(concat('{"$unparseable_properties":', toJSONString(person_properties), '}'), 'JSON')
-  ) AS person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
-  group0_created_at,
-  group1_created_at,
-  group2_created_at,
-  group3_created_at,
-  group4_created_at,
-  person_mode,
-  historical_migration,
-  _timestamp,
-  _offset,
-  arrayMap(
-    i -> (_headers.value[i]),
-    arrayFilter(
-      i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
-      arrayEnumerate(_headers.name)
-    )
-  ) AS consumer_breadcrumbs
-FROM posthog.kafka_events_json_native_json
+  *,
+  accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
+FROM
+  (
+    SELECT
+      uuid,
+      event,
+      if(
+        isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'),
+        JSONCleanPostHogEventProperties(source.properties),
+        concat('{"$unparseable_properties":', toJSONString(source.properties), '}')
+      ) AS properties,
+      JSONCleanPostHogTemporaryProperties(
+        if(
+          isValidJSON(source.properties) AND startsWith(trimLeft(source.properties), '{'),
+          source.properties,
+          '{}'
+        )
+      ) AS temporary_properties,
+      now64() AS inserted_at,
+      timestamp,
+      team_id,
+      distinct_id,
+      elements_chain,
+      created_at,
+      person_id,
+      if(
+        isValidJSON(source.person_properties)
+        AND startsWith(trimLeft(source.person_properties), '{'),
+        JSONCleanPostHogPersonProperties(source.person_properties),
+        concat('{"$unparseable_properties":', toJSONString(source.person_properties), '}')
+      ) AS person_properties,
+      person_created_at,
+      group0_properties,
+      group1_properties,
+      group2_properties,
+      group3_properties,
+      group4_properties,
+      group0_created_at,
+      group1_created_at,
+      group2_created_at,
+      group3_created_at,
+      group4_created_at,
+      person_mode,
+      historical_migration,
+      coalesce(captured_at, created_at) AS captured_at,
+      _timestamp,
+      _offset,
+      _partition,
+      arrayMap(
+        i -> (_headers.value[i]),
+        arrayFilter(
+          i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'),
+          arrayEnumerate(_headers.name)
+        )
+      ) AS consumer_breadcrumbs
+    FROM posthog.kafka_events_json_native_json AS source
+  )
 SQL
 
     column "uuid" {
@@ -18459,7 +20476,13 @@ SQL
       type = "String"
     }
     column "properties" {
-      type = "JSON"
+      type = "String"
+    }
+    column "temporary_properties" {
+      type = "String"
+    }
+    column "inserted_at" {
+      type = "DateTime64(3)"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"
@@ -18479,11 +20502,11 @@ SQL
     column "person_id" {
       type = "UUID"
     }
+    column "person_properties" {
+      type = "String"
+    }
     column "person_created_at" {
       type = "DateTime64(3)"
-    }
-    column "person_properties" {
-      type = "JSON"
     }
     column "group0_properties" {
       type = "String"
@@ -18521,14 +20544,23 @@ SQL
     column "historical_migration" {
       type = "Bool"
     }
+    column "captured_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
     column "_timestamp" {
       type = "Nullable(DateTime)"
     }
     column "_offset" {
       type = "UInt64"
     }
+    column "_partition" {
+      type = "UInt64"
+    }
     column "consumer_breadcrumbs" {
       type = "Array(String)"
+    }
+    column "total_event_size" {
+      type = "UInt32"
     }
   }
 
@@ -18649,12 +20681,6 @@ SELECT
   distinct_id,
   created_at,
   person_id,
-  person_properties,
-  group0_properties,
-  group1_properties,
-  group2_properties,
-  group3_properties,
-  group4_properties,
   if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
   _timestamp,
   _offset,
@@ -18685,24 +20711,6 @@ SQL
     }
     column "person_id" {
       type = "UUID"
-    }
-    column "person_properties" {
-      type = "String"
-    }
-    column "group0_properties" {
-      type = "String"
-    }
-    column "group1_properties" {
-      type = "String"
-    }
-    column "group2_properties" {
-      type = "String"
-    }
-    column "group3_properties" {
-      type = "String"
-    }
-    column "group4_properties" {
-      type = "String"
     }
     column "inserted_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
@@ -19210,11 +21218,338 @@ SQL
     }
   }
 
+  materialized_view "kafka_metrics_avro2_mv" {
+    to_table = "posthog.metrics2_input"
+    query    = <<SQL
+SELECT
+  uuid,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  ifNull(metric_name, '') AS metric_name,
+  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
+  cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  timestamp
+  + toIntervalDay(
+    assumeNotNull(
+      if(
+        (retention_days IS NOT NULL) AND (retention_days > 0),
+        retention_days,
+        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
+      )
+    )
+  ) AS original_expiry_timestamp,
+  ifNull(service_name, '') AS service_name,
+  ifNull(metric_type, '') AS metric_type,
+  ifNull(value, 0) AS value,
+  toUInt64(ifNull(count, 1)) AS count,
+  histogram_bounds,
+  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
+  trace_id,
+  span_id,
+  ifNull(trace_flags, 0) AS trace_flags,
+  toBool(ifNull(has_labels, 1)) AS has_labels,
+  ifNull(unit, '') AS unit,
+  ifNull(aggregation_temporality, '') AS aggregation_temporality,
+  ifNull(is_monotonic, 0) AS is_monotonic,
+  ifNull(instrumentation_scope, '') AS instrumentation_scope,
+  if(
+    toBool(ifNull(has_labels, 1)),
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
+    CAST(map(), 'Map(String, String)')
+  ) AS resource_attributes,
+  if(
+    toBool(ifNull(has_labels, 1)),
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)),
+    CAST(map(), 'Map(String, String)')
+  ) AS attributes,
+  _partition,
+  _topic,
+  _offset
+FROM posthog.kafka_metrics_avro2
+WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
+SETTINGS
+  min_insert_block_size_rows = 0,
+  min_insert_block_size_bytes = 0
+SQL
+
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "String"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "metric_type" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "String"
+    }
+    column "aggregation_temporality" {
+      type = "String"
+    }
+    column "is_monotonic" {
+      type = "UInt8"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "attributes" {
+      type = "Map(String, String)"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "_topic" {
+      type = "LowCardinality(String)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "kafka_metrics_avro4_mv" {
+    to_table = "posthog.metrics4_input"
+    query    = <<SQL
+SELECT
+  uuid,
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  ifNull(metric_name, '') AS metric_name,
+  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
+  cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  timestamp
+  + toIntervalDay(
+    assumeNotNull(
+      if(
+        (retention_days IS NOT NULL) AND (retention_days > 0),
+        retention_days,
+        toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))
+      )
+    )
+  ) AS original_expiry_timestamp,
+  ifNull(service_name, '') AS service_name,
+  ifNull(metric_type, '') AS metric_type,
+  ifNull(value, 0) AS value,
+  toUInt64(ifNull(count, 1)) AS count,
+  histogram_bounds,
+  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
+  trace_id,
+  span_id,
+  ifNull(trace_flags, 0) AS trace_flags,
+  toBool(ifNull(has_labels, 1)) AS has_labels,
+  ifNull(unit, '') AS unit,
+  ifNull(aggregation_temporality, '') AS aggregation_temporality,
+  ifNull(is_monotonic, 0) AS is_monotonic,
+  ifNull(instrumentation_scope, '') AS instrumentation_scope,
+  if(
+    toBool(ifNull(has_labels, 1)),
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
+    CAST(map(), 'Map(String, String)')
+  ) AS resource_attributes,
+  if(
+    toBool(ifNull(has_labels, 1)),
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)),
+    CAST(map(), 'Map(String, String)')
+  ) AS attributes,
+  _partition,
+  _topic,
+  _offset
+FROM posthog.kafka_metrics_avro4
+WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
+SETTINGS
+  min_insert_block_size_rows = 0,
+  min_insert_block_size_bytes = 0
+SQL
+
+    column "uuid" {
+      type = "String"
+    }
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "String"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "metric_type" {
+      type = "String"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "String"
+    }
+    column "aggregation_temporality" {
+      type = "String"
+    }
+    column "is_monotonic" {
+      type = "UInt8"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(String, String)"
+    }
+    column "attributes" {
+      type = "Map(String, String)"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "_topic" {
+      type = "LowCardinality(String)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "kafka_metrics_avro_kafka_metrics_mv" {
+    to_table = "posthog.metrics_kafka_metrics"
+    query    = <<SQL
+SELECT
+  _partition,
+  _topic,
+  maxSimpleState(_offset) AS max_offset,
+  maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+  maxSimpleState(timestamp) AS max_timestamp,
+  maxSimpleState(now()) AS max_created_at,
+  maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM posthog.kafka_metrics_avro
+GROUP BY
+  _partition, _topic
+SQL
+
+    column "_partition" {
+      type = "UInt64"
+    }
+    column "_topic" {
+      type = "LowCardinality(String)"
+    }
+    column "max_offset" {
+      type = "SimpleAggregateFunction(max, UInt64)"
+    }
+    column "max_observed_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "max_created_at" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    column "max_lag" {
+      type = "SimpleAggregateFunction(max, Decimal(18, 6))"
+    }
+  }
+
   materialized_view "kafka_trace_spans_avro_mv" {
     to_table = "posthog.trace_spans"
     query    = <<SQL
 SELECT
-  * EXCEPT(attributes, resource_attributes, kind, flags, dropped_attributes_count, dropped_events_count, dropped_links_count, status_code),
+  uuid,
+  trace_id,
+  span_id,
+  parent_span_id,
+  trace_state,
+  name,
+  timestamp,
+  end_time,
+  observed_timestamp,
+  service_name,
+  instrumentation_scope,
+  events,
+  links,
   toInt8(kind) AS kind,
   toUInt32(flags) AS flags,
   toUInt32(dropped_attributes_count) AS dropped_attributes_count,
@@ -19226,7 +21561,11 @@ SELECT
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   observed_timestamp
   + toIntervalDay(
-    toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    if(
+      (retention_days IS NOT NULL) AND (retention_days > 0),
+      retention_days,
+      toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(15))
+    )
   ) AS original_expiry_timestamp,
   _partition,
   _topic,
@@ -19305,6 +21644,52 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
+    }
+  }
+
+  materialized_view "log_entries_aux_mv" {
+    to_table = "posthog.writable_log_entries_aux"
+    query    = <<SQL
+SELECT
+  team_id,
+  log_source,
+  log_source_id,
+  instance_id,
+  timestamp,
+  level,
+  message,
+  _timestamp,
+  _offset
+FROM kafka_log_entries_aux
+WHERE toDate(timestamp) <= today()
+SQL
+
+    column "team_id" {
+      type = "UInt64"
+    }
+    column "log_source" {
+      type = "LowCardinality(String)"
+    }
+    column "log_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "level" {
+      type = "LowCardinality(String)"
+    }
+    column "message" {
+      type = "String"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
     }
   }
 
@@ -19523,68 +21908,6 @@ SQL
     }
   }
 
-  materialized_view "logs34_to_log_attributes" {
-    to_table = "posthog.log_attributes2"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-      arrayJoin(attributes) AS attribute,
-      'log' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.logs34
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
   materialized_view "logs34_to_log_attributes3" {
     to_table = "posthog.log_attributes3"
     query    = <<SQL
@@ -19645,67 +21968,6 @@ SQL
       type = "LowCardinality(String)"
     }
     column "severity_text" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_count" {
-      type = "SimpleAggregateFunction(sum, UInt64)"
-    }
-  }
-
-  materialized_view "logs34_to_resource_attributes" {
-    to_table = "posthog.log_attributes2"
-    query    = <<SQL
-SELECT
-  team_id,
-  time_bucket,
-  original_expiry_time_bucket,
-  service_name,
-  resource_fingerprint,
-  attribute_key,
-  attribute_value,
-  attribute_type,
-  attribute_count
-FROM
-  (
-    SELECT
-      team_id AS team_id,
-      toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-      toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-      service_name AS service_name,
-      resource_fingerprint,
-      arrayJoin(resource_attributes) AS attribute,
-      'resource' AS attribute_type,
-      attribute.1 AS attribute_key,
-      attribute.2 AS attribute_value,
-      sumSimpleState(1) AS attribute_count
-    FROM posthog.logs34
-    GROUP BY
-      team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, resource_attributes
-  )
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "resource_fingerprint" {
-      type = "UInt64"
-    }
-    column "attribute_key" {
-      type = "LowCardinality(String)"
-    }
-    column "attribute_value" {
-      type = "String"
-    }
-    column "attribute_type" {
       type = "LowCardinality(String)"
     }
     column "attribute_count" {
@@ -19789,6 +22051,7 @@ SELECT
   namespace,
   environment,
   severity_text,
+  maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
   (
@@ -19810,7 +22073,17 @@ FROM
           resource_attributes['env']
         )
       ) AS environment,
-      lower(severity_text) AS severity_text
+      lower(severity_text) AS severity_text,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
     FROM posthog.logs34
   )
 GROUP BY
@@ -19834,6 +22107,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -19922,6 +22198,832 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metric_attributes" {
+    to_table = "posthog.metric_attributes2"
+    query    = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  original_expiry_time_bucket,
+  service_name,
+  attribute_key,
+  attribute_value,
+  attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+      service_name AS service_name,
+      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
+      arrayJoin(filtered_attributes) AS attribute,
+      'metric' AS attribute_type,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.metrics2_input
+    WHERE has_labels
+    GROUP BY
+      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
+  )
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metric_attributes3" {
+    to_table = "posthog.metric_attributes3"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  original_expiry_time_bucket,
+  service_name,
+  attribute_key,
+  attribute_value,
+  attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      metric_name AS metric_name,
+      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+      service_name AS service_name,
+      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
+      arrayJoin(filtered_attributes) AS attribute,
+      'metric' AS attribute_type,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.metrics2_input
+    WHERE has_labels
+    GROUP BY
+      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
+  )
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metric_names3" {
+    to_table = "posthog.metric_names3"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  toStartOfHour(timestamp) AS time_bucket,
+  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+FROM posthog.metrics2_input AS input
+WHERE has_labels
+GROUP BY
+  team_id, time_bucket, metric_name, original_expiry_time_bucket
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metric_series" {
+    to_table = "posthog.metric_series2"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  series_fingerprint,
+  metric_type,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  service_name,
+  instrumentation_scope,
+  resource_attributes,
+  attributes,
+  timestamp AS last_seen,
+  original_expiry_timestamp
+FROM posthog.metrics2_input
+WHERE has_labels
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "last_seen" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metric_series3" {
+    to_table = "posthog.metric_series3"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  series_fingerprint,
+  metric_type,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  service_name,
+  instrumentation_scope,
+  resource_attributes,
+  attributes,
+  timestamp AS last_seen,
+  original_expiry_timestamp
+FROM posthog.metrics2_input
+WHERE has_labels
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "last_seen" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+  }
+
+  materialized_view "metrics2_input_to_metrics" {
+    to_table = "posthog.metrics2"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  series_fingerprint,
+  resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  original_expiry_timestamp,
+  service_name,
+  metric_type,
+  value,
+  count,
+  histogram_bounds,
+  histogram_counts,
+  trace_id,
+  span_id,
+  trace_flags,
+  has_labels,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  instrumentation_scope,
+  _partition,
+  _topic,
+  _offset
+FROM posthog.metrics2_input
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "observed_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+    column "has_labels" {
+      type = "Bool"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "_partition" {
+      type = "UInt32"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "metrics2_input_to_resource_attributes" {
+    to_table = "posthog.metric_attributes2"
+    query    = <<SQL
+SELECT
+  team_id,
+  time_bucket,
+  original_expiry_time_bucket,
+  service_name,
+  attribute_key,
+  attribute_value,
+  attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+      service_name AS service_name,
+      resource_attributes AS filtered_attributes,
+      arrayJoin(filtered_attributes) AS attribute,
+      'resource' AS attribute_type,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.metrics2_input
+    WHERE has_labels
+    GROUP BY
+      team_id, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
+  )
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics2_input_to_resource_attributes3" {
+    to_table = "posthog.metric_attributes3"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  original_expiry_time_bucket,
+  service_name,
+  attribute_key,
+  attribute_value,
+  attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      metric_name AS metric_name,
+      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+      service_name AS service_name,
+      resource_attributes AS filtered_attributes,
+      arrayJoin(filtered_attributes) AS attribute,
+      'resource' AS attribute_type,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.metrics2_input
+    WHERE has_labels
+    GROUP BY
+      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
+  )
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics4_attributes" {
+    to_table = "posthog.writable_metrics4_attributes"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  original_expiry_time_bucket,
+  service_name,
+  attribute_key,
+  attribute_value,
+  attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      metric_name AS metric_name,
+      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+      service_name AS service_name,
+      mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
+      arrayJoin(filtered_attributes) AS attribute,
+      'metric' AS attribute_type,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.metrics4_input
+    WHERE has_labels
+    GROUP BY
+      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
+  )
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics4_names" {
+    to_table = "posthog.writable_metrics4_names"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  toStartOfHour(timestamp) AS time_bucket,
+  toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
+  maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+FROM posthog.metrics4_input AS input
+WHERE has_labels
+GROUP BY
+  team_id, time_bucket, metric_name, original_expiry_time_bucket
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_timestamp" {
+      type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics4_resource_attributes" {
+    to_table = "posthog.writable_metrics4_attributes"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  original_expiry_time_bucket,
+  service_name,
+  attribute_key,
+  attribute_value,
+  attribute_type,
+  attribute_count
+FROM
+  (
+    SELECT
+      team_id AS team_id,
+      metric_name AS metric_name,
+      toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
+      toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
+      service_name AS service_name,
+      resource_attributes AS filtered_attributes,
+      arrayJoin(filtered_attributes) AS attribute,
+      'resource' AS attribute_type,
+      attribute.1 AS attribute_key,
+      attribute.2 AS attribute_value,
+      sumSimpleState(1) AS attribute_count
+    FROM posthog.metrics4_input
+    WHERE has_labels
+    GROUP BY
+      team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
+  )
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "original_expiry_time_bucket" {
+      type = "DateTime64(0)"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_key" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_value" {
+      type = "String"
+    }
+    column "attribute_type" {
+      type = "LowCardinality(String)"
+    }
+    column "attribute_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics4_samples" {
+    to_table = "posthog.writable_metrics4_samples"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  toDateTime(toStartOfHour(timestamp)) AS time_bucket,
+  series_fingerprint,
+  toDate32(original_expiry_timestamp) AS original_expiry_date,
+  any(resource_fingerprint) AS resource_fingerprint,
+  any(service_name) AS service_name,
+  any(metric_type) AS metric_type,
+  any(unit) AS unit,
+  any(aggregation_temporality) AS aggregation_temporality,
+  max(toUInt8(is_monotonic)) AS is_monotonic,
+  max(toUInt8(has_labels)) AS has_labels,
+  any(instrumentation_scope) AS instrumentation_scope,
+  anyLast(histogram_bounds) AS histogram_bounds,
+  any(_topic) AS _topic,
+  groupArray(10000)(timestamp) AS timestamp_arr,
+  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
+  groupArray(10000)(value) AS value_arr,
+  groupArray(10000)(count) AS count_arr,
+  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
+  groupArray(10000)(trace_id) AS trace_id_arr,
+  groupArray(10000)(span_id) AS span_id_arr,
+  groupArray(10000)(trace_flags) AS trace_flags_arr
+FROM posthog.metrics4_input
+GROUP BY
+  team_id, metric_name, time_bucket, series_fingerprint, original_expiry_date
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "time_bucket" {
+      type = "DateTime"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "original_expiry_date" {
+      type = "Date32"
+    }
+    column "resource_fingerprint" {
+      type = "UInt64"
+    }
+    column "service_name" {
+      type = "String"
+    }
+    column "metric_type" {
+      type = "String"
+    }
+    column "unit" {
+      type = "String"
+    }
+    column "aggregation_temporality" {
+      type = "String"
+    }
+    column "is_monotonic" {
+      type = "UInt8"
+    }
+    column "has_labels" {
+      type = "UInt8"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "_topic" {
+      type = "String"
+    }
+    column "timestamp_arr" {
+      type = "Array(DateTime64(6))"
+    }
+    column "observed_timestamp_arr" {
+      type = "Array(DateTime64(6))"
+    }
+    column "value_arr" {
+      type = "Array(Float64)"
+    }
+    column "count_arr" {
+      type = "Array(UInt64)"
+    }
+    column "histogram_counts_arr" {
+      type = "Array(Array(UInt64))"
+    }
+    column "trace_id_arr" {
+      type = "Array(String)"
+    }
+    column "span_id_arr" {
+      type = "Array(String)"
+    }
+    column "trace_flags_arr" {
+      type = "Array(Int32)"
+    }
+  }
+
+  materialized_view "metrics4_input_to_metrics4_series" {
+    to_table = "posthog.writable_metrics4_series"
+    query    = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  series_fingerprint,
+  metric_type,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  service_name,
+  instrumentation_scope,
+  resource_attributes,
+  attributes,
+  timestamp,
+  original_expiry_timestamp
+FROM posthog.metrics4_input
+WHERE has_labels
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "metric_type" {
+      type = "LowCardinality(String)"
+    }
+    column "unit" {
+      type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type = "Bool"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "instrumentation_scope" {
+      type = "String"
+    }
+    column "resource_attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "attributes" {
+      type = "Map(LowCardinality(String), String)"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "original_expiry_timestamp" {
+      type = "DateTime64(6)"
     }
   }
 
@@ -20457,6 +23559,50 @@ SQL
     }
     column "version" {
       type = "Int32"
+    }
+  }
+
+  materialized_view "person_property_mutation_log_mv" {
+    to_table = "posthog.person_property_mutation_log"
+    query    = <<SQL
+SELECT
+  team_id,
+  uuid AS event_uuid,
+  concat(
+    '{',
+    arrayStringConcat(
+      arrayMap(
+        property -> concat(toJSONString(property.1), ':', property.2),
+        arrayFilter(
+          property -> property.1 IN ('$set', '$set_once', '$unset'),
+          JSONExtractKeysAndValuesRaw(source.properties)
+        )
+      ),
+      ','
+    ),
+    '}'
+  ) AS properties,
+  toDateTime(_timestamp, 'UTC') AS ingested_at
+FROM kafka_person_property_mutation_log AS source
+WHERE
+  JSONHas(source.properties, '$set')
+OR
+  JSONHas(source.properties, '$set_once')
+OR
+  JSONHas(source.properties, '$unset')
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "event_uuid" {
+      type = "UUID"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "ingested_at" {
+      type = "DateTime('UTC')"
     }
   }
 
@@ -21094,7 +24240,7 @@ SELECT
   sum(size) AS size,
   sum(message_count) AS message_count,
   sum(event_count) AS event_count,
-  argMinState(snapshot_source, first_timestamp) AS snapshot_source,
+  argMinState(replay.snapshot_source, first_timestamp) AS snapshot_source,
   argMinState(snapshot_library, first_timestamp) AS snapshot_library,
   max(_timestamp) AS _timestamp,
   max(retention_period_days) AS retention_period_days,
@@ -21102,8 +24248,9 @@ SELECT
   groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
-  max(surfacing_score) AS surfacing_score
-FROM posthog.kafka_session_replay_events
+  max(surfacing_score) AS surfacing_score,
+  argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
+FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
   session_id, team_id
 SQL
@@ -21169,9 +24316,12 @@ SQL
       type = "Int64"
     }
     column "snapshot_source" {
-      type = "AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))"
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "snapshot_library" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "snapshot_mode_v2" {
       type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
@@ -22238,10 +25388,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_BackupFailed', 'ClickHouseCustomMetric_BackupSuccess', 'ClickHouseCustomMetric_BackupCancelled', 'ClickHouseCustomMetric_BackupAttempts'] AS names,
-  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS values,
+  [toInt64(countIf(status = 'BACKUP_FAILED')), toInt64(countIf(status = 'BACKUP_CREATED')), toInt64(countIf(status = 'BACKUP_CANCELLED')), toInt64(countIf(status = 'CREATING_BACKUP'))] AS `values`,
   ['Number of failed backups', 'Number of successful backups', 'Number of cancelled backups', 'Number of backup attempts'] AS descriptions,
   ['gauge', 'gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('instance', hostname()) AS labels,
@@ -22314,10 +25464,10 @@ SQL
     query = <<SQL
 WITH
   ['ClickHouseCustomMetric_ReplicationQueueStuckEntries', 'ClickHouseCustomMetric_ReplicationQueueMaxPostponedEntrySeconds', 'ClickHouseCustomMetric_ReplicationQueueMaxErrorEntrySeconds'] AS names,
-  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS values,
+  [toInt64(countIf(create_time < (now() - toIntervalDay(15)))), maxIf(dateDiff('seconds', create_time, last_postpone_time), last_postpone_time != '1970-01-01'), maxIf(dateDiff('seconds', create_time, last_exception_time), (last_exception_time != '1970-01-01') AND (last_exception_time > (now() - toIntervalMinute(5))))] AS `values`,
   ['Number of entries that have been in the replication queue for more than 15 days', 'Maximum number of seconds that an entry has been postponed', 'Maximum number of seconds that an entry has been in error'] AS descriptions,
   ['gauge', 'gauge', 'gauge'] AS types,
-  arrayJoin(arrayZip(names, values, descriptions, types)) AS tpl
+  arrayJoin(arrayZip(names, `values`, descriptions, types)) AS tpl
 SELECT
   tpl.1 AS name,
   map('table', `table`, 'instance', hostname()) AS labels,
@@ -22730,7 +25880,7 @@ SELECT
   uniqExactMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
-  groupUniqArrayMapMerge(flag_values) AS flag_values,
+  groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
   groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,
@@ -22939,4 +26089,40 @@ SQL
     layout "hashed" {
     }
   }
+}
+
+named_collection "msk_cluster" {
+  external = true
+}
+
+named_collection "warpstream_calculated_events" {
+  external = true
+}
+
+named_collection "warpstream_cyclotron" {
+  external = true
+}
+
+named_collection "warpstream_ingestion" {
+  external = true
+}
+
+named_collection "warpstream_logs" {
+  external = true
+}
+
+named_collection "warpstream_metrics" {
+  external = true
+}
+
+named_collection "warpstream_replay" {
+  external = true
+}
+
+named_collection "warpstream_shared" {
+  external = true
+}
+
+named_collection "warpstream_traces" {
+  external = true
 }

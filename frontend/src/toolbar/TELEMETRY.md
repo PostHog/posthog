@@ -101,17 +101,18 @@ Fired when the UI host configuration modal is shown (auth error state).
 
 ### `toolbar api request`
 
-Fired after every `toolbarFetch` call. Covers all toolbar API endpoints.
+Fired after every `toolbarFetch` call, and after the entitlements request, which carries the session cookie instead of a bearer token.
+Covers all toolbar API endpoints.
 
 | Property          | Type      | Description                                        |
 | ----------------- | --------- | -------------------------------------------------- |
 | `method`          | `string`  | HTTP method (`GET`, `POST`, `PATCH`, `DELETE`)     |
 | `pathname`        | `string`  | API path (e.g., `/api/projects/@current/actions/`) |
-| `status`          | `number`  | HTTP response status code                          |
+| `status`          | `number`  | HTTP status, or 0 if the request never landed      |
 | `duration_ms`     | `number`  | Total time including any token retry               |
 | `did_token_retry` | `boolean` | Whether a 401 triggered a token refresh + retry    |
 
-**File:** `toolbarConfigLogic.ts`
+**File:** `toolbarFetch.ts`
 
 ## Menu and mode
 
@@ -171,6 +172,23 @@ A user paginating emits one event per page with cumulative `event_count` — gro
 | `completed`              | `boolean` | False when the run did not finish — superseded by a newer run, or failed mid-processing                          |
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
+
+### `toolbar heatmap load all started`
+
+Fired when someone presses "Load all" in the heatmap menu to page through the remaining click data. No properties.
+
+**File:** `stats/HeatmapToolbarMenu.tsx`
+
+### `toolbar heatmap load all stopped`
+
+Fired when someone presses "Stop loading" to end a run early. A run that ends on its own, or at the page cap, does not emit this.
+
+| Property        | Type     | Description                                   |
+| --------------- | -------- | --------------------------------------------- |
+| `pages_loaded`  | `number` | Pages the run had loaded when it was stopped  |
+| `element_count` | `number` | Element stats rows loaded when it was stopped |
+
+**File:** `stats/HeatmapToolbarMenu.tsx`
 
 ### `toolbar heatmap area selection started`
 
@@ -330,26 +348,3 @@ Fired after a successful screenshot/media upload.
 | `source` | `'toolbar'` | Always `'toolbar'` |
 
 **File:** `screenshot-upload/screenshotUploadLogic.ts`
-
-## Heatmap sampling (page's PostHog instance)
-
-These events use the **page's** `posthog.capture()`, not `toolbarPosthogJS`.
-They are sent to the customer's project, not PostHog's internal project.
-
-### `sampling_enabled_on_heatmap`
-
-Fired when sampling is enabled on the heatmap. No properties.
-
-### `sampling_disabled_on_heatmap`
-
-Fired when sampling is disabled on the heatmap. No properties.
-
-### `sampling_percentage_updated_on_heatmap`
-
-Fired when the sampling percentage is changed.
-
-| Property         | Type     | Description                                |
-| ---------------- | -------- | ------------------------------------------ |
-| `samplingFactor` | `number` | New sampling factor (e.g., 0.1, 0.25, 0.5) |
-
-**File:** `stats/HeatmapToolbarMenu.tsx`

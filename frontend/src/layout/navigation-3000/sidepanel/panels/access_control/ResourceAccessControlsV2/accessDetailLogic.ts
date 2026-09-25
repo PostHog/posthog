@@ -108,9 +108,13 @@ export const OBJECT_RULE_RESOURCE_CONFIG: Partial<Record<APIScopeObject, ObjectR
         url: (rule) => urls.dataWarehouseSource(`managed-${rule.resource_id}`),
         parseUrl: (path) => /^\/data-management\/sources\/managed-([0-9a-f-]{36})(?:[/?#]|$)/.exec(path)?.[1] ?? null,
     },
+    notebook: {
+        url: (rule) => (rule.short_id ? urls.notebook(rule.short_id) : null),
+        parseUrl: (path) => /^\/notebooks\/([A-Za-z0-9]+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+    },
 }
 
-/** A link to open the object, null for types we can't address (e.g. notebooks need a short_id). */
+/** A link to open the object, null for types without a URL or whose short_id is missing. */
 export function objectRuleUrl(rule: AccessObjectRule): string | null {
     return OBJECT_RULE_RESOURCE_CONFIG[rule.resource]?.url(rule) ?? null
 }
@@ -216,6 +220,7 @@ export interface accessDetailLogicActions {
             | 'alert'
             | 'annotation'
             | 'approvals'
+            | 'autoresearch'
             | 'batch_export'
             | 'batch_import'
             | 'batch_import_support'
@@ -225,14 +230,17 @@ export interface accessDetailLogicActions {
             | 'clickhouse_test_cluster_perf'
             | 'cohort'
             | 'comment'
+            | 'context_layer_internal'
             | 'conversation'
             | 'customer_analytics'
             | 'customer_journey'
             | 'customer_profile_config'
+            | 'customer_task'
             | 'dashboard'
             | 'dashboard_template'
             | 'data_catalog'
             | 'data_catalog_approval'
+            | 'data_deletion'
             | 'dataset'
             | 'early_access_feature'
             | 'element'
@@ -298,6 +306,7 @@ export interface accessDetailLogicActions {
             | 'signal_scout'
             | 'signal_scout_internal'
             | 'signal_scout_report'
+            | 'signal_scratchpad_internal'
             | 'stamphog'
             | 'streamlit_app'
             | 'subscription'
@@ -378,6 +387,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessObjectRule[],
             {
                 loadObjects: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     (await api.get<{ results: AccessObjectRule[] }>(subjectRulesEndpoint(props, 'objects'))).results,
             },
         ],
@@ -385,6 +395,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             [] as AccessPropertyRule[],
             {
                 loadProperties: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     (await api.get<{ results: AccessPropertyRule[] }>(subjectRulesEndpoint(props, 'properties')))
                         .results,
             },
@@ -395,6 +406,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
         setObjectRule: async ({ resource, resourceId, level }) => {
             // A null level clears the subject's rule on the object
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.put(`api/projects/${props.projectId}/access_control_object_rules`, {
                     resource,
                     resource_id: resourceId,

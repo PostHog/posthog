@@ -653,7 +653,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         submitAdoptSkillFinished: true,
         setTriggerPrUrl: (prUrl: string) => ({ prUrl }),
         // Starts a run on the pasted PR URL: a review (which resolves comments per the user's
-        // setting), a review without resolving, or a resolve-only run — the split button's variants.
+        // setting), a review without resolving, a resolve-only run, or a flash review — the split
+        // button's variants.
         // The listener self-guards on `triggeringReview`, so a repeat dispatch mid-flight (Enter
         // spam, double click) is a no-op regardless of the source.
         submitTriggerReview: (
@@ -1448,6 +1449,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     lemonToast.info(
                         'This pull request was already reviewed at its current commit. Find it under recent reviews.'
                     )
+                } else if (response.status === 'joined_running_review') {
+                    lemonToast.info('Your request joined the review queue. Find it under recent reviews.')
                 } else if (runMode === ReviewTriggerRequestRunModeEnumApi.ResolveOnly) {
                     // Resolve-only runs don't create the report activity the review watch polls for,
                     // so a toast is the feedback: progress shows up on the pull request itself.

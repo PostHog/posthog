@@ -12,14 +12,21 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     domainsDestroy,
+    domainsScimLogsRetrieve,
     identityProviderConfigsCreate,
     identityProviderConfigsDestroy,
     identityProviderConfigsList,
     identityProviderConfigsPartialUpdate,
+    identityProviderConfigsScimLogsRetrieve,
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
-import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
-import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs, UserType } from '~/types'
+import {
+    ConfigScopeEnumApi,
+    IdentityProviderConfigApi,
+    IdentityProviderConfigsScimLogsRetrieveParams,
+    PaginatedSCIMRequestLogApi,
+} from '~/generated/core/api.schemas'
+import { AvailableFeature, OrganizationDomainType, UserType } from '~/types'
 
 /**
  * Resolve the identity provider configuration for a domain, creating one through the
@@ -60,10 +67,13 @@ async function refreshDomain(
     domainId: string,
     replaceDomain: (domain: OrganizationDomainType) => void
 ): Promise<OrganizationDomainType> {
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use domainsRetrieve() from '~/generated/core/api' instead.
     const domain = await api.get<OrganizationDomainType>(`api/organizations/${organizationId}/domains/${domainId}`)
     replaceDomain(domain)
     return domain
 }
+
+export type SCIMLogsTargetType = 'config' | 'domain'
 
 export type OrganizationDomainUpdatePayload = Partial<
     Pick<OrganizationDomainType, 'jit_provisioning_enabled' | 'sso_enforcement'>
@@ -139,6 +149,7 @@ export interface verifiedDomainsLogicValues {
     identityProviderConfigsLoading: boolean
     isIdJagConfigSubmitting: boolean
     isIdJagConfigValid: boolean
+    isOIDCAvailable: boolean
     isSAMLAvailable: boolean
     isSCIMAvailable: boolean
     isSSOEnforcementAvailable: boolean
@@ -181,12 +192,13 @@ export interface verifiedDomainsLogicValues {
     >
     scimConfig: SCIMConfigType
     scimConfigLoading: boolean
-    scimLogs: PaginatedSCIMRequestLogs | null
+    scimLogs: PaginatedSCIMRequestLogApi | null
     scimLogsLoading: boolean
     scimLogsModalId: string | null
     scimLogsPage: number
     scimLogsSearch: string
     scimLogsStatusFilter: '4xx' | '5xx' | 'all' | 'success'
+    scimLogsTargetType: SCIMLogsTargetType
     showIdJagConfigErrors: boolean
     showSamlConfigErrors: boolean
     updatingDomain: boolean
@@ -319,8 +331,17 @@ export interface verifiedDomainsLogicActions {
         }
         payload?: string
     }
-    loadScimLogs: ({ domainId, page }: { domainId: string; page?: number }) => {
-        domainId: string
+    loadScimLogs: ({
+        targetId,
+        targetType,
+        page,
+    }: {
+        page?: number
+        targetId: string
+        targetType: SCIMLogsTargetType
+    }) => {
+        targetId: string
+        targetType: SCIMLogsTargetType
         page?: number
     }
     loadScimLogsFailure: (
@@ -331,15 +352,17 @@ export interface verifiedDomainsLogicActions {
         errorObject?: any
     }
     loadScimLogsSuccess: (
-        scimLogs: PaginatedSCIMRequestLogs | null,
+        scimLogs: PaginatedSCIMRequestLogApi,
         payload?: {
-            domainId: string
+            targetId: string
+            targetType: SCIMLogsTargetType
             page?: number
         }
     ) => {
-        scimLogs: PaginatedSCIMRequestLogs | null
+        scimLogs: PaginatedSCIMRequestLogApi
         payload?: {
-            domainId: string
+            targetId: string
+            targetType: SCIMLogsTargetType
             page?: number
         }
     }
@@ -495,6 +518,27 @@ export interface verifiedDomainsLogicActions {
                 }
             >
         >
+    }
+    setScimConfigLogsModalId: (id: string | null) => {
+        id: string | null
+    }
+    setScimConfigLogsModalIdFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    setScimConfigLogsModalIdSuccess: (
+        scimLogs: null,
+        payload?: {
+            id: string | null
+        }
+    ) => {
+        scimLogs: null
+        payload?: {
+            id: string | null
+        }
     }
     setScimLogsModalId: (id: string | null) => {
         id: string | null
@@ -671,6 +715,9 @@ export interface verifiedDomainsLogicMeta {
         isSAMLAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
+        isOIDCAvailable: (
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => boolean
         isSCIMAvailable: (
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
         ) => boolean
@@ -700,6 +747,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setConfigureIdJagModalId: (id: string | null) => ({ id }),
         setConfigureIdJagModalLoading: (loading: boolean) => ({ loading }),
         setScimLogsModalId: (id: string | null) => ({ id }),
+        setScimConfigLogsModalId: (id: string | null) => ({ id }),
         setScimLogsStatusFilter: (filter: 'all' | 'success' | '4xx' | '5xx') => ({ filter }),
         setScimLogsSearch: (search: string) => ({ search }),
         setScimLogsPage: (page: number) => ({ page }),
@@ -761,6 +809,14 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             null as null | string,
             {
                 setScimLogsModalId: (_, { id }) => id,
+                setScimConfigLogsModalId: (_, { id }) => id,
+            },
+        ],
+        scimLogsTargetType: [
+            'domain' as SCIMLogsTargetType,
+            {
+                setScimLogsModalId: () => 'domain',
+                setScimConfigLogsModalId: () => 'config',
             },
         ],
         scimLogsStatusFilter: [
@@ -768,6 +824,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 setScimLogsStatusFilter: (_, { filter }) => filter,
                 setScimLogsModalId: () => 'all',
+                setScimConfigLogsModalId: () => 'all',
             },
         ],
         scimLogsSearch: [
@@ -775,6 +832,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 setScimLogsSearch: (_, { search }) => search,
                 setScimLogsModalId: () => '',
+                setScimConfigLogsModalId: () => '',
             },
         ],
         scimLogsPage: [
@@ -782,6 +840,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             {
                 setScimLogsPage: (_, { page }) => page,
                 setScimLogsModalId: () => 1,
+                setScimConfigLogsModalId: () => 1,
                 setScimLogsStatusFilter: () => 1,
                 setScimLogsSearch: () => 1,
             },
@@ -805,9 +864,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             [] as OrganizationDomainType[],
             {
                 loadVerifiedDomains: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use domainsList() from '~/generated/core/api' instead.
                     (await api.get(`api/organizations/${values.currentOrganizationId}/domains`))
                         .results as OrganizationDomainType[],
                 addVerifiedDomain: async (domain: string) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use domainsCreate() from '~/generated/core/api' instead.
                     const response = await api.create<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganizationId}/domains`,
                         {
@@ -834,6 +895,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             false,
             {
                 updateDomain: async (payload: OrganizationDomainUpdatePayload) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use domainsPartialUpdate() from '~/generated/core/api' instead.
                     const response = await api.update<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganizationId}/domains/${payload.id}`,
                         { ...payload, id: undefined }
@@ -843,6 +905,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     return false
                 },
                 verifyDomain: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. domainsVerifyCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const response = await api.create<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganizationId}/domains/${values.verifyModal}/verify`
                     )
@@ -942,115 +1005,125 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             },
         ],
         scimLogs: [
-            null as PaginatedSCIMRequestLogs | null,
+            null as PaginatedSCIMRequestLogApi | null,
             {
                 setScimLogsModalId: () => null,
-                loadScimLogs: async ({ domainId, page }: { domainId: string; page?: number }, breakpoint) => {
+                setScimConfigLogsModalId: () => null,
+                loadScimLogs: async (
+                    { targetId, targetType, page }: { targetId: string; targetType: SCIMLogsTargetType; page?: number },
+                    breakpoint
+                ) => {
                     await breakpoint(300)
-                    const params: Record<string, string> = {}
+                    const params: IdentityProviderConfigsScimLogsRetrieveParams = {}
                     if (values.scimLogsStatusFilter === 'success') {
-                        params.status_min = '200'
-                        params.status_max = '299'
+                        params.status_min = 200
+                        params.status_max = 299
                     } else if (values.scimLogsStatusFilter === '4xx') {
-                        params.status_min = '400'
-                        params.status_max = '499'
+                        params.status_min = 400
+                        params.status_max = 499
                     } else if (values.scimLogsStatusFilter === '5xx') {
-                        params.status_min = '500'
+                        params.status_min = 500
                     }
                     if (values.scimLogsSearch) {
                         params.search = values.scimLogsSearch
                     }
                     if (page) {
-                        params.page = String(page)
+                        params.page = page
                     }
-                    const queryString = new URLSearchParams(params).toString()
-                    const url = `api/organizations/${values.currentOrganizationId}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
-                    const response = await api.get(url)
+                    const response =
+                        targetType === 'config'
+                            ? await identityProviderConfigsScimLogsRetrieve(
+                                  values.currentOrganizationId,
+                                  targetId,
+                                  params
+                              )
+                            : await domainsScimLogsRetrieve(values.currentOrganizationId, targetId, params)
                     await breakpoint()
                     return response
                 },
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        setConfigureSAMLModalId: async ({ id }) => {
-            const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
-            if (!id || !domain) {
-                return
-            }
-            try {
-                const config = await ensureIdpConfig(
-                    values.currentOrganizationId as string,
-                    domain,
-                    ConfigScopeEnumApi.Saml
-                )
-                actions.setSamlConfigValues({
-                    id,
-                    saml_relay_state: config.saml_relay_state,
-                    saml_acs_url: config.saml_acs_url ?? '',
-                    saml_entity_id: config.saml_entity_id ?? '',
-                    saml_x509_cert: config.saml_x509_cert ?? '',
+    listeners(({ actions, values }) => {
+        const loadCurrentScimLogs = (page?: number): void => {
+            if (values.scimLogsModalId) {
+                actions.loadScimLogs({
+                    targetId: values.scimLogsModalId,
+                    targetType: values.scimLogsTargetType,
+                    page,
                 })
-                actions.setConfigureSAMLModalLoading(false)
-            } catch {
-                lemonToast.error('Could not load the SAML configuration for this domain. Please try again.')
-                actions.setConfigureSAMLModalId(null)
             }
-        },
-        setConfigureIdJagModalId: async ({ id }) => {
-            const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
-            if (!id || !domain) {
-                return
-            }
-            try {
-                const config = await ensureIdpConfig(
-                    values.currentOrganizationId as string,
-                    domain,
-                    ConfigScopeEnumApi.Xaa
-                )
-                actions.setIdJagConfigValues({
-                    id,
-                    id_jag_issuer_url: config.id_jag_issuer_url ?? '',
-                    id_jag_jwks_url: config.id_jag_jwks_url ?? '',
-                    id_jag_allowed_clients: config.id_jag_allowed_clients ?? [],
-                })
-                actions.setConfigureIdJagModalLoading(false)
-            } catch {
-                lemonToast.error('Could not load the ID-JAG configuration for this domain. Please try again.')
-                actions.setConfigureIdJagModalId(null)
-            }
-        },
-        setConfigureSCIMModalId: ({ id }) => {
-            if (id) {
-                actions.loadScimConfig(id)
-            }
-        },
-        setScimLogsModalId: ({ id }) => {
-            if (id) {
-                actions.loadScimLogs({ domainId: id })
-            }
-        },
-        setScimLogsStatusFilter: () => {
-            if (values.scimLogsModalId) {
-                actions.loadScimLogs({ domainId: values.scimLogsModalId })
-            }
-        },
-        setScimLogsSearch: () => {
-            if (values.scimLogsModalId) {
-                actions.loadScimLogs({ domainId: values.scimLogsModalId })
-            }
-        },
-        setScimLogsPage: ({ page }) => {
-            if (values.scimLogsModalId) {
-                actions.loadScimLogs({ domainId: values.scimLogsModalId, page })
-            }
-        },
-        reloadScimLogs: () => {
-            if (values.scimLogsModalId) {
-                actions.loadScimLogs({ domainId: values.scimLogsModalId, page: values.scimLogsPage })
-            }
-        },
-    })),
+        }
+
+        return {
+            setConfigureSAMLModalId: async ({ id }) => {
+                const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
+                if (!id || !domain) {
+                    return
+                }
+                try {
+                    const config = await ensureIdpConfig(
+                        values.currentOrganizationId as string,
+                        domain,
+                        ConfigScopeEnumApi.Saml
+                    )
+                    actions.setSamlConfigValues({
+                        id,
+                        saml_relay_state: config.saml_relay_state,
+                        saml_acs_url: config.saml_acs_url ?? '',
+                        saml_entity_id: config.saml_entity_id ?? '',
+                        saml_x509_cert: config.saml_x509_cert ?? '',
+                    })
+                    actions.setConfigureSAMLModalLoading(false)
+                } catch {
+                    lemonToast.error('Could not load the SAML configuration for this domain. Please try again.')
+                    actions.setConfigureSAMLModalId(null)
+                }
+            },
+            setConfigureIdJagModalId: async ({ id }) => {
+                const domain = values.verifiedDomains.find(({ id: _idToFind }) => _idToFind === id)
+                if (!id || !domain) {
+                    return
+                }
+                try {
+                    const config = await ensureIdpConfig(
+                        values.currentOrganizationId as string,
+                        domain,
+                        ConfigScopeEnumApi.Xaa
+                    )
+                    actions.setIdJagConfigValues({
+                        id,
+                        id_jag_issuer_url: config.id_jag_issuer_url ?? '',
+                        id_jag_jwks_url: config.id_jag_jwks_url ?? '',
+                        id_jag_allowed_clients: config.id_jag_allowed_clients ?? [],
+                    })
+                    actions.setConfigureIdJagModalLoading(false)
+                } catch {
+                    lemonToast.error('Could not load the ID-JAG configuration for this domain. Please try again.')
+                    actions.setConfigureIdJagModalId(null)
+                }
+            },
+            setConfigureSCIMModalId: ({ id }) => {
+                if (id) {
+                    actions.loadScimConfig(id)
+                }
+            },
+            setScimLogsModalId: ({ id }) => {
+                if (id) {
+                    loadCurrentScimLogs()
+                }
+            },
+            setScimConfigLogsModalId: ({ id }) => {
+                if (id) {
+                    loadCurrentScimLogs()
+                }
+            },
+            setScimLogsStatusFilter: () => loadCurrentScimLogs(),
+            setScimLogsSearch: () => loadCurrentScimLogs(),
+            setScimLogsPage: ({ page }) => loadCurrentScimLogs(page),
+            reloadScimLogs: () => loadCurrentScimLogs(values.scimLogsPage),
+        }
+    }),
     selectors({
         domainBeingVerified: [
             (s) => [s.verifiedDomains, s.verifyModal],
@@ -1078,6 +1151,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             () => [userLogic.selectors.hasAvailableFeature],
             (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
                 hasAvailableFeature(AvailableFeature.SAML),
+        ],
+        isOIDCAvailable: [
+            () => [userLogic.selectors.hasAvailableFeature],
+            (hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean): boolean =>
+                hasAvailableFeature(AvailableFeature.OIDC),
         ],
         isSCIMAvailable: [
             () => [userLogic.selectors.hasAvailableFeature],

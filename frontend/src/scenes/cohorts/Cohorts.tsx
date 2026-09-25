@@ -3,16 +3,14 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonBanner, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -39,27 +37,24 @@ import {
     PropertyOperator,
 } from '~/types'
 
-const HedgehogGreek = pngHoggie(greekPng)
+import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
+import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortRealtimeTag'
+import { RealtimeCohortsWaitlistBanner } from 'products/cohorts/frontend/realtime/RealtimeCohortsWaitlistBanner'
 
 export const scene: SceneExport = {
     component: Cohorts,
     logic: cohortsSceneLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
+    emptyState: cohortsEmptyState,
 }
 
 export function Cohorts(): JSX.Element {
-    const {
-        cohorts,
-        cohortsLoading,
-        pagination,
-        cohortFilters,
-        shouldShowEmptyState,
-        cohortSorting,
-        cohortsLoadError,
-    } = useValues(cohortsSceneLogic)
+    const { cohorts, cohortsLoading, pagination, cohortFilters, cohortSorting, cohortsLoadError } =
+        useValues(cohortsSceneLogic)
     const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting, loadCohorts } =
         useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
+    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
 
     // Creating an export requires editor access to the export resource.
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
@@ -73,15 +68,20 @@ export function Cohorts(): JSX.Element {
             dataIndex: 'name',
             width: '30%',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
-            render: function Render(name, { id, description }) {
+            render: function Render(name, { id, description, realtime }) {
                 return (
-                    <>
-                        <LemonTableLink
-                            to={combineUrl(urls.cohort(id), searchParams).url}
-                            title={name ? <>{name}</> : 'Untitled'}
-                            description={description}
-                        />
-                    </>
+                    <LemonTableLink
+                        to={combineUrl(urls.cohort(id), searchParams).url}
+                        // In the title rather than beside the link, so a row with a description
+                        // keeps the state on the name's line instead of wrapping under it.
+                        title={
+                            <>
+                                {name || 'Untitled'}
+                                <CohortRealtimeTag realtime={realtime} />
+                            </>
+                        }
+                        description={description}
+                    />
                 )
             },
         },
@@ -98,8 +98,9 @@ export function Cohorts(): JSX.Element {
         createdAtColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         {
             title: 'Last calculated',
-            tooltip:
-                'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 24 hours, or whenever a cohort is updated',
+            tooltip: realtimeTargetingEnabled
+                ? 'When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list use, and it is recalculated once a day and whenever the cohort is edited.'
+                : 'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 24 hours, or whenever a cohort is updated',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>
@@ -302,17 +303,7 @@ export function Cohorts(): JSX.Element {
                 }
             />
 
-            <ProductIntroduction
-                productName="Cohorts"
-                productKey={ProductKey.COHORTS}
-                thingName="cohort"
-                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn't convert."
-                isEmpty={shouldShowEmptyState}
-                docsURL="https://posthog.com/docs/data/cohorts"
-                action={() => router.actions.push(urls.cohort('new'))}
-                customHog={HedgehogGreek}
-                mcpSurfaceKey="cohorts.create"
-            />
+            <RealtimeCohortsWaitlistBanner />
 
             <div>{filtersSection}</div>
             <LemonTable

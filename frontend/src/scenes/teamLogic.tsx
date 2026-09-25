@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
@@ -93,7 +94,8 @@ export async function completeProductOnboarding(
     teamId: TeamType['id'] | string,
     { product_type, intent_context }: ProductOnboardingCompleteProperties
 ): Promise<TeamType | null> {
-    return await api.update(`api/environments/${teamId}/complete_product_onboarding`, {
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsCompleteProductOnboardingPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+    return await api.update(`api/projects/${teamId}/complete_product_onboarding`, {
         product_type,
         intent_context,
     })
@@ -252,6 +254,21 @@ export interface teamLogicActions {
         currentTeam: TeamPublicType | TeamType | null
         payload?: ProductOnboardingCompleteProperties
     }
+    refreshCurrentTeam: () => any
+    refreshCurrentTeamFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    refreshCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: any
+    }
     resetToken: () => any
     resetTokenFailure: (
         error: string,
@@ -367,7 +384,17 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     try {
-                        return await api.get('api/environments/@current')
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                        return await api.get('api/projects/@current')
+                    } catch {
+                        return values.currentTeam
+                    }
+                },
+                refreshCurrentTeam: async () => {
+                    try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                        const team = await api.get('api/projects/@current')
+                        return team?.id === values.currentTeam?.id ? team : values.currentTeam
                     } catch {
                         return values.currentTeam
                     }
@@ -387,8 +414,9 @@ export const teamLogic = kea<teamLogicType>([
 
                     let patchedTeam: TeamType | TeamPublicType
                     if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
-                        // Renames go through /api/projects, which mirrors the name onto the passthrough
-                        // team server-side. /api/environments is deprecated, don't add calls to it
+                        // Renames go through the project id, because that mirrors the name onto the
+                        // passthrough team server-side. Every other patch goes through the team id.
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
                         const patchedProject = await api.update<ProjectType>(
                             `api/projects/${values.currentTeam.project_id}`,
                             { name: payload.name }
@@ -398,7 +426,8 @@ export const teamLogic = kea<teamLogicType>([
                         actions.loadCurrentProjectSuccess(patchedProject)
                         patchedTeam = { ...values.currentTeam, name: patchedProject.name }
                     } else {
-                        patchedTeam = await api.update(`api/environments/${values.currentTeam.id}`, payload)
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsPartialUpdate() from '~/generated/core/api' instead.
+                        patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
                         breakpoint()
                     }
 
@@ -472,15 +501,19 @@ export const teamLogic = kea<teamLogicType>([
                             'Environment could not be created, because the parent project has not been loaded yet!'
                         )
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 // Project API Token
-                resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsResetTokenPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
                 // Feature Flags Secure API Token
                 rotateSecretToken: async () =>
-                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsRotateSecretTokenPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    await api.update(`api/projects/${values.currentTeamId}/rotate_secret_token`, {}),
                 deleteSecretTokenBackup: async () =>
-                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDeleteSecretTokenBackupPartialUpdate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                    await api.update(`api/projects/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  * Also, we refresh the list of custom products to show the possible new entry in the sidebar after we've added the intent.
@@ -635,6 +668,14 @@ export const teamLogic = kea<teamLogicType>([
             // Reload user after team update to keep user object in sync
             actions.loadUser()
         },
+        updateCurrentTeamFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            // The global loader handler drops 409s, on the assumption that each conflict flow
+            // renders its own. This one has none, so the rename would fail with nothing on screen.
+            if (apiError?.status === 409) {
+                lemonToast.error(apiError.detail || error)
+            }
+        },
         createTeamSuccess: ({ currentTeam }) => {
             if (currentTeam) {
                 actions.switchTeam(currentTeam.id)
@@ -642,7 +683,8 @@ export const teamLogic = kea<teamLogicType>([
         },
         deleteTeam: async ({ team }) => {
             try {
-                await api.delete(`api/environments/${team.id}`)
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. organizationsProjectsDestroy() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
                 actions.deleteTeamSuccess()
             } catch {

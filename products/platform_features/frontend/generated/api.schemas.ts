@@ -7,10 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+/**
+ * * `1` - member
+ * * `8` - administrator
+ * * `15` - owner
+ */
+export type OrganizationMembershipLevelEnumApi =
+    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
 
-export const EffectiveMembershipLevelEnumApi = {
+export const OrganizationMembershipLevelEnumApi = {
     Number1: 1,
     Number8: 8,
     Number15: 15,
@@ -22,31 +27,14 @@ export const EffectiveMembershipLevelEnumApi = {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
     Number9: 9,
-} as const
-
-/**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
- */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
-
-export const DefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
 } as const
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
@@ -65,8 +53,8 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -117,13 +105,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -146,6 +129,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 export interface PaginatedOrganizationListApi {
@@ -173,8 +161,8 @@ export interface PatchedOrganizationApi {
     logo_media_id?: string | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly membership_level?: EffectiveMembershipLevelEnumApi
-    readonly plugins_access_level?: PluginsAccessLevelEnumApi
+    readonly membership_level?: OrganizationMembershipLevelEnumApi
+    readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
     readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
     /** @nullable */
@@ -225,13 +213,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown?: boolean | null
-    /** @nullable */
-    readonly is_hipaa?: boolean | null
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa?: boolean
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -254,6 +237,11 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution?: boolean | null
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -340,6 +328,12 @@ export const RoleAtOrganizationEnumApi = {
     Other: 'other',
 } as const
 
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
 /**
  * @nullable
  */
@@ -365,20 +359,6 @@ export interface UserBasicApi {
     readonly hedgehog_config: UserBasicApiHedgehogConfig
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
-
-/**
- * * `1` - member
- * * `8` - administrator
- * * `15` - owner
- */
-export type OrganizationMembershipLevelEnumApi =
-    (typeof OrganizationMembershipLevelEnumApi)[keyof typeof OrganizationMembershipLevelEnumApi]
-
-export const OrganizationMembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
@@ -545,11 +525,7 @@ export interface ProxyRecordListResponseApi {
 }
 
 export interface PatchedProxyRecordUpdateApi {
-    /**
-     * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
-     * @maxLength 1024
-     * @nullable
-     */
+    /** HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy. */
     root_redirect_url?: string | null
 }
 
@@ -806,7 +782,7 @@ export interface ActivityLogApi {
     /** @nullable */
     is_system?: boolean | null
     /**
-     * @maxLength 32
+     * @maxLength 256
      * @nullable
      */
     client?: string | null
@@ -854,7 +830,7 @@ export interface StaticFiltersApi {
     scopes: StaticFiltersApiScopesItem[]
     /** Available activity types. */
     activities: StaticFiltersApiActivitiesItem[]
-    /** API clients that have generated activity (from x-posthog-client header). */
+    /** API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run). */
     clients: StaticFiltersApiClientsItem[]
 }
 
@@ -1343,6 +1319,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `GeneratedWidget` - GeneratedWidget
      * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
@@ -1354,6 +1331,8 @@ export type ActivityLogListParams = {
      * * `Survey` - Survey
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+     * * `ReplayScanner` - ReplayScanner
+     * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
      * * `Project` - Project
@@ -1397,6 +1376,7 @@ export type ActivityLogListParams = {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -1408,8 +1388,10 @@ export type ActivityLogListParams = {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
+     * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1439,6 +1421,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1450,6 +1433,8 @@ export const ActivityLogListScope = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
@@ -1493,6 +1478,7 @@ export const ActivityLogListScope = {
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
+    TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
@@ -1504,8 +1490,10 @@ export const ActivityLogListScope = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 /**
@@ -1522,6 +1510,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `GeneratedWidget` - GeneratedWidget
  * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
@@ -1533,6 +1522,8 @@ export const ActivityLogListScope = {
  * * `Survey` - Survey
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+ * * `ReplayScanner` - ReplayScanner
+ * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
  * * `Project` - Project
@@ -1576,6 +1567,7 @@ export const ActivityLogListScope = {
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
+ * * `TracesRetentionRule` - TracesRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
@@ -1587,8 +1579,10 @@ export const ActivityLogListScope = {
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
+ * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `StamphogRepoConfig` - StamphogRepoConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1606,6 +1600,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    GeneratedWidget: 'GeneratedWidget',
     Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
@@ -1617,6 +1612,8 @@ export const ActivityLogListScopesItem = {
     Survey: 'Survey',
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+    ReplayScanner: 'ReplayScanner',
+    VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
     Project: 'Project',
@@ -1660,6 +1657,7 @@ export const ActivityLogListScopesItem = {
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
+    TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
@@ -1671,8 +1669,10 @@ export const ActivityLogListScopesItem = {
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
+    DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1681,7 +1681,7 @@ export type AdvancedActivityLogsListParams = {
      */
     activities?: string[]
     /**
-     * Filter by API clients that generated the activity (from x-posthog-client header).
+     * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[]
     /**
@@ -1817,6 +1817,10 @@ export type CommentsListParams = {
      * @minLength 1
      */
     completed?: CommentsListCompleted
+    /**
+     * Filter by the numeric ID of the user who wrote the comment.
+     */
+    created_by?: number
     /**
      * The pagination cursor value.
      */

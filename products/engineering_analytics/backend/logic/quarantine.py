@@ -65,7 +65,7 @@ QUARANTINE_FILENAME = ".test_quarantine.json"
 
 _SCHEMA_VERSION = 1
 _DEFAULT_RUNNER = "pytest"
-# Matches DEFAULT_GRACE_DAYS in the quarantine contract: an expired entry stays
+# Matches GRACE_DAYS in the quarantine contract: an expired entry stays
 # inert for this long before `quarantine check` makes its removal mandatory.
 _GRACE_DAYS = 7
 _EXPIRING_SOON_DAYS = 7

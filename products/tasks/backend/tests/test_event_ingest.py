@@ -2,15 +2,17 @@ import json
 import asyncio
 import threading
 from collections.abc import Sequence
+from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.db import OperationalError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
@@ -26,6 +28,7 @@ from products.tasks.backend.logic.stream.event_ingest import (
     MAX_EVENT_LINE_BYTES,
     MAX_EVENTS_PER_REQUEST,
     STREAM_COMPLETE_CONTROL_TYPE,
+    _is_session_update,
     handle_task_run_event_ingest,
 )
 from products.tasks.backend.logic.stream.redis_stream import (
@@ -38,6 +41,23 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
+
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
+
+SKIP_COUNTER_SAMPLE = "posthog_tasks_task_run_stream_write_skipped_total"
+
+
+class TestSessionUpdateContract(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (case["name"], case["event"], case["expect"]["session_update"])
+            for case in json.loads(
+                (Path(__file__).parents[4] / "ee/hogai/sandbox/turn_event_contract.json").read_text()
+            )
+        ]
+    )
+    def test_session_update_contract(self, _name: str, event: dict[str, object], expected: bool) -> None:
+        self.assertEqual(_is_session_update(event), expected)
 
 
 class TestTaskRunEventIngest(TestCase):
@@ -167,30 +187,105 @@ class TestTaskRunEventIngest(TestCase):
     def test_streaming_ingest_writes_ordered_events_with_explicit_completion(self) -> None:
         token = self._create_token()
 
-        with patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow:
+        with (
+            patch.object(TaskRun, "heartbeat_workflow") as heartbeat_workflow,
+            patch.object(TaskRun, "signal_agent_boot_milestone") as signal_milestone,
+        ):
+            signal_milestone.return_value = True
             status, body = self._call_ingest(
                 token,
                 [
                     {
                         "seq": 1,
-                        "event": {"type": "notification", "notification": {"method": "session/update"}},
+                        "event": {
+                            "type": "notification",
+                            "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+                        },
                     },
                     {
                         "seq": 2,
+                        "event": {
+                            "type": "notification",
+                            "notification": {"method": "_posthog/agent_command_dispatched", "params": {}},
+                        },
+                    },
+                    {
+                        "seq": 3,
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                            },
+                        },
+                    },
+                    {
+                        "seq": 4,
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "tool_call"}},
+                            },
+                        },
+                    },
+                    {
+                        "seq": 5,
                         "event": {"type": "notification", "notification": {"method": "_posthog/task_complete"}},
                     },
-                    {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 2},
+                    {"type": STREAM_COMPLETE_CONTROL_TYPE, "final_seq": 5},
                 ],
             )
 
         self.assertEqual(status, 200)
-        self.assertEqual(body["accepted"], 2)
-        self.assertEqual(body["last_accepted_seq"], 2)
+        self.assertEqual(body["accepted"], 5)
+        self.assertEqual(body["last_accepted_seq"], 5)
         heartbeat_workflow.assert_called_once_with(agent_active=True)
+        self.assertEqual(
+            signal_milestone.call_args_list,
+            [call("agent_command_dispatched"), call("agent_activity_observed")],
+        )
 
         events = self._read_stream_events()
-        self.assertEqual(self._read_notification_methods(), ["session/update", "_posthog/task_complete"])
+        self.assertEqual(
+            self._read_notification_methods(),
+            [
+                "_posthog/agent_command_dispatched",
+                "_posthog/agent_command_dispatched",
+                "session/update",
+                "session/update",
+                "_posthog/task_complete",
+            ],
+        )
         self.assertIn({"type": "STREAM_STATUS", "status": "complete"}, events)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_streaming_ingest_releases_failed_activity_claim(self) -> None:
+        token = self._create_token()
+
+        with patch.object(TaskRun, "signal_agent_boot_milestone", return_value=False):
+            status, _body = self._call_ingest(
+                token,
+                [
+                    {
+                        "seq": 1,
+                        "event": {
+                            "type": "notification",
+                            "notification": {
+                                "method": "session/update",
+                                "params": {"update": {"sessionUpdate": "agent_message_chunk"}},
+                            },
+                        },
+                    }
+                ],
+            )
+
+        async def claim_activity() -> bool:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(self.task_run.id)))
+            return await redis_stream.claim_first_agent_activity()
+
+        self.assertEqual(status, 200)
+        self.assertTrue(asyncio.run(claim_activity()))
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_uses_authenticated_ids_and_idempotent_event_uuid(self) -> None:
@@ -240,6 +335,104 @@ class TestTaskRunEventIngest(TestCase):
                 "cumulative_tokens_saved": 650,
             },
         )
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_budget_steer_capture_uses_authenticated_ids_and_rejects_malformed_params(self) -> None:
+        token = self._create_token()
+
+        def event(seq: int, params: dict) -> dict:
+            return {
+                "seq": seq,
+                "event": {
+                    "type": "notification",
+                    "notification": {"method": "_posthog/budget_steer", "params": params},
+                },
+            }
+
+        good = event(
+            1,
+            {
+                "sessionId": "spoofed-run",
+                "stage": "warn",
+                "mode": "publish",
+                "delivered": True,
+                "spent_usd": 14.1,
+                "threshold_spent_usd": 14.0,
+                "threshold_at": "2026-01-01T00:00:00.000Z",
+                "delivered_at": "2026-01-01T00:00:05.000Z",
+                "cap_usd": 20,
+            },
+        )
+        bad_stage = event(2, {"stage": "later", "mode": "publish", "delivered": True, "spent_usd": 1, "cap_usd": 2})
+        bad_amount = event(3, {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": -1, "cap_usd": 2})
+        list_stage = event(4, {"stage": ["warn"], "mode": "publish", "delivered": True, "spent_usd": 1, "cap_usd": 2})
+        huge_amount = event(
+            5, {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": 10**400, "cap_usd": 2}
+        )
+
+        with patch("products.tasks.backend.logic.stream.budget_steer.current_app.send_task") as capture_budget_steer:
+            first_status, _ = self._call_ingest(token, [good, bad_stage, bad_amount, list_stage, huge_amount])
+            duplicate_status, duplicate_body = self._call_ingest(token, [good])
+
+        self.assertEqual(first_status, 200)
+        self.assertEqual(duplicate_status, 200)
+        self.assertEqual(duplicate_body["duplicate"], 1)
+        self.assertEqual(capture_budget_steer.call_count, 1)
+        self.assertEqual(
+            capture_budget_steer.call_args.kwargs["kwargs"],
+            {
+                "team_id": self.team.id,
+                "event_uuid": str(uuid5(NAMESPACE_URL, f"posthog-task-budget-steer:{self.task_run.id}:1")),
+                "timestamp": "2026-01-01T00:00:05+00:00",
+                "properties": {
+                    "team_id": self.team.id,
+                    "task_id": str(self.task.id),
+                    "run_id": str(self.task_run.id),
+                    "stage": "warn",
+                    "mode": "publish",
+                    "delivered": True,
+                    "spent_usd": 14.1,
+                    "cap_usd": 20.0,
+                    "threshold_spent_usd": 14.0,
+                    "threshold_at": "2026-01-01T00:00:00.000Z",
+                    "delivered_at": "2026-01-01T00:00:05.000Z",
+                },
+            },
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_budget_steer_delivery_does_not_block_the_stream(self, dispatch_fails: bool) -> None:
+        token = self._create_token()
+        event = {
+            "seq": 1,
+            "event": {
+                "type": "notification",
+                "notification": {
+                    "method": "_posthog/budget_steer",
+                    "params": {"stage": "warn", "mode": "publish", "delivered": True, "spent_usd": 7, "cap_usd": 10},
+                },
+            },
+        }
+        following_event = {
+            "seq": 2,
+            "event": {"type": "notification", "notification": {"method": "_posthog/usage_update", "params": {}}},
+        }
+
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.budget_steer.current_app.send_task",
+                side_effect=RuntimeError("dispatch failed") if dispatch_fails else None,
+            ) as dispatch,
+            patch("posthoganalytics.consumer.Consumer.request") as upload,
+        ):
+            status, body = self._call_ingest(token, [event, following_event])
+
+        dispatch.assert_called_once()
+        upload.assert_not_called()
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(self._read_notification_methods(), ["_posthog/budget_steer", "_posthog/usage_update"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_rtk_savings_capture_failure_can_be_retried(self) -> None:
@@ -313,17 +506,22 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["accepted"], 1)
         self.assertEqual(self._read_notification_methods(), ["session/update"])
 
+    @parameterized.expand([("omitted", None), ("completed", "end_turn"), ("idle_resume", "idle_resume")])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_turn_complete_ingest_notifies_interactive_run(self) -> None:
+    def test_turn_complete_ingest_notifies_interactive_run(self, _name: str, stop_reason: str | None) -> None:
         self.task.created_by = User.objects.create_user("ingest-push@posthog.com", None, "Ingest")
         self.task.save(update_fields=["created_by"])
         self.task_run.state = {"mode": "interactive"}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
 
-        with patch(
-            "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
-        ) as notify_turn_completed:
+        metric = "posthog_tasks_turn_completed_suppressed_total"
+        labels = {"reason": "idle_resume"}
+        suppressed_before = REGISTRY.get_sample_value(metric, labels) or 0
+        with (
+            patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify_turn_completed,
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+        ):
             status, body = self._call_ingest(
                 token,
                 [
@@ -331,7 +529,10 @@ class TestTaskRunEventIngest(TestCase):
                         "seq": 1,
                         "event": {
                             "type": "notification",
-                            "notification": {"method": "_posthog/turn_complete"},
+                            "notification": {
+                                "method": "_posthog/turn_complete",
+                                "params": {"stopReason": stop_reason} if stop_reason else {},
+                            },
                         },
                     }
                 ],
@@ -339,8 +540,62 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
-        notify_turn_completed.assert_called_once()
-        self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
+        signal_turn_completed.assert_called_once()
+        if stop_reason == "idle_resume":
+            notify_turn_completed.assert_not_called()
+        else:
+            notify_turn_completed.assert_called_once()
+            self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
+        self.assertEqual(
+            (REGISTRY.get_sample_value(metric, labels) or 0) - suppressed_before,
+            int(stop_reason == "idle_resume"),
+        )
+
+    @parameterized.expand(
+        [
+            (runtime, reason, reason == "end_turn")
+            for runtime in ("acp", "pi")
+            for reason in ("end_turn", "cancelled", None)
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_turn_complete_ingest_signals_the_workflow_for_a_background_run(
+        self, runtime: str, reason: str | None, succeeded: bool
+    ) -> None:
+        token = self._create_token()
+        event = (
+            {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": reason}}
+            if runtime == "pi"
+            else {
+                "type": "notification",
+                "notification": {"method": "_posthog/turn_complete", "params": {"stopReason": reason}},
+            }
+        )
+
+        with patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed:
+            status, _ = self._call_ingest(token, [{"seq": 1, "event": event}])
+
+        self.assertEqual(status, 200)
+        signal_turn_completed.assert_called_once_with(succeeded=succeeded)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_pi_turn_completed_with_a_runtime_error_fails_the_run_instead_of_completing_it(self) -> None:
+        token = self._create_token()
+
+        with (
+            patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.signal_workflow_completion"
+            ) as signal_workflow_completion,
+        ):
+            status, _ = self._call_ingest(
+                token,
+                [{"seq": 1, "event": {"type": "pi_event", "event": {"type": "turn_completed", "stopReason": "error"}}}],
+            )
+
+        self.assertEqual(status, 200)
+        signal_turn_completed.assert_not_called()
+        signal_workflow_completion.assert_called_once_with(str(self.task_run.id), "failed", PI_RUNTIME_ERROR_MESSAGE)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
@@ -425,6 +680,31 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["duplicate"], 1)
         self.assertEqual(body["last_accepted_seq"], 2)
         self.assertEqual(self._read_notification_methods(), ["first", "second"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_presence_gated_ingest_accepts_events_without_mirroring_them(self) -> None:
+        self.task_run.state = {**(self.task_run.state or {}), "stream_presence_gated": True}
+        self.task_run.save(update_fields=["state", "updated_at"])
+        token = self._create_token()
+        skip_labels = {"path": "ingest", "origin_product": Task.OriginProduct.USER_CREATED.value}
+        skips_before = REGISTRY.get_sample_value(SKIP_COUNTER_SAMPLE, skip_labels) or 0.0
+
+        with patch.object(TaskRun, "heartbeat_workflow"):
+            status, body = self._call_ingest(
+                token,
+                [
+                    {"seq": 1, "event": {"type": "notification", "notification": {"method": "first"}}},
+                    {"seq": 2, "event": {"type": "notification", "notification": {"method": "second"}}},
+                ],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 2)
+        self.assertEqual(body["duplicate"], 0)
+        self.assertEqual(body["last_accepted_seq"], 2)
+        self.assertEqual(self._read_stream_events(), [])
+        skips_after = REGISTRY.get_sample_value(SKIP_COUNTER_SAMPLE, skip_labels) or 0.0
+        self.assertEqual(skips_after - skips_before, 2.0)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_duplicate_terminal_sequence_does_not_complete_without_completion_line(self) -> None:

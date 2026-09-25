@@ -41,10 +41,13 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
+    "products.slack_app",
     "products.cohorts",
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.approvals",
     "products.alerts",
     "products.cdp",
     "products.conversations",
@@ -73,15 +76,19 @@ depends_on = [
     "products.user_interviews",
     "products.warehouse_sources",
     "products.exports",
+    "products.workflows",
 ]
 layer = "modules"
 
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.ai_training",
+    "products.autoresearch",
     "products.cohorts",
     "ee",
     "products.access_control",
+    "products.aeo",
     "products.analytics_platform",
     "products.approvals",
     "products.batch_exports",
@@ -134,11 +141,15 @@ depends_on = [
     "products.tasks",
     "products.tracing",
     "products.user_interviews",
+    "products.visual_review",
     "products.mcp_analytics",
+    "products.mcp_registry",
     "products.web_analytics",
+    "products.wizard",
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
+    "products.security",
 ]
 layer = "modules"
 
@@ -155,6 +166,19 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.aeo"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.aeo",
+]
+
+[[modules]]
 path = "products.ai_gateway"
 depends_on = ["posthog"]
 layer = "modules"
@@ -168,6 +192,23 @@ depends_on = [
     "products.product_analytics", "products.access_control",
 ]
 layer = "modules"
+
+# alerts — external consumers go through the facade: facade.contracts for the
+# destination and delivery types, facade.destinations for destination configuration and
+# dispatch, facade.email for alert mail, facade.lifecycle for the shared state machine,
+# facade.scheduling for the scheduling math, facade.delivery_slo for delivery SLOs,
+# facade.evaluation for the threshold comparator, and facade.api for the insight-alert reads
+# and writes. presentation.views carries the DRF
+# surface adopter products mount or reuse in process, which a facade may not hold.
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.alerts",
+]
 
 [[modules]]
 path = "products.analytics_platform"
@@ -187,10 +228,21 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.autoresearch"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.feature_flags",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.batch_exports"
 depends_on = [
     "ee",
     "posthog",
+    "products.access_control",
     "products.notifications",
 ]
 layer = "modules"
@@ -211,6 +263,8 @@ path = "products.cohorts"
 depends_on = [
     "products.actions",
     "posthog",
+    # A behavioural cohort filter reads a trends insight's display type.
+    "products.product_analytics",
 ]
 layer = "modules"
 
@@ -230,6 +284,7 @@ layer = "modules"
 [[modules]]
 path = "products.dashboards"
 depends_on = [
+    "products.notebooks",
     "ee",
     "posthog",
     "products.alerts",
@@ -317,6 +372,7 @@ path = "products.warehouse_sources"
 depends_on = [
     "ee",
     "posthog",
+    "products.batch_exports",
     "products.cdp",
     "products.data_modeling",
     "products.data_tools",
@@ -418,6 +474,8 @@ depends_on = [
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
+    # An experiment with a funnel metric runs the funnel through product analytics.
+    "products.product_analytics",
     "products.product_tours",
     "products.surveys",
     "products.tasks",
@@ -448,6 +506,7 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.signals", "products.tasks",
 ]
 layer = "modules"
 
@@ -535,6 +594,26 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.mcp_registry"
+depends_on = [
+    "posthog",
+    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
+    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
+    "products.mcp_analytics",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.mcp_registry",
+]
+
+[[modules]]
 path = "products.mcp_store"
 depends_on = [
     "ee",
@@ -568,6 +647,8 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
+    "products.dashboards",
     "products.product_analytics",
     "products.tasks", "products.access_control",
 ]
@@ -621,6 +702,10 @@ depends_on = [
     "products.event_definitions",
     "products.ai_observability",
     "products.logs",
+    # The skill build reads the bundled-skill names the skills store validates against, so the
+    # two sides share one definition. The skills product has no facade, so this matches how
+    # review_hog, signals and tasks reach it.
+    "products.skills",
     "products.tasks",
 ]
 layer = "modules"
@@ -635,8 +720,12 @@ depends_on = [
     "products.alerts",
     "products.dashboards",
     "products.event_definitions",
+    "products.exports",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
+    # A trends query filtering on a first-pageview-aware property builds it through
+    # web analytics' attribution helper. Core held this import before trends moved.
+    "products.web_analytics",
 ]
 layer = "modules"
 
@@ -671,6 +760,7 @@ layer = "modules"
 path = "products.reminders"
 depends_on = [
     "posthog",
+    "products.access_control",
     "products.dashboards",
     "products.error_tracking",
     "products.experiments",
@@ -695,11 +785,14 @@ path = "products.replay_vision"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    "products.event_definitions",
     "products.experiments",
     "products.exports",
+    "products.feature_flags",
     "products.notifications",
     "products.signals",
     "products.tasks", "products.access_control",
@@ -732,6 +825,9 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    # Facade-only: a scout report asks whether the bot can answer a follow-up on it. products.slack_app
+    # depends on products.signals in turn, so both directions stay facade-only to keep the pair honest.
+    "products.slack_app",
     "ee",
     "products.cohorts",
     "posthog",
@@ -740,6 +836,8 @@ depends_on = [
     "products.cdp",
     "products.conversations",
     "products.dashboards",
+    # Facade-only: reviewer suggestions read the GitHub team roster to route work at a team slug.
+    "products.engineering_analytics",
     # Facade-only (enforced by data_catalog's [[interfaces]] block): the scout harness gates
     # its catalog-first prompt rule on the data catalog flag.
     "products.data_catalog",
@@ -810,6 +908,7 @@ depends_on = [
     "posthog",
     "products.cdp",
     "products.conversations",
+    "products.data_modeling",
     "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
@@ -845,6 +944,7 @@ layer = "modules"
 [[modules]]
 path = "products.tasks"
 depends_on = [
+    "products.cdp",
     "ee",
     "posthog",
     "products.canvas",
@@ -858,6 +958,9 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.signals",
+    # Skills attached to workflow task nodes are read at fire time. The skills
+    # product has no facade, so this matches how review_hog and signals reach LLMSkill.
+    "products.skills",
     "products.slack_app", "products.access_control",
 ]
 layer = "modules"
@@ -865,11 +968,14 @@ layer = "modules"
 [[modules]]
 path = "products.canvas"
 depends_on = [
+    "products.workflows",
     "posthog",
     # Sandbox provisioning (via the tasks facade) and the Channel FK canvases file into.
     "products.tasks",
     # The annotations.create action verb (via the annotations facade).
     "products.annotations",
+    # MCP connector calls made with the viewer's own installation (via the mcp_store facade).
+    "products.mcp_store",
 ]
 layer = "modules"
 
@@ -878,6 +984,16 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
+]
+from = [
+    "products.canvas",
+]
+
+# Canvas is still a legacy product, so notebooks use a narrow product-owned
+# integration instead of exposing its whole facade and claiming strict isolation.
+[[interfaces]]
+expose = [
+    "backend\\.notebook_integration.*",
 ]
 from = [
     "products.canvas",
@@ -923,6 +1039,7 @@ from = [
 path = "products.tracing"
 depends_on = [
     "posthog", "products.access_control",
+    "products.logs",
 ]
 layer = "modules"
 
@@ -959,6 +1076,8 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    # The web trends, web vitals and calendar heatmap runners subclass product analytics' trends runners.
+    "products.product_analytics",
     "products.replay_vision",
 ]
 layer = "modules"
@@ -974,6 +1093,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the Run scout action's endpoint starts a scout run through
+    # products.signals.backend.facade.api.
+    "products.signals",
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
@@ -989,7 +1111,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(autoresearch|batch_exports|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1025,6 +1147,8 @@ expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
@@ -1080,6 +1204,8 @@ expose = [
     "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
+    "backend\\.url_policy\\.check_mcp_url_policy",
+    "backend\\.url_policy\\.trust_environment_proxy",
 ]
 from = [
     "products.mcp_store",
@@ -1142,6 +1268,70 @@ expose = [
 ]
 from = [
     "products.error_tracking",
+]
+
+# isolation:permanent-interface
+# batch_exports exposes its ClickHouse DDL (backend.sql) to ten frozen ClickHouse migrations
+# under posthog/clickhouse/migrations/, which import the view constants by dotted path. A frozen
+# migration can never be rerouted, and the module holds CREATE ... VIEW constants and nothing
+# else, so this coupling is outside the import-reroute path. The marker above declares it
+# permanent rather than a legacy leak, so it does not hold the external seal open. turbo.json
+# must keep backend/sql.py in the contract-check inputs when that narrowing lands, so a change
+# to it still re-runs the Django suite (IsolationChainCheck enforces that).
+
+[[interfaces]]
+expose = [
+    "backend\\.sql.*",
+]
+from = [
+    "products.batch_exports",
+]
+
+# Legacy leaks — core (posthog/ee), cdp and warehouse_sources still import these batch_exports
+# internals directly. Each entry names its crossing and the facade that replaces it. The block
+# drains as those callers move, and keeps backend:contract-check off until it is empty.
+# tach interfaces have no consumer scoping, so this block opens the listed paths to every module,
+# not only to the consumers named below.
+[[interfaces]]
+expose = [
+    # Integration teardown, the organization admin's model counts, the migrate_team command, the
+    # run-failure email, the usage report and team deletion read the models, as do core's API,
+    # activity-log, email, usage-report and HogQL system-table tests.
+    # Exit: facade.api and facade.testing.
+    "backend\\.models.*",
+    # The migrate_team command, team deletion, the shared Temporal test utilities, the payload
+    # codec test and the warehouse_sources S3 writer reach the service layer.
+    # Exit: facade.api, facade.testing and contracts.AWSCredentials.
+    "backend\\.service.*",
+    # The usage report drops non-billable runs itself.
+    # Exit: facade.api.get_teams_with_billable_rows_exported.
+    "backend\\.billing.*",
+    # The worker bootstrap commands, the worker's metrics interceptor, the shared Temporal test
+    # conftest and the team-deletion test register the workflows and activities.
+    # Exit: facade.temporal.
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.metrics.*",
+    "backend\\.temporal\\.noop.*",
+    # The warehouse_sources data-import writers reuse the destination clients and the stream
+    # transformers.
+    # Exit: facade.pipeline.
+    "backend\\.temporal\\.destinations.*",
+    "backend\\.temporal\\.pipeline\\.transformer.*",
+    # cdp's enable_backfills validates with BatchExportSerializer. A facade must not import DRF,
+    # so the exit here is the presentation move, after which presentation.views is the channel.
+    "backend\\.api\\.batch_export.*",
+]
+from = [
+    "products.batch_exports",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.tracing",
 ]
 
 [[interfaces]]
@@ -1207,6 +1397,35 @@ from = [
     "products.access_control",
 ]
 
+# Legacy leaks — core still runs the insight-alert pipeline itself: the alert check tasks
+# under posthog/tasks/alerts/, the Temporal workflows under posthog/temporal/alerts/ and
+# posthog/temporal/ai/anomaly_investigation/, and the PostHog AI product-analytics preset
+# reach the alert models, the insight evaluation, the insight lifecycle adapter, the
+# investigation episode reader and the Max tool directly. The exit is moving that pipeline
+# into the product; the block drains as it moves, and keeps backend:contract-check off
+# until it is empty.
+# backend.models has a second exit of its own: pulse, dashboards, signals, the AI entity
+# search and posthog/models/organization.py import it from production code outside core, so
+# moving the pipeline does not by itself retire that line.
+# tach interfaces have no consumer scoping, so this block opens the listed paths to every
+# module, not only to the consumers named above.
+[[interfaces]]
+expose = [
+    "backend\\.evaluation",
+    "backend\\.evaluation\\.check_alert_for_insight",
+    "backend\\.evaluation\\.contract.*",
+    "backend\\.evaluation\\.detector.*",
+    "backend\\.evaluation\\.dispatcher.*",
+    "backend\\.evaluation\\.validation.*",
+    "backend\\.insight_alert_state_machine.*",
+    "backend\\.investigation_episode.*",
+    "backend\\.max_tools.*",
+    "backend\\.models.*",
+]
+from = [
+    "products.alerts",
+]
+
 # Legacy leaks — core (posthog/ee), customer_analytics, reminders and signals still
 # import the Notebook ORM directly: file-system / search / reminders registries dispatch
 # on the model class, middleware returns a raw queryset, the read_data and notebook-context
@@ -1224,7 +1443,7 @@ from = [
 
 [[modules]]
 path = "products.business_knowledge"
-depends_on = ["posthog", "ee"]
+depends_on = ["posthog", "ee", "products.access_control"]
 layer = "modules"
 
 [[interfaces]]
@@ -1234,6 +1453,9 @@ expose = [
     "backend\\.constants.*",
     "backend\\.models.*",
     "backend\\.temporal.*",
+    # Other products register LearningEvidenceProvider here. BK never imports them.
+    "backend\\.learning\\.contracts.*",
+    "backend\\.learning\\.providers.*",
 ]
 from = [
     "products.business_knowledge",
@@ -1249,7 +1471,7 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions"]
+depends_on = ["posthog", "products.event_definitions", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]
@@ -1289,7 +1511,8 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control"]
+# products.slack_app is facade-only: an AI subscription asks whether the bot can answer a follow-up.
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control", "products.slack_app"]
 layer = "modules"
 
 [[modules]]
@@ -1332,6 +1555,7 @@ from = [
 path = "products.data_catalog"
 depends_on = [
     "posthog",
+    "products.data_quality",
     "products.data_tools",
     "products.product_analytics",
     "products.warehouse_sources",
@@ -1357,6 +1581,7 @@ layer = "modules"
 path = "products.data_quality"
 depends_on = [
     "posthog",
+    "products.data_catalog",
     "products.data_modeling",
     "products.notifications",
     "products.warehouse_sources", "products.access_control",
@@ -1380,4 +1605,47 @@ expose = [
 ]
 from = [
     "products.data_quality",
+]
+
+[[modules]]
+path = "products.ai_training"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ai_training",
+]
+
+[[modules]]
+path = "products.ml_inference"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.ml_inference",
+]
+
+[[modules]]
+path = "products.security"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.presentation\\.hub_api.*",
+]
+from = [
+    "products.security",
 ]

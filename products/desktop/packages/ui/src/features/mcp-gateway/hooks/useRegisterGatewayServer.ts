@@ -25,6 +25,9 @@ interface RegisterGatewayServerResult {
   error: string | null;
 }
 
+const DISCOVERY_FAILED =
+  "Added, but listing the server's tools failed. Open the server to try again.";
+
 /**
  * Registers a custom server with the gateway (Add-server form submit) and
  * resolves the resulting registry entry so the caller can navigate to it.
@@ -57,12 +60,22 @@ export function useRegisterGatewayServer() {
       // Registering stores the credential but discovers no tools, and this
       // flow lands the user straight on the server's detail page — list them
       // now so that page isn't empty. A failure here is not a failed install;
-      // the detail page retries on mount.
+      // the detail page retries on mount. It is still reported, because a
+      // server that lists no tools is unusable and the row alone never says so.
       const discovery = await discoverGatewayTools(
         client,
         { serverId: created?.id, url: vars.request.url },
         { servers },
-      ).catch(() => null);
+      ).catch(() => {
+        toast.warning(DISCOVERY_FAILED);
+        return null;
+      });
+      // Losing the registry row leaves the same empty server as a failed
+      // listing. "no-connection" does not: the credential is mid-OAuth, which
+      // the server's own tag already says.
+      if (discovery?.skipped === "no-server") {
+        toast.warning(DISCOVERY_FAILED);
+      }
       return { created, discoveredTools: !!discovery?.discovered, error: null };
     },
     {
@@ -78,6 +91,7 @@ export function useRegisterGatewayServer() {
           });
           queryClient.invalidateQueries({ queryKey: gatewayKeys.servers });
         }
+        queryClient.invalidateQueries({ queryKey: gatewayKeys.accounts });
         queryClient.invalidateQueries({ queryKey: mcpKeys.installations });
       },
       onError: (error: Error) =>

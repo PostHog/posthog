@@ -4,7 +4,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -135,8 +135,12 @@ def _query(url: str) -> dict[str, list[str]]:
     return parse_qs(urlparse(url).query)
 
 
-@freeze_time("2026-01-10T00:00:00Z")
 class TestEventRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-01-10T00:00:00Z", tick=False):
+            yield
+
     NOW_MS = 1768003200000
 
     def test_incremental_run_chunks_from_watermark(self) -> None:

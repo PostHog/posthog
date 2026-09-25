@@ -15,6 +15,67 @@
                 }
             }
         },
+        "BillingSpendBreakdownsSchema": {
+            "description": "Dimensions to break spend down by. Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for one aggregate series.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["type", "team"]
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BillingTeamIdsSchema": {
+            "description": "Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BillingUsageBreakdownsSchema": {
+            "description": "Dimensions to break usage down by. Pass `[\"type\"]` for per-usage-type series or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require `\"type\"`; do not pass `[\"team\"]` by itself. Omit for one aggregate series.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["type", "team"]
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BillingUsageTypesSchema": {
+            "description": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
+            "anyOf": [
+                {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
         "BusinessKnowledgeUrlSourceCreateSchema": {
             "type": "object",
             "properties": {
@@ -49,11 +110,112 @@
             },
             "required": ["name", "url"]
         },
+        "CanvasStateKeysOnlySchema": {
+            "default": true,
+            "type": "boolean"
+        },
+        "CanvasStateReadLimitSchema": {
+            "default": 20,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+        },
         "ChannelInstructionsBaseVersionSchema": {
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991,
             "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions."
+        },
+        "DashboardTileCreateSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "Dashboard ID. Use dashboard-get or dashboards-get-all to find it."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["text", "image"],
+                    "description": "Tile type. Use text for Markdown content. Use image for a body with exactly one Markdown image."
+                },
+                "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000,
+                    "description": "Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body."
+                },
+                "layouts": {
+                    "description": "Optional dashboard-grid layout for desktop (sm) and mobile (xs).",
+                    "type": "object",
+                    "properties": {
+                        "sm": {
+                            "type": "object",
+                            "properties": {
+                                "x": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "y": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "w": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "h": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                }
+                            }
+                        },
+                        "xs": {
+                            "type": "object",
+                            "properties": {
+                                "x": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "y": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                },
+                                "w": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "h": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                }
+                            }
+                        }
+                    }
+                },
+                "color": {
+                    "description": "Optional tile accent color.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 400
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["id", "type", "body"]
         },
         "DebugMcpUiAppsSchema": {
             "type": "object",
@@ -271,6 +433,44 @@
             },
             "required": ["id", "operations"]
         },
+        "EventDefinitionCreateSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400,
+                    "description": "The name of the event to create (e.g. \"user_signed_up\")"
+                },
+                "data": {
+                    "description": "Optional metadata for the new event definition",
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "description": "Description explaining when the event is triggered",
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "maxLength": 255
+                            }
+                        },
+                        "verified": {
+                            "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                            "type": "boolean"
+                        },
+                        "hidden": {
+                            "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                            "type": "boolean"
+                        }
+                    }
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
@@ -282,7 +482,8 @@
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 255
                     }
                 },
                 "verified": {
@@ -313,7 +514,8 @@
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                             "type": "array",
                             "items": {
-                                "type": "string"
+                                "type": "string",
+                                "maxLength": 255
                             }
                         },
                         "verified": {
@@ -337,6 +539,10 @@
                     "type": "string",
                     "minLength": 1,
                     "description": "The final SQL query to be executed."
+                },
+                "context": {
+                    "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+                    "type": "string"
                 },
                 "truncate": {
                     "default": true,
@@ -750,6 +956,12 @@
                     "description": "Optional substring filter applied to prompt names and prompt content.",
                     "type": "string"
                 },
+                "label": {
+                    "description": "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                },
                 "content": {
                     "default": "none",
                     "description": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",
@@ -866,7 +1078,8 @@
                                     "maximum": 9007199254740991
                                 }
                             },
-                            "required": ["kind"]
+                            "required": ["kind"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -880,7 +1093,8 @@
                                     "description": "The name of the event that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "event_name"]
+                            "required": ["kind", "event_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -891,10 +1105,11 @@
                                 },
                                 "entity": {
                                     "type": "string",
-                                    "description": "The type of the entity that you want to retrieve properties for."
+                                    "description": "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too."
                                 }
                             },
-                            "required": ["kind", "entity"]
+                            "required": ["kind", "entity"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -910,7 +1125,8 @@
                                     "description": "The ID of the action that you want to retrieve properties for."
                                 }
                             },
-                            "required": ["kind", "action_id"]
+                            "required": ["kind", "action_id"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -921,14 +1137,15 @@
                                 },
                                 "entity": {
                                     "type": "string",
-                                    "description": "The type of the entity that you want to retrieve properties for."
+                                    "description": "The entity to read: `person`, `session` for the columns of the `sessions` table, or a group type name. The plural form of any of these is accepted too."
                                 },
                                 "property_name": {
                                     "type": "string",
                                     "description": "Verified property name of an entity."
                                 }
                             },
-                            "required": ["kind", "entity", "property_name"]
+                            "required": ["kind", "entity", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -946,7 +1163,8 @@
                                     "description": "Verified property name of an event."
                                 }
                             },
-                            "required": ["kind", "event_name", "property_name"]
+                            "required": ["kind", "event_name", "property_name"],
+                            "additionalProperties": false
                         },
                         {
                             "type": "object",
@@ -966,7 +1184,8 @@
                                     "description": "Verified property name of an action."
                                 }
                             },
-                            "required": ["kind", "action_id", "property_name"]
+                            "required": ["kind", "action_id", "property_name"],
+                            "additionalProperties": false
                         }
                     ],
                     "description": "The data schema query to execute."
@@ -1092,6 +1311,123 @@
             ],
             "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
         },
+        "TaskAgentCreateSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "maxLength": 255
+                },
+                "description": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Instructions for the agent."
+                },
+                "repository": {
+                    "description": "Repository in organization/repo format.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "branch": {
+                    "description": "Base branch for the run.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "scheduled_at": {
+                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "model": {
+                    "description": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "reasoning_effort": {
+                    "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"]
+                }
+            },
+            "required": ["description"]
+        },
+        "TaskAgentRunCreateSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "description": "Task ID."
+                },
+                "branch": {
+                    "description": "Git branch to check out in the sandbox.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "resume_from_run_id": {
+                    "description": "ID of a previous run to resume from.",
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                },
+                "pending_user_message": {
+                    "description": "Initial or follow-up message for the run.",
+                    "type": "string"
+                },
+                "scheduled_at": {
+                    "description": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "model": {
+                    "description": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "reasoning_effort": {
+                    "description": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+                    "type": "string",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"]
+                }
+            },
+            "required": ["id"]
+        },
         "UsageMetricFiltersSchema": {
             "anyOf": [
                 {
@@ -1167,6 +1503,12 @@
                 }
             ],
             "description": "Filter definition. Pick exactly one branch: `data_warehouse` (set `source: \"data_warehouse\"` plus `table_name`/`timestamp_field`/`key_field`) or `events` (HogFunction filter shape with an `events` array)."
+        },
+        "WikiPageReadLimitSchema": {
+            "default": 12000,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12000
         },
         "WorkflowActionEmailPatchSchema": {
             "type": "object",

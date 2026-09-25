@@ -319,6 +319,9 @@ export interface sidePanelNotificationsLogicActions {
     navigateToNotification: (notification: InAppNotification) => {
         notification: InAppNotification
     }
+    notificationClicked: (notification: InAppNotification) => {
+        notification: InAppNotification
+    }
     notificationReceived: (notification: InAppNotification) => {
         notification: InAppNotification
     }
@@ -472,6 +475,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         loadMoreArchivedSuccess: (count: number) => ({ count }),
         loadArchivedGroupChildren: (group: NotificationGroup) => ({ group }),
         navigateToNotification: (notification: InAppNotification) => ({ notification }),
+        notificationClicked: (notification: InAppNotification) => ({ notification }),
         loadMoreNotifications: true,
         loadMoreNotificationsSuccess: (count: number) => ({ count }),
         loadGroupChildren: (group: NotificationGroup) => ({ group }),
@@ -666,6 +670,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
 
                     try {
                         const [response] = await Promise.all([
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             api.get<ChangesResponse>(
                                 `api/projects/${values.currentProjectId}/my_notifications?` +
                                     toParams({ unread: onlyUnread })
@@ -711,6 +716,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/projects/${values.currentProjectId}/my_notifications/bookmark`, {
                         bookmark: latestNotification.created_at.toISOString(),
                     })
@@ -941,6 +947,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 cache.disposables.dispose('sseConnection')
                 cache.nextStopReason = null
             },
+            notificationClicked: ({ notification }) => {
+                posthog.capture('notification clicked', {
+                    notification_type: notification.notification_type,
+                    resource_type: notification.resource_type,
+                    was_unread: !notification.read,
+                    // How stale a notification is by the time anyone acts on it
+                    age_seconds: dayjs().diff(dayjs(notification.created_at), 'second'),
+                    has_navigation_target: !!values.sourcePathForNotification(notification),
+                    is_other_project: notification.team_id !== null && notification.team_id !== values.currentTeamId,
+                })
+            },
             navigateToNotification: ({ notification }) => {
                 const path = values.sourcePathForNotification(notification)
                 if (!path) {
@@ -1002,8 +1019,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
             refreshInAppUnreadCount: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const countResp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
                     actions.setInAppUnreadCount(countResp.count)
                 } catch {
@@ -1312,8 +1330,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     // Swallow
                 }
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. notificationsUnreadCountRetrieve() from 'products/notifications/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const countResp = await api.get<{ count: number }>(
-                        `api/environments/${values.currentProjectId}/notifications/unread_count/`
+                        `api/projects/${values.currentProjectId}/notifications/unread_count/`
                     )
                     actions.setInAppUnreadCount(countResp.count)
                 } catch {

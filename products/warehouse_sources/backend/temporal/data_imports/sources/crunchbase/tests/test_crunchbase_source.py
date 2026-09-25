@@ -1,7 +1,10 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import (
+    CRUNCHBASE_ENDPOINTS,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.source import CrunchbaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
     CrunchbaseSourceConfig,
@@ -35,6 +38,16 @@ class TestCrunchbaseSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_vendor_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_vendor_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_every_endpoint_has_canonical_descriptions(self, endpoint):
+        # The shared catalog invariant only rejects descriptions for schemas that do not exist;
+        # an endpoint added without them degrades to LLM enrichment without failing anything.
+        descriptions = self.source.get_canonical_descriptions()
+
+        assert endpoint in descriptions
+        described = set(descriptions[endpoint].get("columns") or {})
+        assert set(CRUNCHBASE_ENDPOINTS[endpoint].field_ids) - described == set()
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -139,7 +139,7 @@ class TestOAuthApplicationAdmin(BaseTest):
         plaintext = message.rsplit(": ", 1)[1]
         assert check_password(plaintext, app.client_secret)
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_all_sessions_action_force_invalidates_tokens(self):
         app = OAuthApplication.objects.create(
             name="Revoke Action App",
@@ -166,7 +166,7 @@ class TestOAuthApplicationAdmin(BaseTest):
         self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
         message_user.assert_called_once()
 
-    @freeze_time("2026-01-01 00:00:00")
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
     def test_revoke_all_sessions_without_confirm_renders_page_and_keeps_tokens(self):
         app = OAuthApplication.objects.create(
             name="Revoke Confirm App",
@@ -227,8 +227,8 @@ class TestOAuthApplicationAdmin(BaseTest):
         ]
     )
     def test_cimd_identity_fields_are_not_editable(self, _name, change):
-        # An operator who could turn on is_cimd_client, or set a metadata URL, would hand the
-        # next metadata refresh an app that no partner registered.
+        # An operator who could turn on is_cimd_client would hand the next metadata refresh
+        # an app that no partner registered.
         app = OAuthApplication(is_cimd_client=False) if change else None
         request = RequestFactory().get("/")
         # A user without change permission gets an empty change form, which would pass this
@@ -237,7 +237,5 @@ class TestOAuthApplicationAdmin(BaseTest):
         request.user = self.user
         form_class = self.admin.get_form(request, app, change=change)
         assert "name" in form_class.base_fields
-        editable = [
-            name for name in ("is_cimd_client", "is_dcr_client", "cimd_metadata_url") if name in form_class.base_fields
-        ]
+        editable = [name for name in ("is_cimd_client", "is_dcr_client") if name in form_class.base_fields]
         assert editable == []

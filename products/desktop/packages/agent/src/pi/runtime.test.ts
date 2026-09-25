@@ -92,6 +92,125 @@ describe("PiRuntime", () => {
     });
   });
 
+  it.each([
+    ["abort", (runtime: PiRuntime) => runtime.abort(), false],
+    [
+      "steer",
+      (runtime: PiRuntime) =>
+        runtime.sendCommand({ type: "steer", message: "stop" }),
+      false,
+    ],
+    [
+      "compact",
+      (runtime: PiRuntime) => runtime.sendCommand({ type: "compact" }),
+      false,
+    ],
+    ["abort", (runtime: PiRuntime) => runtime.abort(), true],
+    [
+      "steer",
+      (runtime: PiRuntime) =>
+        runtime.sendCommand({ type: "steer", message: "stop" }),
+      true,
+    ],
+    [
+      "compact",
+      (runtime: PiRuntime) => runtime.sendCommand({ type: "compact" }),
+      true,
+    ],
+  ])(
+    "does not expose interrupted tool failures after %s when its command fails: %s",
+    async (_command, interrupt, commandFails) => {
+      const { client, emit, send } = createClient();
+      const runtime = new PiRuntime(client);
+      const conversationListener = vi.fn();
+      runtime.onConversationEvent(conversationListener);
+      send.mockImplementation(async (command: { type: string }) => {
+        emit({
+          type: "tool_execution_end",
+          toolCallId: "tool-1",
+          toolName: "web_search",
+          result: {
+            content: [
+              { type: "text", text: "AbortError: This operation was aborted" },
+            ],
+            details: undefined,
+          },
+          isError: true,
+        });
+        emit({
+          type: "message_end",
+          message: {
+            role: "toolResult",
+            toolCallId: "tool-1",
+            toolName: "web_search",
+            content: [
+              { type: "text", text: "AbortError: This operation was aborted" },
+            ],
+            isError: true,
+            timestamp: 0,
+          },
+        });
+        if (commandFails) {
+          throw new Error("Command transport failed");
+        }
+        return { type: "response", command: command.type, success: true };
+      });
+
+      if (commandFails) {
+        await expect(interrupt(runtime)).rejects.toThrow(
+          "Command transport failed",
+        );
+      } else {
+        await interrupt(runtime);
+      }
+
+      const interruptedToolUpdate = {
+        type: "tool_call_updated",
+        timestamp: 0,
+        toolCall: {
+          id: "tool-1",
+          status: "in_progress",
+          rawOutput: [],
+        },
+      };
+      expect(conversationListener).toHaveBeenNthCalledWith(
+        1,
+        interruptedToolUpdate,
+      );
+      expect(conversationListener).toHaveBeenNthCalledWith(
+        2,
+        interruptedToolUpdate,
+      );
+
+      emit({
+        type: "tool_execution_end",
+        toolCallId: "tool-2",
+        toolName: "web_search",
+        result: {
+          content: [{ type: "text", text: "Permission denied" }],
+          details: undefined,
+        },
+        isError: true,
+      });
+
+      expect(conversationListener).toHaveBeenLastCalledWith({
+        type: "tool_call_updated",
+        timestamp: 0,
+        toolCall: {
+          id: "tool-2",
+          status: "failed",
+          rawOutput: [{ type: "text", text: "Permission denied" }],
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "Permission denied" },
+            },
+          ],
+        },
+      });
+    },
+  );
+
   it("uses the native command id for the echoed user message", async () => {
     const { client, emit, send } = createClient();
     const runtime = new PiRuntime(client);

@@ -10,6 +10,71 @@
 import * as zod from 'zod'
 
 /**
+ * Create a local or cloud Wizard run for a project workspace.
+ */
+export const wizardRunsCreateBodyProgramIdRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$')
+export const wizardRunsCreateBodyWorkspaceOneOneProjectNameMax = 255
+
+export const wizardRunsCreateBodyWorkspaceOneTwoRepositoryMax = 255
+
+export const wizardRunsCreateBodyIdempotencyKeyMax = 255
+
+export const WizardRunsCreateBody = /* @__PURE__ */ zod.object({
+    program_id: zod.string().regex(wizardRunsCreateBodyProgramIdRegExp).describe('Registry program to run.'),
+    environment: zod
+        .enum(['local', 'cloud'])
+        .describe('\* `local` - local\n\* `cloud` - cloud')
+        .describe('Where the setup agent runs.\n\n\* `local` - local\n\* `cloud` - cloud'),
+    workspace: zod
+        .union([
+            zod.object({
+                type: zod.enum(['local_folder']).describe("Selects a folder on the user's machine as the workspace."),
+                project_name: zod
+                    .string()
+                    .max(wizardRunsCreateBodyWorkspaceOneOneProjectNameMax)
+                    .describe('Name of the project in the local folder.'),
+            }),
+            zod.object({
+                type: zod.enum(['git_repository']).describe('Selects a GitHub repository as the workspace.'),
+                repository: zod
+                    .string()
+                    .max(wizardRunsCreateBodyWorkspaceOneTwoRepositoryMax)
+                    .describe('GitHub repository in owner\/name format.'),
+            }),
+        ])
+        .describe('Project that the setup agent works on.'),
+    idempotency_key: zod
+        .string()
+        .max(wizardRunsCreateBodyIdempotencyKeyMax)
+        .optional()
+        .describe('Unique key that makes cloud run creation safe to retry.'),
+    wizard_version: zod
+        .string()
+        .optional()
+        .describe('Wizard package version to run. Defaults to the backend pin and accepts latest explicitly.'),
+})
+
+/**
+ * Change the terminal status of a local Wizard run.
+ */
+export const wizardRunsPartialUpdateBodyErrorCodeMax = 50
+
+export const WizardRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    status: zod
+        .enum(['completed', 'failed', 'cancelled'])
+        .describe('\* `completed` - completed\n\* `failed` - failed\n\* `cancelled` - cancelled')
+        .optional()
+        .describe(
+            'New terminal status for the Wizard run.\n\n\* `completed` - completed\n\* `failed` - failed\n\* `cancelled` - cancelled'
+        ),
+    error_code: zod
+        .string()
+        .max(wizardRunsPartialUpdateBodyErrorCodeMax)
+        .nullish()
+        .describe('Machine-readable reason the Wizard run failed.'),
+})
+
+/**
  * Upsert a wizard session. The `session_id` key is the idempotency anchor — reposting the same `session_id` replaces the existing row. Returns 201 on create, 200 on update.
  */
 export const wizardSessionsCreateBodyPendingInputOneIdMax = 255

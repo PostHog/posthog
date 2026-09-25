@@ -1,37 +1,60 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
+from google.genai.types import FinishReason
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import PersonalAPIKey
+from posthog.models import EventDefinition, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
+from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.api.scanners import _goal_flow_enabled
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
+    _MAX_BASELINE_EVENTS,
     DraftError,
     ScannerDraft,
     _build_user_content,
+    _build_user_content_v2,
     _business_context,
+    _CandidateEvent,
+    _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
     _finalize,
     _finalize_v2,
     _generate,
+    _goal_entity_matches,
+    _goal_terms,
+    _live_actions,
     _LlmDraft,
     _LlmDraftV2,
+    _LlmEventPropertyFilter,
+    _MatchedAction,
+    _MatchedCohort,
+    _MatchedExperiment,
+    _MatchedSurvey,
+    _measured_events,
     _solve_budget,
     _v2_query,
+    draft_scanner_from_goal,
     draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+from products.surveys.backend.models import Survey
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
 _MODULE = "products.replay_vision.backend.scanner_draft"
@@ -41,7 +64,12 @@ _CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_m
 
 def _access_control(*, allow: bool) -> MagicMock:
     ac = MagicMock()
-    ac.filter_queryset_by_access_level.side_effect = (lambda qs: qs) if allow else (lambda qs: qs.none())
+    # Callers pass `resource=` for resources that have their own access controls, so accept kwargs.
+    ac.filter_queryset_by_access_level.side_effect = (
+        (lambda qs, **kwargs: qs) if allow else (lambda qs, **kwargs: qs.none())
+    )
+    # The resource-level checks default to a truthy MagicMock, which is the "has access" path; a
+    # test that needs the denial sets them False explicitly.
     return ac
 
 
@@ -119,6 +147,22 @@ class TestBuildUserContent:
         # Both grounding blocks must reach the model; losing one silently makes drafts generic again.
         assert "Acme sells anvils to coyotes." in content
         assert "Checkout drop-off (monitor): Flags abandoned checkouts." in content
+
+
+class TestBuildUserContentV2:
+    def test_events_carry_their_session_counts(self):
+        # The counts are what let the model tell a busy event from a name that stopped firing, the
+        # same way the pages list already does. An unmeasured event shows no count rather than a
+        # zero, which would read as dead.
+        content = _build_user_content_v2(
+            "watch people who create a scanner",
+            [_CandidateEvent(name="scanner_created", sessions=42), _CandidateEvent(name="scanner_edited")],
+            [VisitedPath(pathname="/replay-vision", sessions=10)],
+        )
+
+        fenced = content.split("<product-data>")[-1].split("</product-data>")[0]
+        assert "scanner_created (42)" in fenced
+        assert "scanner_edited\n" in fenced
 
 
 class TestFinalize:
@@ -258,7 +302,12 @@ class TestFinalize:
         assert [p["value"] for p in result.query["properties"]] == [["/checkout"]]
 
     def test_dropping_proposed_filter_values_emits_a_structured_warning(self):
-        with patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn:
+        # The definition fallback is stubbed out because this class takes no database; its own
+        # behavior is covered by TestGroundedEventFallback.
+        with (
+            patch("products.replay_vision.backend.scanner_draft.logger.warning") as warn,
+            patch(f"{_MODULE}._event_names_by_lower", return_value={}),
+        ):
             grounded = _finalize(
                 _draft(filter_screens=["/checkout"], filter_events=["checkout_started"]),
                 allowed_screens=["/checkout"],
@@ -292,6 +341,50 @@ class TestFinalize:
         assert result.query is not None
         assert [p["value"] for p in result.query["properties"]] == [["/alpha"]]
         assert [e["id"] for e in result.query["events"]] == ["e1", "e2"]
+
+
+class TestGroundedEventFallback(_VisionAPITestCase):
+    def _event(self, name: str, *, seen: bool = True):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now() if seen else None)
+
+    def test_a_real_event_missing_from_the_briefing_survives_with_canonical_casing(self):
+        # The regression: the goal names a real event verbatim, the model copies it, and
+        # list-membership grounding drops it because the briefing's sample missed it.
+        self._event("plan upgraded")
+
+        result = _finalize(
+            _draft(filter_events=["Plan Upgraded"]), allowed_events=["checkout_started"], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
+
+    def test_events_the_team_does_not_emit_still_drop(self):
+        # Invented, internal, and no-longer-firing names must not survive the definition lookup.
+        self._event("$internal_thing")
+        self._event("stale event", seen=False)
+
+        result = _finalize(
+            _draft(filter_events=["ghost event", "$internal_thing", "stale event"]),
+            allowed_events=["checkout_started"],
+            team_id=self.team.id,
+        )
+
+        assert result.query is None
+
+    def test_v2_grounding_accepts_a_real_event_the_briefing_missed(self):
+        self._event("plan upgraded")
+
+        result = _finalize_v2(
+            _draft_v2(filter_events=["plan upgraded"]), allowed_pages=[], allowed_events=[], team_id=self.team.id
+        )
+
+        assert result.query is not None
+        assert result.query["events"] == [
+            {"id": "plan upgraded", "name": "plan upgraded", "type": "events", "order": 0}
+        ]
 
 
 class TestDraftGrounding(_VisionAPITestCase):
@@ -401,7 +494,22 @@ class TestGenerate:
 
         _generate(user_content="goal", team_id=1, distinct_id="u")
 
-        assert generate.call_args.kwargs["config"].max_output_tokens == 4096
+        assert generate.call_args.kwargs["config"].max_output_tokens == 8192
+
+    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
+        # Thinking shares the output budget, so a truncated draft is our cap's fault, not a bad
+        # model response — the two used to be indistinguishable as "invalid_response".
+        truncated = MagicMock(
+            text='{"scanner_type": "classifier", "name": "Chec',
+            candidates=[MagicMock(finish_reason=FinishReason.MAX_TOKENS)],
+        )
+        self._mock_client(mock_client_cls, [truncated])
+
+        with pytest.raises(DraftError) as caught:
+            _generate(user_content="goal", team_id=1, distinct_id="u")
+
+        assert caught.value.reason == "output_truncated"
 
 
 class TestDraftScannerEndpoint(_VisionAPITestCase):
@@ -450,6 +558,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             "sampling_rate": None,
             "model": None,
             "credit_limit": None,
+            "experiment_targeting": None,
             "estimated_monthly_observations": None,
         }
 
@@ -587,10 +696,318 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
+class TestGoalTerms:
+    def test_keeps_the_words_that_carry_intent_longest_first(self):
+        # Longest first because only the first terms are looked up, and a specific word is a better
+        # event-name lookup than a vague one.
+        assert _goal_terms("watch users who answered the Onboarding feedback survey") == [
+            "onboarding",
+            "answered",
+            "feedback",
+            "survey",
+        ]
+
+    @pytest.mark.parametrize(
+        "goal",
+        [
+            "what do users want to see",  # all stopwords
+            "who is on it",  # all below the length floor
+            "",
+        ],
+    )
+    def test_a_goal_with_no_usable_words_looks_nothing_up(self, goal):
+        # No terms means the baseline alone, not an unfiltered scan of every event name.
+        assert _goal_terms(goal) == []
+
+
+class TestEventsForGoal(_VisionAPITestCase):
+    def _event(self, name: str):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now())
+
+    def test_a_rare_event_named_in_the_goal_is_surfaced_ahead_of_the_baseline(self):
+        # The regression this exists for: a relevant event too rare to sit in any baseline. The old
+        # briefing showed a fixed recency slice, so a goal naming this event saw nothing to filter on.
+        self._event("survey sent")
+        for i in range(_MAX_BASELINE_EVENTS + 10):
+            self._event(f"filler_event_{i:03d}")
+
+        events = _events_for_goal(self.team, "watch people who answered the pricing survey")
+
+        assert "survey sent" in events
+        # Matched events lead, so the one the goal points at is not buried under the sample.
+        assert events[0] == "survey sent"
+
+    def test_internal_events_stay_excluded_even_when_the_goal_names_them(self):
+        # `$`-prefixed events are PostHog internals, not product categories, on both paths.
+        self._event("$pageview")
+
+        assert _events_for_goal(self.team, "watch the pageview funnel") == []
+
+    def test_a_goal_matching_nothing_still_returns_the_baseline(self):
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, "understand the zzzz nonexistent flow")
+
+        assert events == ["checkout_started"]
+
+    def test_a_quoted_event_name_is_looked_up_directly_and_leads_the_briefing(self):
+        # "cta hit" is invisible to the term heuristics: both words sit under the term length
+        # cutoff. Quoting it in the goal must still put it in front of the model, first, and in the
+        # team's canonical casing.
+        self._event("cta hit")
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, 'watch what people do around "CTA Hit"')
+
+        assert events[0] == "cta hit"
+
+    def test_the_legacy_briefing_carries_events_the_goal_quotes(self):
+        # The legacy taxonomy is a recency sample with no goal matching, so the quoted lookup is
+        # the only way a named event reaches that briefing and survives grounding.
+        self._event("cta hit")
+
+        with patch(_GENERATE_PATH, return_value=_draft(filter_events=["cta hit"])) as generate:
+            draft = draft_scanner_from_goal(
+                team=self.team,
+                user=self.user,
+                goal='watch what people do around "cta hit"',
+                user_access_control=_access_control(allow=True),
+                include_business_context=False,
+            )
+
+        assert "- cta hit" in generate.call_args.kwargs["user_content"]
+        assert draft.query == {
+            "kind": "RecordingsQuery",
+            "events": [{"id": "cta hit", "name": "cta hit", "type": "events", "order": 0}],
+        }
+
+
+def _launched_experiment(team, user, name: str, *, launched: bool = True):
+    flag = FeatureFlag.objects.create(
+        team=team,
+        key=name.lower().replace(" ", "-"),
+        name=name,
+        created_by=user,
+        filters={
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "test", "rollout_percentage": 50},
+                ]
+            }
+        },
+    )
+    return Experiment.objects.create(
+        team=team,
+        name=name,
+        feature_flag=flag,
+        created_by=user,
+        start_date=timezone.now() if launched else None,
+        exposure_criteria={},
+    )
+
+
+class TestGoalEntityMatches(_VisionAPITestCase):
+    def _survey(self, name: str):
+        return Survey.objects.create(team=self.team, name=name, created_by=self.user)
+
+    def test_an_experiment_named_in_the_goal_comes_back_with_its_variants(self):
+        # Who a change was shown to is not in the taxonomy: no page or event filter separates the
+        # participants who got the new experience from everyone else who reached the same screen.
+        experiment = _launched_experiment(self.team, self.user, "Onboarding checklist")
+
+        matches = _goal_entity_matches(
+            self.team, "summarize sessions in the onboarding checklist experiment", _access_control(allow=True)
+        )
+
+        assert [(e.name, e.experiment_id, e.variants) for e in matches.experiments] == [
+            ("Onboarding checklist", experiment.id, ("control", "test"))
+        ]
+
+    def test_an_experiment_the_exposure_filter_would_refuse_never_reaches_the_briefing(self):
+        # An experiment that never launched has no exposed sessions, and targeting it fails when the
+        # scan resolves the filter — so it must not be offered as a target at all.
+        _launched_experiment(self.team, self.user, "Onboarding checklist", launched=False)
+
+        matches = _goal_entity_matches(
+            self.team, "summarize sessions in the onboarding checklist experiment", _access_control(allow=True)
+        )
+
+        assert matches.experiments == []
+
+    def test_a_survey_named_in_the_goal_comes_back_with_its_id(self):
+        # The filter needs the id: every survey fires the same "survey sent" event, so a name alone
+        # cannot target one.
+        survey = self._survey("Pricing feedback")
+        self._survey("Onboarding NPS")
+
+        matches = _goal_entity_matches(
+            self.team, "watch people who answered the pricing feedback survey", _access_control(allow=True)
+        )
+
+        assert [(m.name, m.survey_id) for m in matches.surveys] == [("Pricing feedback", str(survey.id))]
+
+    def test_an_action_named_in_the_goal_comes_back_with_its_id(self):
+        # An action is the team's own curated definition of a behavior, so a goal naming one is the
+        # sharpest filter available and must come back with the id the query needs.
+        action = Action.objects.create(team=self.team, name="Completed checkout")
+
+        matches = _goal_entity_matches(
+            self.team, "sessions where someone completed checkout", _access_control(allow=True)
+        )
+
+        assert [(a.name, a.action_id) for a in matches.actions] == [("Completed checkout", action.id)]
+
+    def test_an_entity_the_caller_cannot_read_is_never_named_back(self):
+        # Surveys and actions are access-controlled, so naming one back would leak its existence.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+
+        matches = _goal_entity_matches(self.team, "the pricing feedback survey", _access_control(allow=False))
+        assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
+
+    def test_no_resource_access_returns_nothing_even_though_the_queryset_filter_would_pass_it(self):
+        # `filter_queryset_by_access_level` returns the queryset untouched when the caller has
+        # neither resource access nor object grants, and this helper has no viewset permission check
+        # behind it, so the resource check is what stops the leak.
+        self._survey("Pricing feedback")
+        denied = _access_control(allow=True)
+        denied.check_access_level_for_resource.return_value = False
+        denied.has_any_specific_access_for_resource.return_value = False
+
+        # Cohorts have no resource gate, so denial affects only surveys and actions; a cohort by the
+        # same name still comes back, which is correct: cohorts are not resource-access-controlled.
+        matches = _goal_entity_matches(self.team, "the pricing feedback survey", denied)
+        assert matches.surveys == [] and matches.actions == []
+
+    def test_a_scoped_token_lacking_survey_read_gets_no_surveys(self):
+        # A token with scanner and recording scopes but not survey:read must not learn a survey's
+        # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+        Cohort.objects.create(team=self.team, name="Pricing feedback cohort")
+
+        matches = _goal_entity_matches(
+            self.team,
+            "the pricing feedback survey",
+            _access_control(allow=True),
+            allowed_scopes=["replay_scanner:write", "session_recording:read"],
+        )
+
+        # Every kind is scope-gated: the token holds none of survey:read, action:read, cohort:read.
+        assert matches.surveys == []
+        assert matches.actions == []
+        assert matches.cohorts == []
+
+    def test_no_readable_kind_searches_nothing(self):
+        # `search_entities` orders by a rank its per-kind querysets annotate, so calling it with no
+        # kind raises on a column that was never added. The broad except would hide that as an empty
+        # result, with a traceback logged on every draft.
+        self._survey("Pricing feedback")
+
+        with patch(f"{_MODULE}.search_entities") as search:
+            matches = _goal_entity_matches(
+                self.team,
+                "the pricing feedback survey",
+                _access_control(allow=True),
+                allowed_scopes=["replay_scanner:write", "session_recording:read"],
+            )
+
+        assert not search.called
+        assert (matches.surveys, matches.actions, matches.cohorts) == ([], [], [])
+
+    def test_a_soft_deleted_entity_is_never_matched(self):
+        # The shared search does not exclude deleted rows. A deleted cohort is the expensive case:
+        # the recordings query drops a cohort filter it cannot resolve, so the scan widens to every
+        # session while the rationale still describes an audience.
+        Cohort.objects.create(team=self.team, name="Power users", deleted=True)
+        Action.objects.create(team=self.team, name="Power users click", deleted=True)
+
+        matches = _goal_entity_matches(self.team, "what do power users struggle with", _access_control(allow=True))
+
+        assert matches.cohorts == []
+        assert matches.actions == []
+
+    def test_a_write_scope_implies_read_and_a_star_scope_grants_all(self):
+        survey = self._survey("Pricing feedback")
+
+        by_write = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["survey:write"]
+        )
+        by_star = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["*"]
+        )
+
+        assert [s.survey_id for s in by_write.surveys] == [str(survey.id)]
+        assert [s.survey_id for s in by_star.surveys] == [str(survey.id)]
+
+
+class TestLiveActions(_VisionAPITestCase):
+    def test_an_action_that_fires_in_no_session_never_reaches_the_briefing(self):
+        # A name match cannot tell a live action from one whose definition stopped matching years
+        # ago. An action ANDs with every other filter, so offering a dead one drafts a scanner that
+        # matches nothing.
+        live = _MatchedAction(name="Completed checkout", action_id=1)
+        dead = _MatchedAction(name="Clicked the old button", action_id=2)
+
+        with patch(f"{_MODULE}.recent_action_sessions", return_value={1: 42, 2: 0}):
+            kept = _live_actions(self.team, [live, dead])
+
+        assert [(a.name, a.recent_sessions) for a in kept] == [("Completed checkout", 42)]
+
+    def test_a_failed_measurement_keeps_every_match(self):
+        # Losing the counts must cost the ranking hint, not the actions themselves.
+        actions = [_MatchedAction(name="Completed checkout", action_id=1)]
+
+        with patch(f"{_MODULE}.recent_action_sessions", side_effect=Exception("clickhouse down")):
+            assert _live_actions(self.team, actions) == actions
+
+
+class TestMeasuredEvents(_VisionAPITestCase):
+    def test_every_candidate_carries_its_session_count(self):
+        # A definition lookup ranks a name that fired twice yesterday with one that fires in every
+        # session. Without the counts the model picks the dead name and the scanner never runs.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"scanner_created": 42}):
+            measured = _measured_events(self.team, ["scanner_created", "old_flow_started"])
+
+        assert measured == [
+            _CandidateEvent(name="scanner_created", sessions=42),
+            _CandidateEvent(name="old_flow_started", sessions=0),
+        ]
+
+    def test_a_count_returned_in_another_casing_still_reaches_its_candidate(self):
+        # The query keys its result by the stored casing, which the hardcoded survey names do not
+        # match. A missed lookup would measure zero, and a zero now drops the event as dead.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"Survey Sent": 7}):
+            measured = _measured_events(self.team, ["survey sent"])
+
+        assert measured == [_CandidateEvent(name="survey sent", sessions=7)]
+
+    def test_two_events_differing_only_in_case_keep_their_own_counts(self):
+        # Definitions are unique on the name itself, so both can be real, live events. Folding them
+        # together would credit the retired one with the live one's volume -- and which one won
+        # would depend on the order ClickHouse happened to emit the rows in.
+        with patch(f"{_MODULE}.recent_event_sessions", return_value={"Signup": 0, "signup": 500}):
+            measured = _measured_events(self.team, ["Signup", "signup"])
+
+        assert measured == [
+            _CandidateEvent(name="Signup", sessions=0),
+            _CandidateEvent(name="signup", sessions=500),
+        ]
+
+    def test_a_failed_measurement_keeps_every_candidate_uncounted(self):
+        # Losing the counts must cost the ranking hint, not the grounding: a briefing with no
+        # events sends the model back to drafting filters it invents.
+        with patch(f"{_MODULE}.recent_event_sessions", side_effect=Exception("clickhouse down")):
+            measured = _measured_events(self.team, ["scanner_created"])
+
+        assert measured == [_CandidateEvent(name="scanner_created", sessions=None)]
+
+
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
-        # one-property shape matched 44,523.
+        # one-property shape matched 44,523. A page with no id is a plain regex of itself.
         query = _v2_query(["/billing", "/checkout", "/payment"], [])
 
         assert query is not None
@@ -599,7 +1016,7 @@ class TestV2Query:
             "type": "recording",
             "key": "visited_page",
             "value": ["/billing", "/checkout", "/payment"],
-            "operator": "icontains",
+            "operator": "regex",
         }
         assert "events" not in query
 
@@ -621,28 +1038,218 @@ class TestV2Query:
         assert query["properties"][0]["value"] == ["/billing"]
         assert query["events"][0]["id"] == "checkout_started"
 
+    def test_a_property_filter_rides_on_its_own_event_entry(self):
+        # Every survey fires the same event, so the property has to sit on that event's entry. A
+        # sibling event must not inherit it, or the filter would demand the wrong condition.
+        query = _v2_query(
+            [],
+            ["survey sent", "checkout_started"],
+            [_LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")],
+        )
+
+        assert query is not None
+        by_id = {e["id"]: e for e in query["events"]}
+        assert by_id["survey sent"]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+        assert "properties" not in by_id["checkout_started"]
+
+    def test_a_cohort_becomes_a_top_level_person_property(self):
+        # A cohort scopes to people; it rides the top-level properties array, ANDing with a page
+        # filter rather than a per-event one.
+        query = _v2_query(["/billing"], [], cohorts=[_MatchedCohort(name="Power users", cohort_id=7)])
+
+        assert query is not None
+        assert {"type": "cohort", "key": "id", "value": 7, "operator": "in"} in query["properties"]
+
+    @pytest.mark.parametrize(
+        "events_match,expected_operand",
+        [("all", None), ("any", "OR")],
+    )
+    def test_the_events_match_decides_the_operand(self, events_match, expected_operand):
+        # "created or edited" is one goal over several events, and ANDing them keeps only the
+        # person who did all of them in one session, which is almost nobody. The default has to
+        # stay AND: flipping it would silently widen every filter already drafted.
+        query = _v2_query([], ["scanner_created", "scanner_edited"], events_match=events_match)
+
+        assert query is not None
+        assert query.get("operand") == expected_operand
+        assert [e["id"] for e in query["events"]] == ["scanner_created", "scanner_edited"]
+
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
 
-    def test_collapsed_id_pages_filter_by_their_prefix(self):
-        # The grounding list says "/invoice/:id" but real URLs hold real IDs, so the literal value
-        # would match zero sessions. The prefix still matches every such URL.
+    def test_a_collapsed_id_becomes_a_wildcard(self):
+        # The grounding list says "/invoice/:id" but real URLs hold real IDs. The regex wildcards the
+        # id so it matches "/invoice/<any>" without matching a bare "/invoices-archive".
         query = _v2_query(["/invoice/:id", "/billing"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/", "/billing"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/billing"]
 
     @pytest.mark.parametrize("pathname", ["/", "/:id", "/a/:id/b"])
     def test_a_page_that_cannot_narrow_is_dropped(self, pathname):
-        # "/a/:id/b" prefixes to "/a/", two non-slash chars: icontains on it matches nearly every
+        # "/a/:id/b" has two one-character static segments: any pattern from it matches nearly every
         # URL, so it reads as a narrowing filter while narrowing nothing.
         assert _v2_query([pathname], []) is None
 
-    def test_prefix_collisions_are_deduped(self):
+    def test_an_id_prefixed_route_keeps_the_whole_path(self):
+        # When the id sits before the distinctive segment, the whole-path regex keeps
+        # "/replay-vision/scanners" instead of collapsing to the "/project/" prefix in front.
+        query = _v2_query(["/project/:id/replay-vision/scanners"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-vision/scanners"]
+
+    def test_a_route_with_ids_on_both_sides_wildcards_each(self):
+        # "/project/:id/replay-home/:id" is ambiguous for a substring rule, but the full-path regex
+        # keeps "replay-home" between two wildcards, so it stays specific to that page.
+        query = _v2_query(["/project/:id/replay-home/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-home/[^/]+"]
+
+    def test_a_generic_looking_path_is_still_kept(self):
+        # "/project/:id" reads like a routing container in PostHog, but a scanner watches the
+        # customer's product, where "/project/<id>" may be a real page. So keep it as a wildcarded
+        # regex rather than assuming any team's URL shape.
+        query = _v2_query(["/project/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+"]
+
+    def test_paths_that_differ_only_after_the_id_stay_distinct(self):
+        # The whole path is matched, so "/invoice/:id" and "/invoice/:id/edit" produce different
+        # regexes rather than collapsing to a shared prefix.
         query = _v2_query(["/invoice/:id", "/invoice/:id/edit"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/invoice/[^/]+/edit"]
+
+
+class TestFinalizeV2PropertyFilters:
+    _SURVEY = _MatchedSurvey(name="Pricing feedback", survey_id="abc-123")
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(filter_events=["survey sent"], **overrides),
+            allowed_pages=[],
+            allowed_events=["survey sent"],
+            team_id=1,
+            allowed_surveys=[self._SURVEY],
+        )
+
+    def test_a_grounded_survey_filter_reaches_the_query(self):
+        draft = self._finalize(
+            filter_event_properties=[
+                _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")
+            ]
+        )
+
+        assert draft.query is not None
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            # An id the briefing never showed: it would match no session, so the scanner never runs.
+            _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="not-a-real-id"),
+            # A property the briefing never showed.
+            _LlmEventPropertyFilter(event="survey sent", property="$made_up", value="abc-123"),
+            # An event that did not survive grounding, so there is no entry to attach to.
+            _LlmEventPropertyFilter(event="never_seen_event", property="$survey_id", value="abc-123"),
+        ],
+    )
+    def test_an_ungrounded_property_filter_is_dropped(self, bad):
+        draft = self._finalize(filter_event_properties=[bad])
+
+        assert draft.query is not None
+        assert "properties" not in draft.query["events"][0]
+
+
+class TestFinalizeV2Cohorts:
+    _COHORT = _MatchedCohort(name="Power users", cohort_id=7)
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides), allowed_pages=[], allowed_events=[], team_id=1, allowed_cohorts=[self._COHORT]
+        )
+
+    def test_a_grounded_cohort_name_becomes_a_person_property_with_its_id(self):
+        draft = self._finalize(filter_cohorts=["Power users"])
+
+        assert draft.query is not None
+        assert {"type": "cohort", "key": "id", "value": 7, "operator": "in"} in draft.query["properties"]
+
+    def test_an_invented_cohort_name_is_dropped(self):
+        draft = self._finalize(filter_cohorts=["Made-up audience"])
+
+        assert draft.query is not None
+        assert "properties" not in draft.query
+
+
+class TestFinalizeV2Actions:
+    _ACTION = _MatchedAction(name="Completed checkout", action_id=42)
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides), allowed_pages=[], allowed_events=[], team_id=1, allowed_actions=[self._ACTION]
+        )
+
+    def test_a_grounded_action_name_becomes_an_action_filter_with_its_id(self):
+        draft = self._finalize(filter_actions=["Completed checkout"])
+
+        assert draft.query is not None
+        assert draft.query["actions"] == [{"id": 42, "name": "Completed checkout", "type": "actions", "order": 0}]
+
+    def test_an_invented_action_name_is_dropped(self):
+        # A name has no id to resolve to unless it came from the matched list, so it cannot invent
+        # a filter that silently matches nothing.
+        draft = self._finalize(filter_actions=["Made-up behavior"])
+
+        assert draft.query is not None
+        assert "actions" not in draft.query
+
+
+class TestFinalizeV2Experiments:
+    _EXPERIMENT = _MatchedExperiment(name="AI creation flow", experiment_id=11, variants=("control", "test"))
+
+    def _finalize(self, **overrides):
+        return _finalize_v2(
+            _draft_v2(**overrides),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            allowed_experiments=[self._EXPERIMENT],
+        )
+
+    def test_a_grounded_experiment_becomes_targeting_on_the_named_variant(self):
+        # A page filter would scan everyone who reached the same screen, control group included, so
+        # the variant the goal is about has to come through as targeting.
+        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="test")
+
+        assert draft.experiment_targeting == {"experiment_id": 11, "variant": "test"}
+        # Exposure never rides in the query blob; the API refuses it there.
+        assert draft.query is not None and "experiment_exposure" not in draft.query
+
+    def test_no_named_variant_watches_every_variant(self):
+        draft = self._finalize(filter_experiment="AI creation flow")
+
+        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
+
+    def test_an_invented_experiment_name_is_dropped(self):
+        draft = self._finalize(filter_experiment="Some other test", filter_experiment_variant="test")
+
+        assert draft.experiment_targeting is None
+
+    def test_an_invented_variant_falls_back_to_every_variant(self):
+        # The exposure filter refuses a variant the experiment does not define, which would take the
+        # whole scan down; every variant still answers a wider version of the goal.
+        draft = self._finalize(filter_experiment="AI creation flow", filter_experiment_variant="treatment")
+
+        assert draft.experiment_targeting == {"experiment_id": 11, "variant": None}
 
 
 class TestFinalizeV2:
@@ -687,6 +1294,40 @@ class TestFinalizeV2:
         assert draft.query["filter_test_accounts"] is True
         assert draft.query["properties"][0]["value"] == ["/billing"]
 
+    @pytest.mark.parametrize(
+        "filter_pages,expected_operand",
+        [([], "OR"), (["/billing"], None)],
+    )
+    def test_any_match_survives_only_when_the_events_are_the_whole_filter(self, filter_pages, expected_operand):
+        # The operand covers the whole recordings query, so keeping "any" next to a page filter
+        # would OR the page in too and scan every session that merely visited it.
+        draft = _finalize_v2(
+            _draft_v2(
+                filter_pages=filter_pages,
+                filter_events=["scanner_created", "scanner_edited"],
+                filter_events_match="any",
+            ),
+            allowed_pages=["/billing"],
+            allowed_events=["scanner_created", "scanner_edited"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert draft.query.get("operand") == expected_operand
+
+    def test_event_count_suffix_is_stripped_before_grounding(self):
+        # The briefing shows "checkout_started (312)" now, and a model that copies it verbatim
+        # would fail the exact membership check, dropping the filter and widening the scan.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout_started (312)"]),
+            allowed_pages=[],
+            allowed_events=["checkout_started"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout_started"]
+
     def test_page_count_suffix_is_stripped_before_grounding(self):
         # The briefing shows "/billing (10)"; a model that copies it verbatim would fail the exact
         # membership check and the scanner would widen to everything. Strip the count first.
@@ -696,6 +1337,122 @@ class TestFinalizeV2:
 
         assert draft.query is not None
         assert draft.query["properties"][0]["value"] == ["/billing"]
+
+    def test_an_allowed_event_whose_own_name_ends_in_a_count_is_not_stripped(self):
+        # "checkout step (2)" is the event's real name, not a briefing count. Stripping it first
+        # would either fail the membership check or ground to a different event, and both widen.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout step (2)"]),
+            allowed_pages=[],
+            allowed_events=["checkout step (2)"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
+
+    def test_a_dead_event_whose_own_name_ends_in_a_count_survives_to_be_revived(self):
+        # A dead event leaves the briefing, so it is not in `allowed_events` — but revival can put
+        # it back, and it can only be recognised under its real name. Stripped to "checkout step" it
+        # either drops, leaving a query that scans every session, or grounds to a different event.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["checkout step (2)"]),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"checkout step (2)"},
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["checkout step (2)"]
+
+    @pytest.mark.parametrize(
+        "events_match,expected_events,expected_operand",
+        [
+            # The third slot exists for the OR case. ANDed, three events need one session to do all
+            # of them, which is the over-constrained draft the cap is there to prevent.
+            ("all", ["a", "b"], None),
+            # "created or edited" names three events that each mean the same thing, and ORed they
+            # cost nothing to carry: this is the case the wider cap was raised for.
+            ("any", ["a", "b", "c"], "OR"),
+        ],
+    )
+    def test_the_event_cap_follows_the_match_operand(self, events_match, expected_events, expected_operand):
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["a", "b", "c"], filter_events_match=events_match),
+            allowed_pages=[],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == expected_events
+        assert draft.query.get("operand") == expected_operand
+
+    def test_a_downgraded_any_match_keeps_one_event_rather_than_anding_them(self):
+        # The page filter rules out the OR operand, but ANDing the alternatives would need one
+        # session to have created AND edited AND updated, which matches almost nobody.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"], filter_events=["a", "b", "c"], filter_events_match="any"),
+            allowed_pages=["/billing"],
+            allowed_events=["a", "b", "c"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["a"]
+
+    def test_a_downgraded_any_match_keeps_the_event_its_property_filter_rides_on(self):
+        # Keeping the first event blindly would strand the $survey_id filter on an event the query
+        # no longer carries, silently turning a one-survey scan into a scan of every survey.
+        draft = _finalize_v2(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_events=["survey shown", "survey sent"],
+                filter_events_match="any",
+                filter_event_properties=[
+                    _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value="abc-123")
+                ],
+            ),
+            allowed_pages=["/billing"],
+            allowed_events=["survey shown", "survey sent"],
+            team_id=1,
+            allowed_surveys=[_MatchedSurvey(name="Pricing feedback", survey_id="abc-123")],
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["survey sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": ["abc-123"], "operator": "exact", "type": "event"}
+        ]
+
+    def test_a_dead_event_comes_back_rather_than_leaving_the_scan_unfiltered(self):
+        # Dropping the dead event narrows nothing here, it inverts: with no page, action or cohort
+        # left, the query stops describing the goal's flow and starts matching every session.
+        draft = _finalize_v2(
+            _draft_v2(filter_events=["billing_limit_set"]),
+            allowed_pages=[],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"billing_limit_set"},
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+
+    def test_a_dead_event_still_drops_while_another_filter_holds_the_scan_down(self):
+        # The page narrows on its own, so dropping the dead event is the narrowing it looks like.
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            allowed_pages=["/billing"],
+            allowed_events=[],
+            team_id=1,
+            excluded_events={"billing_limit_set"},
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
 
     def test_a_grounded_page_that_cannot_narrow_warns_it_scans_everything(self):
         # "/x" is a real page and grounds, but its filter value is too short to narrow, so the query
@@ -845,6 +1602,261 @@ class TestDraftV2(_VisionAPITestCase):
         # survives — but the scanner still defaults to excluding internal users.
         assert draft.query == {"kind": "RecordingsQuery", "filter_test_accounts": True}
 
+    def _estimate_by_query(self, dead_when):
+        def estimate(*, team, query, user, sampling_mode, budget):
+            matched = 0 if dead_when(query) else 300
+            return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
+
+        return estimate
+
+    def _drafted_with(self, generate, estimate):
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            # Measure every candidate live, so these tests exercise the estimate-based fallback rather
+            # than the earlier measured-dead drop, which would remove the event before it is reached.
+            patch(
+                f"{_MODULE}._measured_events",
+                side_effect=lambda team, names: [_CandidateEvent(name=n, sessions=100) for n in names],
+            ),
+            patch(_GENERATE_PATH, return_value=generate),
+            patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
+        ):
+            return draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+    def test_an_event_filter_that_matches_nothing_falls_back_to_the_pages(self):
+        # An event the product stopped emitting ANDs the whole filter to zero, so the scanner would
+        # never run. The pages come from measured traffic, so they cannot be dead the same way.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        draft = self._drafted_with(
+            _draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            self._estimate_by_query(lambda query: bool(query.events)),
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
+        assert draft.estimated_monthly_observations == 300
+        # The rationale describes the filter the model picked, so it has to say the filter changed.
+        assert "scans the pages instead" in draft.rationale
+
+    def test_the_fallback_keeps_the_audience_the_goal_named(self):
+        # A cohort says who the goal is about, so it does not go stale the way an event does.
+        # Dropping it alongside the dead event would scan the pages for everybody, spending credits
+        # on sessions the goal never asked about.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        cohort = Cohort.objects.create(team=self.team, name="Billing power users")
+
+        draft = self._drafted_with(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_events=["billing_limit_set"],
+                filter_cohorts=["Billing power users"],
+            ),
+            self._estimate_by_query(lambda query: bool(query.events)),
+        )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert {"type": "cohort", "key": "id", "value": cohort.id, "operator": "in"} in draft.query["properties"]
+        assert any(p.get("key") == "visited_page" for p in draft.query["properties"])
+
+    def test_a_draft_with_no_pages_to_fall_back_to_is_left_alone(self):
+        # Widening to every session would scan a product the goal never asked about, which is worse
+        # than a filter the review page already refuses to save.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        draft = self._drafted_with(
+            _draft_v2(filter_events=["billing_limit_set"]),
+            self._estimate_by_query(lambda query: True),
+        )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+        assert draft.estimated_monthly_observations == 0
+
+    def test_a_measured_dead_event_is_dropped_before_it_can_zero_the_scan(self):
+        # billing_limit_set is a real definition, so grounding's definition-lookup fallback would
+        # re-admit it even after it leaves the briefing. Measured at zero sessions it is dead, and one
+        # dead event ANDs the whole scan to nothing, so it must not reach the query. The page comes
+        # from live traffic, so it survives and narrows on its own.
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
+            patch(f"{_MODULE}._measured_events", return_value=[_CandidateEvent(name="billing_limit_set", sessions=0)]),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(filter_pages=["/billing"], filter_events=["billing_limit_set"]),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert "events" not in draft.query
+        assert draft.query["properties"][0]["key"] == "visited_page"
+
+    def test_a_quiet_surveys_injected_events_survive_so_its_property_filter_does(self):
+        # The survey events are injected to carry the $survey_id filter, not because volume picked
+        # them. A survey with no responses in the window measures zero on all of them, and dropping
+        # them takes the property filter with them — the one-survey scan becomes a scan of
+        # everything, which is the opposite of what the goal asked for.
+        survey = Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(
+                f"{_MODULE}._measured_events",
+                return_value=[_CandidateEvent(name=name, sessions=0) for name in ("survey sent", "survey shown")],
+            ),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(
+                    filter_events=["survey sent"],
+                    filter_event_properties=[
+                        _LlmEventPropertyFilter(event="survey sent", property="$survey_id", value=str(survey.id))
+                    ],
+                ),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["survey sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
+        ]
+
+    def test_a_teams_own_casing_of_a_survey_event_is_offered_once(self):
+        # The injected names are lowercase constants, but the goal search returns the team's own
+        # spelling. Offering both would show one event twice, each carrying the same count, and the
+        # quiet-survey exemption below only recognises the spelling it injected — so the team's own
+        # would measure zero and drop as dead, taking its $survey_id filter with it.
+        Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+        EventDefinition.objects.create(team=self.team, name="Survey Sent", last_seen_at=timezone.now())
+        offered: list[list[str]] = []
+
+        def measure(team, names):
+            offered.append(list(names))
+            return [_CandidateEvent(name=name, sessions=0) for name in names]
+
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(f"{_MODULE}._measured_events", side_effect=measure),
+            patch(_GENERATE_PATH, return_value=_draft_v2(filter_events=["Survey Sent"])),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert [n for n in offered[0] if n.lower() == "survey sent"] == ["Survey Sent"]
+
+    def test_a_quiet_survey_event_in_the_teams_own_casing_is_still_exempt(self):
+        # The exemption matches on the injected names, so it has to recognise the canonical spelling
+        # too. Otherwise a quiet survey drops the event its $survey_id filter rides on, and the
+        # one-survey scan widens to every session.
+        #
+        # A page filter rides along so the dead-event revival stays out of it: revival only fires
+        # when nothing else survives, and it would otherwise rescue the event whatever the exemption
+        # did, leaving this test unable to fail.
+        survey = Survey.objects.create(team=self.team, name="Pricing feedback", created_by=self.user)
+        EventDefinition.objects.create(team=self.team, name="Survey Sent", last_seen_at=timezone.now())
+
+        with (
+            patch(
+                f"{_MODULE}.fetch_visited_paths",
+                return_value=(VisitedPath(pathname="/pricing", sessions=10),),
+            ),
+            patch(f"{_MODULE}.recent_event_sessions", return_value={}),
+            patch(
+                _GENERATE_PATH,
+                return_value=_draft_v2(
+                    filter_pages=["/pricing"],
+                    filter_events=["Survey Sent"],
+                    filter_event_properties=[
+                        _LlmEventPropertyFilter(event="Survey Sent", property="$survey_id", value=str(survey.id))
+                    ],
+                ),
+            ),
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal='who answered "Pricing feedback"',
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert draft.query is not None
+        assert [e["id"] for e in draft.query["events"]] == ["Survey Sent"]
+        assert draft.query["events"][0]["properties"] == [
+            {"key": "$survey_id", "value": [str(survey.id)], "operator": "exact", "type": "event"}
+        ]
+
+    def test_the_experiment_the_goal_named_is_carried_as_targeting_and_counted(self):
+        # The whole point of the targeting: the projection has to count that experiment's
+        # participants, not every session the pages match, while the query the wizard saves stays
+        # the exposure-free blob the API accepts.
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        counted: list[RecordingsQuery] = []
+
+        def estimate(*, team, query, user, sampling_mode, budget):
+            counted.append(query)
+            return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
+
+        draft = self._drafted_with(
+            _draft_v2(
+                filter_pages=["/billing"],
+                filter_experiment="Billing upgrade prompt",
+                filter_experiment_variant="test",
+            ),
+            estimate,
+        )
+
+        assert draft.experiment_targeting == {"experiment_id": experiment.id, "variant": "test"}
+        assert draft.query is not None and "experiment_exposure" not in draft.query
+        assert counted[0].experiment_exposure is not None
+        assert counted[0].experiment_exposure.experiment_id == experiment.id
+        assert counted[0].experiment_exposure.variant == "test"
+
     def test_solved_dials_reach_the_draft(self):
         draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))
 
@@ -854,10 +1866,49 @@ class TestDraftV2(_VisionAPITestCase):
         assert draft.estimated_monthly_observations == 300
 
     def test_the_model_and_credit_cap_reach_the_draft(self):
-        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.7-flash"))
+        draft = self._run(pages=("/billing",), generate=_draft_v2(model="gemini-3.8-flash"))
 
-        assert draft.model == "gemini-3.7-flash"
+        assert draft.model == "gemini-3.8-flash"
         assert draft.credit_limit == 10_000
+
+    def _briefing_under_scopes(self, allowed_scopes):
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=()),
+            patch(f"{_MODULE}.recent_event_sessions", return_value={"billing_limit_set": 42}) as volume,
+            patch(_GENERATE_PATH, return_value=_draft_v2()) as generate,
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_credit_budget=10_000,
+                user_access_control=_access_control(allow=True),
+                allowed_scopes=allowed_scopes,
+            )
+        return volume, generate.call_args.kwargs["user_content"]
+
+    def test_a_scoped_token_lacking_query_read_gets_unmeasured_events(self):
+        # Event volume is an analytics read: a token with only scanner and recording scopes must not
+        # receive counts, which the briefing would surface into the model's prompt and rationale.
+        # The names still go in, unmeasured, so grounding survives the gate.
+        volume, user_content = self._briefing_under_scopes(["replay_scanner:write", "session_recording:read"])
+
+        assert not volume.called
+        assert "billing_limit_set" in user_content
+        assert "billing_limit_set (" not in user_content
+
+    def test_query_read_scope_keeps_the_measured_counts(self):
+        volume, user_content = self._briefing_under_scopes(
+            ["replay_scanner:write", "session_recording:read", "query:read"]
+        )
+
+        assert volume.called
+        assert "billing_limit_set (42)" in user_content
 
 
 class TestDraftEndpointGoalFlow(_VisionAPITestCase):
@@ -881,7 +1932,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
             sampling_mode="comprehensive",
             sampling_rate=0.25,
             estimated_monthly_observations=1_000,
-            model="gemini-3.7-flash",
+            model="gemini-3.8-flash",
             credit_limit=5_000,
         )
 
@@ -901,7 +1952,7 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         body = resp.json()
         assert body["sampling_mode"] == "comprehensive"
         assert body["sampling_rate"] == 0.25
-        assert body["model"] == "gemini-3.7-flash"
+        assert body["model"] == "gemini-3.8-flash"
         assert body["credit_limit"] == 5000
         assert body["estimated_monthly_observations"] == 1000
 
@@ -925,6 +1976,16 @@ class TestDraftEndpointGoalFlow(_VisionAPITestCase):
         assert body["model"] is None
         assert body["credit_limit"] is None
         assert body["estimated_monthly_observations"] is None
+
+    def test_flag_evaluation_carries_the_person_properties_the_flag_reads(self):
+        # Server-side evaluation is local and cannot read stored person properties. Without the
+        # email, an email-based variant override falls through to the rollout hash, the server
+        # disagrees with the browser that showed the goal flow, and the request silently degrades
+        # to a legacy draft.
+        with patch(f"{_API_MODULE}.get_feature_flag_or_none", return_value="test") as flag:
+            assert _goal_flow_enabled(self.user, self.team) is True
+
+        assert flag.call_args.kwargs["person_properties"] == {"email": self.user.email}
 
     def test_no_budget_never_consults_the_flag(self):
         with (

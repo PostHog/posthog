@@ -60,6 +60,10 @@ import {
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
 import {
+  CODEX_CLOUD_ACCOUNT_HOST,
+  type CodexCloudAccountHost,
+} from "@posthog/core/integrations/codexCloudAccountService";
+import {
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -154,6 +158,14 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import {
+  DISK_CACHE_IMAGES,
+  type IDiskCacheImages,
+} from "@posthog/platform/disk-cache";
+import {
+  FEEDBACK_CONTEXT_SERVICE,
+  type IFeedbackContext,
+} from "@posthog/platform/feedback-context";
+import {
   HOST_CAPABILITIES,
   type HostCapabilities,
 } from "@posthog/platform/host-capabilities";
@@ -161,6 +173,10 @@ import {
   type INotifications,
   NOTIFICATIONS_SERVICE,
 } from "@posthog/platform/notifications";
+import type {
+  ISettingsBackupFiles,
+  SETTINGS_BACKUP_FILES,
+} from "@posthog/platform/settings-backup-files";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
 import {
   AUTH_SIDE_EFFECTS,
@@ -238,6 +254,10 @@ import {
   type McpToolBlockComponent,
 } from "@posthog/ui/features/sessions/components/session-update/identifiers";
 import {
+  CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
+  type ClaudeSubscriptionTokenSettings,
+} from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
+import {
   DEV_MODE_CLIENT,
   type DevModeClient,
 } from "@posthog/ui/features/settings/devModeClient";
@@ -287,10 +307,13 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [CODEX_CLOUD_ACCOUNT_HOST]: CodexCloudAccountHost;
+  [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
   [HOST_LOGGER]: HostLogger;
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
+  [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
@@ -370,11 +393,13 @@ export interface RendererBindings {
   [SPEECH_USER_NAME_PROVIDER]: UserNameProvider;
   [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;
   [SPEECH_KEY_STORE]: ISpeechKeyStore;
+  [CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS]: ClaudeSubscriptionTokenSettings;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [FEATURE_FLAGS]: FeatureFlags;
   [AUTH_SIDE_EFFECTS]: IAuthSideEffects;
   [SETUP_STORE]: ISetupStore;
   [HOST_CAPABILITIES]: HostCapabilities;
+  [DISK_CACHE_IMAGES]: IDiskCacheImages;
 
   // --- desktop-contributions.ts ---
   [CONTRIBUTION]: Contribution;

@@ -21,10 +21,16 @@ Treat templates as examples, not instructions: take inspiration from the insight
 ## Finalize
 Call this tool when you have enough information to create or update the dashboard.
 
-# Understanding dashboard update with insight_ids
+# Choose the dashboard action from the requested state change
+
+Use `add_insights` when the user wants to keep the current dashboard and include new insights. This includes requests to add, include, expand, or put a metric on a dashboard. Send only the new insight IDs. This action never removes existing insight tiles.
+
+Use `update` only when the user defines the complete intended set of dashboard insights, asks to remove or replace insights, or asks to change dashboard metadata.
+
+# Understanding full dashboard update with insight_ids
 
 When `insight_ids` is provided, it replaces all dashboard insights with the provided insights.
-You can use insight_ids to add, replace, or remove insights.
+Use insight_ids to replace or remove insights.
 By default, keep existing insight tile layouts unchanged (`layout_mode="preserve_existing"`).
 Use `layout_mode="reflow_all"` whenever the user explicitly asks to change placement/order, including phrases like:
 - reorder/rearrange/reflow the dashboard
@@ -52,7 +58,7 @@ Assistant: I'll create a new dashboard for file activity metrics.
 User: I want a dashboard of how my business is doing
 Assistant: I'll search for existing dashboards. I found a relevant dashboard. Do you want me to summarize it or update it?
 User: I want you to add MRR to that dashboard.
-<reasoning>The user's request was ambiguous. The assistant needed to ask for more details. The user wanted to modify it with specific insights. To add MRR, include all existing insights plus the new MRR insight in insight_ids.</reasoning>
+<reasoning>The user wants to retain the current dashboard and add MRR. Use add_insights with the new MRR insight ID.</reasoning>
 </example>
 
 <example>

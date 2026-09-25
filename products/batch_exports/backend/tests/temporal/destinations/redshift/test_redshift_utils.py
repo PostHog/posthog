@@ -8,13 +8,14 @@ from unittest import mock
 from django.conf import settings
 
 import psycopg
+import pyarrow as pa
 import aioboto3
 import pytest_asyncio
 import botocore.exceptions
 
 from posthog.models.integration import AWSRedshiftRoleBasedIntegration, Integration, IntegrationError
 
-from products.batch_exports.backend.service import AWSCredentials
+from products.batch_exports.backend.service import AWSCredentials, BatchExportModel
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     ClientErrorGroup,
     InsufficientS3PermissionsError,
@@ -22,6 +23,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
     RedshiftS3CopyError,
     ServerlessWorkgroup,
     _get_redshift_credentials_policy_statements,
+    _get_table_schemas,
     _parse_redshift_host,
     check_and_raise_redshift_copy_error,
     is_s3_read_access_denied,
@@ -31,6 +33,22 @@ from products.batch_exports.backend.temporal.temporary_file import remove_escape
 from products.batch_exports.backend.tests.temporal.utils.s3 import delete_all_from_s3
 
 TEST_ROOT_BUCKET = "test-batch-exports"
+
+
+@pytest.mark.parametrize("has_person_id", [False, True])
+@pytest.mark.parametrize("properties_data_type", ["varchar", "super"])
+def test_events_table_schemas_match_staged_person_id(has_person_id: bool, properties_data_type: str) -> None:
+    columns = ["uuid", "properties"]
+    if has_person_id:
+        columns.append("person_id")
+    schema = pa.schema([(name, pa.string()) for name in columns])
+
+    table_schemas = _get_table_schemas(BatchExportModel(name="events", schema=None), schema, properties_data_type)
+
+    for fields in (table_schemas.table_schema, table_schemas.stage_table_schema):
+        assert {name for name, _ in fields} == set(columns)
+        if has_person_id:
+            assert dict(fields)["person_id"] == "VARCHAR(200)"
 
 
 @pytest.mark.parametrize(
@@ -273,14 +291,21 @@ async def test_check_and_raise_redshift_copy_error_credentials(denied):
 
 
 @pytest.mark.parametrize(
-    "error,should_raise",
+    "error,expected_error",
     [
-        (_FakeInternalError("COPY with MANIFEST parameter requires full path of an S3 object"), True),
-        (_FakeInternalError("copy failed", detail="S3ServiceException: Access Denied"), True),
-        (_FakeInternalError("syntax error at or near 'foo'"), False),
+        (
+            _FakeInternalError("COPY with MANIFEST parameter requires full path of an S3 object"),
+            RedshiftS3CopyError,
+        ),
+        (_FakeInternalError("copy failed", detail="S3ServiceException: Access Denied"), RedshiftS3CopyError),
+        (
+            _FakeInternalError('permission denied to create temporary tables in database "my_data"'),
+            psycopg.errors.InsufficientPrivilege,
+        ),
+        (_FakeInternalError("syntax error at or near 'foo'"), None),
     ],
 )
-async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise):
+async def test_check_and_raise_redshift_copy_error_iam_role(error, expected_error):
     """IAM role auth can't be probed, so we translate only recognised S3 read/access failures."""
     call = check_and_raise_redshift_copy_error(
         error,
@@ -290,8 +315,8 @@ async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise)
         manifest_key="prefix/manifest.json",
         files_uploaded=["prefix/file-0.parquet.zst"],
     )
-    if should_raise:
-        with pytest.raises(RedshiftS3CopyError):
+    if expected_error is not None:
+        with pytest.raises(expected_error):
             await call
     else:
         await call  # should not raise

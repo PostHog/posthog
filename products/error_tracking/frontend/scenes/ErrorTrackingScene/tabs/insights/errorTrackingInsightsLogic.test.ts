@@ -98,10 +98,61 @@ describe('errorTrackingInsightsLogic', () => {
         )
         expect(JSON.stringify(insights.values.issuesCreatedQuery)).not.toContain(PropertyFilterType.ErrorTrackingIssue)
 
-        const lastSummaryStatsQuery = jest.mocked(api.query).mock.calls.at(-1)?.[0] as any
-        expect(lastSummaryStatsQuery.filters.properties).toEqual(inner.values)
-        expect(JSON.stringify(lastSummaryStatsQuery.filters.properties)).not.toContain(
-            PropertyFilterType.ErrorTrackingIssue
-        )
+        // Every HogQL query behind the tab has to see the same stripped properties as the charts, or a
+        // metric tile disagrees with the chart under it about which events matched.
+        const hogQLQueries = jest.mocked(api.query).mock.calls.map(([query]) => query as any)
+        expect(hogQLQueries.length).toBeGreaterThan(0)
+        for (const query of hogQLQueries) {
+            expect(query.filters.properties).toEqual(inner.values)
+            expect(JSON.stringify(query.filters.properties)).not.toContain(PropertyFilterType.ErrorTrackingIssue)
+        }
+    })
+
+    it('applies a band as filters, marking a value it has none of as not set', async () => {
+        await expectLogic(insights, () => {
+            insights.actions.filterByBand([
+                { key: '$app_namespace', value: 'web' },
+                { key: '$app_version', value: '1.2.0' },
+                { key: '$app_build', value: null },
+            ])
+        }).toFinishAllListeners()
+
+        const inner = insights.values.insightsFilterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.values).toEqual([
+            { type: PropertyFilterType.Event, key: '$app_namespace', operator: PropertyOperator.Exact, value: ['web'] },
+            { type: PropertyFilterType.Event, key: '$app_version', operator: PropertyOperator.Exact, value: ['1.2.0'] },
+            { type: PropertyFilterType.Event, key: '$app_build', operator: PropertyOperator.IsNotSet },
+        ])
+        // Every chip the click added has to be counted, or the filter bar opens the value editor on
+        // all but the last of them.
+        expect(issueFilters.values.filterAddedFromPreview).toBe(3)
+    })
+
+    // A band is one value spread over several properties. Left in an "Any" group its chips match
+    // anything carrying any one of them, which is the opposite of filtering down to the band.
+    it('makes the filter group conjunctive so a band cannot be applied as an OR', async () => {
+        issueFilters.actions.setFilterGroup({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.Or,
+                    values: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$browser',
+                            operator: PropertyOperator.Exact,
+                            value: ['Firefox'],
+                        },
+                    ],
+                },
+            ],
+        })
+
+        await expectLogic(insights, () => {
+            insights.actions.filterByBand([{ key: '$app_namespace', value: 'web' }])
+        }).toFinishAllListeners()
+
+        const inner = issueFilters.values.filterGroup.values[0] as UniversalFiltersGroup
+        expect(inner.type).toBe(FilterLogicalOperator.And)
     })
 })

@@ -11,6 +11,8 @@ from ..facade.contracts import (
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
+    TOLERATION_PILEUP_WINDOW_DAYS,
+    VARIANT_PILEUP_MIN,
     AddSnapshotsInput,
     AddSnapshotsResult,
     ApproveRunRequestInput,
@@ -35,17 +37,21 @@ from ..facade.contracts import (
     QuarantineSourceRun,
     RecomputeResult,
     Repo,
+    RowShift,
     Run,
     RunSummary,
+    ShiftBand,
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
     ToleratedHashEntry,
+    TolerationPileupEntry,
+    TolerationPileups,
     UpdateRepoRequestInput,
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState
+from ..facade.enums import FlakinessState, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -84,6 +90,44 @@ class ClusterSummarySerializer(DataclassSerializer):
         dataclass = ClusterSummary
 
 
+class ShiftBandSerializer(DataclassSerializer):
+    y = serializers.IntegerField(help_text="First row of the band, in current-image coordinates.")
+    rows = serializers.IntegerField(help_text="How many rows the band covers.")
+    kind = serializers.ChoiceField(
+        choices=[(kind.value, kind.value) for kind in ShiftBandKind],
+        help_text=(
+            "'inserted' when the current image gained these rows, 'deleted' when it lost them. "
+            "A deleted band has no rows of its own in the current image, so its y is the seam "
+            "the removed rows left behind."
+        ),
+    )
+
+    class Meta:
+        dataclass = ShiftBand
+
+
+class RowShiftSerializer(DataclassSerializer):
+    bands = ShiftBandSerializer(
+        many=True,
+        help_text="Where the shift happened, in current-image coordinates.",
+    )
+    inserted_rows = serializers.IntegerField(help_text="Rows the current image gained.")
+    deleted_rows = serializers.IntegerField(help_text="Rows the current image lost.")
+    residual_percentage = serializers.FloatField(
+        help_text=(
+            "Percentage of pixels that differ inside the rows present in both images, 0 to 100. "
+            "Excludes the shift itself. The stored diff_percentage adds the area of the rows the shift "
+            "added or removed, and that combined number is what the pixel threshold judges."
+        )
+    )
+    raw_diff_percentage = serializers.FloatField(
+        help_text="Percentage of pixels that differ without alignment, which is what the shift would have cost."
+    )
+
+    class Meta:
+        dataclass = RowShift
+
+
 class SnapshotSerializer(DataclassSerializer):
     # Explicitly mark artifact fields as nullable for OpenAPI schema
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
@@ -91,6 +135,7 @@ class SnapshotSerializer(DataclassSerializer):
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
+    row_shift = RowShiftSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = Snapshot
@@ -156,9 +201,26 @@ class CreateRunInputSerializer(DataclassSerializer):
 class AddSnapshotsInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = AddSnapshotsInput
+        extra_kwargs = {
+            "story_index_hash": {
+                "help_text": (
+                    "SHA-256 of the story-to-file map the CLI built from the Storybook index.json of this "
+                    "run's build. Every shard of a run sends the same value. Empty when the run sends no map."
+                )
+            },
+        }
 
 
 class AddSnapshotsResultSerializer(DataclassSerializer):
+    story_index_upload = UploadTargetSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where to upload the story-to-file map, as a presigned POST with a JSON body. Null when the "
+            "request sent no map, or the store already holds a map with that hash."
+        ),
+    )
+
     class Meta:
         dataclass = AddSnapshotsResult
 
@@ -166,6 +228,17 @@ class AddSnapshotsResultSerializer(DataclassSerializer):
 class UpdateRepoInputSerializer(DataclassSerializer):
     class Meta:
         dataclass = UpdateRepoRequestInput
+        extra_kwargs = {
+            "enable_pr_comments": {
+                "help_text": "Post a pull request comment when a run finds visual changes to review."
+            },
+            "debt_digest_enabled": {
+                "help_text": (
+                    "Post the visual review debt digest to the Slack channels of the teams that own the "
+                    "snapshots. Off by default. The digest goes out every Monday morning."
+                )
+            },
+        }
 
 
 class ApproveSnapshotInputSerializer(DataclassSerializer):
@@ -213,7 +286,7 @@ class FinalizeRunInputSerializer(DataclassSerializer):
             "Whether the server commits the approved baseline to the PR branch and greens the gate (the normal "
             "path — leave true). Set false only for tooling that commits the baseline itself: the server skips "
             "the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT "
-            "greened and `metadata.baseline_commit_sha` is absent."
+            "greened, `metadata.baseline_commit_sha` is absent, and no post-approval PR comment is posted."
         ),
     )
     add_images_to_comment_on_pr = serializers.BooleanField(
@@ -221,9 +294,10 @@ class FinalizeRunInputSerializer(DataclassSerializer):
         default=False,
         help_text=(
             "Whether to embed the before/after snapshot images in the post-approval PR comment. The comment "
-            "itself is always posted (when the run was initiated from a GitHub review prompt and the repo has "
-            "PR comments enabled); this flag only controls the images. Defaults false — the comment stays a "
-            "text summary unless the reviewer opts in to attach the snapshots."
+            "itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates "
+            "the run's review prompt when the run has one, and posts a new comment when it does not. This flag "
+            "only controls the images. Defaults false — the comment stays a text summary unless the reviewer "
+            "opts in to attach the snapshots."
         ),
     )
 
@@ -233,6 +307,7 @@ class FinalizeRunInputSerializer(DataclassSerializer):
 
 class SnapshotHistoryEntrySerializer(DataclassSerializer):
     current_artifact = ArtifactSerializer(allow_null=True, required=False)
+    row_shift = RowShiftSerializer(allow_null=True, required=False)
 
     class Meta:
         dataclass = SnapshotHistoryEntry
@@ -308,6 +383,13 @@ class BaselineEntrySerializer(DataclassSerializer):
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
     )
+    active_variants_current_baseline = serializers.IntegerField(
+        help_text=(
+            "Accepted variants still recorded against this baseline's current hash. Unlike the "
+            "30-day and 90-day counts, this has no time window: an accepted variant keeps matching "
+            "without a new record. A baseline change resets it to zero."
+        )
+    )
 
     class Meta:
         dataclass = BaselineEntry
@@ -315,6 +397,9 @@ class BaselineEntrySerializer(DataclassSerializer):
 
 class BaselineTotalsSerializer(DataclassSerializer):
     by_run_type = serializers.DictField(child=serializers.IntegerField())
+    variant_pileups = serializers.IntegerField(
+        help_text="Baselines carrying three or more accepted variants of their current hash."
+    )
 
     class Meta:
         dataclass = BaselineTotals
@@ -456,6 +541,16 @@ class FlakinessEntrySerializer(DataclassSerializer):
         required=False,
         help_text="Active quarantine details when `is_quarantined` is true. Null otherwise.",
     )
+    owner_team = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Slug of the team that owns the file this snapshot's story lives in, from the repository's "
+            "ownership files. `unowned` when no entry covers the file. Null when ownership is unknown: "
+            "the snapshot is not a Storybook snapshot, the newest default-branch run sent no story index, "
+            "the story is not in it, or the ownership files could not be read."
+        ),
+    )
 
     class Meta:
         dataclass = FlakinessEntry
@@ -494,3 +589,87 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class TolerationPileupsQuerySerializer(serializers.Serializer):
+    min_tolerations = serializers.IntegerField(
+        default=VARIANT_PILEUP_MIN,
+        min_value=1,
+        max_value=100,
+        help_text=(
+            "List a snapshot when a person or agent tolerated it at least this many times in the window. "
+            f"The default, {VARIANT_PILEUP_MIN}, is the weekly debt digest's rule. Lower it to see snapshots that "
+            "are starting to pile up, raise it to see only the worst ones."
+        ),
+    )
+    min_automatic_tolerations = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=10000,
+        help_text=(
+            "Also list a snapshot when it collected at least this many automatic tolerations in the window. "
+            "An automatic toleration is a rendering under both diff thresholds, so it never blocked anybody; "
+            "many of them still mean the story is unstable. Omit to ignore automatic tolerations when "
+            "deciding what to list. With 10, the list matches the Tolerate dialog's quarantine suggestion."
+        ),
+    )
+    window_days = serializers.IntegerField(
+        default=TOLERATION_PILEUP_WINDOW_DAYS,
+        min_value=1,
+        max_value=90,
+        help_text=f"How many days back to count tolerations. Defaults to {TOLERATION_PILEUP_WINDOW_DAYS}.",
+    )
+    include_quarantined = serializers.BooleanField(
+        default=True,
+        help_text=(
+            "Keep snapshots that an active quarantine already covers. They are marked with `is_quarantined`. "
+            "Set to false to see only piles nobody has acted on yet."
+        ),
+    )
+    run_type = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only list snapshots of this run type, for example `storybook` or `playwright`.",
+    )
+    limit = serializers.IntegerField(
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of snapshots to return. `total` and `truncated` say whether more matched.",
+    )
+
+
+class TolerationPileupEntrySerializer(DataclassSerializer):
+    identifier = serializers.CharField(help_text="Snapshot identifier, for example a Storybook story id plus theme.")
+    run_type = serializers.CharField(help_text="Run type the snapshot belongs to, for example `storybook`.")
+    intentional_count = serializers.IntegerField(
+        help_text=(
+            "Tolerations a person or agent recorded for this snapshot in the window, across every baseline. "
+            "Each one accepted a different exact rendering, so a high count means the snapshot renders "
+            "differently from run to run."
+        )
+    )
+    automatic_count = serializers.IntegerField(
+        help_text="Automatic tolerations in the window: renderings that came in under both diff thresholds."
+    )
+    is_quarantined = serializers.BooleanField(
+        help_text="Whether an active quarantine already covers this snapshot, so it no longer blocks pull requests."
+    )
+
+    class Meta:
+        dataclass = TolerationPileupEntry
+
+
+class TolerationPileupsSerializer(DataclassSerializer):
+    entries = TolerationPileupEntrySerializer(many=True, help_text="Matching snapshots, most manual tolerations first.")
+    window_days = serializers.IntegerField(help_text="Length of the counting window in days that was applied.")
+    min_tolerations = serializers.IntegerField(help_text="Manual toleration threshold that was applied.")
+    min_automatic_tolerations = serializers.IntegerField(
+        allow_null=True, help_text="Automatic toleration threshold that was applied, or null when none was."
+    )
+    total = serializers.IntegerField(help_text="How many snapshots matched before `limit` was applied.")
+    truncated = serializers.BooleanField(help_text="True when `limit` cut the list short.")
+    generated_at = serializers.DateTimeField(help_text="When the list was computed.")
+
+    class Meta:
+        dataclass = TolerationPileups

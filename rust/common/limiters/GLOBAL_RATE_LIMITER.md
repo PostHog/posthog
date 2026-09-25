@@ -39,7 +39,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
 │  │  2. Drain pending_sync set → sync_keys Vec                    │  │
 │  │                                                                │  │
 │  │  3. Build single Redis pipeline:                              │  │
-│  │     WRITES: INCRBY + EXPIRE for each (key, epoch)            │  │
+│  │     WRITES: INCRBY + EXPIREAT for each (key, epoch)          │  │
 │  │     READS:  MGET [curr_epoch, prev_epoch] per entity          │  │
 │  │                                                                │  │
 │  │  4. Execute pipeline                                          │  │
@@ -62,7 +62,7 @@ and **pressure-tiered adaptive sync** to minimize read volume for low-utilizatio
                     │  {prefix}:{key}:{e} │
                     │                     │
                     │  e = epoch number   │
-                    │  TTL = 2 × window   │
+                    │ dies 1-2 epochs on  │
                     └─────────────────────┘
 ```
 
@@ -110,6 +110,20 @@ This produces a smooth, continuously-updating estimate that's more accurate than
 
 Each `CacheEntry` stores the last-known weighted count from Redis (`estimated_count`)
 and the time it was synced (`synced_at`).
+
+`synced_at` is `None` until the first Redis read lands. A never-synced entry is
+due for a sync as soon as it clears `min_sync_floor`; a synced one waits out its
+pressure tier. Collapsing the two delays a new key's first read by a full tier
+interval, during which the node cannot see the fleet.
+
+**A known, tolerated race.** The request path's get-modify-insert can overwrite
+the entry a Redis read just refreshed. The effect is bounded: the clobbered
+entry is due for a sync at once (recovery is one tick), the stale estimate is
+never higher than the fresh one (it only under-counts), and the collision
+window is microseconds per event against one read per key every 7.5 to 60
+seconds. A fix via moka's per-key entry API cost ~0.3 µs per evaluation (+31%
+on this crate's bench) for no measurable change in decisions, so it is
+deliberately not applied.
 Between syncs, the estimate **decays** at the configured leak rate:
 
 ```text
@@ -163,7 +177,7 @@ The background task uses `tokio::select!` over two sources:
 
 The pipeline per tick consists of:
 
-- **Writes**: `INCRBY key delta` + `EXPIRE key ttl` for each `(entity, epoch)` with pending counts
+- **Writes**: `INCRBY key delta` + `EXPIREAT key deadline` for each `(entity, epoch)` with pending counts
 - **Reads**: `MGET [current_epoch_key, prev_epoch_key]` for each entity in `pending_sync`
 
 All operations go in a single Redis round-trip.
@@ -210,7 +224,7 @@ Tier boundaries are pressure-based (level / threshold), so they apply correctly 
 ```rust
 struct CacheEntry {
     estimated_count: f64,    // weighted count from last Redis sync
-    synced_at: Instant,      // when we last read from Redis
+    synced_at: Option<Instant>, // when we last read from Redis; None until the first read
     local_pending: u64,      // events counted locally since last sync, reset to 0 on sync
     pressure: f64,           // effective_level / threshold at last sync
 }
@@ -227,10 +241,19 @@ but are written to Redis on the next tick — the under-count is negligible (<0.
 ```text
 Key:   {prefix}:{entity_key}:{epoch_number}
 Value: integer counter (INCRBY)
-TTL:   2 × window_interval (120s for 60s window)
+Dies:  (epoch + 2) × window_interval + a per-key offset inside one window
 ```
 
-Only 2 keys per entity exist at any time (current + previous epoch).
+Up to 3 keys per entity exist at any time. Reads consult 2 (current + previous
+epoch); the offset that spreads expiry can hold the generation before those
+alive for up to one more window.
+
+**Two deployments that share a key prefix must agree on `window_interval`.**
+The epoch number is `floor(unix / window_interval)`, so a mismatch splits the
+shared counter into separate key namespaces. Capture's AI byte budget is one
+such namespace (its prefix carries no `capture_mode`). The
+`global_rate_limiter_window_seconds{scope}` gauge publishes each process's
+running value so an alert can compare them.
 
 ### Configuration
 
@@ -260,7 +283,7 @@ only if you're also changing the window/sync intervals.
 
 | Parameter | Default | Description |
 |---|---|---|
-| `global_cache_ttl` | 120s (2 × window) | `EXPIRE` TTL on Redis epoch keys. Must be ≥ 2 × `window_interval` so both epoch keys survive for reads |
+| `global_cache_ttl` | 2 × `window_interval` | Sets the deadline on Redis epoch keys, applied as `EXPIREAT` rather than a relative TTL so a key's life follows its epoch instead of its last write. Any value above the two-window minimum becomes clock-skew grace. |
 | `global_read_timeout` | 100ms | Timeout for batched MGET reads |
 | `global_write_timeout` | 100ms | Timeout for batched INCRBY writes |
 | `redis_key_prefix` | `@posthog/global_rate_limiter` | Prefix for all Redis keys (capture derives from `capture_mode`) |
@@ -278,8 +301,9 @@ only if you're also changing the window/sync intervals.
 
   │◄── window_interval (60s) ──►│
   │                              │
-  │  global_cache_ttl (120s = 2×window)                                  │
-  │  Redis epoch keys expire after this, ensuring old counters clean up  │
+  │  global_cache_ttl (2×window, clamped at construction)                │
+  │  Redis epoch keys expire after this. Below 2×window the previous     │
+  │  epoch key dies while reads still need it, and the estimate drops.   │
   │◄─────────────────────────────────────────────────────────────────────►│
   │                                                                      │
   │  local_cache_idle_timeout (300s)                                     │
@@ -300,8 +324,25 @@ only if you're also changing the window/sync intervals.
   a shorter idle timeout reclaims slots faster, keeping the cache responsive.
 - `local_cache_ttl` acts as an upper bound on how stale an entry can get
   before being forced to re-sync from scratch on next access.
-- `global_cache_ttl` is Redis hygiene — it only needs to be ≥ 2 × `window_interval`.
-  Making it much larger wastes Redis memory on dead keys.
+- **`min_sync_floor` gates reads only.** Every event's count reaches Redis
+  regardless of the floor; the floor only suppresses the `MGET` for keys too far
+  under their threshold to be limited. Writes are bounded separately:
+  `absorb_update` merges by `(key, epoch)` per tick, so write volume scales with
+  distinct active keys, not event rate.
+- `global_cache_ttl` is an enforcement requirement, not only Redis hygiene: the
+  previous epoch's key is read for a full window after its last write, and a
+  TTL under 2 × `window_interval` zeroes `prev_count` early, understating the
+  estimate. `new` clamps it up and warns. Much larger values only waste Redis
+  memory on dead keys.
+
+**All three TTLs are clamped at construction**, because each one expiring inside
+the window it serves causes silent under-enforcement:
+
+| Parameter | Clamped to at least | What an undersized value breaks |
+|---|---|---|
+| `local_cache_idle_timeout` | `window_interval` | Entries expire mid-window and the next request takes the always-allowed miss path |
+| `local_cache_ttl` | `window_interval` | Same, on the absolute expiry path |
+| `global_cache_ttl` | 2 × `window_interval` | The previous epoch key dies while reads still need it, so `prev_count` reads as 0 |
 
 ## Request Flow
 
@@ -364,6 +405,26 @@ When multiple Redis instances are configured, work is partitioned by consistent 
   Single-instance mode (common case) skips partitioning entirely.
 ```
 
+### Before raising the instance count
+
+Partitioning is dormant at one instance: `select_redis_client` returns early and
+never hashes. Two things to know before that changes.
+
+1. **Salt any new per-key derivation.** `select_redis_client` and
+   `epoch_expire_at` both hash the entity key. If they share a hash, a shard
+   count that shares a factor with the window leaves each shard only a fraction
+   of the expiry offsets and the expiry burst returns per shard. See
+   `EXPIRY_HASH_DOMAIN`. Jitter itself does not need a stable hash, because a
+   disagreement only moves a deadline inside its bounded window. Shard
+   selection does, and uses SipHash-1-3 for that reason.
+2. **Changing the instance count splits counters while the rollout is in
+   flight.** Pods on the old count and the new one route the same key to
+   different instances, so each sees part of its traffic. This under-counts and
+   therefore fails open, never over-enforces, and it clears once every pod
+   agrees and the current epoch keys expire. Modulo sharding moves nearly every
+   key on a count change; a consistent-hashing scheme would move about 1/N of
+   them and shrink this window, but it cannot remove it.
+
 ## Metrics
 
 | Metric | Type | Purpose |
@@ -377,6 +438,7 @@ When multiple Redis instances are configured, work is partitioned by consistent 
 | `global_rate_limiter_sync_tier_gauge` | Gauge | Entity distribution across tiers (scanned every `TIER_SCAN_INTERVAL_TICKS`) |
 | `global_rate_limiter_tier_transitions_total` | Counter | Tier promotion/demotion events |
 | `global_rate_limiter_cache_size` | Gauge | Live local cache entry count vs cap |
+| `global_rate_limiter_window_seconds` | Gauge | Configured `window_interval` per scope. Deployments that share a Redis key prefix must report the same value, or their epoch keys diverge and the shared counter splits |
 | `global_rate_limiter_eviction_total` | Counter | Cache evictions by cause (size/expired/explicit) |
 | `global_rate_limiter_estimate_drift` | Histogram | Local vs Redis accuracy |
 | `global_rate_limiter_sync_staleness_ms` | Histogram | Real staleness at access time |

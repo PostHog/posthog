@@ -56,6 +56,16 @@ function copyAssets() {
     distDir,
     "pi/product-engineer",
   );
+  const bundledAgentsSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/orchestration/bundled-agents",
+  );
+  const bundledAgentsTarget = resolve(distDir, "pi/bundled-agents");
+  const orchestrationSkillsSource = resolve(
+    import.meta.dirname,
+    "../harness/dist/extensions/orchestration/skills",
+  );
+  const orchestrationSkillsTarget = resolve(distDir, "pi/skills");
   const enricherGrammarsSource = resolve(
     import.meta.dirname,
     "../enricher/grammars",
@@ -69,7 +79,19 @@ function copyAssets() {
       `Missing product engineer resources at ${productEngineerResourcesSource}`,
     );
   }
+  if (!existsSync(bundledAgentsSource)) {
+    throw new Error(`Missing bundled agents at ${bundledAgentsSource}`);
+  }
+  if (!existsSync(orchestrationSkillsSource)) {
+    throw new Error(
+      `Missing orchestration skills at ${orchestrationSkillsSource}`,
+    );
+  }
   cpSync(productEngineerResourcesSource, productEngineerResourcesTarget, {
+    recursive: true,
+  });
+  cpSync(bundledAgentsSource, bundledAgentsTarget, { recursive: true });
+  cpSync(orchestrationSkillsSource, orchestrationSkillsTarget, {
     recursive: true,
   });
   cpSync(enricherGrammarsSource, enricherGrammarsTarget, {
@@ -153,11 +175,9 @@ export default defineConfig([
       "src/agent.ts",
       "src/gateway-models.ts",
       "src/posthog-api.ts",
-      "src/posthog-products.ts",
       "src/pr-url-detector.ts",
       "src/pi/rpc-client.ts",
       "src/pi/runtime.ts",
-      "src/pi/task-system-prompt.ts",
       "src/pi/types.ts",
       "src/pi/conversation/translatePiConversation.ts",
       "src/resume.ts",
@@ -172,12 +192,15 @@ export default defineConfig([
       "src/adapters/codex-app-server/models.ts",
       "src/adapters/codex-app-server/local-tools-mcp-server.ts",
       "src/adapters/codex-app-server/subscription-login.ts",
+      "src/adapters/claude/subscription-login.ts",
+      "src/adapters/claude/machine-auth.ts",
       "src/adapters/claude/mcp/tool-metadata.ts",
       "src/adapters/reasoning-effort.ts",
       "src/execution-mode.ts",
       "src/server/schemas.ts",
       "src/server/agent-server.ts",
       "src/server/bin.ts",
+      "src/smoke/bin.ts",
     ],
     format: ["esm"],
     dts: false,

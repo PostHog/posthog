@@ -10,8 +10,9 @@ import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 
 import type { FeatureFlagType } from '~/types'
 
-import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
-import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/selectExistingFeatureFlagModalLogic'
+import { SelectExistingFeatureFlagModal } from 'products/experiments/frontend/modals/SelectExistingFeatureFlagModal/SelectExistingFeatureFlagModal'
+import { selectExistingFeatureFlagModalLogic } from 'products/experiments/frontend/modals/SelectExistingFeatureFlagModal/selectExistingFeatureFlagModalLogic'
+
 import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanelLinkFeatureFlag'
 import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'

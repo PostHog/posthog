@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGithub } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,39 +11,37 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { StamphogTabs } from '../../components/StamphogTabs'
-import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
+import { type StamphogRepoConfigApi } from '../../generated/api.schemas'
+import { AddRepositoryBar } from './AddRepositoryBar'
+import { ExpandedRepoSettings } from './ExpandedRepoSettings'
+import { repoStatusDisplay, triggerSummary } from './repoDisplay'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
+
+// A search box only helps once the list no longer fits on one screen.
+const REPO_SEARCH_MIN_ROWS = 10
 
 export const scene: SceneExport = {
     component: StamphogScene,
     logic: stamphogSceneLogic,
 }
 
-function ConnectRepositoryButton(): JSX.Element {
-    // Authorize-first: the connect button opens the OAuth authorize URL. An already-installed user gets a
-    // silent instant redirect back, so it never dead-ends on GitHub's "update installation" screen.
-    const { authorizeUrl, installInfoLoading } = useValues(stamphogSceneLogic)
+function RepositoryName({ repository }: { repository: string }): JSX.Element {
+    const [owner, name] = repository.split('/', 2)
+    if (!name) {
+        return <span className="font-medium">{repository}</span>
+    }
+    // A break opportunity after the slash lets a narrow table wrap at the owner instead of mid-word.
     return (
-        <LemonButton
-            type="primary"
-            icon={<IconGithub />}
-            to={authorizeUrl || undefined}
-            disableClientSideRouting
-            disabledReason={
-                installInfoLoading
-                    ? 'Loading install details'
-                    : authorizeUrl
-                      ? undefined
-                      : 'GitHub App not configured yet'
-            }
-        >
-            Connect a repository
-        </LemonButton>
+        <span className="font-medium">
+            <span>{`${owner}/`}</span>
+            <wbr />
+            <span>{name}</span>
+        </span>
     )
 }
 
 function SyncedBanner(): JSX.Element | null {
-    const { syncedRepos, skippedRepos, appNotInstalled, installUrl, discoveredInstallations } =
+    const { syncResult, skippedRepos, appNotInstalled, installUrl, discoveredInstallations } =
         useValues(stamphogSceneLogic)
     const { connectInstallation } = useActions(stamphogSceneLogic)
 
@@ -92,113 +90,81 @@ function SyncedBanner(): JSX.Element | null {
         )
     }
 
-    if (syncedRepos.length === 0 && skippedRepos.length === 0) {
+    if (!syncResult) {
         return null
     }
 
-    // A sync can connect nothing (every repo already owned by another team) — that still needs
-    // an explanation, not a silent no-op.
+    // A sync only makes repositories available to add and turns no reviews on, so the banner says so.
+    const availableCount = syncResult.available_count
     return (
-        <LemonBanner type={syncedRepos.length > 0 ? 'success' : 'warning'}>
-            {syncedRepos.length > 0 ? (
-                <>
-                    <p className="font-medium">Connected {syncedRepos.length} repositories</p>
-                    <p>Stamphog isn't reviewing them yet. Turn on the ones you want reviewed in the table below.</p>
-                </>
-            ) : (
-                <p className="font-medium">No repositories connected</p>
-            )}
+        <LemonBanner type={skippedRepos.length > 0 ? 'warning' : 'success'}>
+            <p className="font-medium">GitHub is connected</p>
+            <p>
+                {availableCount === 0
+                    ? 'There are no new repositories to add.'
+                    : availableCount === 1
+                      ? 'You can now add 1 repository. Reviews start once you add it.'
+                      : `You can now add ${availableCount} repositories. Reviews start for each one you add.`}
+            </p>
             {skippedRepos.length > 0 && (
-                <p className={syncedRepos.length > 0 ? 'text-warning mt-2' : 'mt-2'}>
-                    Skipped {skippedRepos.join(', ')} because another team already owns them under this installation.
+                <p className="mt-2">
+                    {`Skipped ${skippedRepos.join(', ')} because another project already uses ${skippedRepos.length === 1 ? 'it' : 'them'} with this GitHub installation.`}
                 </p>
             )}
         </LemonBanner>
     )
 }
 
-function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updating: boolean }): JSX.Element {
-    const { setReviewMode, setTriggerLabel } = useActions(stamphogSceneLogic)
-
-    const saveTriggerLabel = (value: string): void => {
-        const trimmed = value.trim()
-        // Save only real changes — blur after no edit (or after enter already saved) must not re-PATCH,
-        // and a blank label is rejected by the API anyway.
-        if (trimmed && trimmed !== repo.trigger_label) {
-            setTriggerLabel(repo.id, trimmed)
-        }
-    }
-
-    return (
-        <div className="flex items-center gap-2">
-            <LemonSelect
-                size="small"
-                value={repo.review_mode ?? ReviewModeEnumApi.All}
-                disabledReason={updating ? 'Updating' : undefined}
-                onChange={(mode) => setReviewMode(repo.id, mode)}
-                options={[
-                    { value: ReviewModeEnumApi.All, label: 'All PRs' },
-                    { value: ReviewModeEnumApi.Label, label: 'Label-triggered' },
-                ]}
-            />
-            {repo.review_mode === ReviewModeEnumApi.Label && (
-                <LemonInput
-                    // Uncontrolled on purpose: the label saves on blur/enter, not per keystroke.
-                    // Keying by the saved value resets the draft after a reload.
-                    key={`${repo.id}-${repo.trigger_label}`}
-                    size="small"
-                    className="w-40"
-                    defaultValue={repo.trigger_label}
-                    placeholder="Trigger label"
-                    disabled={updating}
-                    onBlur={(e) => saveTriggerLabel(e.currentTarget.value)}
-                    onPressEnter={(e) => saveTriggerLabel(e.currentTarget.value)}
-                />
-            )}
-        </div>
-    )
-}
-
 function RepoConfigsTable(): JSX.Element {
-    const { filteredRepoConfigs, repoConfigs, repoConfigsLoading, updatingRepoIds, repoSearch } =
-        useValues(stamphogSceneLogic)
-    const { setRepoEnabled, setDigestEnabled, setRepoSearch } = useActions(stamphogSceneLogic)
+    const {
+        filteredRepoConfigs,
+        repoConfigs,
+        repoConfigsLoading,
+        repoConfigsFailed,
+        repoSearch,
+        expandedRepoIds,
+        hasInstallation,
+    } = useValues(stamphogSceneLogic)
+    const { setRepoSearch, setRepoExpanded, loadRepoConfigs } = useActions(stamphogSceneLogic)
+
+    if (repoConfigsFailed && repoConfigs.length === 0) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{ children: 'Try again', onClick: () => loadRepoConfigs() }}
+                data-attr="stamphog-repo-configs-error"
+            >
+                Could not load your repositories. This is usually temporary.
+            </LemonBanner>
+        )
+    }
 
     const columns: LemonTableColumns<StamphogRepoConfigApi> = [
         {
             title: 'Repository',
             dataIndex: 'repository',
-            render: (repository) => <span className="font-medium">{repository as string}</span>,
+            render: (repository) => <RepositoryName repository={repository as string} />,
         },
         {
-            title: 'Enabled',
-            key: 'enabled',
-            render: (_, repo) => (
-                <LemonSwitch
-                    checked={!!repo.enabled}
-                    disabledReason={updatingRepoIds.includes(repo.id) ? 'Updating' : undefined}
-                    onChange={(checked) => setRepoEnabled(repo.id, checked)}
-                />
-            ),
+            title: 'Status',
+            key: 'status',
+            render: (_, repo) => {
+                const { type, label } = repoStatusDisplay(repo)
+                return <LemonTag type={type}>{label}</LemonTag>
+            },
         },
         {
-            title: 'Review mode',
-            key: 'review_mode',
-            render: (_, repo) => <ReviewModeCell repo={repo} updating={updatingRepoIds.includes(repo.id)} />,
+            title: 'Trigger',
+            key: 'trigger',
+            render: (_, repo) => triggerSummary(repo),
         },
         {
-            title: 'Digest enabled',
+            title: 'Digest',
             key: 'digest_enabled',
-            render: (_, repo) => (
-                <LemonSwitch
-                    checked={!!repo.digest_enabled}
-                    disabledReason={updatingRepoIds.includes(repo.id) ? 'Updating' : undefined}
-                    onChange={(checked) => setDigestEnabled(repo.id, checked)}
-                />
-            ),
+            render: (_, repo) => (repo.digest_enabled ? 'On' : <span className="text-secondary">Off</span>),
         },
         {
-            title: 'Created',
+            title: 'Added',
             dataIndex: 'created_at',
             render: (created_at) => <TZLabel time={created_at as string} />,
         },
@@ -206,13 +172,14 @@ function RepoConfigsTable(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
-            {repoConfigs.length > 10 && (
+            {repoConfigs.length > REPO_SEARCH_MIN_ROWS && (
                 <LemonInput
                     type="search"
-                    placeholder="Search repositories"
+                    placeholder="Search added repositories"
                     value={repoSearch}
                     onChange={setRepoSearch}
                     className="max-w-100"
+                    data-attr="stamphog-repo-search"
                 />
             )}
             <LemonTable
@@ -220,8 +187,20 @@ function RepoConfigsTable(): JSX.Element {
                 dataSource={filteredRepoConfigs}
                 loading={repoConfigsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 20 }}
-                emptyState="No repositories yet. Install the Stamphog GitHub App to get started."
+                expandable={{
+                    expandedRowRender: (repo) => <ExpandedRepoSettings repo={repo} />,
+                    isRowExpanded: (repo) => expandedRepoIds.includes(repo.id),
+                    onRowExpand: (repo) => setRepoExpanded(repo.id, true),
+                    onRowCollapse: (repo) => setRepoExpanded(repo.id, false),
+                }}
+                emptyState={
+                    repoConfigs.length > 0
+                        ? 'No added repository matches this search.'
+                        : hasInstallation === false
+                          ? 'No repositories yet. Connect GitHub to add the first one.'
+                          : 'No repositories yet. Add one above to start reviews.'
+                }
+                data-attr="stamphog-repo-table"
             />
         </div>
     )
@@ -234,10 +213,10 @@ export function StamphogScene(): JSX.Element {
                 name="Stamphog"
                 description="Automated pull request reviews and merged-PR digests, per repository."
                 resourceType={{ type: 'stamphog' }}
-                actions={<ConnectRepositoryButton />}
             />
             <StamphogTabs activeKey="repositories" />
             <SyncedBanner />
+            <AddRepositoryBar />
             <RepoConfigsTable />
         </SceneContent>
     )

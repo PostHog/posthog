@@ -16,15 +16,20 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from celery import shared_task
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
+from products.stamphog.backend.activity_logging import DISABLED_FIELDS, log_repo_configs_disabled_by_webhook
+from products.stamphog.backend.facade.contracts import ReviewRequestRefusedError, StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
+    ReviewRequestRefusal,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
@@ -39,8 +44,15 @@ from products.stamphog.backend.logic.approval_retention import (
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.installations import delete_installation, remove_from_installation_snapshot
 from products.stamphog.backend.logic.review_trigger import derive_review_trigger
-from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    PullRequest,
+    PullRequestAudience,
+    ReviewRun,
+    StamphogInstallation,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
 
@@ -830,72 +842,32 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
 
 
 def _resolve_installation_team_ids(installation_id: str) -> list[int]:
-    """Every distinct team carrying this installation.
+    """Every distinct team carrying this installation, through its installation record or a bound row.
 
     An installation's repos can legitimately be split across teams — each team syncs only the repos its
     members can access — so lifecycle events must fan out to all owning teams, not just the oldest
     config's. Resolving to a single (oldest) team would leave other teams' rows live after an uninstall
-    and could bind a newly added repo to a team its adder never intended. unscoped(): the owning teams
-    are exactly what's being resolved here — the one cross-team read on this path (mirrors
-    _resolve_repo_config, writer pin included: a lagged reader returning no teams would silently and
-    permanently skip the lifecycle mutation for a just-synced installation).
+    and could add a new repo to a team its adder never intended. The bound rows count too, so that a
+    team whose record is gone still has its rows tombstoned. unscoped(): the owning teams are exactly
+    what's being resolved here — the one cross-team read on this path (mirrors _resolve_repo_config,
+    writer pin included: a lagged reader returning no teams would silently and permanently skip the
+    lifecycle mutation for a just-synced installation).
     """
-    return list(
+    write_db = router.db_for_write(StamphogInstallation)
+    recorded = (
+        StamphogInstallation.objects.unscoped()
+        .using(write_db)
+        .filter(provider="github", installation_id=installation_id)
+        .values_list("team_id", flat=True)
+    )
+    bound = (
         StamphogRepoConfig.objects.unscoped()
-        .using(router.db_for_write(StamphogRepoConfig))
+        .using(write_db)
         .filter(provider="github", installation_id=installation_id)
         .values_list("team_id", flat=True)
         .distinct()
     )
-
-
-def _add_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
-    """Create a disabled config row per newly installed repo, skipping any that already exist.
-
-    Rows start disabled so a repo added on GitHub merely appears in the toggle list — enabling reviews
-    stays a human decision. Conflicts (another team owns the triple, or this team already has the repo)
-    skip that one repo, never the batch: the same cross-team uniqueness the sync endpoint enforces.
-    """
-    # Bind the transaction to the model's routed DB (stamphog_db_writer when the product DB is
-    # configured, else default) — a bare atomic() would open on the default connection and leave
-    # the create running outside any transaction on the product DB.
-    write_db = router.db_for_write(StamphogRepoConfig)
-    # New rows inherit the connecting user from a sibling of the same installation — webhooks carry
-    # no PostHog identity, and the sandbox token for reviews is minted under this user. No sibling
-    # with one set means the installation was never synced; the row stays null and reviews fail closed.
-    # Writer pin: an add arriving right after the sync/restamp must see the just-committed identity,
-    # or the new row is stored null and reviews fail at mint time once enabled.
-    connected_by_user_id = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(write_db)
-        .filter(provider="github", installation_id=installation_id, connected_by_user_id__isnull=False)
-        .values_list("connected_by_user_id", flat=True)
-        .first()
-    )
-    for repo in repos:
-        full_name = (repo or {}).get("full_name") or ""
-        if not full_name:
-            continue
-        exists = (
-            StamphogRepoConfig.objects.unscoped()
-            .filter(provider="github", installation_id=installation_id, repository=full_name)
-            .exists()
-        )
-        if exists:
-            continue
-        try:
-            with transaction.atomic(using=write_db):
-                StamphogRepoConfig.objects.for_team(team_id).create(
-                    team_id=team_id,
-                    provider="github",
-                    repository=full_name,
-                    installation_id=installation_id,
-                    enabled=False,
-                    digest_enabled=False,
-                    connected_by_user_id=connected_by_user_id,
-                )
-        except IntegrityError:
-            logger.info("stamphog_installation_repo_add_conflict", repository=full_name, team_id=team_id)
+    return sorted(set(recorded) | set(bound))
 
 
 def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
@@ -917,44 +889,71 @@ def _supersede_runs_for_configs(team_id: int, config_ids: list[Any]) -> None:
         logger.info("stamphog_repo_removal_superseded_runs", team_id=team_id, superseded=superseded)
 
 
-def _disable_installation_repos(team_id: int, installation_id: str, repos: list[dict[str, Any]]) -> None:
-    """Tombstone configs for repos removed from the installation: disable, keep the rows and history."""
-    names = [name for repo in repos if (name := (repo or {}).get("full_name"))]
-    if not names:
+def _disable_installation_repos(
+    team_id: int,
+    installation_id: str,
+    *,
+    action: str,
+    delivery_id: str,
+    repository_names: list[str] | None = None,
+) -> None:
+    """Tombstone configs for repos that left the installation: disable, keep the rows and history.
+
+    `repository_names` names the repos that were removed. `None` means every repo of the
+    installation, which is what an uninstall takes away.
+    """
+    if repository_names is not None and not repository_names:
         return
-    # Writer pin: this lookup gates the disable + supersede side effects; a lagged reader missing a
-    # just-restamped row would leave the removed repo's config live and its runs posting.
-    config_ids = list(
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", installation_id=installation_id, repository__in=names)
-        .values_list("id", flat=True)
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # One transaction over the snapshot, the disable and the supersede, with the rows locked: a
+    # concurrent API write between the read and the update would otherwise be logged as this
+    # webhook's change, or lost. Writer pin: a lagged reader missing a just-restamped row would
+    # leave the removed repo's config live and its runs posting. The full rows, not just the ids:
+    # they are the before-state the activity log needs.
+    with transaction.atomic(using=write_db):
+        configs = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .using(write_db)
+            .select_for_update()
+            .filter(provider="github", installation_id=installation_id)
+        )
+        if repository_names is not None:
+            configs = configs.filter(repository__in=repository_names)
+        before_rows = list(configs.values("id", "repository", *DISABLED_FIELDS))
+        config_ids = [row["id"] for row in before_rows]
+        # updated_at explicitly: auto_now doesn't fire on queryset update().
+        disabled = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .filter(id__in=config_ids)
+            .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
+        )
+        # Supersede first: an in-flight run must stop before anything that can fail, or a retry
+        # finds it terminal and the approval it posted meanwhile stands.
+        _supersede_runs_for_configs(team_id, config_ids)
+        log_repo_configs_disabled_by_webhook(
+            team_id, before_rows, delivery_id=delivery_id, action=action, installation_id=installation_id
+        )
+    event = (
+        "stamphog_installation_repos_removed" if repository_names is not None else "stamphog_installation_uninstalled"
     )
-    # updated_at explicitly: auto_now doesn't fire on queryset update().
-    disabled = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .filter(id__in=config_ids)
-        .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-    )
-    _supersede_runs_for_configs(team_id, config_ids)
-    logger.info("stamphog_installation_repos_removed", installation_id=installation_id, disabled=disabled)
+    logger.info(event, installation_id=installation_id, team_id=team_id, disabled=disabled)
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_installation_event(payload: dict[str, Any], delivery_id: str) -> None:
-    """Mirror installation lifecycle changes (repos added/removed, app uninstalled) onto config rows.
+    """Mirror installation lifecycle changes (repos removed, app uninstalled) onto snapshots and rows.
 
-    Without this, a repo added to the installation after the initial sync never appears in the toggle
-    list until a manual re-sync. `installation_repositories` payloads carry repositories_added/removed;
-    a plain `installation` event with action "deleted" means the app was uninstalled.
+    `installation_repositories` payloads carry repositories_added/removed; a plain `installation`
+    event with action "deleted" means the app was uninstalled.
 
     An installation's repos can be split across several teams, so removals and uninstalls fan out to
-    EVERY owning team (tombstone semantics — rows and history are kept). Auto-adding a newly installed
-    repo, on the other hand, is only a convenience for the unambiguous single-team case: when one team
-    owns the installation the new repo appears as a disabled row automatically. When multiple teams
-    share it, ownership is ambiguous — auto-binding could attach the repo to a team its adder never
-    intended — so the add is skipped and left to the authenticated sync flow, which verifies the acting
-    user's repo access. Rows always start disabled either way, so enabling reviews stays a human decision.
+    EVERY owning team: the repos leave each snapshot, and their rows are tombstoned (rows and history
+    are kept). An uninstall also deletes each team's installation record.
+
+    A repo added on GitHub changes nothing. The snapshot holds only repos a member proved access to
+    with their own GitHub token, and a webhook carries no user. An outside collaborator on one repo
+    can connect the installation, so adding every later repo to their team's snapshot would let that
+    team review private repos nobody on it can see. The repo becomes addable when a member syncs again.
     """
     if delivery_id and _is_duplicate_pr_event(delivery_id):
         logger.info("stamphog_installation_event_duplicate_skipped", delivery_id=delivery_id)
@@ -973,51 +972,37 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
         logger.exception("stamphog_installation_team_resolution_failed", delivery_id=delivery_id, error=str(e))
         raise cast(Any, process_installation_event).retry(exc=e)
     if not team_ids:
-        # No config carries this installation yet — the user-driven sync flow will bind it to a team.
+        # No team holds this installation yet. The user-driven sync flow binds it to a team.
         logger.info("stamphog_installation_event_unbound", installation_id=installation_id)
         return
 
     action = payload.get("action", "")
     # Retry on failure like the review path: the webhook is already ACKed, so a transient product-DB
-    # blip during the config mutations must not permanently drop the lifecycle event (a repo added on
-    # GitHub would then never appear in the toggle list until a manual re-sync). Mark the delivery
+    # blip during the config mutations must not permanently drop the lifecycle event (a repo removed
+    # on GitHub would then stay live and addable). Mark the delivery
     # processed only after the mutations succeed, so a retried delivery still does its work.
     try:
         if "repositories_added" in payload or "repositories_removed" in payload:
-            added = payload.get("repositories_added") or []
-            if added:
-                if len(team_ids) == 1:
-                    _add_installation_repos(team_ids[0], installation_id, added)
-                else:
-                    # Ambiguous ownership: skip the auto-add, defer to the authenticated sync flow.
-                    logger.info(
-                        "stamphog_installation_repo_add_ambiguous",
-                        installation_id=installation_id,
-                        team_count=len(team_ids),
-                    )
+            if payload.get("repositories_added"):
+                logger.info(
+                    "stamphog_installation_repos_added_awaiting_sync",
+                    installation_id=installation_id,
+                    added=len(payload["repositories_added"]),
+                )
             removed = payload.get("repositories_removed") or []
+            names = [name for repo in removed if (name := (repo or {}).get("full_name"))]
             for team_id in team_ids:
-                _disable_installation_repos(team_id, installation_id, removed)
+                remove_from_installation_snapshot(team_id, installation_id, names)
+                _disable_installation_repos(
+                    team_id, installation_id, action="removed", delivery_id=delivery_id, repository_names=names
+                )
         elif action == "deleted":
             for team_id in team_ids:
-                uninstalled_ids = list(
-                    StamphogRepoConfig.objects.for_team(team_id)
-                    .using(router.db_for_write(StamphogRepoConfig))
-                    .filter(provider="github", installation_id=installation_id)
-                    .values_list("id", flat=True)
-                )
-                disabled = (
-                    StamphogRepoConfig.objects.for_team(team_id)
-                    .filter(id__in=uninstalled_ids)
-                    .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-                )
-                _supersede_runs_for_configs(team_id, uninstalled_ids)
-                logger.info(
-                    "stamphog_installation_uninstalled",
-                    installation_id=installation_id,
-                    team_id=team_id,
-                    disabled=disabled,
-                )
+                # Record first: the delete waits for an add_repository that holds the record's lock, so
+                # the disable below sees the row that add created. A retry still finds this team
+                # through its bound rows.
+                delete_installation(team_id, installation_id)
+                _disable_installation_repos(team_id, installation_id, action=action, delivery_id=delivery_id)
         else:
             logger.info("stamphog_installation_event_ignored", action=action)
     except Exception as e:
@@ -1364,6 +1349,98 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
+def _reviewable_repo_config(team_id: int, repository: str) -> StamphogRepoConfig | None:
+    """The team's enabled config for ``repository`` that was bound through the verified sync flow.
+
+    Writer-pinned like every read that gates run creation (reader-lag invariant). Matched
+    case-insensitively because callers pass repository names in whatever casing they hold, while
+    configs keep GitHub's casing.
+    """
+    return (
+        StamphogRepoConfig.objects.for_team(team_id)
+        .using(router.db_for_write(StamphogRepoConfig))
+        .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
+        .exclude(installation_id="")
+        .order_by("created_at", "id")
+        .first()
+    )
+
+
+def _reviewed_base_ref(run: ReviewRun) -> str:
+    """The base branch the run reviewed against, or "" before the workflow recorded the PR."""
+    reviewed_pr = (run.output or {}).get("pr") or {}
+    return (reviewed_pr.get("base") or {}).get("ref") or ""
+
+
+@frozen
+class _HeadQueueResult:
+    """What ``_queue_review_at_head`` did for one PR head."""
+
+    # None when a newer PR snapshot already committed, so this caller's head is stale.
+    run: ReviewRun | None
+    created: bool
+
+
+def _queue_review_at_head(
+    repo_config: StamphogRepoConfig, pr: dict[str, Any], head_sha: str, *, output: dict[str, Any]
+) -> _HeadQueueResult:
+    """Create a QUEUED run for the PR's current head, or return the run that already covers it.
+
+    Shared by the entries that fetch the PR from GitHub themselves rather than receive a webhook
+    payload. Same transaction and on_commit shape as ``process_pull_request_event``. A live or
+    delivered run at this head is returned as is, and a QUEUED one lost its workflow start, so its
+    workflow restarts on commit. Otherwise older live runs are superseded and a fresh run starts
+    once the row commits. Errors propagate so the caller can retry or report them.
+    """
+    team_id = repo_config.team_id
+    run_write_db = router.db_for_write(ReviewRun)
+    with transaction.atomic(using=run_write_db):
+        pr_obj = _upsert_pull_request(repo_config, pr)
+        # This fetch raced a push and a newer webhook snapshot already committed, so superseding
+        # its run for this older head would cancel the up-to-date review.
+        incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
+        if (
+            incoming_updated_at is not None
+            and pr_obj.payload_updated_at is not None
+            and pr_obj.payload_updated_at > incoming_updated_at
+        ):
+            return _HeadQueueResult(run=None, created=False)
+        # Dedupe repeat requests against the current head; the row lock serializes races.
+        existing = (
+            ReviewRun.objects.for_team(team_id)
+            .using(run_write_db)
+            .select_for_update()
+            .filter(pull_request=pr_obj, head_sha=head_sha)
+            .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
+            .order_by("-created_at")
+            .first()
+        )
+        # A retarget changes the diff without moving the head, and in label mode no webhook run
+        # replaces the old verdict. A run that reviewed another base branch does not cover this one.
+        reviewed_base_ref = _reviewed_base_ref(existing) if existing is not None else ""
+        if reviewed_base_ref and reviewed_base_ref != (pr.get("base") or {}).get("ref"):
+            existing = None
+        if existing is not None:
+            if existing.status == ReviewRunStatus.QUEUED:
+                existing_run_id = str(existing.id)
+                transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
+            return _HeadQueueResult(run=existing, created=False)
+        _supersede_prior_runs(pr_obj)
+        review_run = ReviewRun.objects.for_team(team_id).create(
+            team_id=team_id,
+            pull_request=pr_obj,
+            head_sha=head_sha,
+            delivery_id=None,
+            status=ReviewRunStatus.QUEUED,
+            output=output,
+        )
+        review_run_id = str(review_run.id)
+        # A post-commit start failure propagates to the caller. A retry re-enters through the
+        # dedupe above and restarts the still-QUEUED run.
+        transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
+    return _HeadQueueResult(run=review_run, created=True)
+
+
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_inbox_pr_review(
     team_id: int, pr_url: str, repository: str, acting_user_id: int, signal_report_id: str, task_run_id: str
@@ -1407,18 +1484,9 @@ def process_inbox_pr_review(
         )
         return
 
-    # Writer-pinned like every read that gates run creation (reader-lag invariant); iexact because
-    # tasks stores repository slugs lowercased while configs keep GitHub's casing.
-    write_db = router.db_for_write(StamphogRepoConfig)
+    # iexact because tasks stores repository slugs lowercased while configs keep GitHub's casing.
     try:
-        repo_config = (
-            StamphogRepoConfig.objects.for_team(team_id)
-            .using(write_db)
-            .filter(provider="github", repository__iexact=repository, enabled=True, connected_by_user_id__isnull=False)
-            .exclude(installation_id="")
-            .order_by("created_at", "id")
-            .first()
-        )
+        repo_config = _reviewable_repo_config(team_id, repository)
     except Exception as e:
         logger.exception("stamphog_inbox_pr_config_resolution_failed", team_id=team_id, error=str(e))
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
@@ -1485,65 +1553,130 @@ def process_inbox_pr_review(
         "task_run_id": str(linked.run_id),
         "acting_user_id": acting_reviewer_id,
     }
-    # Same transaction/on_commit shape as the webhook path (see process_pull_request_event).
-    run_write_db = router.db_for_write(ReviewRun)
     try:
-        with transaction.atomic(using=run_write_db):
-            pr_obj = _upsert_pull_request(repo_config, pr)
-            # This fetch raced a push and a newer webhook snapshot already committed, so superseding
-            # its run for this older head would cancel the up-to-date review.
-            incoming_updated_at = parse_datetime(pr.get("updated_at") or "")
-            if (
-                incoming_updated_at is not None
-                and pr_obj.payload_updated_at is not None
-                and pr_obj.payload_updated_at > incoming_updated_at
-            ):
-                logger.info("stamphog_inbox_pr_stale_snapshot", repository=repository, pr_number=pr_number)
-                return
-            # Dedupe repeat fires against the current head; the row lock serializes races. A live or
-            # delivered run is already handled; a QUEUED one lost its workflow start, so restart it.
-            existing = (
-                ReviewRun.objects.for_team(team_id)
-                .using(run_write_db)
-                .select_for_update()
-                .filter(pull_request=pr_obj, head_sha=head_sha)
-                .exclude(status__in=(ReviewRunStatus.SUPERSEDED, ReviewRunStatus.FAILED))
-                .order_by("-created_at")
-                .first()
-            )
-            if existing is not None:
-                if existing.status == ReviewRunStatus.QUEUED:
-                    existing_run_id = str(existing.id)
-                    transaction.on_commit(lambda: _start_review_workflow(existing_run_id, team_id), using=run_write_db)
-                logger.info(
-                    "stamphog_inbox_pr_already_reviewed",
-                    repository=repository,
-                    pr_number=pr_number,
-                    existing_status=existing.status,
-                )
-                return
-            _supersede_prior_runs(pr_obj)
-            review_run = ReviewRun.objects.for_team(team_id).create(
-                team_id=team_id,
-                pull_request=pr_obj,
-                head_sha=head_sha,
-                delivery_id=None,
-                status=ReviewRunStatus.QUEUED,
-                # Always self-driving on this leg: it exists only for inbox-linked PRs.
-                output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
-            )
-            review_run_id = str(review_run.id)
-            # A post-commit start failure propagates into the retry below; the retry re-enters
-            # through the dedupe above and restarts the still-QUEUED run.
-            transaction.on_commit(lambda: _start_review_workflow(review_run_id, team_id), using=run_write_db)
+        queued = _queue_review_at_head(
+            repo_config,
+            pr,
+            head_sha,
+            # Always self-driving on this leg: it exists only for inbox-linked PRs.
+            output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
+        )
     except Exception as e:
         logger.exception("stamphog_inbox_pr_create_run_failed", repository=repository, pr_number=pr_number)
         raise cast(Any, process_inbox_pr_review).retry(exc=e)
+    if queued.run is None:
+        logger.info("stamphog_inbox_pr_stale_snapshot", repository=repository, pr_number=pr_number)
+        return
+    if not queued.created:
+        logger.info(
+            "stamphog_inbox_pr_already_reviewed",
+            repository=repository,
+            pr_number=pr_number,
+            existing_status=queued.run.status,
+        )
+        return
 
     logger.info(
         "stamphog_inbox_pr_review_queued",
         repository=repository,
         pr_number=pr_number,
-        review_run_id=review_run_id,
+        review_run_id=str(queued.run.id),
         team_id=team_id,
     )
+
+
+_MANUAL_SKIP_MESSAGES = {
+    "draft": "Stamphog does not review draft pull requests. Mark the pull request as ready for review, then request again.",
+    "bot_author": "Stamphog does not review pull requests opened by bots. This change needs a human reviewer.",
+    "untrusted_author_association": "Stamphog only reviews pull requests from members and collaborators of the repository.",
+}
+
+# Transport-level GitHub failures. StamphogGitHubError is caught next to each call instead, because a
+# 404 on the PR fetch is a refusal of its own rather than an outage.
+_GITHUB_ERRORS = (GitHubRateLimitError, requests.RequestException)
+
+
+def _github_unavailable(repo: str, pr_number: int) -> ReviewRequestRefusedError:
+    logger.warning("stamphog_manual_review_github_failed", repository=repo, pr_number=pr_number, exc_info=True)
+    return ReviewRequestRefusedError(
+        ReviewRequestRefusal.GITHUB_UNAVAILABLE,
+        "Stamphog could not reach GitHub to check this request. Try again in a minute.",
+    )
+
+
+@frozen
+class QueuedReview:
+    """The run a manual review request points at, and whether the request created it."""
+
+    run: ReviewRun
+    created: bool
+
+
+def request_manual_review(team_id: int, user_id: int | None, repository: str, pr_number: int) -> QueuedReview:
+    """Queue a review of one PR because a PostHog user asked for it, and return the run that covers it.
+
+    The request stands in for the trigger label, so it bypasses the repo's review mode and nothing
+    else. Every other webhook gate still applies: open state, the draft, bot-author and
+    author-association pre-filters, and the PR author's own write access. No refusal here touches
+    GitHub, and a queued run enters the workflow through its dismiss-first step like every other run.
+
+    Runs synchronously in the API request, so the caller learns right away why a request was
+    refused. Raises ``ReviewRequestRefusedError`` with a message written for the requester.
+    """
+    repo_config = _reviewable_repo_config(team_id, repository)
+    if repo_config is None:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_FOUND,
+            f"Stamphog is not connected and enabled for {repository} in this project. "
+            "Connect the repository in Stamphog settings and turn on reviews first.",
+        )
+    repo = repo_config.repository
+    try:
+        pr = StamphogGitHubClient(repo_config.installation_id).get_pr(repo, pr_number)
+    except StamphogGitHubError as e:
+        if e.status_code == 404:
+            raise ReviewRequestRefusedError(
+                ReviewRequestRefusal.NOT_FOUND, f"Pull request #{pr_number} was not found in {repo}."
+            )
+        raise _github_unavailable(repo, pr_number) from e
+    except _GITHUB_ERRORS as e:
+        raise _github_unavailable(repo, pr_number) from e
+    if (pr.get("state") or "") != "open":
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_REVIEWABLE,
+            f"Pull request #{pr_number} is closed, so Stamphog will not review it.",
+        )
+    skip_reason = _review_skip_reason(pr)
+    if skip_reason is not None:
+        raise ReviewRequestRefusedError(ReviewRequestRefusal.NOT_REVIEWABLE, _MANUAL_SKIP_MESSAGES[skip_reason])
+    try:
+        author_below_write = _author_lacks_write_permission(repo_config, repo, pr)
+    except (StamphogGitHubError, *_GITHUB_ERRORS) as e:
+        raise _github_unavailable(repo, pr_number) from e
+    if author_below_write:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_REVIEWABLE,
+            f"The author of pull request #{pr_number} does not have write access to {repo}, "
+            "so Stamphog will not review it.",
+        )
+
+    queued = _queue_review_at_head(
+        repo_config,
+        pr,
+        pr["head"]["sha"],
+        output={"manual_review": {"acting_user_id": user_id}, "review_trigger": ReviewTrigger.MANUAL.value},
+    )
+    if queued.run is None:
+        raise ReviewRequestRefusedError(
+            ReviewRequestRefusal.NOT_REVIEWABLE,
+            f"Pull request #{pr_number} changed while the request was checked. Request the review again.",
+        )
+    logger.info(
+        "stamphog_manual_review_requested",
+        repository=repo,
+        pr_number=pr_number,
+        review_run_id=str(queued.run.id),
+        created=queued.created,
+        team_id=team_id,
+    )
+    return QueuedReview(run=queued.run, created=queued.created)

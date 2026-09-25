@@ -14,6 +14,8 @@ from posthog.models.integration import (
     Integration,
     JiraIntegration,
     LinearIntegration,
+    external_issue_url,
+    is_supported_external_issue_provider,
 )
 
 from products.error_tracking.backend.logic import get_issue_permalink_by_fingerprint
@@ -23,15 +25,6 @@ from products.error_tracking.backend.models import ErrorTrackingExternalReferenc
 class ErrorTrackingExternalReferenceValidationError(Exception):
     pass
 
-
-SUPPORTED_EXTERNAL_ISSUE_PROVIDERS = frozenset(
-    {
-        Integration.IntegrationKind.LINEAR,
-        Integration.IntegrationKind.GITHUB,
-        Integration.IntegrationKind.GITLAB,
-        Integration.IntegrationKind.JIRA,
-    }
-)
 
 EXTERNAL_REFERENCE_REQUIRED_CONFIG_FIELDS = {
     Integration.IntegrationKind.GITHUB.value: ("repository", "title", "body"),
@@ -57,10 +50,6 @@ LINK_EXISTING_REQUIRED_CONTEXT_FIELDS: dict[str, dict[str, type]] = {
     Integration.IntegrationKind.LINEAR.value: {"id": str},
     Integration.IntegrationKind.JIRA.value: {"key": str},
 }
-
-
-def is_supported_external_issue_provider(kind: str) -> bool:
-    return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 
 def _validate_external_reference_config(integration: Integration, config: Any) -> None:
@@ -104,7 +93,7 @@ def _validate_external_reference_config(integration: Integration, config: Any) -
 def _clean_existing_external_context(integration: Integration, external_context: Any) -> dict[str, Any]:
     """Validate and normalize the external_context for linking an already-existing issue.
 
-    Keeps only the provider keys build_external_issue_url reads, so we never persist arbitrary
+    Keeps the provider identifier fields and an optional title, so we never persist arbitrary
     client-supplied data on the reference.
     """
     if not isinstance(external_context, dict):
@@ -139,6 +128,24 @@ def _clean_existing_external_context(integration: Integration, external_context:
             # segments with traversal semantics.
             raise error
         cleaned[field] = value
+
+    title = external_context.get("title")
+    if title is not None:
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 500:
+            raise ErrorTrackingExternalReferenceValidationError(
+                "External reference title must be a non-blank string with at most 500 characters."
+            )
+        cleaned["title"] = title.strip()
+
+    if integration.kind == Integration.IntegrationKind.GITHUB:
+        resource_type = external_context.get("resource_type")
+        if resource_type is not None:
+            if resource_type not in {"issue", "pull_request"}:
+                raise ErrorTrackingExternalReferenceValidationError(
+                    "GitHub references must identify either an issue or a pull request."
+                )
+            cleaned["resource_type"] = resource_type
+
     return cleaned
 
 
@@ -189,14 +196,24 @@ def create_external_reference(
         if not is_supported_external_issue_provider(integration.kind):
             raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
         stored_context = _clean_existing_external_context(integration, external_context)
+        identifier_context = {
+            field: stored_context[field] for field in LINK_EXISTING_REQUIRED_CONTEXT_FIELDS[integration.kind]
+        }
         # Linking is idempotent: retries and double-clicks must not duplicate the
         # reference (references cannot be deleted) or re-attach in the provider.
         # Containment (not equality) also matches references the create flow stored
         # with extra provider keys alongside the identifier.
         existing = ErrorTrackingExternalReference.objects.filter(
-            issue=issue, integration=integration, external_context__contains=stored_context
+            issue=issue, integration=integration, external_context__contains=identifier_context
         ).first()
         if existing is not None:
+            updated_context = {
+                **(existing.external_context or {}),
+                **{key: stored_context[key] for key in ("title", "resource_type") if key in stored_context},
+            }
+            if updated_context != existing.external_context:
+                existing.external_context = updated_context
+                existing.save(update_fields=["external_context"])
             return existing, False
         if integration.kind == Integration.IntegrationKind.LINEAR:
             # Linked issues get the same PostHog back-link attachment as created ones.
@@ -210,6 +227,8 @@ def create_external_reference(
 
     _validate_external_reference_config(integration, config)
     provider_config = dict(config or {})
+    title = provider_config["title"].strip()
+    provider_config["title"] = title
 
     if integration.kind == Integration.IntegrationKind.GITHUB:
         created_context = GitHubIntegration(integration).create_issue(provider_config)
@@ -223,6 +242,7 @@ def create_external_reference(
     else:
         raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
 
+    created_context["title"] = title
     return ErrorTrackingExternalReference.objects.create(
         issue=issue,
         integration=integration,
@@ -274,36 +294,29 @@ def search_external_issues(
 
 
 def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:
-    external_context: dict[str, str] = reference.external_context or {}
-    integration = reference.integration
+    return external_issue_url(reference.integration, reference.external_context)
 
-    if integration.kind == Integration.IntegrationKind.LINEAR:
-        issue_id = external_context.get("id")
-        if not issue_id:
-            return ""
-        url_key = LinearIntegration(integration).url_key()
-        return f"https://linear.app/{url_key}/issue/{issue_id}"
 
-    if integration.kind == Integration.IntegrationKind.GITHUB:
-        repository = external_context.get("repository")
-        number = external_context.get("number")
-        if not repository or not number:
-            return ""
-        org = GitHubIntegration(integration).organization()
-        return f"https://github.com/{org}/{repository}/issues/{number}"
+def external_issue_id(reference: ErrorTrackingExternalReference) -> str:
+    external_context = reference.external_context or {}
+    id_field = {
+        Integration.IntegrationKind.GITHUB.value: "number",
+        Integration.IntegrationKind.GITLAB.value: "issue_id",
+        Integration.IntegrationKind.LINEAR.value: "id",
+        Integration.IntegrationKind.JIRA.value: "key",
+    }.get(reference.integration.kind)
+    value = external_context.get(id_field) if id_field else reference.external_id
+    if value is None:
+        return ""
+    external_id = str(value)
+    if reference.integration.kind in {
+        Integration.IntegrationKind.GITHUB,
+        Integration.IntegrationKind.GITLAB,
+    } and not external_id.startswith("#"):
+        return f"#{external_id}"
+    return external_id
 
-    if integration.kind == Integration.IntegrationKind.GITLAB:
-        issue_id = external_context.get("issue_id")
-        if not issue_id:
-            return ""
-        gitlab = GitLabIntegration(integration)
-        return f"{gitlab.hostname}/{gitlab.project_path}/issues/{issue_id}"
 
-    if integration.kind == Integration.IntegrationKind.JIRA:
-        issue_key = external_context.get("key")
-        if not issue_key:
-            return ""
-        jira = JiraIntegration(integration)
-        return f"{jira.site_url()}/browse/{issue_key}"
-
-    return ""
+def external_issue_title(reference: ErrorTrackingExternalReference) -> str:
+    title = (reference.external_context or {}).get("title")
+    return title if isinstance(title, str) else ""

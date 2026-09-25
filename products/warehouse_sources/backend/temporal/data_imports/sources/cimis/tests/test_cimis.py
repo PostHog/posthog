@@ -2,7 +2,7 @@ from datetime import date
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -133,7 +133,7 @@ class TestGetRowsData:
         with pytest.raises(ValueError):
             list(get_rows(endpoint="daily_data", app_key="k", targets=[], unit_of_measure="E", logger=mock.Mock()))
 
-    @freeze_time("2023-01-03 12:00:00")
+    @time_machine.travel("2023-01-03 12:00:00", tick=False)
     def test_daily_full_refresh_windows_from_epoch(self, monkeypatch: Any) -> None:
         urls: list[str] = []
 
@@ -151,7 +151,7 @@ class TestGetRowsData:
         # No request may reach into the future.
         assert all("endDate=2023-01-03" in u for u in urls[-1:])
 
-    @freeze_time("2023-01-10 12:00:00")
+    @time_machine.travel("2023-01-10 12:00:00", tick=False)
     def test_daily_incremental_starts_from_last_value(self, monkeypatch: Any) -> None:
         urls: list[str] = []
 
@@ -174,7 +174,7 @@ class TestGetRowsData:
         # The first window must begin at the saved watermark, not the epoch.
         assert "startDate=2023-01-08" in urls[0]
 
-    @freeze_time("2023-01-02 12:00:00")
+    @time_machine.travel("2023-01-02 12:00:00", tick=False)
     def test_no_requests_when_watermark_in_future(self, monkeypatch: Any) -> None:
         urls: list[str] = []
 
@@ -197,7 +197,7 @@ class TestGetRowsData:
         assert batches == []
         assert urls == []
 
-    @freeze_time("2020-01-01 12:00:00")
+    @time_machine.travel("2020-01-01 12:00:00", tick=False)
     def test_hourly_with_many_targets_keeps_each_request_under_cap(self, monkeypatch: Any) -> None:
         # 100 hourly targets over a single day would be 2400 records — over the cap — so the source
         # must split the target set and keep the date window at a single day.

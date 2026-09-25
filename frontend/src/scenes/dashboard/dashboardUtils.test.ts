@@ -2,10 +2,21 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 
-import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBasedInsightModel } from '~/types'
+import { BreakdownFilter, DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import {
+    AnyPropertyFilter,
+    DashboardPlacement,
+    DashboardTile,
+    DashboardType,
+    InsightModel,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import {
+    dashboardSearchParamsFromOverrides,
     dashboardToSaveableTemplate,
+    searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
     getInsightWithRetry,
     isWidgetTileVisibleOnPlacement,
@@ -16,9 +27,51 @@ import {
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
 
+describe('searchParamsWithUrlFilters', () => {
+    const propertyFilter: AnyPropertyFilter[] = [
+        {
+            key: '$browser',
+            value: 'Chrome',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+        },
+    ]
+    const breakdownFilter: BreakdownFilter = { breakdown: '$browser', breakdown_type: 'event' }
+
+    it.each([
+        ['property filter', { properties: [] }, { properties: propertyFilter }],
+        ['breakdown', { breakdown_filter: null }, { breakdown_filter: breakdownFilter }],
+    ])('keeps an empty %s override that clears a saved value', (_name, filters, persistedFilters) => {
+        const searchParams = searchParamsWithUrlFilters({}, filters, persistedFilters)
+
+        expect(parseURLFilters(searchParams)).toEqual(filters)
+    })
+
+    it('removes an empty override when the dashboard has no saved filters', () => {
+        const searchParams = searchParamsWithUrlFilters(
+            { [SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ properties: propertyFilter }) },
+            { properties: [] }
+        )
+
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+    })
+
+    it('keeps an explicit date mode override', () => {
+        const searchParams = searchParamsWithUrlFilters({}, { explicitDate: false }, { explicitDate: true })
+
+        expect(parseURLFilters(searchParams)).toEqual({ explicitDate: false })
+    })
+
+    it('keeps an override that clears an external filter', () => {
+        const searchParams = searchParamsWithUrlFilters({}, { properties: [] }, { properties: propertyFilter })
+
+        expect(parseURLFilters(searchParams)).toEqual({ properties: [] })
+    })
+})
+
 describe('getDashboardTileDisplayName', () => {
     it('uses widget header title when no custom name is set', () => {
-        const tile: DashboardTile<QueryBasedInsightModel> = {
+        const tile: DashboardTile = {
             id: 1,
             widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
             layouts: {},
@@ -29,7 +82,7 @@ describe('getDashboardTileDisplayName', () => {
     })
 
     it('uses custom widget name when set', () => {
-        const tile: DashboardTile<QueryBasedInsightModel> = {
+        const tile: DashboardTile = {
             id: 1,
             widget: { id: '1', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
             layouts: {},
@@ -61,13 +114,59 @@ describe('dashboardToSaveableTemplate', () => {
                     color: null,
                 },
             ],
-        } as unknown as DashboardType<InsightModel>
+        } as unknown as DashboardType
 
         const tile = dashboardToSaveableTemplate(dashboard)?.tiles[0]
         expect(tile).toMatchObject({
             type: 'BUTTON',
             button_tile: { url: '/replay/home', text: 'Watch replays' },
         })
+    })
+
+    it('preserves display attributes for every tile type', () => {
+        const dashboard = {
+            name: 'My dashboard',
+            description: '',
+            filters: {},
+            tags: [],
+            tiles: [
+                {
+                    id: 1,
+                    text: { body: 'Text', last_modified_at: '2024-01-01' },
+                    layouts: {},
+                    color: null,
+                    transparent_background: true,
+                },
+                {
+                    id: 2,
+                    insight: { name: 'Insight', query: { kind: 'TrendsQuery' } },
+                    layouts: {},
+                    color: null,
+                    transparent_background: false,
+                },
+                {
+                    id: 3,
+                    button_tile: { url: '/insights', text: 'Insights', placement: 'left', style: 'primary' },
+                    layouts: {},
+                    color: null,
+                    transparent_background: true,
+                },
+                {
+                    id: 4,
+                    widget: { id: 'widget-1', widget_type: 'todo', config: {} },
+                    layouts: {},
+                    color: null,
+                    transparent_background: false,
+                },
+            ],
+        } as unknown as DashboardType
+
+        expect(dashboardToSaveableTemplate(dashboard)?.tiles).toMatchObject([
+            { type: 'TEXT', transparent_background: true },
+            { type: 'INSIGHT', transparent_background: false },
+            { type: 'BUTTON', transparent_background: true },
+            { type: 'WIDGET', transparent_background: false },
+        ])
     })
 })
 
@@ -135,8 +234,38 @@ describe('parseURLFilters', () => {
     })
 })
 
+describe('dashboardSearchParamsFromOverrides', () => {
+    const variableId = '00000000-0000-0000-0000-00000000beef'
+    const cardNameVariable = (overrides: Partial<HogQLVariable>): Record<string, HogQLVariable> => ({
+        [variableId]: { variableId, code_name: 'card_name', ...overrides },
+    })
+
+    it.each<
+        [string, Record<string, HogQLVariable> | null, DashboardFilter | null, Record<string, any>, DashboardFilter]
+    >([
+        [
+            'a variable value',
+            cardNameVariable({ value: 'Polukranos, Unchained' }),
+            null,
+            { card_name: 'Polukranos, Unchained' },
+            {},
+        ],
+        ['a variable set to null', cardNameVariable({ value: 'ignored', isNull: true }), null, { card_name: null }, {}],
+        ['a filter override', null, { date_from: '-7d' }, {}, { date_from: '-7d' }],
+        ['nothing when there are no overrides', null, {}, {}, {}],
+    ])(
+        'carries %s back into the dashboard URL',
+        (_name, variablesOverride, filtersOverride, expectedVariables, expectedFilters) => {
+            const searchParams = dashboardSearchParamsFromOverrides(variablesOverride, filtersOverride)
+
+            expect(parseURLVariables(searchParams)).toEqual(expectedVariables)
+            expect(parseURLFilters(searchParams)).toEqual(expectedFilters)
+        }
+    )
+})
+
 describe('getInsightWithRetry', () => {
-    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as QueryBasedInsightModel
+    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as InsightModel
     const MAX_ATTEMPTS = 3
 
     afterEach(() => {

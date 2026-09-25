@@ -1,3 +1,5 @@
 name: Field notes
+# Individual owner, not a team, quoted because YAML disallows a plain scalar
+# starting with `@`. The product belongs to one person who works on the toolbar.
 owners:
-    - team-surveys
+    - '@adamleithp'

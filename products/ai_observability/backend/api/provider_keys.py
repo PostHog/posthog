@@ -17,6 +17,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.models.utils import mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
 from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
 
@@ -122,10 +123,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "state", "error_message", "created_at", "created_by", "last_used_at"]
 
     def get_api_key_masked(self, obj: LLMProviderKey) -> str:
-        key = obj.encrypted_config.get("api_key", "")
-        if len(key) > 8:
-            return f"{key[:4]}...{key[-4:]}"
-        return "****"
+        return mask_key_value(obj.encrypted_config.get("api_key", ""))
 
     def get_azure_endpoint_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider != LLMProvider.AZURE_OPENAI:
@@ -349,7 +347,9 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         )
         instance.delete()
 
-    @action(detail=True, methods=["post"])
+    # Write scope, not read: this persists the key's state and spends the customer's
+    # provider quota on a live call with their credential.
+    @action(detail=True, methods=["post"], required_scopes=["llm_provider_key:write"])
     @llma_track_latency("llma_provider_keys_validate")
     @monitor(feature=None, endpoint="llma_provider_keys_validate", method="POST")
     def validate(self, request: Request, **_kwargs) -> Response:
@@ -407,14 +407,16 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
     @llma_track_latency("llma_provider_keys_dependent_configs")
     @monitor(feature=None, endpoint="llma_provider_keys_dependent_configs", method="GET")
     def dependent_configs(self, request: Request, **_kwargs) -> Response:
         """Get evaluations using this key and alternative keys for replacement."""
         instance = self.get_object()
 
-        model_configs = LLMModelConfiguration.objects.filter(provider_key=instance).prefetch_related("evaluations")
+        model_configs = LLMModelConfiguration.objects.filter(
+            provider_key=instance, team_id=self.team_id
+        ).prefetch_related("evaluations")
 
         evaluations = []
         for config in model_configs:

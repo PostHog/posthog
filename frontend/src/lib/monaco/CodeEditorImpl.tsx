@@ -4,16 +4,15 @@ import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor 
 import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
-import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
+import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
 import { trackFindWidgetVisibility } from 'lib/monaco/findWidgetBodyClass'
 import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
@@ -23,7 +22,9 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
+import 'lib/monaco/monacoEnvironment'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
+import { retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -181,9 +182,15 @@ export function CodeEditor({
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
+    // Monaco expects a string; a non-string `value` throws `t.create is not a function` deep in
+    // its model setup. Serialize objects and arrays as pretty JSON so the content stays visible
+    // (not `[object Object]`) and matches CodeEditorResizeable's height calc. Normalize once so
+    // the editor and codeEditorLogic (which sends the value in metadata requests) agree on the
+    // text. Keep null/undefined as-is so the editor stays uncontrolled.
+    const normalizedValue = value == null || typeof value === 'string' ? value : JSON.stringify(value, null, 2)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
-        query: value ?? '',
+        query: normalizedValue ?? '',
         metadataQuery: metadataQuery,
         metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
@@ -412,31 +419,45 @@ export function CodeEditor({
         }
     }, [editor, enableVimMode, vimCommandHistory, appendVimCommand])
 
-    const editorOptions: editor.IStandaloneEditorConstructionOptions = {
-        minimap: {
-            enabled: false,
-        },
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        fixedOverflowWidgets: true,
-        glyphMargin: false,
-        folding: true,
-        wordWrap: 'off',
-        lineNumbers: 'on',
-        tabFocusMode: false,
-        overviewRulerBorder: true,
-        hideCursorInOverviewRuler: false,
-        overviewRulerLanes: 3,
-        overflowWidgetsDomNode: monacoRoot,
-        ...options,
-        padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
-        scrollbar: {
-            vertical: scrollbarRendering,
-            horizontal: scrollbarRendering,
-            alwaysConsumeMouseWheel: false,
-            ...options?.scrollbar,
-        },
-    }
+    // The wrapper calls `editor.updateOptions` whenever this object's identity changes, and
+    // Monaco revalidates every option on each call, so only rebuild it when an input changes.
+    const editorOptions = useMemo<editor.IStandaloneEditorConstructionOptions>(
+        () => ({
+            minimap: {
+                enabled: false,
+            },
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            fixedOverflowWidgets: true,
+            glyphMargin: false,
+            folding: true,
+            wordWrap: 'off',
+            lineNumbers: 'on',
+            tabFocusMode: false,
+            overviewRulerBorder: true,
+            hideCursorInOverviewRuler: false,
+            overviewRulerLanes: 3,
+            overflowWidgetsDomNode: monacoRoot,
+            ...options,
+            padding: { bottom: enableVimMode ? 28 : 8, top: 8 },
+            scrollbar: {
+                vertical: scrollbarRendering,
+                horizontal: scrollbarRendering,
+                alwaysConsumeMouseWheel: false,
+                ...options?.scrollbar,
+            },
+        }),
+        [options, enableVimMode, scrollbarRendering, monacoRoot]
+    )
+    const diffEditorOptions = useMemo<editor.IStandaloneDiffEditorConstructionOptions>(
+        () => ({
+            ...editorOptions,
+            renderSideBySide: false,
+            acceptSuggestionOnEnter: 'on',
+            renderGutterMenu: false,
+        }),
+        [editorOptions]
+    )
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         // The lazy Suspense facade can resolve after the component has already
@@ -465,6 +486,8 @@ export function CodeEditor({
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         remeasureFontsWhenReady(monaco)
         monacoDisposables.current.push(trackFindWidgetVisibility(editor))
+
+        monacoDisposables.current.push(retriggerSuggestionsAfterDeletion(editor))
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
@@ -625,12 +648,7 @@ export function CodeEditor({
                     theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                     original={originalValue}
                     modified={value}
-                    options={{
-                        ...editorOptions,
-                        renderSideBySide: false,
-                        acceptSuggestionOnEnter: 'on',
-                        renderGutterMenu: false,
-                    }}
+                    options={diffEditorOptions}
                     onMount={diffEditorOnMount}
                     {...editorProps}
                     // Own model disposal ourselves via `disposeTrackedModels`. Left to the library,
@@ -651,7 +669,7 @@ export function CodeEditor({
                 key={queryKey}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
-                value={value}
+                value={normalizedValue}
                 options={editorOptions}
                 onMount={editorOnMount}
                 {...editorProps}

@@ -16,7 +16,7 @@ from posthog.temporal.ai_observability.evaluation_event_io import extract_event_
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import model_spec
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
@@ -25,6 +25,7 @@ from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -111,7 +112,12 @@ def build_tagger_system_prompt(prompt: str, tags: list[dict[str, str]], min_tags
 Available tags:
 {tag_list}
 
-{constraint} Only use tags from the list above. If no tags apply, return an empty list."""
+{constraint} Only use tags from the list above. If no tags apply, return an empty list.
+
+Respond with one JSON object and nothing else, in this exact shape:
+{{"tags": ["<tag name>", ...], "reasoning": "<brief explanation>"}}
+
+Always include both keys. Set "tags" to an array of tag name strings from the list above, and use an empty array when no tags apply. Do not send the tags as an object of names to true or false, and do not send a number or a bare string. Set "reasoning" to one or two sentences on why you selected those tags. Do not wrap the JSON in markdown fences, and do not add other keys."""
 
 
 @dataclass
@@ -240,16 +246,7 @@ Output: {output_data}"""
     client = Client(
         provider_key=provider_key,
         config=config,
-        privacy_mode=True,
-        distinct_id=f"team-{team_id}",
-        properties={
-            "ai_product": "aio_evaluations",
-            "ai_feature": "tagger",
-            "team_id": team_id,
-            "tagger_id": tagger["id"],
-            "$ai_billable": not is_byok,
-            "is_byok": is_byok,
-        },
+        capture_analytics=False,
     )
 
     try:
@@ -299,7 +296,9 @@ Output: {output_data}"""
             f"Model '{model}' not found.",
             non_retryable=True,
         )
-    except StructuredOutputParseError as e:
+    except (OutputTokenLimitError, StructuredOutputParseError) as e:
+        # A reply cut off at the output limit reaches the tagger as unusable output, same as a
+        # malformed one, so both take the parse path.
         raise ApplicationError(
             str(e),
             {"error_type": "parse_error"},
@@ -517,7 +516,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
                 }
             )
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=event_data["team_id"],
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",

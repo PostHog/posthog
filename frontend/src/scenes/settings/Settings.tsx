@@ -10,6 +10,7 @@ import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { SupportedPlatforms } from 'lib/components/SupportedPlatforms/SupportedPlatforms'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -37,9 +38,11 @@ import {
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
+import { SettingSectionUnavailable } from './components/SettingSectionUnavailable'
 import { SearchResult, settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
 
@@ -165,13 +168,11 @@ export function Settings({
         return () => clearTimeout(timer)
     }, [selectedSectionId, isSearching])
 
-    // Environment and project settings don't require periodic re-authentication by default,
-    // so we avoid a needless re-authentication modal (see https://github.com/posthog/posthog/pull/22421).
-    // The exception is sections that opt in via `requiresReauthentication` — e.g. credential
-    // management — which prompt on navigation like user- and organization-level settings do.
-    const requiresReauthentication =
-        (selectedLevel !== 'environment' && selectedLevel !== 'project') || !!selectedSection?.requiresReauthentication
-    const AuthenticationAreaComponent = requiresReauthentication ? TimeSensitiveAuthenticationArea : React.Fragment
+    // Only organization settings prompt for re-authentication on navigation. Everywhere else the backend gates
+    // sensitive writes, and a write that fails for a stale session opens the re-auth modal and retries.
+    // See the `gating-sensitive-actions` skill.
+    const AuthenticationAreaComponent =
+        selectedLevel === 'organization' ? TimeSensitiveAuthenticationArea : React.Fragment
 
     const options: SettingOption[] = settingsInSidebar
         ? settings.map((s) => ({
@@ -413,15 +414,23 @@ export function Settings({
     )
 }
 
-function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
-    const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
+function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element | null {
+    const {
+        settings: allSettings,
+        selectedLevel,
+        selectedSection,
+        selectedSectionId,
+        selectedSetting,
+        unavailableSection,
+    } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
+    const { user } = useValues(userLogic)
 
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
 
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
-    return (
+    const content = (
         <div className="flex flex-col gap-y-8">
             {settings.length ? (
                 settings.map((x, index) => (
@@ -460,10 +469,29 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                         <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
+            ) : unavailableSection ? (
+                <SettingSectionUnavailable section={unavailableSection} />
             ) : (
                 <NotFound object="setting" />
             )}
         </div>
+    )
+
+    const payGate = selectedSection?.payGate
+    if (!payGate) {
+        return content
+    }
+
+    // One gate for the whole section, so the upsell appears once however many settings the
+    // section holds.
+    return (
+        <PayGateMini
+            feature={payGate.feature}
+            featureDetail={payGate.featureDetail}
+            overrideShouldShowGate={payGate.bypassForImpersonation && user?.is_impersonated}
+        >
+            {content}
+        </PayGateMini>
     )
 }
 

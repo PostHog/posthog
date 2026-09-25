@@ -1,5 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl } from 'kea-router'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -11,6 +23,7 @@ import { urls } from 'scenes/urls'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     CompareFilter,
     ConversionGoalFilter,
@@ -20,6 +33,7 @@ import {
     DateRange,
     IntegrationFilter,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
     NativeMarketingSource,
@@ -28,6 +42,7 @@ import {
     ProductKey,
     SourceMap,
     VALID_NATIVE_MARKETING_SOURCES,
+    WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSchemaStatus, ExternalDataSource, IntervalType } from '~/types'
@@ -40,7 +55,8 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { FeatureFlagsSet } from '../../../../../../lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import { defaultConversionGoalFilter } from '../components/settings/constants'
-import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { SetupEntryPoint, marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
+import { DASHBOARD_BREAKDOWNS, DEFAULT_DASHBOARD_BREAKDOWN } from './marketingBreakdown'
 import { externalAdsCostTile } from './marketingCostTile'
 import {
     MarketingDashboardMapper,
@@ -48,6 +64,7 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
+    sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
 
@@ -68,7 +85,10 @@ export type NativeSourceHierarchyStatus = {
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
+    AD_PERFORMANCE = 'ad-performance',
+    PAGE_VISIBILITY = 'page-visibility',
     ATTRIBUTION = 'attribution',
+    RETENTION = 'retention',
     // Still the tab key when Setup's flag is off, which is everywhere until it rolls
     // out. Removing it would change the URL and the header copy for every user of the
     // audit — which is fully rolled out — for no gain.
@@ -90,6 +110,57 @@ export enum SetupSection {
 }
 
 export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
+
+export interface DashboardGoalsConfigured {
+    customerGoal: boolean
+    revenueGoal: boolean
+}
+
+/** Sections of the redesigned dashboard. Declared here rather than in the scene so the logic that
+ * owns the URL doesn't have to import the component tree. */
+export enum MarketingDashboardView {
+    OVERVIEW = 'overview',
+    ACQUISITION = 'acquisition',
+    ENGAGEMENT = 'engagement',
+    RETENTION = 'retention',
+    CONVERSION = 'conversion',
+}
+
+export const DEFAULT_DASHBOARD_VIEW = MarketingDashboardView.OVERVIEW
+
+function hasDashboardParams(searchParams: URLSearchParams): boolean {
+    return ['view', 'breakdown', 'filters'].some((key) => searchParams.has(key))
+}
+
+function dashboardParamsFromSearch(searchParams: URLSearchParams): {
+    view?: MarketingDashboardView
+    breakdown?: MarketingAnalyticsAttributionBreakdown
+    properties?: WebAnalyticsPropertyFilters
+} {
+    const params: ReturnType<typeof dashboardParamsFromSearch> = hasDashboardParams(searchParams)
+        ? { view: DEFAULT_DASHBOARD_VIEW, breakdown: DEFAULT_DASHBOARD_BREAKDOWN, properties: [] }
+        : {}
+    const view = searchParams.get('view') as MarketingDashboardView | null
+    if (view && Object.values(MarketingDashboardView).includes(view)) {
+        params.view = view
+    }
+    const breakdown = searchParams.get('breakdown') as MarketingAnalyticsAttributionBreakdown | null
+    if (breakdown && DASHBOARD_BREAKDOWNS.includes(breakdown)) {
+        params.breakdown = breakdown
+    }
+    const filters = searchParams.get('filters')
+    if (filters) {
+        try {
+            const parsed = JSON.parse(filters)
+            if (isWebAnalyticsPropertyFilters(parsed)) {
+                params.properties = parsed
+            }
+        } catch {
+            // A hand-edited or truncated URL should load the dashboard unfiltered, not break it.
+        }
+    }
+    return params
+}
 
 /** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
  * knows whether Setup is rendering — with its flag off `integration-health` is still a
@@ -240,13 +311,19 @@ const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
+    filter_test_accounts: boolean // marketingAnalyticsSettingsLogic
+    setupEntryPoint: SetupEntryPoint | null // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     dataWarehouseSourcesLoading: boolean // sourceManagementLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // sourceManagementLogic
     baseCurrency: CurrencyCode // teamLogic
+    _dashboardBreakdown: MarketingAnalyticsAttributionBreakdown
+    _dashboardView: MarketingDashboardView
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
+    _integrationFilter: IntegrationFilter
     activeTab: MarketingAnalyticsTab
+    adPerformanceConversionGoals: boolean
     allAvailableSources: {
         id: string
         name: string
@@ -289,6 +366,9 @@ export interface marketingAnalyticsLogicValues {
     conversionGoalInput: ConversionGoalFilter
     conversionGoalModalVisible: boolean
     createMarketingDataWarehouseNodes: DataWarehouseNode[]
+    dashboardBreakdown: MarketingAnalyticsAttributionBreakdown
+    dashboardProperties: WebAnalyticsPropertyFilters
+    dashboardView: MarketingDashboardView
     dateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -299,14 +379,19 @@ export interface marketingAnalyticsLogicValues {
     externalTables: ExternalTable[]
     hasNoConfiguredSources: boolean
     hasSources: boolean
+    includeConversionGoals: boolean
     initialized: boolean
     integrationFilter: IntegrationFilter
+    isAdPerformance: boolean
     loading: boolean
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
+    optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupSection: SetupSection
+    shouldFilterTestAccounts: boolean
     tileColumnSelection: validColumnsForTiles
+    unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
     validNativeSources: NativeSource[]
@@ -320,6 +405,12 @@ export interface marketingAnalyticsLogicActions {
     reloadAll: () => {} // dataNodeCollectionLogic
     addOrUpdateConversionGoal: (conversionGoal: ConversionGoalFilter) => {
         conversionGoal: ConversionGoalFilter
+    } // marketingAnalyticsSettingsLogic
+    setSetupEntryPoint: (entryPoint: SetupEntryPoint | null) => {
+        entryPoint: SetupEntryPoint | null
+    } // marketingAnalyticsSettingsLogic
+    updateFilterTestAccounts: (filterTestAccounts: boolean) => {
+        filterTestAccounts: boolean
     } // marketingAnalyticsSettingsLogic
     loadDatabase: (
         args_0?:
@@ -385,11 +476,37 @@ export interface marketingAnalyticsLogicActions {
     loadConversionGoal: (goal: ConversionGoalFilter) => {
         goal: ConversionGoalFilter
     }
+    openSetup: (
+        section: SetupSection,
+        entryPoint: SetupEntryPoint
+    ) => {
+        entryPoint: SetupEntryPoint
+        section: SetupSection
+    }
+    reportDashboardControlUsed: (
+        section: string,
+        control: string,
+        value?: boolean | string
+    ) => {
+        control: string
+        section: string
+        value: boolean | string | undefined
+    }
+    reportDashboardSectionViewed: (
+        section: string,
+        configured: DashboardGoalsConfigured
+    ) => {
+        configured: DashboardGoalsConfigured
+        section: string
+    }
     saveConversionGoal: () => {
         value: true
     }
     setActiveTab: (tab: MarketingAnalyticsTab) => {
         tab: MarketingAnalyticsTab
+    }
+    setAdPerformanceConversionGoals: (include: boolean) => {
+        include: boolean
     }
     setChartDisplayType: (chartDisplayType: ChartDisplayType) => {
         chartDisplayType: ChartDisplayType
@@ -399,6 +516,15 @@ export interface marketingAnalyticsLogicActions {
     }
     setConversionGoalInput: (goal: ConversionGoalFilter) => {
         goal: ConversionGoalFilter
+    }
+    setDashboardBreakdown: (breakdown: MarketingAnalyticsAttributionBreakdown) => {
+        breakdown: MarketingAnalyticsAttributionBreakdown
+    }
+    setDashboardProperties: (properties: WebAnalyticsPropertyFilters) => {
+        properties: WebAnalyticsPropertyFilters
+    }
+    setDashboardView: (view: MarketingDashboardView) => {
+        view: MarketingDashboardView
     }
     setDateInterval: (interval: IntervalType) => {
         interval: IntervalType
@@ -431,6 +557,9 @@ export interface marketingAnalyticsLogicActions {
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
     }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
+    }
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
     }
@@ -444,26 +573,34 @@ export interface marketingAnalyticsLogicActions {
         value: true
     }
     syncFromUrl: (params: {
+        breakdown?: MarketingAnalyticsAttributionBreakdown
         chartDisplayType?: ChartDisplayType
         compare?: boolean
         compare_to?: string
         dateFrom?: string | null
         dateTo?: string | null
         drillDownLevel?: MarketingAnalyticsDrillDownLevel
+        includeNonIntegrated?: boolean
         integrationSourceIds?: string[]
         interval?: IntervalType
+        properties?: WebAnalyticsPropertyFilters
         tileColumnSelection?: string
+        view?: MarketingDashboardView
     }) => {
         params: {
+            breakdown?: MarketingAnalyticsAttributionBreakdown | undefined
             chartDisplayType?: ChartDisplayType | undefined
             compare?: boolean | undefined
             compare_to?: string | undefined
             dateFrom?: string | null | undefined
             dateTo?: string | null | undefined
             drillDownLevel?: MarketingAnalyticsDrillDownLevel | undefined
+            includeNonIntegrated?: boolean | undefined
             integrationSourceIds?: string[] | undefined
             interval?: IntervalType | undefined
+            properties?: WebAnalyticsPropertyFilters | undefined
             tileColumnSelection?: string | undefined
+            view?: MarketingDashboardView | undefined
         }
     }
 }
@@ -471,10 +608,21 @@ export interface marketingAnalyticsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface marketingAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        isAdPerformance: (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet) => boolean
+        includeConversionGoals: (
+            isAdPerformance: boolean,
+            adPerformanceConversionGoals: boolean,
+            conversion_goals: ConversionGoalFilter[]
+        ) => boolean
+        integrationFilter: (_integrationFilter: IntegrationFilter) => IntegrationFilter
         drillDownLevel: (
             _drillDownLevel: MarketingAnalyticsDrillDownLevel,
             featureFlags: FeatureFlagsSet
         ) => MarketingAnalyticsDrillDownLevel
+        dashboardView: (_dashboardView: MarketingDashboardView) => MarketingDashboardView
+        dashboardBreakdown: (
+            _dashboardBreakdown: MarketingAnalyticsAttributionBreakdown
+        ) => MarketingAnalyticsAttributionBreakdown
         validSourcesMap: (sources_map: Record<string, SourceMap>) => {
             [x: string]: SourceMap
         } | null
@@ -494,6 +642,10 @@ export interface marketingAnalyticsLogicMeta {
             nativeSources: ExternalDataSource[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => NativeSource[]
+        unconfiguredNativeSources: (
+            nativeSources: ExternalDataSource[],
+            validNativeSources: NativeSource[]
+        ) => ExternalDataSource[]
         uniqueConversionGoalName: (
             conversionGoalInput: ConversionGoalFilter,
             conversion_goals: ConversionGoalFilter[]
@@ -566,6 +718,7 @@ export interface marketingAnalyticsLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
         ) => DataWarehouseNode[]
+        shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
                 dateFrom: string | null
@@ -574,7 +727,8 @@ export interface marketingAnalyticsLogicMeta {
             },
             compareFilter: CompareFilter,
             draftConversionGoal: ConversionGoalFilter | null,
-            integrationFilter: IntegrationFilter
+            integrationFilter: IntegrationFilter,
+            shouldFilterTestAccounts: boolean
         ) => MarketingAnalyticsAggregatedQuery
     }
 }
@@ -593,7 +747,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             teamLogic,
             ['baseCurrency'],
             marketingAnalyticsSettingsLogic,
-            ['sources_map', 'conversion_goals'],
+            ['sources_map', 'conversion_goals', 'filter_test_accounts', 'setupEntryPoint'],
             sourceManagementLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
             featureFlagLogic,
@@ -605,14 +759,25 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dataNodeCollectionLogic({ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }),
             ['reloadAll'],
             marketingAnalyticsSettingsLogic,
-            ['addOrUpdateConversionGoal'],
+            ['addOrUpdateConversionGoal', 'updateFilterTestAccounts', 'setSetupEntryPoint'],
             teamLogic,
             ['addProductIntent'],
         ],
     })),
     actions({
+        setAdPerformanceConversionGoals: (include: boolean) => ({ include }),
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
         setSetupSection: (section: SetupSection) => ({ section }),
+        openSetup: (section: SetupSection, entryPoint: SetupEntryPoint) => ({ section, entryPoint }),
+        reportDashboardSectionViewed: (section: string, configured: DashboardGoalsConfigured) => ({
+            section,
+            configured,
+        }),
+        reportDashboardControlUsed: (section: string, control: string, value?: string | boolean) => ({
+            section,
+            control,
+            value,
+        }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -633,6 +798,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             interval,
         }),
         setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
             dateFrom?: string | null
@@ -641,9 +807,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             compare?: boolean
             compare_to?: string
             integrationSourceIds?: string[]
+            includeNonIntegrated?: boolean
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
             drillDownLevel?: MarketingAnalyticsDrillDownLevel
+            view?: MarketingDashboardView
+            breakdown?: MarketingAnalyticsAttributionBreakdown
+            properties?: WebAnalyticsPropertyFilters
         }) => ({ params }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
@@ -652,12 +822,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
         setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
+        setDashboardView: (view: MarketingDashboardView) => ({ view }),
+        setDashboardBreakdown: (breakdown: MarketingAnalyticsAttributionBreakdown) => ({ breakdown }),
+        setDashboardProperties: (properties: WebAnalyticsPropertyFilters) => ({ properties }),
         setInitialized: true,
     }),
     reducers(() => {
         const persistConfig = buildTeamScopedPersistenceConfig()
 
         return {
+            adPerformanceConversionGoals: [true, { setAdPerformanceConversionGoals: (_, { include }) => include }],
             activeTab: [
                 MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
                 {
@@ -709,13 +883,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     },
                 },
             ],
-            integrationFilter: [
+            optionsOpen: [false as boolean, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
+            _integrationFilter: [
                 { integrationSourceIds: [] } as IntegrationFilter,
-                persistConfig,
+                // pinned: localStorage key. Kea derives it from the reducer name, so the rename above
+                // would otherwise point it at a fresh key. That resets a selection someone already made,
+                // and strands the unreadable value under the old key for a rollback to find again.
+                { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
                 {
                     setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
-                    syncFromUrl: (state, { params }) =>
-                        params.integrationSourceIds ? { integrationSourceIds: params.integrationSourceIds } : state,
+                    syncFromUrl: (state, { params }) => {
+                        if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
+                            return state
+                        }
+                        return {
+                            integrationSourceIds: params.integrationSourceIds ?? state.integrationSourceIds,
+                            includeNonIntegrated: params.includeNonIntegrated ?? state.includeNonIntegrated,
+                        }
+                    },
                 },
             ],
             dateFilter: [
@@ -822,15 +1007,52 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         params.drillDownLevel !== undefined ? params.drillDownLevel : state,
                 },
             ],
+            _dashboardView: [
+                DEFAULT_DASHBOARD_VIEW as MarketingDashboardView,
+                persistConfig,
+                {
+                    setDashboardView: (_, { view }) => view,
+                    syncFromUrl: (state, { params }) => (params.view !== undefined ? params.view : state),
+                },
+            ],
+            _dashboardBreakdown: [
+                DEFAULT_DASHBOARD_BREAKDOWN as MarketingAnalyticsAttributionBreakdown,
+                persistConfig,
+                {
+                    setDashboardBreakdown: (_, { breakdown }) => breakdown,
+                    syncFromUrl: (state, { params }) => (params.breakdown !== undefined ? params.breakdown : state),
+                },
+            ],
+            // Not persisted: a filter is a per-visit refinement, so it travels in the URL for
+            // sharing but does not follow someone back to the dashboard tomorrow.
+            dashboardProperties: [
+                [] as WebAnalyticsPropertyFilters,
+                {
+                    setDashboardProperties: (_, { properties }) => properties,
+                    syncFromUrl: (state, { params }) => (params.properties !== undefined ? params.properties : state),
+                },
+            ],
         }
     }),
     selectors({
+        isAdPerformance: [
+            (s) => [s.activeTab, s.featureFlags],
+            (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet): boolean =>
+                activeTab === MarketingAnalyticsTab.AD_PERFORMANCE &&
+                !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+        ],
+        includeConversionGoals: [
+            (s) => [s.isAdPerformance, s.adPerformanceConversionGoals, s.conversion_goals],
+            (isAdPerformance: boolean, include: boolean, goals: ConversionGoalFilter[]): boolean =>
+                !isAdPerformance || (include && goals.length > 0),
+        ],
+        integrationFilter: [
+            (s) => [s._integrationFilter],
+            (stored: IntegrationFilter): IntegrationFilter => sanitizeIntegrationFilter(stored),
+        ],
         drillDownLevel: [
             (s) => [s._drillDownLevel, s.featureFlags],
             (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) => {
-                if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]) {
-                    return MarketingAnalyticsDrillDownLevel.Campaign
-                }
                 if (
                     EXTENDED_DRILL_DOWN_LEVELS.has(level) &&
                     !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]
@@ -839,6 +1061,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 }
                 return level
             },
+        ],
+        dashboardView: [
+            (s) => [s._dashboardView],
+            (view: MarketingDashboardView): MarketingDashboardView =>
+                Object.values(MarketingDashboardView).includes(view) ? view : DEFAULT_DASHBOARD_VIEW,
+        ],
+        dashboardBreakdown: [
+            (s) => [s._dashboardBreakdown],
+            (breakdown: MarketingAnalyticsAttributionBreakdown): MarketingAnalyticsAttributionBreakdown =>
+                DASHBOARD_BREAKDOWNS.includes(breakdown) ? breakdown : DEFAULT_DASHBOARD_BREAKDOWN,
         ],
         validSourcesMap: [
             (s) => [s.sources_map],
@@ -969,6 +1201,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     }
                     return validNativeSources
                 }, [])
+            },
+        ],
+        unconfiguredNativeSources: [
+            (s) => [s.nativeSources, s.validNativeSources],
+            (nativeSources: ExternalDataSource[], validNativeSources: NativeSource[]): ExternalDataSource[] => {
+                const validIds = new Set(validNativeSources.map(({ source }) => source.id))
+                return nativeSources.filter((source) => !validIds.has(source.id))
             },
         ],
         uniqueConversionGoalName: [
@@ -1223,8 +1462,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
         ],
+        shouldFilterTestAccounts: [
+            (s) => [s.filter_test_accounts],
+            (filter_test_accounts: boolean): boolean => filter_test_accounts,
+        ],
         overviewQuery: [
-            (s) => [s.dateFilter, s.compareFilter, s.draftConversionGoal, s.integrationFilter],
+            (s) => [
+                s.dateFilter,
+                s.compareFilter,
+                s.draftConversionGoal,
+                s.integrationFilter,
+                s.shouldFilterTestAccounts,
+            ],
             (
                 dateFilter: {
                     dateFrom: string | null
@@ -1233,7 +1482,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter: CompareFilter,
                 draftConversionGoal: ConversionGoalFilter | null,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                shouldFilterTestAccounts: boolean
             ): MarketingAnalyticsAggregatedQuery => ({
                 kind: NodeKind.MarketingAnalyticsAggregatedQuery,
                 dateRange: {
@@ -1242,14 +1492,28 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 },
                 compareFilter,
                 properties: [],
+                filterTestAccounts: shouldFilterTestAccounts,
                 draftConversionGoal: draftConversionGoal || undefined,
                 integrationFilter,
             }),
         ],
     }),
     actionToUrl(({ values }) => {
-        const buildUrl = (): [string, string] => {
+        const buildUrl = (includeDashboardState: boolean): [string, string] => {
+            if (values.activeTab === MarketingAnalyticsTab.PAGE_VISIBILITY) {
+                const searchParams = new URLSearchParams(router.values.location.search)
+                searchParams.set('tab', MarketingAnalyticsTab.PAGE_VISIBILITY)
+                searchParams.delete('section')
+                return [router.values.location.pathname, searchParams.toString()]
+            }
             const searchParams = new URLSearchParams()
+            const currentSearchParams = new URLSearchParams(router.values.location.search)
+            for (const key of ['select', 'order_column', 'order_direction', 'pinned_columns']) {
+                const value = currentSearchParams.get(key)
+                if (value !== null) {
+                    searchParams.set(key, value)
+                }
+            }
 
             // Tab
             if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {
@@ -1284,6 +1548,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.integrationFilter?.integrationSourceIds?.length) {
                 searchParams.set('integration_sources', values.integrationFilter.integrationSourceIds.join(','))
             }
+            // Only the cleared state travels: absent means included, which is the default.
+            if (values.integrationFilter?.includeNonIntegrated === false) {
+                searchParams.set('include_non_integrated', 'false')
+            }
+
+            // The current dashboard uses local section state. Only the new controls or an
+            // existing dashboard URL opt into shared navigation state.
+            if (
+                values.activeTab === MarketingAnalyticsTab.DASHBOARD &&
+                values.featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] &&
+                (includeDashboardState || hasDashboardParams(new URLSearchParams(router.values.location.search)))
+            ) {
+                searchParams.set('view', values.dashboardView)
+                searchParams.set('breakdown', values.dashboardBreakdown)
+                if (values.dashboardProperties.length > 0) {
+                    searchParams.set('filters', JSON.stringify(values.dashboardProperties))
+                }
+            }
 
             // Chart display type
             if (values.chartDisplayType) {
@@ -1300,25 +1582,42 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('drill_down_level', values.drillDownLevel)
             }
 
-            return [window.location.pathname, searchParams.toString()]
+            return [router.values.location.pathname, searchParams.toString()]
         }
 
+        const buildCurrentUrl = (): [string, string] => buildUrl(false)
+        const buildDashboardUrl = (): [string, string] => buildUrl(true)
+
         return {
-            setActiveTab: buildUrl,
-            setSetupSection: buildUrl,
-            setDates: buildUrl,
-            setDateInterval: buildUrl,
-            setDatesAndInterval: buildUrl,
-            setCompareFilter: buildUrl,
-            setIntegrationFilter: buildUrl,
-            setChartDisplayType: buildUrl,
-            setTileColumnSelection: buildUrl,
-            setDrillDownLevel: buildUrl,
+            setActiveTab: buildCurrentUrl,
+            setSetupSection: buildCurrentUrl,
+            setDates: buildCurrentUrl,
+            setDateInterval: buildCurrentUrl,
+            setDatesAndInterval: buildCurrentUrl,
+            setCompareFilter: buildCurrentUrl,
+            setIntegrationFilter: buildCurrentUrl,
+            setChartDisplayType: buildCurrentUrl,
+            setTileColumnSelection: buildCurrentUrl,
+            setDrillDownLevel: buildCurrentUrl,
+            setDashboardView: buildDashboardUrl,
+            setDashboardBreakdown: buildDashboardUrl,
+            setDashboardProperties: buildDashboardUrl,
             // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
         }
     }),
-    // Note: We don't use urlToAction here to avoid sync loops.
-    // URL params are read once on mount in afterMount instead.
+    urlToAction(({ actions }) => ({
+        [urls.marketingAnalyticsApp()]: (_, searchParams, __, { initial, search }) => {
+            if (initial || (searchParams.tab && searchParams.tab !== MarketingAnalyticsTab.DASHBOARD)) {
+                return
+            }
+            actions.syncFromUrl({
+                view: DEFAULT_DASHBOARD_VIEW,
+                breakdown: DEFAULT_DASHBOARD_BREAKDOWN,
+                properties: [],
+                ...dashboardParamsFromSearch(new URLSearchParams(search)),
+            })
+        },
+    })),
     listeners(({ actions, values }) => {
         const trackDashboardInteraction = (): void => {
             // Only track after initialization to avoid tracking initial render/setup
@@ -1332,6 +1631,27 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
 
         return {
+            openSetup: ({ section, entryPoint }) => {
+                actions.setSetupEntryPoint(entryPoint)
+                posthog.capture('marketing analytics dashboard setup opened', { entry_point: entryPoint, section })
+                actions.setSetupSection(section)
+                actions.setActiveTab(MarketingAnalyticsTab.SETUP)
+            },
+            setActiveTab: ({ tab }) => {
+                if (tab !== MarketingAnalyticsTab.SETUP && values.setupEntryPoint) {
+                    actions.setSetupEntryPoint(null)
+                }
+            },
+            reportDashboardSectionViewed: ({ section, configured }) => {
+                posthog.capture('marketing analytics dashboard section viewed', {
+                    section,
+                    customer_goal_configured: configured.customerGoal,
+                    revenue_goal_configured: configured.revenueGoal,
+                })
+            },
+            reportDashboardControlUsed: ({ section, control, value }) => {
+                posthog.capture('marketing analytics dashboard control used', { section, control, value })
+            },
             // Track dashboard interactions for filters and chart controls
             setDates: trackDashboardInteraction,
             setDateInterval: trackDashboardInteraction,
@@ -1414,9 +1734,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         }
     }),
+    beforeUnmount(({ actions }) => {
+        actions.setSetupEntryPoint(null)
+    }),
     afterMount(({ actions }) => {
         // Read URL params on initial mount (one-time sync from URL)
-        const searchParams = new URLSearchParams(window.location.search)
+        const searchParams = new URLSearchParams(router.values.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
         const rawTab = searchParams.get('tab')
@@ -1453,6 +1776,9 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (integrationSources) {
             params.integrationSourceIds = integrationSources.split(',').filter(Boolean)
         }
+        if (searchParams.get('include_non_integrated') === 'false') {
+            params.includeNonIntegrated = false
+        }
         const chartDisplayType = searchParams.get('chart_display_type') as ChartDisplayType | null
         if (chartDisplayType && Object.values(ChartDisplayType).includes(chartDisplayType)) {
             params.chartDisplayType = chartDisplayType
@@ -1465,6 +1791,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (drillDownLevel && Object.values(MarketingAnalyticsDrillDownLevel).includes(drillDownLevel)) {
             params.drillDownLevel = drillDownLevel
         }
+
+        Object.assign(params, dashboardParamsFromSearch(searchParams))
 
         // Apply URL params if any were found
         if (Object.keys(params).length > 0) {

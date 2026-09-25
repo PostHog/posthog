@@ -1,0 +1,114 @@
+---
+title: Learn from support
+sidebar: Docs
+showTitle: true
+---
+
+Learn from support is a Business knowledge setting.
+When it is on, PostHog learns reusable answers from public human replies on resolved support tickets.
+
+The setting is off by default.
+Turn it on from the **Settings** tab on Business knowledge, or from project settings under **Business knowledge**.
+
+## Support must be on
+
+Learning reads resolved Support tickets, so Support must be on in the same environment before you can turn this setting on.
+
+If Support is off:
+
+- The switch is disabled when learning is also off, with a link to Support settings.
+- You can still turn learning off if it was already on.
+
+A `PATCH` that sets `learn_from_support_enabled` to `true` while Support is off returns `400` with:
+
+```text
+Turn on Support to learn from resolved tickets.
+```
+
+This check uses Support in the environment you called, not the parent project.
+A child environment with Support off cannot enable learning, even when the parent has Support on.
+
+## API
+
+```text
+GET   /api/projects/:project_id/business_knowledge/settings/
+PATCH /api/projects/:project_id/business_knowledge/settings/
+```
+
+`GET` requires the `business_knowledge:read` scope.
+`PATCH` requires `business_knowledge:write`.
+Business knowledge must be enabled for the project.
+
+A personal API key or OAuth token scoped to specific environments must include the project's canonical team.
+A token scoped only to a child environment cannot read or change this setting.
+
+A `PATCH` is partial.
+Send only the fields you want to change.
+An empty body leaves the stored setting unchanged and still returns the current values.
+
+### `learn_from_support_enabled`
+
+Whether this project learns from resolved support tickets.
+Default: `false`.
+
+The value is stored on the project's canonical team.
+A `GET` or `PATCH` from a child environment reads and writes that same parent value.
+
+### `support_enabled`
+
+Read-only.
+Whether Support is on in the environment you called.
+
+A child environment can therefore return `learn_from_support_enabled: true` and `support_enabled: false` together:
+learning is on for the project, and Support is off in that environment.
+
+## How learning runs
+
+PostHog checks for resolved tickets every five minutes.
+It waits at least five minutes after the ticket is last updated or receives a public human reply.
+It reads public replies written by a person from each environment where Support is on.
+Private notes, customer messages, deleted replies, and AI replies are not used.
+
+Each reply is checked for reusable information, personal data, secrets, and overlap with existing Business knowledge.
+Accepted answers are added as their own learned sources, named after the topic.
+You can open, edit, or delete a learned source.
+PostHog does not change a source that already exists when it analyzes the same ticket again.
+
+If a later reply contradicts an earlier learned source, PostHog keeps the newer answer and disables the older learned source so it stops being used in replies.
+The older source and its content are kept, and the change is recorded in the activity log.
+PostHog only replaces a learned source that holds one document, so a crawled site with many pages stays as it is.
+A source you wrote is never disabled this way. PostHog keeps it and skips the newer answer instead.
+
+A project can have up to 200 learned sources.
+After that, new answers are not added until you delete some.
+
+## Run learning manually
+
+Use the management command to analyze one resolved ticket:
+
+```bash
+python manage.py run_business_knowledge_learning --team-id 123 --ticket-id <ticket-uuid>
+```
+
+Use `--lookback-days` for a bounded backfill of up to 90 days:
+
+```bash
+python manage.py run_business_knowledge_learning --team-id 123 --lookback-days 30
+```
+
+The project must have **Learn from support** on.
+The organization must allow AI data processing, the Business knowledge feature must be enabled, and Support must be on for the ticket's environment.
+
+## Pause or roll back learning
+
+Turn off **Learn from support** to stop new analysis.
+Pause the `business-knowledge-learning-coordinator-schedule` Temporal schedule to stop scheduled collection.
+
+Remove previously learned documents from search without deleting them:
+
+```bash
+python manage.py run_business_knowledge_learning --team-id 123 --disable-generated-source
+```
+
+If code must be rolled back, complete those steps before reverting the learning coordinator.
+Reverting code does not remove the Temporal schedule or generated documents.

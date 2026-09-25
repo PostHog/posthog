@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Optional
 
 from django.db.models import Q
 
@@ -11,10 +11,9 @@ from celery import shared_task
 from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
-from posthog.api.services.query import process_query_dict
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
@@ -26,11 +25,13 @@ from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
-from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
+from posthog.utils import variables_override_requested_by_client
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.api import insight_variables_for_team
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -117,14 +118,16 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
-        single_insights = team.insight_set.filter(
+        single_insight_q_filter = Q(
+            team=team,
             insightviewed__last_viewed_at__gte=threshold,
             pk__in=insight_ids_single,
         )
         if shared_only:
-            single_insights = single_insights.filter(sharingconfiguration__enabled=True)
+            single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 
-        for single_insight_id in single_insights.distinct().values_list("id", flat=True):
+        single_insight_ids = Insight.objects.filter(single_insight_q_filter).distinct().values_list("id", flat=True)
+        for single_insight_id in single_insight_ids:
             yield single_insight_id, None
 
     if not dashboard_q_filter:
@@ -225,6 +228,10 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache failed 404 insight not found: {insight_id}")
         return
 
+    if insight.query is None:
+        logger.info(f"Warming insight cache skipped, insight has no query: {insight_id}")
+        return
+
     dashboard = None
 
     tag_queries(
@@ -237,26 +244,32 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         tag_queries(dashboard_id=dashboard_id)
         dashboard = insight.dashboards.filter(pk=dashboard_id).first()
 
-    with upgrade_query(insight):
+    with upgrade_insight(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
-            results = process_query_dict(
-                insight.team,
-                cast(dict[str, Any], insight.query),
-                dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+            tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
+            variables_override = (
+                variables_override_requested_by_client(None, dashboard, insight_variables_for_team(insight.team_id))
+                if dashboard is not None and dashboard.variables
+                else None
+            )
+            # The same call a dashboard load makes, so warming writes the cache key the page reads.
+            results = calculate_for_query_based_insight(
+                insight,
+                team=insight.team,
+                dashboard=dashboard,
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
-                limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=insight.created_by,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
+                variables_override=variables_override,
+                tile_filters_override=tile.filters_overrides if tile is not None else None,
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
 
-            is_cached = getattr(results, "is_cached", False)
+            is_cached = results.is_cached
 
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
@@ -291,5 +304,22 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     error=e,
                     properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
                 )
+            elif isinstance(e, ExposedHogQLError):
+                # The query itself is wrong, and only its author can correct it. Report it as an
+                # event so it stays with the team instead of becoming an issue in our error tracking.
+                with ph_scoped_capture() as capture_ph_event:
+                    capture_ph_event(
+                        distinct_id=str(insight.team.uuid),
+                        event="cache warming - insight query error",
+                        properties={
+                            "insight_id": insight.pk,
+                            "insight_short_id": insight.short_id,
+                            "dashboard_id": dashboard_id,
+                            "team_id": insight.team_id,
+                            "organization_id": str(insight.team.organization_id),
+                            "error_code": e.code_name,
+                            "error": str(e),
+                        },
+                    )
             else:
                 capture_exception(e)

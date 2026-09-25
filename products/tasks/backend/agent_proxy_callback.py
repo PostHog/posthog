@@ -8,13 +8,18 @@ from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
+from products.tasks.backend.facade.api import signal_workflow_completion
+from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture
+from products.tasks.backend.logic.stream.event_ingest import _parse_budget_steer_properties
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
     AgentProxyCallbackResponseSerializer,
     TaskRunErrorResponseSerializer,
 )
-from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
+from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
+
+from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +42,17 @@ logger = logging.getLogger(__name__)
         400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request body"),
         401: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Missing or invalid JWT"),
         403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="JWT claims do not match URL"),
+        503: OpenApiResponse(response=AgentProxyCallbackResponseSerializer, description="Budget steer dispatch failed"),
     },
     summary="Agent-proxy side-effect callback",
     description=(
         "Internal endpoint called by the standalone Node agent-proxy after accepting an ingest event "
-        "that requires a Django-side side effect. Dispatches a Temporal heartbeat signal or an "
-        "awaiting-input mobile push notification depending on `kind`. "
+        "that requires a Django-side side effect. Dispatches a Temporal heartbeat, a boot milestone, "
+        "an awaiting-input mobile push notification, a failed-run completion, or budget-steer analytics "
+        "depending on `kind`. "
         "Authenticated with the forwarded sandbox event ingest JWT plus the X-Agent-Proxy-Secret "
         "shared secret (required outside local dev/test) — no session or API key involved. "
-        "Best-effort: always returns 200 when auth passes; side-effect failures are logged, not surfaced."
+        "Budget steers are queued for capture, with 503 on dispatch failure so the proxy can retry."
     ),
 )
 def agent_proxy_callback(request, run_id: str) -> JsonResponse:
@@ -124,18 +131,53 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
         except Exception:
             logger.exception("agent_proxy_callback.heartbeat_failed", extra={"run_id": run_id})
 
+    elif kind in {"command_dispatched", "agent_activity"}:
+        try:
+            task_run = TaskRun.objects.get(id=run_id, task_id=task_id, team_id=team_id)
+            if kind == "command_dispatched":
+                dispatched = task_run.signal_agent_boot_milestone("agent_command_dispatched")
+            else:
+                dispatched = task_run.signal_agent_boot_milestone("agent_activity_observed")
+        except TaskRun.DoesNotExist:
+            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        except Exception:
+            logger.exception("agent_proxy_callback.milestone_failed", extra={"run_id": run_id, "kind": kind})
+
     elif kind == "awaiting_input":
         try:
             # The push dispatcher reads task.created_by; prefetch it so the dispatch stays one query.
             task_run = TaskRun.objects.select_related("task__created_by").get(
                 id=run_id, task_id=task_id, team_id=team_id
             )
-            if task_run.mode == "interactive":
-                notify_task_run_turn_completed(task_run)
-                dispatched = True
+            task_run.signal_agent_turn_completed()
+            dispatched = dispatch_task_run_turn_completed(task_run, turn_completed=data["turn_completed"])
         except TaskRun.DoesNotExist:
             logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
         except Exception:
             logger.exception("agent_proxy_callback.awaiting_input_failed", extra={"run_id": run_id})
+
+    elif kind == "turn_failed":
+        try:
+            if TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists():
+                signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+                dispatched = True
+            else:
+                logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+        except Exception:
+            logger.exception("agent_proxy_callback.turn_failed_failed", extra={"run_id": run_id})
+
+    elif kind == "budget_steer":
+        properties = _parse_budget_steer_properties(
+            claims, {"notification": {"method": "_posthog/budget_steer", "params": body}}
+        )
+        sequence = data.get("sequence")
+        if sequence is None or properties is None:
+            return JsonResponse({"error": "Invalid budget steer"}, status=400)
+        try:
+            BudgetSteerCapture.enqueue(team_id, run_id, sequence, properties, body.get("timestamp"))
+            dispatched = True
+        except Exception:
+            logger.exception("agent_proxy_callback.budget_steer_failed", extra={"run_id": run_id})
+            return JsonResponse({"dispatched": False}, status=503)
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)

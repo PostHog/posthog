@@ -9,23 +9,35 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
+import {
+    tasksRunsCommandCreate,
+    tasksRunsRetrieve,
+    tasksRunsStreamTokenRetrieve,
+} from 'products/tasks/frontend/generated/api'
+import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
+import { extractQueryResult } from '../components/tool/widgets/extractors'
+import { defaultPermissionDecision } from '../policy/toolPolicy'
 import type { AttachedContextItem } from '../types/contextTypes'
+import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { resolveToolCall } from '../utils/toolResolver'
+import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
-import { foregroundStreamLogic } from './foregroundStreamLogic'
 import {
     extractRunArtifacts,
+    foldLogToThread,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_HISTORY_FETCH_ATTEMPTS,
     MAX_SSE_RECONNECT_ATTEMPTS,
-    mergeResourceProducts,
+    mergeCoalescedRunLog,
     mergeRunArtifacts,
     parsePermissionRequestFrame,
     reconnectDelayMs,
+    reconcileRunLog,
     resolveStreamTarget,
     runStreamLogic,
     SSE_HEALTHY_CONNECTION_MS,
@@ -35,12 +47,17 @@ import {
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
+    tasksRunsRetrieve: jest.fn(),
     tasksRunsCommandCreate: jest.fn(),
     tasksRunsStreamTokenRetrieve: jest.fn(),
 }))
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
-    return { type: 'notification', notification: { method, params } }
+    return {
+        type: 'notification',
+        notification: { method, params },
+        ...(method.startsWith('_posthog/permission_') ? { source_run_id: 'run-1' } : {}),
+    }
 }
 
 function sessionUpdate(update: Record<string, unknown>): StoredLogEntry {
@@ -56,6 +73,16 @@ function sessionPrompt(text: string, sessionId: string = 'session-1'): StoredLog
 
 function legacyNotification(method: string, params: Record<string, unknown>): Record<string, unknown> {
     return { notification: { method, params } }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (error: unknown) => void } {
+    let resolve!: (value: T) => void
+    let reject!: (error: unknown) => void
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res
+        reject = rej
+    })
+    return { promise, resolve, reject }
 }
 
 type ReaderResult = { done: false; value: Uint8Array } | { done: true; value: undefined }
@@ -148,6 +175,12 @@ class MockStreamConnection {
         await flushPromises()
     }
 
+    /** Emit a named `event: end` control frame (a rotation or a resync) without closing the body. */
+    async emitEndFrame(payload: Record<string, unknown>): Promise<void> {
+        this.deliver({ done: false, value: this.encodeFrame({ data: JSON.stringify(payload), event: 'end' }) })
+        await flushPromises()
+    }
+
     /** Emit the durable `event: stream-end` end-of-run sentinel, then close the body. */
     async emitStreamEnd(): Promise<void> {
         this.deliver({
@@ -200,9 +233,15 @@ describe('runStreamLogic', () => {
         window.sessionStorage.clear()
         MockStream.reset()
         MockStream.install()
+        jest.mocked(tasksRunsRetrieve)
+            .mockReset()
+            .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
+        jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
-        ;(tasksRunsCommandCreate as jest.Mock).mockReset().mockResolvedValue({ jsonrpc: '2.0' })
+        ;(tasksRunsCommandCreate as jest.Mock)
+            .mockReset()
+            .mockResolvedValue({ jsonrpc: '2.0', result: { resolved: true } })
         logic = runStreamLogic({ streamKey: 'test-conversation', conversationId: 'test-conversation' })
         logic.mount()
     })
@@ -213,7 +252,127 @@ describe('runStreamLogic', () => {
     })
 
     describe('ingestAcpFrame replay', () => {
+        it('omits imported timing and resumes timing on the next native run', () => {
+            const frames = [
+                notification('_posthog/run_started', { imported: true }),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'imported', status: 'completed' }),
+                notification('_posthog/run_started', {}),
+                sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'native', status: 'in_progress' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'native', status: 'completed' }),
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'missing-start', status: 'completed' }),
+            ]
+            const result = foldLogToThread(
+                frames.map((entry, index) => ({
+                    source: 'replay',
+                    entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() },
+                })),
+                { isResumeRun: true }
+            )
+            expect(result.threadItems.find((item) => item.id === 'imported')?.startedAt).toBeUndefined()
+            expect(result.threadItems.find((item) => item.id === 'native')).toMatchObject({
+                startedAt: 4000,
+                endedAt: 5000,
+            })
+            expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
+        })
+
+        it.each([
+            {
+                label: 'a debug row stays whole',
+                interloper: notification('_posthog/console', { level: 'debug', message: 'Refresh session requested' }),
+                expected: ['the snapshot runner stops waiting on a skeleton'],
+            },
+            {
+                label: 'a tool call splits at the boundary',
+                interloper: sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'tc-1', status: 'in_progress' }),
+                expected: ['the snapshot runner stops wa', 'iting on a skeleton'],
+            },
+        ])('a streamed answer interrupted by $label', ({ interloper, expected }) => {
+            const frames = [
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm-1',
+                    content: { type: 'text', text: 'the snapshot runner stops wa' },
+                }),
+                interloper,
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm-1',
+                    content: { type: 'text', text: 'iting on a skeleton' },
+                }),
+            ]
+
+            const result = foldLogToThread(
+                frames.map((entry) => ({ source: 'replay' as const, entry })),
+                { isResumeRun: false }
+            )
+
+            // A debug row renders nothing for most viewers, so a split there would have no visible cause.
+            expect(
+                result.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(expected)
+        })
+
+        it.each([
+            ['Claude', 'live'],
+            ['Claude', 'history'],
+            ['Codex', 'live'],
+            ['Codex', 'history'],
+        ])('routes %s %s ACP results to the query widget', async (agent, source) => {
+            const query = { kind: 'TrendsQuery', series: [] }
+            const rawOutput = {
+                content: [{ type: 'text', text: 'No matching events' }],
+                _meta: { 'com.posthog.mcp/app_data': { query, results: [] } },
+            }
+            const toolCall = {
+                sessionUpdate: 'tool_call',
+                toolCallId: 'query-1',
+                rawInput: { command: 'call query-trends {}' },
+                _meta:
+                    agent === 'Claude'
+                        ? { claudeCode: { toolName: 'mcp__posthog__exec' } }
+                        : { posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'posthog', tool: 'exec' } } },
+            }
+            const frames =
+                source === 'history'
+                    ? [sessionUpdate({ ...toolCall, status: 'completed', rawOutput })]
+                    : [
+                          sessionUpdate({ ...toolCall, status: 'in_progress' }),
+                          sessionUpdate({
+                              sessionUpdate: 'tool_call_update',
+                              toolCallId: 'query-1',
+                              status: 'completed',
+                              rawOutput,
+                          }),
+                      ]
+            await expectLogic(logic, () => {
+                frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
+            }).toFinishAllListeners()
+
+            const invocation = logic.values.toolInvocations.get('query-1')!
+            const resolved = resolveToolCall(invocation)
+            expect(lookupToolRenderer(resolved.resolvedKey, resolved.innerToolName != null).Renderer).toBe(
+                toolRegistry.lookup('query-trends')?.Renderer
+            )
+            expect(
+                extractQueryResult({
+                    ...resolved,
+                    id: invocation.toolCallId,
+                    rawServerName: invocation.rawServerName,
+                    rawToolName: invocation.rawToolName,
+                    rawInput: invocation.input,
+                    rawOutput: invocation.output,
+                    content: invocation.contentBlocks,
+                    status: invocation.status,
+                })?.content.query
+            ).toEqual(query)
+        })
+
         it('folds a stream of StoredLogEntry frames into thread items', async () => {
+            const rawOutput = {
+                content: [{ type: 'text', text: '1 row' }],
+                _meta: { 'com.posthog.mcp/app_data': { query: { kind: 'HogQLQuery', query: 'select 1' }, rows: 1 } },
+            }
             const frames: StoredLogEntry[] = [
                 notification('_posthog/run_started', {}),
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Hel' } }),
@@ -231,11 +390,14 @@ describe('runStreamLogic', () => {
                     sessionUpdate: 'tool_call_update',
                     toolCallId: 't1',
                     status: 'completed',
-                    rawOutput: { rows: 1 },
+                    rawOutput,
                     content: [{ type: 'text', text: 'done' }],
                 }),
                 notification('_posthog/turn_complete', {}),
             ]
+            frames.forEach((frame, index) => {
+                frame.timestamp = new Date((index + 1) * 1000).toISOString()
+            })
 
             await expectLogic(logic, () => {
                 frames.forEach((frame) => logic.actions.ingestAcpFrame(frame))
@@ -250,13 +412,15 @@ describe('runStreamLogic', () => {
 
             const toolItem = logic.values.threadItems.find((item) => item.type === 'tool_invocation')
             expect(toolItem?.toolCallId).toEqual('t1')
+            expect(toolItem).toMatchObject({ startedAt: 5000, endedAt: 6000 })
+            expect(assistantItem).toMatchObject({ startedAt: 2000, endedAt: 4000 })
 
             const invocation = logic.values.toolInvocations.get('t1')
             expect(invocation?.rawServerName).toEqual('posthog')
             expect(invocation?.rawToolName).toEqual('exec')
             expect(invocation?.input).toEqual({ command: 'call execute-sql {"query":"select 1"}' })
             expect(invocation?.status).toEqual('completed')
-            expect(invocation?.output).toEqual({ rows: 1 })
+            expect(invocation?.output).toEqual(rawOutput)
             expect(invocation?.contentBlocks).toEqual([{ type: 'text', text: 'done' }])
 
             expect(logic.values.threadItems.some((item) => item.type === 'turn_separator')).toEqual(true)
@@ -283,6 +447,29 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.currentMode).toEqual('plan')
+        })
+
+        it('replaces availableCommands on each available_commands_update frame', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'available_commands_update',
+                        availableCommands: [
+                            { name: 'compact', description: 'Compact the conversation', input: null },
+                            { name: 'querying-posthog-data', description: 'Query data', input: { hint: 'question' } },
+                            { description: 'no name, dropped' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'available_commands_update',
+                        availableCommands: [{ name: '/clear', description: 'Clear history' }],
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.availableCommands).toEqual([{ name: 'clear', description: 'Clear history' }])
         })
 
         it('sets currentProgress on a _posthog/progress frame and clears it on turn complete', async () => {
@@ -391,6 +578,37 @@ describe('runStreamLogic', () => {
     })
 
     describe('showThinkingIndicator', () => {
+        it.each(['in_progress', 'completed', 'failed'] as const)(
+            'does not repeat the startup loader after a %s progress step',
+            async (status) => {
+                logic.actions.setRunOpening(true)
+                expect(logic.values.showThinkingIndicator).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/progress', {
+                            group: 'setup:run-1',
+                            step: 'sandbox',
+                            status,
+                            label: 'Sandbox setup',
+                        })
+                    )
+                }).toFinishAllListeners()
+
+                expect(logic.values.showThinkingIndicator).toBe(false)
+
+                logic.actions.reset()
+                logic.actions.setRunOpening(true)
+                expect(logic.values.showThinkingIndicator).toBe(true)
+            }
+        )
+
+        it('does not show startup progress after a delivery error', () => {
+            logic.actions.sseOpened()
+            logic.actions.pushErrorItem('Unable to deliver the message')
+            expect(logic.values.showThinkingIndicator).toBe(false)
+        })
+
         const runStartedFrame = notification('_posthog/run_started', {})
         const messageChunk = sessionUpdate({
             sessionUpdate: 'agent_message_chunk',
@@ -433,6 +651,53 @@ describe('runStreamLogic', () => {
     })
 
     describe('assistant message buffering without messageId', () => {
+        it('keeps blank assistant chunks hidden until visible text arrives', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'agent_message_chunk' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: ' \n' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.hasThreadItems).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'First answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({ type: 'assistant_message', text: ' \nFirst answer', complete: false }),
+            ])
+            expect(logic.values.hasThreadItems).toBe(true)
+        })
+
+        it.each(['live', 'replay'] as const)('hides blank finalized assistant messages during %s', async (source) => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'agent_message' }), source)
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: ' \n\t' } }),
+                    source
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([])
+            expect(logic.values.hasThreadItems).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'First answer' } }),
+                    source
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({ type: 'assistant_message', text: 'First answer', complete: true }),
+            ])
+        })
+
         it('keeps two consecutive turns without a messageId in separate thread items', async () => {
             const frames: StoredLogEntry[] = [
                 sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'One' } }),
@@ -912,7 +1177,7 @@ describe('runStreamLogic', () => {
             ],
         ])('records replayed context-block lines under the bootstrapped task (%s)', async (_form, frame) => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame] as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -933,14 +1198,81 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('turn trace ids', () => {
+        const TRACE = '1d223305-d7ca-bfeb-3775-a4a15a6a31c6'
+
+        it('carries a replayed turn_complete traceId into the trailer and selector', async () => {
+            const frames: StoredLogEntry[] = [
+                notification('_posthog/user_message', { content: 'say baseline' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'baseline' } }),
+                notification('_posthog/turn_complete', { sessionId: 's1', stopReason: 'end_turn', traceId: TRACE }),
+            ]
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            const trailers = computeTurnTrailers(logic.values.threadItems)
+            const lastTurn = [...trailers.values()].find((trailer) => trailer.isLastTurn)
+            expect(lastTurn?.traceId).toBe(TRACE)
+            expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+
+        it('keeps the last real turn id when a trailing traceless separator follows', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'a' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: TRACE }))
+                // Synthetic idle-resume/error separators carry no trace id and are not turns.
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+    })
+
     describe('_posthog/user_message rendering', () => {
+        it.each(['live', 'replay'] as const)('omits hidden user content from %s frames', async (source) => {
+            const hidden = { type: 'text', text: 'Internal recovery instruction', _meta: { ui: { hidden: true } } }
+            const visible = { type: 'text', text: 'Use the updated requirements' }
+            const frames = [
+                notification('_posthog/user_message', { content: [hidden] }),
+                sessionUpdate({ sessionUpdate: 'user_message_chunk', content: hidden }),
+                sessionUpdate({ sessionUpdate: 'user_message', content: hidden }),
+            ]
+            await expectLogic(logic, () => {
+                for (const frame of frames) {
+                    logic.actions.ingestAcpFrame(frame, source)
+                }
+            }).toFinishAllListeners()
+            expect(logic.values.threadItems).toEqual([])
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/user_message', { content: [hidden, visible] }),
+                    source
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: visible }),
+                    source
+                )
+            }).toFinishAllListeners()
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                expect.objectContaining({ text: visible.text }),
+            ])
+        })
+
         it('renders a seeded user turn into the thread on bootstrap replay', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/user_message', { content: 'Why did checkout drop?' }),
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Let me check.' } }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -967,7 +1299,7 @@ describe('runStreamLogic', () => {
                 }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -977,12 +1309,23 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems[0]).toMatchObject({ type: 'human_message', text: 'first second' })
         })
 
-        it('strips the posthog_context wrapper so a replayed prompt matches the live one', async () => {
-            const wrapped =
-                '<posthog_context>\nThe user attached the following PostHog entities.\n- Insight #1\n</posthog_context>\n\nWhy did signups drop?'
+        it.each([
+            [
+                'legacy posthog_context',
+                '<posthog_context>\nThe user attached the following PostHog entities.\n- Insight #1\n</posthog_context>\n\nWhy did signups drop?',
+            ],
+            [
+                'slack thread context on a task started from Slack',
+                '<slack_thread_context>\nSlack thread leading up to the request.\n<@U1|Someone>:\n  it is broken\n</slack_thread_context>\n\nWhy did signups drop?',
+            ],
+            [
+                'slack thread update on a follow-up from Slack',
+                '<slack_thread_context_update>\nMessages posted since you last spoke.\n</slack_thread_context_update>\n\nWhy did signups drop?',
+            ],
+        ])('strips a leading %s wrapper from a replayed human message', async (_name, wrapped) => {
             const frames: StoredLogEntry[] = [notification('_posthog/user_message', { content: wrapped })]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -1000,7 +1343,7 @@ describe('runStreamLogic', () => {
             const wrapped = `${trustedBlock}\n${untrustedBlock}\n\nWhy did signups drop?`
             const frames: StoredLogEntry[] = [notification('_posthog/user_message', { content: wrapped })]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -1032,6 +1375,73 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
+        it.each([false, true])(
+            'displays a pending first message before logs arrive (readOnly=%s)',
+            async (readOnly) => {
+                const content = 'Compare weekly activity.'
+                runStreamLogic({ ...logic.props, replayOnly: readOnly })
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                    id: 'run-1',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    task_summary: null,
+                    artifacts: [],
+                    state: {
+                        pending_user_message: wrapWithPosthogContext(content, [
+                            { type: 'text', value: 'Hidden context' },
+                        ]),
+                        pending_user_message_id: 'pending-1',
+                    },
+                })
+                await expectLogic(logic, () =>
+                    logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                ).toFinishAllListeners()
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                    { id: 'pending-run-1-pending-1', type: 'human_message', text: content, complete: true },
+                ])
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+                await expectLogic(logic, () =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { type: 'text', text: content },
+                        }),
+                        readOnly ? 'replay' : 'live'
+                    )
+                ).toFinishAllListeners()
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual([
+                    { id: 'human-0', type: 'human_message', text: content, complete: true },
+                ])
+            }
+        )
+
+        it('keeps the selected run pending message even if its ancestor contains identical text', () => {
+            const text = 'Continue with the comparison.'
+            const ancestor = { ...notification('_posthog/user_message', { content: text }), source_run_id: 'ancestor' }
+            const selected = { ...notification('_posthog/user_message', { content: text }), source_run_id: 'run-1' }
+            const options = { isResumeRun: true, pendingMessage: { runId: 'run-1', id: 'pending-1', text } }
+            expect(
+                foldLogToThread([{ entry: ancestor, source: 'replay' }], options).threadItems.filter(
+                    (item) => item.type === 'human_message'
+                )
+            ).toHaveLength(2)
+            const items = foldLogToThread(
+                [
+                    { entry: ancestor, source: 'replay' },
+                    { entry: selected, source: 'replay' },
+                ],
+                options
+            ).threadItems.filter((item) => item.type === 'human_message')
+            expect(items).toHaveLength(2)
+            expect(items.every((item) => item.id.startsWith('human-'))).toBe(true)
+        })
+
         // The backend persists the human turn as a session/update `user_message_chunk`, not a
         // `_posthog/user_message` ext-notification — this is the frame a thread actually loads from logs.
         it('renders a persisted user_message_chunk session update on bootstrap replay', async () => {
@@ -1043,7 +1453,7 @@ describe('runStreamLogic', () => {
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Several.' } }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -1104,7 +1514,7 @@ describe('runStreamLogic', () => {
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Here you go.' } }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({
                 status: 'completed',
                 state: { resume_from_run_id: 'ancestor-run' },
             } as any)
@@ -1150,7 +1560,7 @@ describe('runStreamLogic', () => {
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Continuing.' } }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({
                 status: 'completed',
                 state: { resume_from_run_id: 'ancestor-run' },
             } as any)
@@ -1165,7 +1575,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('places replayed setup progress below the human turn it belongs to', async () => {
+        it('renders replayed setup progress below the human turn', async () => {
             const frames: StoredLogEntry[] = [
                 notification('_posthog/progress', {
                     sessionId: 's',
@@ -1180,7 +1590,7 @@ describe('runStreamLogic', () => {
                 }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -1472,7 +1882,7 @@ describe('runStreamLogic', () => {
                 }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({
                 status: 'completed',
                 state: { resume_from_run_id: 'run-0' },
             } as any)
@@ -1496,7 +1906,7 @@ describe('runStreamLogic', () => {
                 }),
             ]
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(frames as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -1562,7 +1972,7 @@ describe('runStreamLogic', () => {
     describe('bootstrap log loading state', () => {
         it('keeps log bootstrap loading after SSE opens until history is ready', async () => {
             let resolveRun: (run: { status: string }) => void = () => {}
-            jest.spyOn(api.tasks.runs, 'get').mockReturnValue(
+            jest.mocked(tasksRunsRetrieve).mockReturnValue(
                 new Promise((resolve) => {
                     resolveRun = resolve
                 }) as Promise<any>
@@ -1585,6 +1995,18 @@ describe('runStreamLogic', () => {
 
             resolveRun({ status: 'completed' })
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('clears the bootstrap spinner for a terminal run whose history renders no rows', async () => {
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'failed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.hasThreadItems).toBe(false)
+            expect(logic.values.bootstrapLoading).toBe(false)
         })
 
         it('stores bootstrap errors for inline task-run error UI', async () => {
@@ -1624,14 +2046,66 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(false)
         })
 
-        it('re-raises on a follow-up turn opened by a human message, with no new run_started', () => {
+        // A follow-up on the same run starts a new turn with no second run_started frame. It reaches
+        // the thread as this composer's optimistic echo, as a wire user turn in one of its two forms,
+        // or — for a follow-up sent from Slack, where the live stream carries no user turn at all —
+        // only as the agent's first output.
+        it.each([
+            ['this composer', (): void => logic.actions.pushHumanMessage('and the mobile funnel?')],
+            [
+                'a wire _posthog/user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        notification('_posthog/user_message', { content: 'and the mobile funnel?' })
+                    ),
+            ],
+            [
+                'a wire session/update user_message',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'user_message', content: { text: 'and the mobile funnel?' } })
+                    ),
+            ],
+            [
+                'the agent producing output',
+                (): void =>
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'agent_message_chunk',
+                            messageId: 'm2',
+                            content: { text: 'On' },
+                        })
+                    ),
+            ],
+        ])('re-raises on a follow-up turn opened by %s, with no new run_started', (_case, sendFollowUp) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
             expect(logic.values.isThinking).toEqual(false)
 
-            // A follow-up on the same run starts a new turn — no second run_started frame arrives.
-            logic.actions.pushHumanMessage('and the mobile funnel?')
+            sendFollowUp()
             expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('re-raises for a queued follow-up whose user turn precedes the prior turn_complete', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            // A follow-up sent while the first turn is still running is persisted when it is received,
+            // so the replayed log carries it before that turn's completion.
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'and mobile?' }))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            expect(logic.values.isThinking).toEqual(false)
+
+            logic.actions.ingestAcpFrame(
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm2', content: { text: 'On' } })
+            )
+            expect(logic.values.isThinking).toEqual(true)
+        })
+
+        it('stays off after turn_complete on an update that does not mean the agent is generating', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+
+            logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+            expect(logic.values.isThinking).toEqual(false)
         })
 
         it('is on during the cold-boot queued window before the first run_started', async () => {
@@ -1646,6 +2120,187 @@ describe('runStreamLogic', () => {
     })
 
     describe('streamPhase provisioning during open', () => {
+        it.each(['completed', 'cancelled', 'failed'] as const)(
+            'keeps the thread optimistic when continuing a %s run',
+            async (status) => {
+                const nextRun: TaskRunDetailDTOApi = {
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    task_summary: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                }
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+                const originalStream = MockStream.latest()
+                await originalStream.emitOpen()
+                await originalStream.emitMessage(notification('_posthog/run_started', { runId: 'run-1' }), '100-0')
+                await originalStream.emitMessage(notification('_posthog/user_message', { content: 'hello' }), '101-0')
+                await originalStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Hi there' } }),
+                    '102-0'
+                )
+                if (status === 'completed') {
+                    await originalStream.emitMessage(notification('_posthog/turn_complete', {}), '103-0')
+                }
+                await originalStream.emitMessage({ type: 'task_run_state', status })
+                const previousItems = logic.values.threadItems
+
+                logic.actions.startOptimisticResume('continue')
+                expect(logic.values.threadItems.slice(0, previousItems.length)).toEqual(previousItems)
+                expect(logic.values.threadItems.at(-1)).toMatchObject({ type: 'human_message', text: 'continue' })
+                expect(logic.values.streamPhase).toBe('provisioning')
+
+                logic.actions.attachOptimisticResume('task-1', nextRun)
+                const resumedStream = MockStream.latest()
+                await resumedStream.emitOpen()
+                expect(resumedStream.options.lastEventId).toBeUndefined()
+                expect(resumedStream.options.startLatest).toBe(false)
+                expect(logic.values.bootstrappedRunId).toBe('run-2')
+                expect(logic.values.streamPhase).toBe('provisioning')
+                expect(logic.values.threadItems.slice(0, previousItems.length)).toEqual(previousItems)
+
+                await resumedStream.emitMessage(notification('_posthog/run_started', { runId: 'run-2' }))
+                await resumedStream.emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.streamPhase).toBe('thinking')
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(1)
+                await resumedStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Continuing now' } })
+                )
+                await resumedStream.emitMessage(notification('_posthog/turn_complete', {}))
+                await resumedStream.emitMessage({ type: 'task_run_state', status: 'completed' })
+
+                logic.actions.startOptimisticResume('continue')
+                expect(logic.values.streamPhase).toBe('provisioning')
+                logic.actions.attachOptimisticResume('task-1', {
+                    ...nextRun,
+                    id: 'run-3',
+                    state: { resume_from_run_id: 'run-2' },
+                })
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+            }
+        )
+
+        it('rolls back only the pending message when a resume fails', () => {
+            logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello' }), 'replay')
+            logic.actions.markTurnComplete()
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            const previousItems = logic.values.threadItems
+            logic.actions.startOptimisticResume('continue')
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/console', { message: 'History finished loading', level: 'info' }),
+                'replay'
+            )
+            const entryCount = logic.values.log.entries.length
+            logic.actions.rollbackOptimisticResume()
+
+            expect(logic.values.log.entries).toHaveLength(entryCount - 1)
+            expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toEqual(previousItems)
+            expect(logic.values.streamPhase).toBe('idle')
+            expect(logic.values.turnComplete).toBe(true)
+            expect(logic.values.awaitingOptimisticAttach).toBe(false)
+        })
+
+        it.each([false, true])(
+            'reconciles incomplete history with a persisted successor message: %s',
+            async (persisted) => {
+                const run = {
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: TaskRunStatus.QUEUED,
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    task_summary: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                    runtime_adapter: null,
+                    model: null,
+                    reasoning_effort: null,
+                    log_url: null,
+                    created_at: '2026-01-01T00:00:00Z',
+                    updated_at: '2026-01-01T00:00:00Z',
+                    completed_at: null,
+                } satisfies TaskRunDetailDTOApi
+                const history = [
+                    notification('_posthog/run_started', { runId: 'run-1' }),
+                    notification('_posthog/user_message', { content: 'continue' }),
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+                    ...(persisted
+                        ? [
+                              notification('_posthog/run_started', { runId: 'run-2' }),
+                              notification('_posthog/user_message', { content: 'continue' }),
+                          ]
+                        : []),
+                ]
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue(run)
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(history)
+                logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                logic.actions.startOptimisticResume('continue')
+                await expectLogic(logic, () =>
+                    logic.actions.attachOptimisticResume('task-1', run)
+                ).toFinishAllListeners()
+
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+                expect(logic.values.threadItems.some((item) => item.text === 'Earlier answer')).toBe(true)
+                expect(logic.values.streamPhase).toBe(persisted ? 'thinking' : 'provisioning')
+                // The reconciliation must not wipe the successor's seeded status — a null one hides the
+                // composer, and a live run publishes no further state frame until it terminates.
+                expect(logic.values.currentRunStatus).toBe('queued')
+                expect(logic.values.turnComplete).toBe(false)
+                expect(MockStream.latest().options.startLatest).toBe(false)
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitMessage(notification('_posthog/user_message', { content: 'continue' }))
+                expect(logic.values.threadItems.filter((item) => item.text === 'continue')).toHaveLength(2)
+            }
+        )
+
+        it('stops provisioning when the incomplete-history successor is already terminal', async () => {
+            const run = {
+                id: 'run-2',
+                task: 'task-1',
+                stage: null,
+                branch: null,
+                status: TaskRunStatus.FAILED,
+                environment: TaskRunEnvironment.CLOUD,
+                error_message: 'Failed to start task workflow',
+                output: null,
+                task_summary: null,
+                artifacts: [],
+                state: { resume_from_run_id: 'run-1' },
+                runtime_adapter: null,
+                model: null,
+                reasoning_effort: null,
+                log_url: null,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+                completed_at: '2026-01-01T00:00:01Z',
+            } satisfies TaskRunDetailDTOApi
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue(run)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/user_message', { content: 'continue' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+            ])
+            logic.actions.handleTerminalStatus({ status: 'completed', replayedFromHistory: true })
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.startOptimisticResume('continue')
+            await expectLogic(logic, () => logic.actions.attachOptimisticResume('task-1', run)).toFinishAllListeners()
+
+            expect(logic.values.runOpening).toEqual(false)
+            expect(logic.values.streamPhase).toEqual('idle')
+        })
+
         it('is provisioning while the open POST is in flight, before any SSE state exists', () => {
             expect(logic.values.streamPhase).toEqual('idle')
 
@@ -1745,7 +2400,7 @@ describe('runStreamLogic', () => {
 
         it('captures branch / base / pr from the bootstrap run fetch', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([] as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({
                 status: 'completed',
                 branch: 'feat/posthog-ai-sandboxes',
                 state: { pr_base_branch: 'master' },
@@ -1783,7 +2438,7 @@ describe('runStreamLogic', () => {
 
         it('stays empty and self-hideable for a run with no git context', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([] as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             await expectLogic(logic, () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -1807,9 +2462,739 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('history reconciliation', () => {
+        const chunk = (text: string, event_id?: string, first_event_id?: string): StoredLogEntry => ({
+            ...sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text } }),
+            event_id,
+            first_event_id,
+        })
+        it.each([
+            {
+                name: 'saved coalesced range',
+                history: [chunk('abc', 'boot-3', 'boot-1')],
+                retained: [chunk('a', 'boot-1')],
+                buffered: [chunk('b', 'boot-2'), chunk('c', 'boot-3'), chunk('d', 'boot-4')],
+                expected: 'abcd',
+            },
+            {
+                name: 'lagging snapshot',
+                history: [chunk('a', 'boot-1')],
+                retained: [chunk('abc', 'boot-3', 'boot-1')],
+                buffered: [chunk('c', 'boot-3'), chunk('d', 'boot-4')],
+                expected: 'abcd',
+            },
+            {
+                name: 'identical messages with distinct IDs',
+                history: [chunk('same', 'boot-1')],
+                retained: [chunk('same', 'boot-1'), chunk('same', 'boot-2')],
+                buffered: [chunk('same', 'boot-2'), chunk('same', 'boot-3')],
+                expected: 'samesamesame',
+            },
+            {
+                name: 'legacy history with identified live frames',
+                history: [chunk('same')],
+                retained: [],
+                buffered: [chunk('same', 'boot-1'), chunk('same', 'boot-2')],
+                expected: 'samesame',
+            },
+            {
+                name: 'identified history with legacy live frames',
+                history: [chunk('same', 'boot-1')],
+                retained: [],
+                buffered: [chunk('same'), chunk('same')],
+                expected: 'samesame',
+            },
+            {
+                name: 'legacy multiset overlap',
+                history: [chunk('same')],
+                retained: [chunk('same'), chunk('same')],
+                buffered: [chunk('same'), chunk('same'), chunk('same')],
+                expected: 'samesamesame',
+            },
+        ])('preserves output across $name', ({ history, retained, buffered, expected }) => {
+            const log = reconcileRunLog(
+                history,
+                retained.map((entry) => ({ entry, source: 'live' })),
+                buffered
+            )
+            expect(
+                foldLogToThread(log.entries, { isResumeRun: false }).threadItems.find(
+                    (item) => item.type === 'assistant_message'
+                )?.text
+            ).toBe(expected)
+        })
+
+        it.each([true, false])('retains the newest tool fields when saved state is newer: %s', (savedNewer) => {
+            const tool = sessionUpdate({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tool-1',
+                toolName: 'read',
+                status: 'in_progress',
+            })
+            const old = {
+                ...sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'tool-1',
+                    rawInput: { path: 'example.txt' },
+                    rawOutput: 'partial',
+                    status: 'in_progress',
+                }),
+                event_id: 'boot-2',
+            }
+            const latest = {
+                ...sessionUpdate({
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId: 'tool-1',
+                    rawOutput: 'complete',
+                    status: 'completed',
+                }),
+                event_id: 'boot-3',
+            }
+            const log = reconcileRunLog(
+                [tool, savedNewer ? latest : old],
+                [tool, savedNewer ? old : latest].map((entry) => ({ entry, source: 'live' })),
+                []
+            )
+            const invocation = foldLogToThread(log.entries, { isResumeRun: false }).toolInvocations.get('tool-1')
+            expect(invocation).toMatchObject({
+                status: 'completed',
+                output: 'complete',
+                input: { path: 'example.txt' },
+            })
+            expect(log.entries).toHaveLength(2)
+        })
+
+        it('keeps a newer buffered legacy tool update over a saved partial result', () => {
+            const tool = sessionUpdate({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tool-1',
+                toolName: 'read',
+                status: 'in_progress',
+            })
+            const old = sessionUpdate({
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'tool-1',
+                rawOutput: 'partial',
+                status: 'in_progress',
+            })
+            const latest = sessionUpdate({
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'tool-1',
+                rawOutput: 'complete',
+                status: 'completed',
+            })
+            const log = reconcileRunLog([tool, old], [], [latest])
+            expect(foldLogToThread(log.entries, { isResumeRun: false }).toolInvocations.get('tool-1')).toMatchObject({
+                status: 'completed',
+                output: 'complete',
+            })
+        })
+
+        it.each(['posthog', 'chunk', 'message', 'both'])(
+            'preserves optimistic messages while replacing their saved %s echoes',
+            (format) => {
+                const persisted = notification('_posthog/user_message', { content: 'First message' })
+                const wire = sessionUpdate({
+                    sessionUpdate: format === 'message' ? 'user_message' : 'user_message_chunk',
+                    content: { type: 'text', text: 'First message' },
+                })
+                const saved = [
+                    ...(format === 'posthog' ? [persisted] : format === 'both' ? [persisted, wire] : [wire]),
+                    notification('_posthog/turn_complete', {}),
+                ]
+                const optimistic = ['First message', 'First message', 'Still sending'].map((content) => ({
+                    entry: notification('_client/human_message', { content }),
+                    source: 'client' as const,
+                }))
+                const log = reconcileRunLog(saved, optimistic, [])
+                expect(
+                    foldLogToThread(log.entries, { isResumeRun: false })
+                        .threadItems.filter((item) => item.type === 'human_message')
+                        .map((item) => item.text)
+                ).toEqual(['First message', 'First message', 'Still sending'])
+            }
+        )
+
+        it.each(['history', 'retained', 'buffered'])(
+            'preserves neutral notifications inside a coalesced range from %s',
+            (source) => {
+                const notice = {
+                    ...notification('_posthog/task_notification', { taskId: 'background-1', summary: 'Work finished' }),
+                    event_id: 'boot-2',
+                    source_run_id: 'run-1',
+                }
+                const merged = { ...chunk('abc', 'boot-3', 'boot-1'), source_run_id: 'run-1' }
+                const log = reconcileRunLog(
+                    source === 'history' ? [merged] : [],
+                    (source === 'retained' ? [notice, merged] : [notice]).map((entry) => ({ entry, source: 'live' })),
+                    source === 'buffered' ? [merged] : []
+                )
+                expect(log.entries.map(({ entry }) => entry)).toEqual(expect.arrayContaining([notice, merged]))
+                expect(log.entries).toHaveLength(2)
+            }
+        )
+
+        it.each([false, true])(
+            'recovers a completed optimistic turn and preserves a new follow-up: %s',
+            async (followUp) => {
+                jest.useFakeTimers()
+                try {
+                    logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+                    await flushPromises()
+                    const started = { ...notification('_posthog/run_started', {}), event_id: 'boot-1' }
+                    const echo = {
+                        ...sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { type: 'text', text: 'Repeat request' },
+                        }),
+                        event_id: 'boot-2',
+                    }
+                    const completed = { ...notification('_posthog/turn_complete', {}), event_id: 'boot-3' }
+                    await MockStream.latest().emitMessage(started, '100-0')
+                    logic.actions.pushHumanMessage('Repeat request')
+                    await MockStream.latest().emitMessage(echo, '101-0')
+                    await MockStream.latest().emitMessage(completed, '102-0')
+                    if (followUp) {
+                        logic.actions.pushHumanMessage('Repeat request')
+                    }
+                    jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([started, echo, completed])
+                    await MockStream.latest().emitClose()
+                    await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                    expect(
+                        logic.values.threadItems
+                            .filter((item) => item.type === 'human_message')
+                            .map((item) => item.text)
+                    ).toEqual(followUp ? ['Repeat request', 'Repeat request'] : ['Repeat request'])
+                    expect(logic.values.turnComplete).toBe(!followUp)
+                    expect(logic.values.isThinking).toBe(followUp)
+                } finally {
+                    jest.useRealTimers()
+                }
+            }
+        )
+
+        it('retains resumed backlog ownership when reconnecting after the run marker', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                    id: 'run-2',
+                    task: 'task-1',
+                    stage: null,
+                    branch: null,
+                    status: 'in_progress',
+                    environment: TaskRunEnvironment.CLOUD,
+                    error_message: null,
+                    output: null,
+                    task_summary: null,
+                    artifacts: [],
+                    state: { resume_from_run_id: 'run-1' },
+                })
+                const firstRun = notification('_posthog/run_started', { runId: 'run-1' })
+                const secondRun = notification('_posthog/run_started', { runId: 'run-2' })
+                const firstChunk = chunk('a', 'boot-1')
+                const secondChunk = chunk('b', 'boot-2')
+                jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([firstRun, secondRun, firstChunk])
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-2' })
+                await flushPromises()
+                await MockStream.latest().emitMessage(secondRun, 'log-1')
+                await MockStream.latest().emitMessage(firstChunk, 'log-2')
+                jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([
+                    firstRun,
+                    secondRun,
+                    firstChunk,
+                    secondChunk,
+                ])
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                expect(MockStream.latest().options.lastEventId).toBe('log-2')
+                await MockStream.latest().emitMessage(secondChunk, 'log-3')
+                expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('ab')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('reconciles coalesced backlog frames that arrive after the history request', async () => {
+            jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([chunk('a', 'boot-1')])
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            const notice = {
+                ...notification('_posthog/task_notification', { taskId: 'background-1', summary: 'Work finished' }),
+                event_id: 'boot-2',
+            }
+            await MockStream.latest().emitMessage(notice, 'log-0')
+            await MockStream.latest().emitMessage(chunk('abc', 'boot-4', 'boot-1'), 'log-1')
+            await MockStream.latest().emitMessage(chunk('a', 'boot-1'), '100-0')
+            await MockStream.latest().emitMessage(chunk('b', 'boot-3'), '101-0')
+            await MockStream.latest().emitMessage(chunk('c', 'boot-4'), '102-0')
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('abc')
+            expect(
+                logic.values.log.entries.some(({ entry }) => entry.notification.method === '_posthog/task_notification')
+            ).toBe(true)
+        })
+
+        it('merges a coalesced frame into a long transcript without losing unrelated entries', () => {
+            const entries = Array.from({ length: 2000 }, (_, index) => ({
+                entry: chunk(`Message ${index}`, `boot-${index * 2 + 2}`, `boot-${index * 2 + 1}`),
+                source: 'replay' as const,
+            }))
+            const incoming = chunk('Expanded first message', 'boot-2', 'boot-1')
+            const log = mergeCoalescedRunLog({ entries, toolUpdateIndex: {} }, incoming)
+            expect(log.entries).toEqual([{ entry: incoming, source: 'live' }, ...entries.slice(1)])
+            const recovered = reconcileRunLog(
+                entries.slice(0, 1000).map(({ entry }) => entry),
+                entries,
+                []
+            )
+            expect(recovered.entries.map(({ entry }) => entry)).toEqual(entries.map(({ entry }) => entry))
+        })
+
+        it.each([false, true])(
+            'deduplicates late legacy backlog while preserving repeated live output: history first %s',
+            async (historyFirst) => {
+                const history = deferred<unknown[]>()
+                jest.mocked(api.tasks.runs.getLogEntries).mockReturnValue(
+                    history.promise as Promise<Record<string, unknown>[]>
+                )
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const saved = chunk('Saved output.')
+                if (!historyFirst) {
+                    await MockStream.latest().emitMessage(saved, 'log-1')
+                }
+                history.resolve([null, [], { metadata: 'example' }, saved])
+                await flushPromises()
+                if (historyFirst) {
+                    await MockStream.latest().emitMessage(saved, 'log-1')
+                }
+                expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
+                    'Saved output.'
+                )
+                await MockStream.latest().emitMessage(saved, '200-0')
+                expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
+                    'Saved output.Saved output.'
+                )
+                await MockStream.latest().emitMessage(saved, 'log-2')
+                expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
+                    'Saved output.Saved output.Saved output.'
+                )
+            }
+        )
+
+        it('rebuilds history without repeating tool or turn reactions and resolved approvals', async () => {
+            jest.useFakeTimers()
+            const capture = jest.spyOn(posthog, 'capture')
+            const toolEvent = jest.fn()
+            const turnEvent = jest.fn()
+            toolStreamEventsLogic.actions.registerToolListener('history-side-effects', {
+                tools: '*',
+                onEvent: toolEvent,
+                onTurnComplete: turnEvent,
+                includeReplay: true,
+            })
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+            await flushPromises()
+            const frames = [
+                {
+                    ...sessionUpdate({
+                        sessionUpdate: 'tool_call',
+                        toolCallId: 'tool-1',
+                        toolName: 'read',
+                        status: 'in_progress',
+                    }),
+                    event_id: 'boot-1',
+                },
+                {
+                    ...sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'tool-1', status: 'completed' }),
+                    event_id: 'boot-2',
+                },
+                { ...notification('_posthog/turn_complete', {}), event_id: 'boot-3' },
+            ]
+            for (const [index, frame] of frames.entries()) {
+                await MockStream.latest().emitMessage(frame, `${index + 1}-0`)
+            }
+            logic.actions.markPermissionRequestResolved('resolved-approval')
+            const before = {
+                tools: toolEvent.mock.calls.length,
+                turns: turnEvent.mock.calls.length,
+                completed: capture.mock.calls.filter(([event]) => event === 'tool_call_completed').length,
+            }
+            jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue(frames)
+            await MockStream.latest().emitClose()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(toolEvent).toHaveBeenCalledTimes(before.tools)
+            expect(turnEvent).toHaveBeenCalledTimes(before.turns)
+            expect(capture.mock.calls.filter(([event]) => event === 'tool_call_completed')).toHaveLength(
+                before.completed
+            )
+            expect(logic.values.resolvedPermissionRequestIds.has('resolved-approval')).toBe(true)
+            expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            jest.useRealTimers()
+        })
+    })
+
+    describe('network recovery ownership', () => {
+        beforeEach(() => jest.useFakeTimers())
+        afterEach(() => jest.useRealTimers())
+
+        it.each([new TypeError('Network unavailable'), { status: 0 }, { status: 503 }])(
+            'recovers a drop even when its status probe fails with %s, then restores saved output',
+            async (error) => {
+                const capture = jest.spyOn(posthog, 'capture')
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+                await flushPromises()
+                const first = {
+                    ...sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'First. ' } }),
+                    event_id: 'boot-1',
+                }
+                const saved = {
+                    ...sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Saved offline. ' } }),
+                    event_id: 'boot-2',
+                }
+                await MockStream.latest().emitMessage(first, '100-0')
+                jest.mocked(tasksRunsRetrieve).mockRejectedValueOnce(error)
+                jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([first, saved])
+                await MockStream.latest().emitClose()
+                expect(logic.values.sseStatus).toBe('reconnecting')
+                expect(logic.values.currentRunStatus).toBe('queued')
+                await jest.advanceTimersByTimeAsync(2000)
+                expect(MockStream.latest().options.lastEventId).toBe('100-0')
+                await MockStream.latest().emitMessage(saved, '101-0')
+                expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
+                    'First. Saved offline. '
+                )
+                expect(logic.values.historyComplete).toBe(true)
+                expect(logic.values.sseStatus).toBe('open')
+                expect(capture.mock.calls.filter(([event]) => event === 'sandbox_stream_recovered')).toHaveLength(1)
+                expect(capture.mock.calls.filter(([event]) => event === 'sandbox_stream_disconnected')).toHaveLength(0)
+            }
+        )
+
+        it.each(['metadata', 'history'] as const)(
+            'pauses after %s exhaustion until one guarded Retry',
+            async (phase) => {
+                const request =
+                    phase === 'metadata' ? jest.mocked(tasksRunsRetrieve) : jest.mocked(api.tasks.runs.getLogEntries)
+                request.mockRejectedValue({ status: 503 })
+                logic.actions.pushHumanMessage('Keep this message')
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                await jest.advanceTimersByTimeAsync(2000)
+                await jest.advanceTimersByTimeAsync(4000)
+                expect(request).toHaveBeenCalledTimes(3)
+                expect(logic.values.historyComplete).toBe(false)
+                expect(logic.values.threadItems.some((item) => item.text === 'Keep this message')).toBe(true)
+                expect(logic.values.runConnectionState).toMatchObject({ kind: 'connection_failed', retryable: true })
+                window.dispatchEvent(new Event('online'))
+                document.dispatchEvent(new Event('visibilitychange'))
+                await jest.advanceTimersByTimeAsync(120000)
+                expect(request).toHaveBeenCalledTimes(3)
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
+                jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([])
+                const attempts = jest.mocked(tasksRunsRetrieve).mock.calls.length
+                logic.actions.retryConnection()
+                logic.actions.retryConnection()
+                expect(logic.values.runConnectionState?.kind).not.toBe('connection_failed')
+                await flushPromises()
+                expect(tasksRunsRetrieve).toHaveBeenCalledTimes(attempts + 1)
+                expect(logic.values.sseStatus).toBe('open')
+                expect(logic.values.historyComplete).toBe(true)
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+            }
+        )
+
+        it.each([401, 403, 406, 404, 400])('does not automatically retry HTTP %s', async (status) => {
+            jest.mocked(tasksRunsRetrieve).mockRejectedValue({ status })
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(120000)
+            expect(tasksRunsRetrieve).toHaveBeenCalledTimes(1)
+            expect(logic.values.runConnectionState).toMatchObject({
+                kind: 'connection_failed',
+                retryable: [401, 403, 406].includes(status),
+            })
+            expect(logic.values.currentRunStatus).not.toBe('failed')
+        })
+
+        it.each(
+            ['close', 'reset', 'unmount', 'project', 'run', 'terminal'].flatMap((change) =>
+                [false, true].map((reject) => ({ change, reject }))
+            )
+        )('ignores delayed metadata after $change (reject=$reject)', async ({ change, reject }) => {
+            const metadata = deferred<TaskRunDetailDTOApi>()
+            jest.mocked(tasksRunsRetrieve).mockReturnValueOnce(metadata.promise)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            const signal = jest.mocked(tasksRunsRetrieve).mock.calls[0][3]?.signal
+            if (change === 'close') {
+                logic.actions.closeSse()
+            }
+            if (change === 'reset') {
+                logic.actions.reset()
+            }
+            if (change === 'unmount') {
+                logic.unmount()
+                logic.mount()
+            }
+            if (change === 'project') {
+                projectLogic.actions.loadCurrentProjectSuccess({ id: 998 } as any)
+            }
+            if (change === 'run') {
+                logic.actions.bootstrapRun({ taskId: 'task-2', runId: 'run-2', justCreatedRun: true })
+            }
+            if (change === 'terminal') {
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as TaskRunDetailDTOApi)
+                logic.actions.streamEnded()
+            }
+            await flushPromises()
+            const opened = MockStream.connections.length
+            if (reject) {
+                metadata.reject({ status: 404 })
+            } else {
+                metadata.resolve({ status: 'failed', branch: 'stale-branch' } as TaskRunDetailDTOApi)
+            }
+            await flushPromises()
+            expect(MockStream.connections).toHaveLength(opened)
+            expect(logic.values.runArtifacts.branch).not.toBe('stale-branch')
+            expect(logic.values.currentRunStatus).not.toBe('failed')
+            expect(logic.values.bootstrapError).toBeNull()
+            expect(signal?.aborted).toBe(true)
+        })
+
+        it.each(['close', 'unmount', 'project', 'run', 'terminal'])(
+            'ignores delayed history failures after %s',
+            async (change) => {
+                const history = deferred<Record<string, any>[]>()
+                jest.mocked(api.tasks.runs.getLogEntries).mockReturnValueOnce(history.promise)
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const signal = jest.mocked(api.tasks.runs.getLogEntries).mock.calls[0][2]?.signal
+                if (change === 'close') {
+                    logic.actions.closeSse()
+                }
+                if (change === 'unmount') {
+                    logic.unmount()
+                    logic.mount()
+                }
+                if (change === 'project') {
+                    projectLogic.actions.loadCurrentProjectSuccess({ id: 998 } as any)
+                }
+                if (change === 'run') {
+                    logic.actions.bootstrapRun({ taskId: 'task-2', runId: 'run-2', justCreatedRun: true })
+                }
+                if (change === 'terminal') {
+                    jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as TaskRunDetailDTOApi)
+                    logic.actions.streamEnded()
+                }
+                await flushPromises()
+                const opened = MockStream.connections.length
+                history.reject({ status: 404 })
+                await flushPromises()
+                expect(MockStream.connections).toHaveLength(opened)
+                expect(logic.values.bootstrapError).toBeNull()
+                expect(signal?.aborted).toBe(true)
+            }
+        )
+
+        it('ignores a handshake that resolves after close without starting a reader', async () => {
+            const response = deferred<Response>()
+            jest.mocked(api.tasks.runs.openStream).mockReturnValueOnce(response.promise)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+            await flushPromises()
+            logic.actions.closeSse()
+            const getReader = jest.fn()
+            response.resolve({ body: { getReader } } as unknown as Response)
+            await flushPromises()
+            expect(getReader).not.toHaveBeenCalled()
+            expect(logic.values.sseStatus).toBe('closed')
+        })
+
+        it('rolls back a discarded buffer cursor and rejects its late history response', async () => {
+            const history = deferred<Record<string, any>[]>()
+            jest.mocked(api.tasks.runs.getLogEntries).mockReturnValueOnce(history.promise)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            const entry = {
+                ...sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Recovered' } }),
+                event_id: 'boot-1',
+            }
+            await MockStream.latest().emitMessage(entry, '200-0')
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBeNull()
+            await MockStream.latest().emitClose()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toBe(false)
+            await MockStream.latest().emitMessage(entry, '200-0')
+            history.resolve([
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Stale history' } }),
+            ])
+            await flushPromises()
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('Recovered')
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBe('200-0')
+        })
+
+        it('keeps buffered output when the stream drops before history arrives', async () => {
+            const firstHistory = deferred<Record<string, unknown>[]>()
+            jest.mocked(api.tasks.runs.getLogEntries).mockReturnValueOnce(firstHistory.promise)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            await MockStream.latest().emitMessage(
+                {
+                    ...sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'reply',
+                        content: { text: 'Recovered' },
+                    }),
+                    event_id: 'reply-1',
+                },
+                '200-0'
+            )
+            await MockStream.latest().emitClose()
+            await jest.advanceTimersByTimeAsync(2000)
+            await flushPromises()
+
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('Recovered')
+            firstHistory.resolve([])
+            await flushPromises()
+            expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe('Recovered')
+        })
+
+        it.each(['status', 'history'] as const)(
+            'retries terminal %s without reopening an ended stream',
+            async (failure) => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+                await flushPromises()
+                await MockStream.latest().emitMessage(notification('_posthog/run_started', {}))
+                if (failure === 'status') {
+                    jest.mocked(tasksRunsRetrieve).mockRejectedValue({ status: 503 })
+                } else {
+                    jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'failed' } as TaskRunDetailDTOApi)
+                    jest.mocked(api.tasks.runs.getLogEntries).mockRejectedValue({ status: 503 })
+                }
+                await MockStream.latest().emitStreamEnd()
+                expect(logic.values.isThinking).toBe(false)
+                await jest.advanceTimersByTimeAsync(2000)
+                await jest.advanceTimersByTimeAsync(4000)
+                expect(logic.values.runConnectionState).toMatchObject({ kind: 'connection_failed', retryable: true })
+                expect(logic.values.currentRunStatus).toBe(failure === 'status' ? 'queued' : 'failed')
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'failed' } as TaskRunDetailDTOApi)
+                jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Final saved output' } }),
+                ])
+                logic.actions.retryConnection()
+                logic.actions.retryConnection()
+                await flushPromises()
+                expect(logic.values.runConnectionState).toBeNull()
+                expect(logic.values.threadItems.some((item) => item.text === 'Final saved output')).toBe(true)
+                expect(MockStream.connections).toHaveLength(1)
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                expect(MockStream.connections).toHaveLength(1)
+            }
+        )
+
+        it.each(['metadata', 'history'])(
+            'retries a read-only %s failure without opening SSE or sending commands',
+            async (failure) => {
+                const viewer = runStreamLogic({ streamKey: 'read-only-retry', replayOnly: true })
+                const unmount = viewer.mount()
+                try {
+                    jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                        id: 'run-1',
+                        task: 'task-1',
+                        stage: null,
+                        branch: null,
+                        status: 'in_progress',
+                        environment: TaskRunEnvironment.CLOUD,
+                        error_message: null,
+                        output: null,
+                        task_summary: null,
+                        artifacts: [],
+                        state: { resume_from_run_id: 'run-0' },
+                    })
+                    jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([
+                        sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { text: 'You are resuming a previous conversation. Example context' },
+                        }),
+                        sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Recovered output' } }),
+                    ])
+                    if (failure === 'metadata') {
+                        jest.mocked(tasksRunsRetrieve).mockRejectedValueOnce({ status: 403 })
+                    } else {
+                        jest.mocked(api.tasks.runs.getLogEntries).mockRejectedValueOnce({ status: 403 })
+                    }
+                    viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                    await flushPromises()
+                    expect(viewer.values.runConnectionState?.retryable).toBe(true)
+                    viewer.actions.retryConnection()
+                    await flushPromises()
+                    expect(viewer.values.currentRunStatus).toBe('in_progress')
+                    expect(viewer.values.isBootstrapResumeRun).toBe(true)
+                    expect(viewer.values.threadItems.map((item) => item.text)).toEqual(['Recovered output'])
+                    expect(viewer.values.historyComplete).toBe(true)
+                    expect(viewer.values.isThinking).toBe(false)
+                    expect(MockStream.connections).toHaveLength(0)
+                    expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+                } finally {
+                    unmount()
+                }
+            }
+        )
+
+        it('aborts retryable SSE error readers so EOF schedules only one recovery', async () => {
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+            await flushPromises()
+            const stream = MockStream.latest()
+            await stream.emitErrorFrame({ retryable: true, errorTitle: 'Try again' })
+            await stream.emitClose()
+            expect(stream.closed).toBe(true)
+            expect(logic.values.cumulativeReconnectAttempt).toBe(1)
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.connections).toHaveLength(2)
+            expect(logic.values.sseStatus).toBe('open')
+        })
+
+        it.each(['metadata', 'handshake', 'history'] as const)('bounds stalled %s requests', async (phase) => {
+            const stalled = new Promise<never>(() => {})
+            if (phase === 'metadata') {
+                jest.mocked(tasksRunsRetrieve).mockReturnValue(stalled)
+            }
+            if (phase === 'handshake') {
+                jest.mocked(api.tasks.runs.openStream).mockReturnValue(stalled)
+            }
+            if (phase === 'history') {
+                jest.mocked(api.tasks.runs.getLogEntries).mockReturnValue(stalled)
+            }
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(phase === 'history' ? 60000 : 30000)
+            expect(logic.values.sseStatus).toBe('reconnecting')
+            expect(logic.values.currentRunStatus).not.toBe('failed')
+            if (phase === 'metadata') {
+                await jest.advanceTimersByTimeAsync(2000 + 30000 + 4000 + 30000)
+            }
+            expect(logic.values.runConnectionState?.kind).toBe(
+                phase === 'metadata' ? 'connection_failed' : 'reconnecting'
+            )
+        })
+
+        it('recovers a stalled stream and treats keepalives as activity', async () => {
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', justCreatedRun: true })
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(59000)
+            await MockStream.latest().emitMessage({ type: 'keepalive' })
+            await jest.advanceTimersByTimeAsync(59000)
+            expect(MockStream.connections).toHaveLength(1)
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(logic.values.sseStatus).toBe('reconnecting')
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.connections).toHaveLength(2)
+        })
+    })
+
     describe('reconnect / backoff', () => {
         it('refetches and surfaces terminal status on a drop, without reopening', async () => {
-            const getSpy = jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            const getSpy = jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await MockStream.latest().emitOpen()
@@ -1818,14 +3203,14 @@ describe('runStreamLogic', () => {
             logic.actions.sseDropped()
             await flushPromises()
 
-            expect(getSpy).toHaveBeenCalledWith('task-1', 'run-1')
+            expect(getSpy).toHaveBeenCalledWith('997', 'task-1', 'run-1', { signal: expect.any(AbortSignal) })
             expect(logic.values.currentRunStatus).toEqual('completed')
             // No new connection was opened (terminal → no reconnect).
             expect(MockStream.connections.length).toEqual(beforeDrop)
         })
 
         it('backs off and reopens on a drop while the run is non-terminal', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await MockStream.latest().emitOpen()
@@ -1838,17 +3223,16 @@ describe('runStreamLogic', () => {
             expect(logic.values.sseStatus).toEqual('reconnecting')
             expect(logic.values.reconnectAttempt).toEqual(1)
 
-            jest.advanceTimersByTime(2000)
+            await jest.advanceTimersByTimeAsync(2000)
             expect(MockStream.connections.length).toEqual(beforeDrop + 1)
-            // No frame carried an id before the drop, so there's nothing to resume from — the reopen
-            // requests start=latest (only new frames) rather than re-broadcasting the whole stream.
-            expect(MockStream.latest().options.startLatest).toEqual(true)
+            // Without a committed cursor, replay from the beginning so the reconnect cannot skip output.
+            expect(MockStream.latest().options.startLatest).toEqual(false)
             expect(MockStream.latest().options.lastEventId).toBeUndefined()
             jest.useRealTimers()
         })
 
         it('resumes from the last-seen event id via the Last-Event-ID header on reconnect', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             // A live frame stamps its Redis stream id as the resume cursor.
@@ -1857,11 +3241,218 @@ describe('runStreamLogic', () => {
             jest.useFakeTimers()
             logic.actions.sseDropped()
             await flushPromises()
-            jest.advanceTimersByTime(2000)
+            await jest.advanceTimersByTimeAsync(2000)
 
             // The reconnect resumes exactly after the last-seen frame — header set, no start=latest.
             expect(MockStream.latest().options.lastEventId).toEqual('1700-0')
             jest.useRealTimers()
+        })
+
+        it('rebuilds from history and replays the stream window when the server reports the cursor trimmed', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+
+            // The reopen reads the whole surviving window (no cursor, no start=latest) so the seam dedupe
+            // can fill in the in-progress turn, and history is re-read once the connection is up.
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            expect(window.sessionStorage.getItem('posthog-ai:stream-resume:run-1')).toBeNull()
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(2)
+
+            // A drop before any replayed frame arrives must not fall back to start=latest.
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(3)
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1800-0')
+
+            // Once a replayed frame establishes a cursor, a drop resumes from it as usual.
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.latest().options.lastEventId).toEqual('1800-0')
+            jest.useRealTimers()
+        })
+
+        it('re-reads history after a resync on a run whose stream was opened directly', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).not.toHaveBeenCalled()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('replays the surviving window when a send reopens the run while a resync is pending', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+            await MockStream.latest().emitClose()
+            await flushPromises()
+
+            // A follow-up send reopens the same run and would otherwise skip to the tail.
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: true })
+            await flushPromises()
+
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            expect(MockStream.latest().options.startLatest).toEqual(false)
+            await MockStream.latest().emitOpen()
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('re-reads history when a directly opened run finishes during a resync', async () => {
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+            await MockStream.latest().emitClose()
+            await flushPromises()
+
+            expect(logsSpy).toHaveBeenCalledTimes(1)
+            expect(logic.values.currentRunStatus).toEqual('completed')
+        })
+
+        it('releases the live turn when the resync recovers its completion from history', async () => {
+            const turnComplete = notification('_posthog/turn_complete', { stopReason: 'end_turn' })
+            let resolveLogs: (entries: StoredLogEntry[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<StoredLogEntry[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+
+            // The turn ended during the outage: the replayed window carries the completion the client
+            // never saw live, and the history read that is still in flight carries it too.
+            await MockStream.latest().emitMessage(turnComplete, '1800-0')
+            expect(logic.values.turnComplete).toEqual(false)
+
+            resolveLogs([notification('_posthog/run_started', {}), turnComplete])
+            await flushPromises()
+
+            expect(logic.values.turnComplete).toEqual(true)
+            await expectLogic(logic).toDispatchActions([logic.actionCreators.markTurnComplete(false)])
+        })
+
+        it('keeps the turn open when the replayed completion belongs to an older turn', async () => {
+            const turnComplete = notification('_posthog/turn_complete', { stopReason: 'end_turn' })
+            let resolveLogs: (entries: StoredLogEntry[]) => void = () => {}
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                new Promise<StoredLogEntry[]>((resolve) => (resolveLogs = resolve)) as any
+            )
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+            jest.useRealTimers()
+            await MockStream.latest().emitOpen()
+
+            await MockStream.latest().emitMessage(
+                sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'call-1', status: 'in_progress' }),
+                '1800-0'
+            )
+
+            resolveLogs([notification('_posthog/run_started', {}), turnComplete])
+            await flushPromises()
+
+            expect(logic.values.turnComplete).toEqual(true)
+            await expectLogic(logic).toNotHaveDispatchedActions([logic.actionCreators.markTurnComplete(false)])
+        })
+
+        it('restores history even when the final run lookup fails on a terminal resync', async () => {
+            const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+            jest.mocked(tasksRunsRetrieve).mockRejectedValue({ status: 500 })
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+            jest.useFakeTimers()
+            await MockStream.latest().emitStreamEnd()
+            await jest.advanceTimersByTimeAsync(10_000)
+            await flushPromises()
+            jest.useRealTimers()
+
+            expect(getLogEntriesSpy).toHaveBeenCalledTimes(1)
+            expect(MockStream.connections).toHaveLength(1)
+            expect(logic.values.runConnectionState?.kind).toEqual('connection_failed')
+        })
+
+        it('surfaces a failed history re-read once the resynced run is terminal', async () => {
+            const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '1700-0')
+            await MockStream.latest().emitEndFrame({ type: 'resync', reason: 'trimmed' })
+
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            // Advance past the inter-attempt backoff so every retry runs.
+            await jest.advanceTimersByTimeAsync(10_000)
+            await flushPromises()
+            jest.useRealTimers()
+
+            expect(getLogEntriesSpy).toHaveBeenCalledTimes(MAX_HISTORY_FETCH_ATTEMPTS)
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            expect(logic.values.runConnectionState?.kind).toEqual('connection_failed')
         })
 
         it('preserves a known in-flight status when the reconnect reopens the stream', async () => {
@@ -1874,7 +3465,7 @@ describe('runStreamLogic', () => {
 
         it('abandons the drop loop when the stream is closed mid-refetch', async () => {
             let resolveGet: (value: unknown) => void = () => {}
-            jest.spyOn(api.tasks.runs, 'get').mockReturnValue(new Promise((resolve) => (resolveGet = resolve)) as any)
+            jest.mocked(tasksRunsRetrieve).mockReturnValue(new Promise((resolve) => (resolveGet = resolve)) as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             logic.actions.sseDropped()
@@ -1884,11 +3475,11 @@ describe('runStreamLogic', () => {
             await flushPromises()
 
             expect(logic.values.sseStatus).toEqual('closed')
-            expect(logic.values.reconnectAttempt).toEqual(0)
+            expect(logic.values.reconnectAttempt).toEqual(1)
         })
 
         it('surfaces a retryable error after exhausting the attempt cap', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             // Drive the attempt counter to the cap without an intervening successful open.
@@ -1901,13 +3492,52 @@ describe('runStreamLogic', () => {
         })
 
         it('maps a refetch failure through the HTTP-status table', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockRejectedValue({ status: 404 })
+            jest.mocked(tasksRunsRetrieve).mockRejectedValue({ status: 404 })
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             logic.actions.sseDropped()
             await flushPromises()
 
             expect(logic.values.sseStatus).toEqual('error')
+        })
+    })
+
+    describe('connection state across runs', () => {
+        // A follow-up on a finished run opens a successor with a stream of its own. The finished
+        // run's sentinel flag and resume cursor must not carry into it: the flag gates the drop
+        // handler, and the cursor addresses a different Redis stream.
+        it("opens a successor run on fresh connection state, not the finished run's", async () => {
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2', startLatest: false })
+
+            expect(MockStream.latest().options.lastEventId).toBeUndefined()
+            await MockStream.latest().emitOpen()
+
+            const opened = MockStream.connections.length
+            jest.useFakeTimers()
+            await MockStream.latest().emitClose()
+            await flushPromises()
+            expect(logic.values.sseStatus).toEqual('reconnecting')
+            await jest.advanceTimersByTimeAsync(2000)
+            expect(MockStream.connections.length).toEqual(opened + 1)
+            jest.useRealTimers()
+        })
+
+        it('leaves a dead stream closed when a follow-up starts a turn', async () => {
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', startLatest: false })
+            await MockStream.latest().emitMessage(notification('_posthog/run_started', {}), '100-0')
+            await MockStream.latest().emitStreamEnd()
+            expect(logic.values.sseStatus).toEqual('closed')
+            const opened = MockStream.connections.length
+
+            logic.actions.pushHumanMessage('and one more thing')
+
+            expect(MockStream.connections.length).toEqual(opened)
         })
     })
 
@@ -1951,7 +3581,7 @@ describe('runStreamLogic', () => {
                 notification('_posthog/run_started', {}) as any,
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'history' } }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -1959,14 +3589,14 @@ describe('runStreamLogic', () => {
             expect(logic.values.runStarted).toEqual(true)
             const assistantItem = logic.values.threadItems.find((item) => item.type === 'assistant_message')
             expect(assistantItem?.text).toEqual('history')
-            // No live frame carried an id, so the connect opens from latest (no resume cursor).
-            expect(MockStream.latest().options.startLatest).toEqual(true)
+            // Without a committed cursor, the stream must replay output that history may not contain yet.
+            expect(MockStream.latest().options.startLatest).toEqual(false)
             expect(MockStream.latest().options.lastEventId).toBeUndefined()
         })
 
         it('replays logs/ and stays read-only for a terminal run', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -1977,7 +3607,7 @@ describe('runStreamLogic', () => {
 
         it('fetches history exactly once for a terminal run (no terminal reconcile pass)', async () => {
             const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -1992,14 +3622,14 @@ describe('runStreamLogic', () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
                 new Promise((resolve) => (resolveLogs = resolve)) as any
             )
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
             // The SSE is open before the (still-pending) history fetch resolves.
             expect(MockStream.connections.length).toEqual(1)
-            expect(MockStream.latest().options.startLatest).toEqual(true)
+            expect(MockStream.latest().options.startLatest).toEqual(false)
 
             // A live frame arriving now is buffered, not yet rendered.
             await MockStream.latest().emitOpen()
@@ -2025,14 +3655,17 @@ describe('runStreamLogic', () => {
             ).toEqual(['history', 'live tail'])
         })
 
-        it('drains the seam by content: a frame in both history and the buffered live tail renders once', async () => {
+        test.each([false, true])('deduplicates history without run markers (resumed=%s)', async (resumed) => {
             // The exact keyless-`agent_message` duplication: the same finalized message is delivered
             // live during the fetch AND persisted in the snapshot. The multiset absorbs the live copy.
             let resolveLogs: (value: unknown) => void = () => {}
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
                 new Promise((resolve) => (resolveLogs = resolve)) as any
             )
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                status: 'in_progress',
+                state: resumed ? { resume_from_run_id: 'ancestor-run' } : {},
+            } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -2041,7 +3674,7 @@ describe('runStreamLogic', () => {
             const overlap = sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'overlap' } })
             await MockStream.latest().emitMessage(overlap, '9-0')
 
-            resolveLogs([overlap as any])
+            resolveLogs([overlap])
             await flushPromises()
 
             expect(
@@ -2049,35 +3682,164 @@ describe('runStreamLogic', () => {
             ).toEqual(['overlap'])
         })
 
-        it('keeps a genuinely repeated payload when the buffer holds more copies than history (multiset)', async () => {
-            // The agent legitimately emitted the same message twice live; the snapshot captured only
-            // one (the second landed after the snapshot read). One historical copy absorbs one buffered
-            // copy; the surplus survives — counts, not a set.
-            let resolveLogs: (value: unknown) => void = () => {}
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
-                new Promise((resolve) => (resolveLogs = resolve)) as any
-            )
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+        test.each([
+            { name: 'one chunk', ids: ['boot-9'], chunks: ['reply'], legacyEnvelope: false },
+            {
+                name: 'a chunk range',
+                ids: ['boot-9', 'boot-10', 'boot-11'],
+                chunks: ['re', 'pl', 'y'],
+                legacyEnvelope: false,
+            },
+            { name: 'an opaque event ID', ids: ['opaque-event'], chunks: ['reply'], legacyEnvelope: false },
+            { name: 'a legacy envelope', ids: ['boot-9'], chunks: ['reply'], legacyEnvelope: true },
+        ])(
+            'reconciles $name compacted in history without dropping the next identical reply',
+            async ({ ids, chunks, legacyEnvelope }) => {
+                let resolveLogs: (value: unknown) => void = () => {}
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                    new Promise((resolve) => (resolveLogs = resolve)) as any
+                )
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
-            await MockStream.latest().emitOpen()
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
 
-            const repeated = sessionUpdate({
-                sessionUpdate: 'agent_message',
-                messageId: 'm1',
-                content: { text: 'ping' },
-            })
-            await MockStream.latest().emitMessage(repeated, '1-0')
-            await MockStream.latest().emitMessage(repeated, '2-0')
+                for (const [index, eventId] of ids.entries()) {
+                    await MockStream.latest().emitMessage({
+                        ...notification('session/update', {
+                            sessionId: 'session-1',
+                            update: {
+                                sessionUpdate: 'agent_message_chunk',
+                                content: { type: 'text', text: chunks[index] },
+                            },
+                        }),
+                        event_id: eventId,
+                    })
+                }
+                const savedReply = sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    content: { type: 'text', text: 'reply' },
+                })
 
-            resolveLogs([repeated as any])
-            await flushPromises()
+                resolveLogs([
+                    {
+                        ...(legacyEnvelope ? { notification: savedReply.notification } : savedReply),
+                        event_id: ids.at(-1),
+                        first_event_id: ids[0],
+                    },
+                ])
+                await flushPromises()
 
-            expect(
-                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
-            ).toEqual(['ping', 'ping'])
-        })
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(['reply'])
+
+                await MockStream.latest().emitMessage({ ...savedReply, event_id: 'boot-12' })
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(['reply', 'reply'])
+            }
+        )
+
+        test.each([
+            {
+                name: 'legacy payloads',
+                historyId: undefined,
+                firstId: undefined,
+                liveIds: [undefined, undefined],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'legacy history with live event IDs',
+                historyId: undefined,
+                firstId: undefined,
+                liveIds: ['boot-1', 'boot-2'],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'distinct event IDs',
+                historyId: 'boot-1',
+                firstId: undefined,
+                liveIds: ['boot-2', 'boot-3'],
+                ancestor: false,
+                count: 3,
+            },
+            {
+                name: 'different agent boots',
+                historyId: 'boot-1',
+                firstId: undefined,
+                liveIds: ['other-boot-1'],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'a different run',
+                historyId: 'boot-1',
+                firstId: undefined,
+                liveIds: ['boot-1'],
+                ancestor: true,
+                count: 2,
+            },
+            {
+                name: 'a malformed event range',
+                historyId: 'boot-11',
+                firstId: 'other-boot-9',
+                liveIds: ['boot-10'],
+                ancestor: false,
+                count: 2,
+            },
+            {
+                name: 'an opaque event range',
+                historyId: 'opaque-z',
+                firstId: 'opaque-a',
+                liveIds: ['opaque-m'],
+                ancestor: false,
+                count: 2,
+            },
+        ])(
+            'keeps genuine repeated $name at the history seam',
+            async ({ historyId, firstId, liveIds, ancestor, count }) => {
+                let resolveLogs: (value: unknown) => void = () => {}
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockReturnValue(
+                    new Promise((resolve) => (resolveLogs = resolve)) as any
+                )
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                    status: 'in_progress',
+                    state: ancestor ? { resume_from_run_id: 'ancestor-run' } : {},
+                } as any)
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                await MockStream.latest().emitOpen()
+
+                const repeated = sessionUpdate({
+                    sessionUpdate: 'agent_message',
+                    messageId: 'm1',
+                    content: { text: 'ping' },
+                })
+                for (const [index, eventId] of liveIds.entries()) {
+                    await MockStream.latest().emitMessage({ ...repeated, event_id: eventId }, `${index + 1}-0`)
+                }
+
+                resolveLogs([
+                    ...(ancestor ? [notification('_posthog/run_started', { runId: 'ancestor-run' })] : []),
+                    { ...repeated, event_id: historyId, first_event_id: firstId },
+                ])
+                await flushPromises()
+
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(Array(count).fill('ping'))
+            }
+        )
     })
 
     describe('replayOnly viewer (read-only)', () => {
@@ -2092,7 +3854,7 @@ describe('runStreamLogic', () => {
                 notification('_posthog/run_started', {}) as any,
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'done' } }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             const viewer = mountViewer('run-ro-terminal')
             viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
@@ -2112,7 +3874,7 @@ describe('runStreamLogic', () => {
                 notification('_posthog/run_started', {}) as any,
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'partial' } }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             const viewer = mountViewer('run-ro-inprogress')
             viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-2' })
@@ -2131,7 +3893,7 @@ describe('runStreamLogic', () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
                 sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'once' } }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             const viewer = mountViewer('run-ro-idempotent')
             viewer.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-3' })
@@ -2146,7 +3908,7 @@ describe('runStreamLogic', () => {
         })
 
         it('retries the snapshot then surfaces the connection-failed banner (not an inline error), no SSE', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
             const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
 
             jest.useFakeTimers()
@@ -2175,7 +3937,7 @@ describe('runStreamLogic', () => {
                     content: { text: 'replayed' },
                 }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             const live = runStreamLogic({ streamKey: 'run-shared' })
             live.mount()
@@ -2240,18 +4002,127 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/progress handling', () => {
+        it('folds a failed follow-up delivery into the preceding error card', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: {
+                            sessionUpdate: 'error',
+                            errorType: 'agent_error',
+                            message: 'The agent stopped before completing this request: Model at capacity.',
+                        },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'Model at capacity.' }))
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m1',
+                        detail: 'send_followup failed: Model at capacity.',
+                    })
+                )
+            })
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'error-0',
+                    type: 'error',
+                    errorMessage: 'Model at capacity.',
+                    variant: 'error',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
+        it('folds an earlier undelivered follow-up into the error that arrives after it', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m3',
+                        detail: 'send_followup failed: Internal error: bad model',
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: { sessionUpdate: 'agent_message', content: { type: 'text', text: 'bad model' } },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: {
+                            sessionUpdate: 'error',
+                            errorType: 'agent_error',
+                            message: 'Internal error: bad model',
+                        },
+                    })
+                )
+            })
+            expect(logic.values.threadItems.filter((item) => item.type === 'error')).toEqual([
+                {
+                    id: 'error-1',
+                    type: 'error',
+                    errorMessage: 'Internal error: bad model',
+                    variant: 'error',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
+        it('gives an error the trace id of the turn that completes after it, and none when no turn completes', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: 'trace-earlier' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'mid-run' }))
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { traceId: 'trace-of-error' }))
+                logic.actions.ingestAcpFrame(
+                    notification('session/update', {
+                        update: { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'again' } },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/error', { message: 'stopped' }))
+            })
+            const errors = logic.values.threadItems.filter((item) => item.type === 'error')
+            expect(errors.map((item) => logic.values.errorTraceIds.get(item.id))).toEqual(['trace-of-error', undefined])
+        })
+
+        it('turns a failed follow-up delivery on a run without an error into its own card', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        step: 'followup_delivery',
+                        status: 'failed',
+                        label: "Couldn't deliver your message",
+                        group: 'followup-delivery:m2',
+                        detail: 'There is an issue with the selected model.',
+                    })
+                )
+            })
+            expect(logic.values.threadItems).toEqual([
+                {
+                    id: 'error-0',
+                    type: 'error',
+                    errorMessage: 'There is an issue with the selected model.',
+                    variant: 'undelivered',
+                    undeliveredMessage: true,
+                },
+            ])
+        })
+
         it('renders the emitter label as current progress and stores a progress thread item', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
                         sessionId: 's',
-                        step: 'clone',
+                        step: 'wizard',
                         status: 'in_progress',
-                        label: 'Cloning repository',
+                        label: 'Running PostHog setup wizard',
                         group: 'setup:run-1',
                     })
                 )
-            }).toMatchValues({ currentProgress: 'Cloning repository' })
+            }).toMatchValues({ currentProgress: 'Running PostHog setup wizard' })
 
             expect(logic.values.threadItems).toEqual([
                 {
@@ -2260,16 +4131,16 @@ describe('runStreamLogic', () => {
                     progressGroup: 'setup:run-1',
                     progressSteps: [
                         {
-                            key: 'clone',
+                            key: 'wizard',
                             status: 'in_progress',
-                            label: 'Cloning repository',
+                            label: 'Running PostHog setup wizard',
                         },
                     ],
                 },
             ])
         })
 
-        it('coalesces setup progress by group and updates repeated steps in place', async () => {
+        it('coalesces setup progress into one visible activity', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
                     notification('_posthog/progress', {
@@ -2319,6 +4190,62 @@ describe('runStreamLogic', () => {
                     ],
                 },
             ])
+
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    step: 'clone',
+                    status: 'failed',
+                    label: 'Repository clone failed',
+                    group: 'setup:run-1',
+                })
+            )
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/progress', {
+                    step: 'preview',
+                    status: 'in_progress',
+                    label: 'Starting preview',
+                    group: 'setup:run-1',
+                })
+            )
+            expect(logic.values.threadItems).toEqual([
+                expect.objectContaining({
+                    progressSteps: [
+                        { key: 'sandbox', status: 'completed', label: 'Set up sandbox' },
+                        { key: 'clone', status: 'failed', label: 'Repository clone failed' },
+                        { key: 'preview', status: 'in_progress', label: 'Starting preview' },
+                    ],
+                }),
+            ])
+        })
+
+        it('clears currentProgress when a step finishes so the milestone label never sticks as live status', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'in_progress',
+                        label: 'Starting agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toEqual('Starting agent')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/progress', {
+                        sessionId: 's',
+                        step: 'agent',
+                        status: 'completed',
+                        label: 'Started agent',
+                        group: 'setup:run-1',
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toBeNull()
         })
 
         it('falls back to detail when label is absent', async () => {
@@ -2329,62 +4256,6 @@ describe('runStreamLogic', () => {
             }).toMatchValues({ currentProgress: 'PostHog/posthog @ master' })
 
             expect(logic.values.threadItems).toEqual([])
-        })
-    })
-
-    describe('mergeResourceProducts', () => {
-        it('unions by id, preserves first-seen order, and tolerates empty/idless input', () => {
-            const first = mergeResourceProducts([], [{ id: 'product_analytics', label: 'Product analytics' }])
-            expect(first).toEqual([{ id: 'product_analytics', label: 'Product analytics' }])
-
-            const second = mergeResourceProducts(first, [
-                { id: 'product_analytics', label: 'dup' },
-                { id: 'session_replay', label: 'Session replay' },
-                { label: 'no id' },
-                { id: '' },
-            ])
-            expect(second.map((p) => p.id)).toEqual(['product_analytics', 'session_replay'])
-            // First-seen label wins for an id already present.
-            expect(second[0].label).toEqual('Product analytics')
-        })
-    })
-
-    describe('_posthog/resources_used handling', () => {
-        it('unions products into resourcesUsed by id in first-seen order', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', {
-                        products: [
-                            { id: 'product_analytics', label: 'Product analytics' },
-                            { id: 'session_replay', label: 'Session replay' },
-                        ],
-                    })
-                )
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', {
-                        products: [
-                            { id: 'session_replay', label: 'Session replay' },
-                            { id: 'sql', label: 'SQL' },
-                        ],
-                    })
-                )
-            }).toFinishAllListeners()
-
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics', 'session_replay', 'sql'])
-        })
-
-        it('survives bootstrap replay without double-counting (same frame twice → one entry set)', async () => {
-            const frame = notification('_posthog/resources_used', {
-                products: [{ id: 'product_analytics', label: 'Product analytics' }],
-            })
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame as any, frame as any])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
-
-            // Content-dedup drops the identical replay; the union would dedup by id regardless.
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['product_analytics'])
         })
     })
 
@@ -2602,16 +4473,12 @@ describe('runStreamLogic', () => {
     })
 
     describe('reset clears notification state', () => {
-        it('clears resourcesUsed, contextUsage, and sdkSession on reset', async () => {
+        it('clears contextUsage and sdkSession on reset', async () => {
             await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
-                )
                 logic.actions.ingestAcpFrame(notification('_posthog/usage_update', { used: { inputTokens: 1 } }))
                 logic.actions.ingestAcpFrame(notification('_posthog/sdk_session', { adapter: 'codex' }))
             }).toFinishAllListeners()
 
-            expect(logic.values.resourcesUsed).toHaveLength(1)
             expect(logic.values.contextUsage).not.toBeNull()
             expect(logic.values.sdkSession).not.toBeNull()
 
@@ -2619,20 +4486,8 @@ describe('runStreamLogic', () => {
                 logic.actions.reset()
             }).toFinishAllListeners()
 
-            expect(logic.values.resourcesUsed).toEqual([])
             expect(logic.values.contextUsage).toBeNull()
             expect(logic.values.sdkSession).toBeNull()
-        })
-
-        it('keeps resourcesUsed across markTurnComplete (accumulates over the session)', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    notification('_posthog/resources_used', { products: [{ id: 'sql', label: 'SQL' }] })
-                )
-                logic.actions.markTurnComplete()
-            }).toFinishAllListeners()
-
-            expect(logic.values.resourcesUsed.map((p) => p.id)).toEqual(['sql'])
         })
     })
 
@@ -2761,6 +4616,14 @@ describe('runStreamLogic', () => {
                 runId: 'run-1',
                 traceId: 'trace-1',
             })
+            logic.actions.ingestAcpFrame(
+                notification('_posthog/permission_request', {
+                    requestId: 'req-1',
+                    toolCall: { toolCallId: 'tool-1', toolName: 'example_tool' },
+                    options: [{ optionId: 'allow_once', name: 'Allow', kind: 'allow_once' }],
+                }),
+                'replay'
+            )
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
@@ -2769,12 +4632,17 @@ describe('runStreamLogic', () => {
                 })
             }).toFinishAllListeners()
 
-            // "Command the latest run": the reply targets the (task, run) the renderer is streaming.
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
-            })
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
         })
 
         it('cancelRun cancels the streamed run via the tasks relay', async () => {
@@ -2816,7 +4684,7 @@ describe('runStreamLogic', () => {
                 }) as any,
                 sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -2889,7 +4757,7 @@ describe('runStreamLogic', () => {
 
     describe('stream-disconnect telemetry', () => {
         it('captures sandbox_stream_disconnected and surfaces the banner without spamming error items', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', traceId: 'trace-1' })
@@ -2925,6 +4793,7 @@ describe('runStreamLogic', () => {
             logic.actions.sseReconnecting(3)
             expect(logic.values.runConnectionState).toEqual({
                 kind: 'reconnecting',
+                retryable: false,
                 attempt: 3,
                 maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
             })
@@ -2932,7 +4801,7 @@ describe('runStreamLogic', () => {
 
         it('retries the snapshot before teardown and reports was_bootstrapping=true on exhaustion', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
             const getLogEntriesSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockRejectedValue({ status: 500 })
 
             jest.useFakeTimers()
@@ -2986,7 +4855,7 @@ describe('runStreamLogic', () => {
 
     describe('reconnect refinements', () => {
         it('forgives a healthy connection drop — no reconnectAttempt increment but still schedules a reopen', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const source = MockStream.latest()
@@ -3006,13 +4875,13 @@ describe('runStreamLogic', () => {
             expect(logic.values.cumulativeReconnectAttempt).toEqual(1)
             expect(logic.values.sseStatus).toEqual('reconnecting')
 
-            jest.advanceTimersByTime(SSE_RECONNECT_BASE_DELAY_MS)
+            await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
             expect(MockStream.connections.length).toEqual(beforeDrop + 1)
             jest.useRealTimers()
         })
 
         it('fails on the cumulative cap even when the per-drop counter keeps resetting', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await MockStream.latest().emitOpen()
@@ -3032,18 +4901,17 @@ describe('runStreamLogic', () => {
     })
 
     describe('permission_request ingest', () => {
-        // A destructive exec (`insight-update`) so the default policy prompts (shows a card) rather
-        // than auto-approving — the lifecycle tests below all assume a card appears.
+        // An external MCP request prompts, so the lifecycle tests below can exercise the card.
         const permissionFrame: PermissionRequestFrame = {
             type: 'permission_request',
             requestId: 'req-1',
             toolCall: {
                 toolCallId: 't1',
-                serverName: 'posthog',
-                toolName: 'exec',
-                _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
-                rawInput: { command: 'call insight-update {"id":"abc"}' },
-                title: 'Update insight',
+                serverName: 'other',
+                toolName: 'write',
+                _meta: { claudeCode: { toolName: 'mcp__other__write' } },
+                rawInput: { value: 'new' },
+                title: 'Write data',
                 status: 'pending',
             },
             options: [
@@ -3052,17 +4920,236 @@ describe('runStreamLogic', () => {
             ],
         }
 
+        describe.each([false, true])('approval delivery (automatic=%s)', (automatic) => {
+            const readinessError = { status: 503, code: 'agent_session_not_ready' }
+            const accepted = { jsonrpc: '2.0', result: { resolved: true } }
+            const answers = { 'Which environment?': 'Example environment' }
+            const submit = (): void => {
+                const record = parsePermissionRequestFrame(permissionFrame, 'run-1')!
+                if (automatic) {
+                    logic.actions.autoApprovePermissionRequest(record, 'allow_once')
+                } else {
+                    logic.actions.ingestPermissionRequest(record)
+                    logic.actions.respondToPermission({ requestId: record.requestId, optionId: 'allow_once', answers })
+                }
+            }
+
+            beforeEach(() => {
+                jest.useFakeTimers()
+                jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as never)
+                jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as never)
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            })
+
+            afterEach(() => jest.useRealTimers())
+
+            test('retries readiness rejections with one stable approval until confirmed', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate)
+                let accept!: (value: typeof accepted) => void
+                command
+                    .mockRejectedValueOnce(readinessError)
+                    .mockRejectedValueOnce(readinessError)
+                    .mockRejectedValueOnce(readinessError)
+                    .mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                accept = resolve
+                            })
+                    )
+                submit()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(command).toHaveBeenCalledTimes(1)
+                expect(logic.values.respondingToPermission).toBe(true)
+                if (!automatic) {
+                    expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-1')
+                    logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'reject' })
+                    expect(command).toHaveBeenCalledTimes(1)
+                }
+                await jest.advanceTimersByTimeAsync(250)
+                expect(command).toHaveBeenCalledTimes(2)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command).toHaveBeenCalledTimes(3)
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(command).toHaveBeenCalledTimes(4)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+                accept(accepted)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(logic.values.respondingToPermission).toBe(false)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(true)
+                const first = command.mock.calls[0].slice(0, 4)
+                expect(first.slice(0, 3)).toEqual(['997', 'task-1', 'run-1'])
+                for (const call of command.mock.calls) {
+                    expect(call.slice(0, 4)).toEqual(first)
+                }
+            })
+
+            test.each(['exhausted', 'rpc_error', 'transport', 'request_timeout'])(
+                'preserves a manual card after %s and accepts a later manual retry',
+                async (outcome) => {
+                    const command = jest.mocked(tasksRunsCommandCreate)
+                    if (outcome === 'exhausted') {
+                        command.mockRejectedValue(readinessError)
+                    } else if (outcome === 'rpc_error') {
+                        command.mockResolvedValue({
+                            jsonrpc: '2.0',
+                            error: { code: -32000, message: 'No pending permission request found for id: req-1' },
+                        })
+                    } else if (outcome === 'transport') {
+                        command.mockRejectedValue(new TypeError('Network request failed'))
+                    } else {
+                        command.mockImplementation(() => new Promise(() => {}))
+                    }
+                    submit()
+                    await jest.advanceTimersByTimeAsync(10_000)
+                    expect(command).toHaveBeenCalledTimes(outcome === 'exhausted' ? 12 : 1)
+                    expect(logic.values.pendingPermissionRequest?.requestId).toBe('req-1')
+                    expect(logic.values.respondingToPermission).toBe(false)
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+                    const failedAttempts = command.mock.calls.length
+                    await jest.advanceTimersByTimeAsync(10_000)
+                    expect(command).toHaveBeenCalledTimes(failedAttempts)
+                    command.mockResolvedValue(accepted)
+                    logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once', answers })
+                    await jest.advanceTimersByTimeAsync(0)
+                    expect(command.mock.lastCall?.[3].params).toEqual({
+                        requestId: 'req-1',
+                        optionId: 'allow_once',
+                        customInput: undefined,
+                        answers,
+                    })
+                    expect(logic.values.pendingPermissionRequest).toBeNull()
+                }
+            )
+
+            test.each(['replacement', 'terminal', 'resolved', 'unmount', 'reset'])(
+                'cancels an outstanding request on %s and ignores its completion',
+                async (change) => {
+                    const command = jest.mocked(tasksRunsCommandCreate)
+                    let complete!: (value: typeof accepted) => void
+                    command.mockImplementation(
+                        () =>
+                            new Promise((resolve) => {
+                                complete = resolve
+                            })
+                    )
+                    submit()
+                    await jest.advanceTimersByTimeAsync(0)
+                    const signal = command.mock.calls[0][4]?.signal
+                    if (change === 'replacement') {
+                        logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2' })
+                    } else if (change === 'terminal') {
+                        logic.actions.handleTerminalStatus({ status: 'completed' })
+                    } else if (change === 'resolved') {
+                        logic.actions.ingestAcpFrame(
+                            notification('_posthog/permission_resolved', { requestId: 'req-1' })
+                        )
+                    } else if (change === 'reset') {
+                        logic.actions.reset()
+                    } else {
+                        logic.unmount()
+                        logic.mount()
+                    }
+                    expect(signal?.aborted).toBe(true)
+                    complete(accepted)
+                    await jest.advanceTimersByTimeAsync(20_000)
+                    expect(command).toHaveBeenCalledTimes(1)
+                    expect(logic.values.pendingPermissionRequest).toBeNull()
+                    expect(logic.values.respondingToPermission).toBe(false)
+                    expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(change === 'resolved')
+                }
+            )
+
+            test('drops the card when the target run has already ended', async () => {
+                const command = jest
+                    .mocked(tasksRunsCommandCreate)
+                    .mockRejectedValue({ status: 409, code: 'permission_target_ended' })
+                submit()
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(command).toHaveBeenCalledTimes(1)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+                expect(logic.values.respondingToPermission).toBe(false)
+            })
+
+            test('cancels an outstanding request when the streamed run is canceled', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate)
+                let complete!: (value: typeof accepted) => void
+                command
+                    .mockImplementationOnce(
+                        () =>
+                            new Promise((resolve) => {
+                                complete = resolve
+                            })
+                    )
+                    .mockResolvedValue(accepted)
+                submit()
+                await jest.advanceTimersByTimeAsync(0)
+                const signal = command.mock.calls[0][4]?.signal
+                logic.actions.cancelRun()
+                expect(signal?.aborted).toBe(true)
+                complete(accepted)
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(command.mock.calls.filter((call) => call[3].method === 'permission_response')).toHaveLength(1)
+                expect(logic.values.respondingToPermission).toBe(false)
+                expect(logic.values.resolvedPermissionRequestIds.has('req-1')).toBe(false)
+            })
+
+            test('keeps the delivery alive when a warm run outside this stream is canceled', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate).mockRejectedValue(readinessError)
+                submit()
+                await jest.advanceTimersByTimeAsync(250)
+                logic.actions.cancelRun({ taskId: 'warm-task', runId: 'warm-run' })
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command.mock.calls.filter((call) => call[3].method === 'permission_response')).toHaveLength(3)
+            })
+
+            test('stops readiness retries when another client resolves this permission', async () => {
+                const command = jest.mocked(tasksRunsCommandCreate).mockRejectedValue(readinessError)
+                submit()
+                await jest.advanceTimersByTimeAsync(250)
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/permission_resolved', { requestId: 'different-request' })
+                )
+                await jest.advanceTimersByTimeAsync(500)
+                expect(command).toHaveBeenCalledTimes(3)
+                logic.actions.ingestAcpFrame(notification('_posthog/permission_resolved', { requestId: 'req-1' }))
+                await jest.advanceTimersByTimeAsync(10_000)
+                expect(command).toHaveBeenCalledTimes(3)
+                expect(logic.values.pendingPermissionRequest).toBeNull()
+            })
+        })
+
         it('parses a permission_request frame into a PermissionRequestRecord', () => {
             const record = parsePermissionRequestFrame(permissionFrame)
             expect(record).not.toBeNull()
             expect(record?.requestId).toEqual('req-1')
             expect(record?.toolCallId).toEqual('t1')
-            expect(record?.toolName).toEqual('mcp__posthog__exec')
+            expect(record?.toolName).toEqual('mcp__other__write')
             expect(record?.options.map((o) => o.kind)).toEqual(['allow_once', 'reject'])
-            expect(record?.rawToolCall.rawServerName).toEqual('posthog')
-            expect(record?.rawToolCall.rawToolName).toEqual('exec')
-            expect(record?.rawToolCall.input).toEqual({ command: 'call insight-update {"id":"abc"}' })
-            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__posthog__exec' } })
+            expect(record?.rawToolCall.rawServerName).toEqual('other')
+            expect(record?.rawToolCall.rawToolName).toEqual('write')
+            expect(record?.rawToolCall.input).toEqual({ value: 'new' })
+            expect(record?.rawToolCall.meta).toEqual({ claudeCode: { toolName: 'mcp__other__write' } })
+        })
+
+        it.each([
+            ['posthog', 'call query-trends {}', 'auto_allow'],
+            ['posthog', 'call posthog-connection-call {"connection_id":"1","tool":"execute-sql"}', 'prompt'],
+            ['posthog', 'call posthog-connection-forward {"connection_id":"1","method":"GET"}', 'prompt'],
+            ['other', 'call query-trends {}', 'prompt'],
+        ])('preserves permission policy for a native %s exec: %s', (server, command, decision) => {
+            const record = parsePermissionRequestFrame({
+                type: 'permission_request',
+                requestId: 'native-request',
+                toolCall: {
+                    toolCallId: 'native-tool',
+                    rawInput: { command },
+                    _meta: { posthog: { toolName: `mcp__${server}__exec`, mcp: { server, tool: 'exec' } } },
+                },
+                options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+            })!
+            expect(record.toolName).toEqual(`mcp__${server}__exec`)
+            expect(defaultPermissionDecision(record)).toEqual(decision)
         })
 
         it('returns null for a frame with no usable options', () => {
@@ -3112,7 +5199,7 @@ describe('runStreamLogic', () => {
         })
 
         it('populates pendingPermissionRequest off a permission_request SSE frame', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
 
@@ -3126,7 +5213,7 @@ describe('runStreamLogic', () => {
             )
         })
 
-        it('auto-approves a non-destructive PostHog exec without showing a card', async () => {
+        it('auto-approves a PostHog MCP operation without showing a card', async () => {
             const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             // Resolving the proxy stream target mints a token before `openStream`, so the connection
@@ -3139,16 +5226,25 @@ describe('runStreamLogic', () => {
                 requestId: 'req-auto',
                 toolCall: {
                     ...permissionFrame.toolCall,
-                    rawInput: { command: 'call insight-create {"name":"x"}' },
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                    rawInput: { command: 'call insight-update {"id":"abc"}' },
                 },
             })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-auto', optionId: 'allow_once' },
-            })
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-auto', optionId: 'allow_once' },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
             expect(captureSpy).toHaveBeenCalledWith(
                 'permission_auto_approved',
                 expect.objectContaining({ request_id: 'req-auto', execution_type: 'sandbox' })
@@ -3173,96 +5269,23 @@ describe('runStreamLogic', () => {
             })
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-bash', optionId: 'allow' },
-            })
-        })
-
-        describe('foreground gate for persist tools', () => {
-            // `defaultPermissionDecision` alone auto-approves `dashboard-create` everywhere (it isn't
-            // destructive). The product requirement is that this run must still prompt when it's a
-            // foreground stream (rendered in a surface the user is watching). Proving this needs the
-            // call site (`routePermissionRequest` consulting `foregroundStreamKeys`), not just the
-            // pure `isPersistPromptTool` helper.
-            it('prompts for a persist tool when this run is a foreground stream', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p1')
-                // A second surface watching a different run must not evict ours from the gate — the
-                // old single-slot model regressed exactly this (last write won, ours auto-approved).
-                foregroundStreamLogic.actions.setForegroundStream('other-stream', 'p2')
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-fg',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-fg')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
-
-            it('still auto-approves a persist tool when this run is not a foreground stream', async () => {
-                // No surface has registered this run; the auto-approve path yields one macrotask
-                // (the race re-check) before POSTing, so drain a timer tick too.
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-bg',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-                await new Promise((resolve) => setTimeout(resolve, 0))
-
-                expect(logic.values.pendingPermissionRequest).toBeNull()
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
                     jsonrpc: '2.0',
                     method: 'permission_response',
-                    params: { requestId: 'req-dashboard-bg', optionId: 'allow_once' },
-                })
-            })
-
-            it('prompts when the foreground registration lands just after the frame (mount race)', async () => {
-                // A live SSE frame can be processed before a mounting surface's registration effect
-                // flushes. After `emitMessage` the auto-approve listener is parked on its one-macrotask
-                // yield; registering now must flip the decision to the card instead of the POST.
-                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-                await flushPromises()
-                const source = MockStream.latest()
-
-                await source.emitMessage({
-                    ...permissionFrame,
-                    requestId: 'req-dashboard-race',
-                    toolCall: {
-                        ...permissionFrame.toolCall,
-                        rawInput: { command: 'call dashboard-create {"name":"New dashboard"}' },
-                    },
-                })
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-race')
-                await new Promise((resolve) => setTimeout(resolve, 0))
-
-                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-dashboard-race')
-                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
-            })
+                    params: { requestId: 'req-bash', optionId: 'allow' },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
         })
 
         describe('full-auto mode', () => {
-            // A `bypassPermissions` run opted out of tool approvals: a destructive exec sub-tool (which
-            // otherwise always prompts) must auto-approve even on a foreground stream. The mode arrives
-            // only on the session/new meta, so this also guards that seed parsing.
-            it('auto-approves a destructive exec sub-tool once session/new seeds bypassPermissions', async () => {
-                foregroundStreamLogic.actions.setForegroundStream('test-conversation', 'p-full-auto')
+            // A `bypassPermissions` run opts out of tool approvals. The mode arrives only on the
+            // session/new meta, so this also guards that seed parsing.
+            it('auto-approves an external MCP tool once session/new seeds bypassPermissions', async () => {
                 logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
                 await flushPromises()
                 const source = MockStream.latest()
@@ -3275,17 +5298,49 @@ describe('runStreamLogic', () => {
                     requestId: 'req-destructive-fa',
                     toolCall: {
                         ...permissionFrame.toolCall,
-                        rawInput: { command: 'call cdp-functions-partial-update {"id":"abc"}' },
+                        rawInput: { value: 'changed' },
                     },
                 })
                 await new Promise((resolve) => setTimeout(resolve, 0))
 
                 expect(logic.values.pendingPermissionRequest).toBeNull()
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId: 'req-destructive-fa', optionId: 'allow_once' },
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                    '997',
+                    'task-1',
+                    'run-1',
+                    {
+                        jsonrpc: '2.0',
+                        method: 'permission_response',
+                        params: { requestId: 'req-destructive-fa', optionId: 'allow_once' },
+                    },
+                    { signal: expect.any(AbortSignal) }
+                )
+            })
+
+            it('still surfaces a connected-project operation', async () => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+
+                await source.emitMessage(
+                    notification('session/new', { _meta: { permissionMode: 'bypassPermissions' } })
+                )
+                await source.emitMessage({
+                    ...permissionFrame,
+                    requestId: 'req-connected-project',
+                    toolCall: {
+                        ...permissionFrame.toolCall,
+                        serverName: 'posthog',
+                        toolName: 'exec',
+                        _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
+                        rawInput: {
+                            command: 'call posthog-connection-call {"connection_id":"1","tool":"feature-flag-delete"}',
+                        },
+                    },
                 })
+
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-connected-project')
+                expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             })
 
             it('still surfaces a question in full-auto instead of picking an answer', async () => {
@@ -3325,6 +5380,9 @@ describe('runStreamLogic', () => {
                 requestId: 'req-fail',
                 toolCall: {
                     ...permissionFrame.toolCall,
+                    serverName: 'posthog',
+                    toolName: 'exec',
+                    _meta: { claudeCode: { toolName: 'mcp__posthog__exec' } },
                     rawInput: { command: 'call insight-create {"name":"x"}' },
                 },
             })
@@ -3341,16 +5399,27 @@ describe('runStreamLogic', () => {
             viewerLogic.mount()
             try {
                 viewerLogic.actions.openSseForRun({ taskId: 'task-7', runId: 'run-7' })
-                viewerLogic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+                viewerLogic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-7')!)
                 await expectLogic(viewerLogic, () => {
                     viewerLogic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
                 }).toFinishAllListeners()
 
-                expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-7', 'run-7', {
-                    jsonrpc: '2.0',
-                    method: 'permission_response',
-                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
-                })
+                expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                    '997',
+                    'task-7',
+                    'run-7',
+                    {
+                        jsonrpc: '2.0',
+                        method: 'permission_response',
+                        params: {
+                            requestId: 'req-1',
+                            optionId: 'allow_once',
+                            customInput: undefined,
+                            answers: undefined,
+                        },
+                    },
+                    { signal: expect.any(AbortSignal) }
+                )
                 const permRequested = captureSpy.mock.calls.find((c) => c[0] === 'permission_requested')
                 expect(permRequested).not.toBeUndefined()
                 if (!permRequested) {
@@ -3366,7 +5435,7 @@ describe('runStreamLogic', () => {
 
         it('clears the pending request and commands the run on respondToPermission', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
@@ -3377,11 +5446,17 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
             expect(logic.values.respondingToPermission).toEqual(false)
-            expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
-                jsonrpc: '2.0',
-                method: 'permission_response',
-                params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
-            })
+            expect(tasksRunsCommandCreate).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                {
+                    jsonrpc: '2.0',
+                    method: 'permission_response',
+                    params: { requestId: 'req-1', optionId: 'allow_once', customInput: undefined, answers: undefined },
+                },
+                { signal: expect.any(AbortSignal) }
+            )
         })
 
         it('keeps the card pending and surfaces an error when the reply command fails', async () => {
@@ -3389,7 +5464,7 @@ describe('runStreamLogic', () => {
             const exceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
             await expectLogic(logic, () => {
                 logic.actions.respondToPermission({
@@ -3440,23 +5515,46 @@ describe('runStreamLogic', () => {
             expect(captureSpy).toHaveBeenCalledTimes(1)
         })
 
-        it('re-derives a pending approval from a logged _posthog/permission_request without telemetry', async () => {
-            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                notification('_posthog/permission_request', {
-                    requestId: 'req-1',
-                    toolCall: permissionFrame.toolCall,
-                    options: permissionFrame.options,
-                }) as any,
-            ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+        test.each([
+            ['_posthog/sdk_session', 'run-1', true, true],
+            ['_posthog/run_started', 'run-1', true, true],
+            ['_posthog/sdk_session', 'ancestor-run', true, false],
+            ['_posthog/run_started', 'ancestor-run', true, false],
+            [undefined, undefined, true, false],
+            [undefined, undefined, false, true],
+        ] as const)(
+            'restores approvals using run markers (%s, %s, resumed=%s)',
+            async (method, sourceRunId, resumed, actionable) => {
+                const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+                jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                    ...(method
+                        ? [
+                              notification(method, {
+                                  [method === '_posthog/sdk_session' ? 'taskRunId' : 'runId']: sourceRunId,
+                              }),
+                          ]
+                        : []),
+                    notification('_posthog/permission_request', {
+                        requestId: 'req-1',
+                        toolCall: permissionFrame.toolCall,
+                        options: permissionFrame.options,
+                    }),
+                ])
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                    status: 'in_progress',
+                    state: resumed ? { resume_from_run_id: 'ancestor-run' } : {},
+                } as any)
 
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
 
-            expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
-            expect(captureSpy).not.toHaveBeenCalled()
-        })
+                expect(logic.values.pendingPermissionRequest?.requestId).toEqual(actionable ? 'req-1' : undefined)
+                expect(captureSpy).not.toHaveBeenCalled()
+                logic.actions.respondToPermission({ requestId: 'req-1', optionId: 'allow_once' })
+                await flushPromises()
+                expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(actionable ? 1 : 0)
+            }
+        )
 
         it('drops a logged permission_request that has a matching permission_resolved entry', async () => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
@@ -3467,7 +5565,7 @@ describe('runStreamLogic', () => {
                 }) as any,
                 notification('_posthog/permission_resolved', { requestId: 'req-1', optionId: 'allow_once' }) as any,
             ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
 
             logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -3476,7 +5574,8 @@ describe('runStreamLogic', () => {
         })
 
         it('clears the pending card when another client resolves the request', async () => {
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
 
             await expectLogic(logic, () => {
@@ -3487,7 +5586,7 @@ describe('runStreamLogic', () => {
         })
 
         it('drops the pending card when the run reaches a terminal status, but not before', () => {
-            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame)!)
+            logic.actions.ingestPermissionRequest(parsePermissionRequestFrame(permissionFrame, 'run-1')!)
 
             logic.actions.handleTerminalStatus({ status: 'queued' })
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
@@ -3507,6 +5606,255 @@ describe('runStreamLogic', () => {
             ;(tasksRunsStreamTokenRetrieve as jest.Mock).mockReset()
         })
 
+        it.each([
+            { name: 'token before history', historyFirst: false, proxy: true, remint: false },
+            { name: 'history before token', historyFirst: true, proxy: true, remint: false },
+            { name: 'Django fallback after history', historyFirst: true, proxy: false, remint: false },
+            { name: 'token retry after history', historyFirst: true, proxy: true, remint: true },
+        ])('replays a refreshed run without a stored cursor with $name', async ({ historyFirst, proxy, remint }) => {
+            enableProxy()
+            window.sessionStorage.setItem('posthog-ai:stream-resume:run-1', '1700-0')
+            const target = { token: 'test-token', stream_base_url: proxy ? 'https://proxy.example' : null }
+            let resolveToken!: (value: typeof target) => void
+            let resolveLogs!: (value: StoredLogEntry[]) => void
+            ;(tasksRunsStreamTokenRetrieve as jest.Mock)
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveToken = resolve)))
+                .mockResolvedValue(target)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+            const logsSpy = jest
+                .spyOn(api.tasks.runs, 'getLogEntries')
+                .mockReturnValue(new Promise((resolve) => (resolveLogs = resolve)))
+            if (remint) {
+                ;(api.tasks.runs.openStream as jest.Mock).mockRejectedValueOnce({ status: 401 })
+            }
+            const history = [
+                {
+                    ...sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        content: { type: 'text', text: 'Checking the layout.' },
+                    }),
+                    event_id: 'boot-2',
+                    first_event_id: 'boot-1',
+                },
+            ]
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            expect(logsSpy).not.toHaveBeenCalled()
+            if (historyFirst) {
+                resolveLogs(history)
+            } else {
+                resolveToken(target)
+            }
+            await flushPromises()
+            if (historyFirst) {
+                resolveToken(target)
+            } else {
+                resolveLogs(history)
+            }
+            await flushPromises()
+
+            for (const [, , options] of (api.tasks.runs.openStream as jest.Mock).mock.calls) {
+                expect(options.lastEventId).toBeUndefined()
+                expect(options.startLatest).toBe(false)
+            }
+            expect(MockStream.connections).toHaveLength(1)
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['Checking the layout.'])
+
+            await MockStream.latest().emitMessage(
+                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Next step.' } }),
+                '1700-3'
+            )
+            jest.useFakeTimers()
+            try {
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(2000)
+                await flushPromises()
+                expect(MockStream.connections).toHaveLength(2)
+                expect(MockStream.latest().options.lastEventId).toEqual('1700-3')
+                expect(
+                    logic.values.threadItems
+                        .filter((item) => item.type === 'assistant_message')
+                        .map((item) => item.text)
+                ).toEqual(['Checking the layout.', 'Next step.'])
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it.each(['failed request', 'empty stream', 'fresh stream'])(
+            'recovers responses across a cursorless startup reconnect after a %s',
+            async (drop) => {
+                enableProxy()
+                const target = { token: 'test-token', stream_base_url: 'https://proxy.example' }
+                let resolveToken!: (value: typeof target) => void
+                const nextToken = new Promise((resolve) => (resolveToken = resolve))
+                ;(tasksRunsStreamTokenRetrieve as jest.Mock)
+                    .mockResolvedValueOnce(target)
+                    .mockReturnValueOnce(nextToken)
+                    .mockResolvedValue(target)
+                if (drop !== 'fresh stream') {
+                    window.sessionStorage.setItem('posthog-ai:stream-resume:run-1', '1700-0')
+                }
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+                const savedReply = (text: string, eventId: string): StoredLogEntry => ({
+                    ...sessionUpdate({ sessionUpdate: 'agent_message', content: { type: 'text', text } }),
+                    event_id: eventId,
+                })
+                const originalHistory = [savedReply('Saved reply.', 'boot-1')]
+                const recoveredHistory = [
+                    ...originalHistory,
+                    notification('_posthog/user_message', { content: 'Persisted follow-up.' }),
+                    savedReply('Reply during disconnect.', 'boot-2'),
+                    savedReply('Reply during recovery.', 'boot-3'),
+                ]
+                let recovering = false
+                let resolveHistory!: (entries: StoredLogEntry[]) => void
+                const nextHistory = new Promise<StoredLogEntry[]>((resolve) => (resolveHistory = resolve))
+                const logsSpy = jest
+                    .spyOn(api.tasks.runs, 'getLogEntries')
+                    .mockImplementation(() => (recovering ? nextHistory : Promise.resolve(originalHistory)))
+                if (drop === 'failed request') {
+                    ;(api.tasks.runs.openStream as jest.Mock).mockRejectedValueOnce({ status: 503 })
+                }
+
+                jest.useFakeTimers()
+                try {
+                    logic.actions.bootstrapRun({
+                        taskId: 'task-1',
+                        runId: 'run-1',
+                        justCreatedRun: drop === 'fresh stream',
+                    })
+                    await flushPromises()
+                    logic.actions.pushHumanMessage('Persisted follow-up.')
+                    if (drop !== 'failed request') {
+                        await MockStream.latest().emitClose()
+                    }
+                    recovering = true
+                    const readsBeforeReconnect = logsSpy.mock.calls.length
+                    await jest.advanceTimersByTimeAsync(2000)
+                    await flushPromises()
+                    expect(logsSpy).toHaveBeenCalledTimes(readsBeforeReconnect)
+                    resolveToken(target)
+                    await flushPromises()
+
+                    expect(MockStream.latest().options.lastEventId).toBeUndefined()
+                    expect(MockStream.latest().options.startLatest).toBe(false)
+                    await MockStream.latest().emitMessage(
+                        {
+                            ...sessionUpdate({
+                                sessionUpdate: 'agent_message_chunk',
+                                content: { type: 'text', text: 'Reply during recovery.' },
+                            }),
+                            event_id: 'boot-3',
+                        },
+                        '1700-3'
+                    )
+                    await MockStream.latest().emitMessage(savedReply('Live tail.', 'boot-4'), '1700-4')
+                    logic.actions.pushHumanMessage('Pending follow-up.')
+                    resolveHistory(recoveredHistory)
+                    await flushPromises()
+
+                    expect(
+                        logic.values.threadItems
+                            .filter((item) => item.type === 'assistant_message')
+                            .map((item) => item.text)
+                    ).toEqual(['Saved reply.', 'Reply during disconnect.', 'Reply during recovery.', 'Live tail.'])
+                    expect(
+                        logic.values.threadItems
+                            .filter((item) => item.type === 'human_message')
+                            .map((item) => item.text)
+                    ).toEqual(['Persisted follow-up.', 'Pending follow-up.'])
+                    expect(logic.values.cumulativeReconnectAttempt).toEqual(1)
+                    const readsAfterRecovery = logsSpy.mock.calls.length
+                    const recoveredThread = logic.values.threadItems
+                    await MockStream.latest().emitClose()
+                    await jest.advanceTimersByTimeAsync(2000)
+                    await flushPromises()
+                    expect(MockStream.latest().options.lastEventId).toEqual('1700-4')
+                    expect(logsSpy).toHaveBeenCalledTimes(readsAfterRecovery + 1)
+                    expect(logic.values.threadItems).toEqual(recoveredThread)
+                } finally {
+                    jest.useRealTimers()
+                }
+            }
+        )
+
+        it('recovers the final response after a cursorless drop without consuming an older identical human turn', async () => {
+            const runSpy = jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+            const history = [
+                notification('_posthog/user_message', { content: 'Repeat request.' }),
+                notification('_posthog/turn_complete', {}),
+            ]
+            const logsSpy = jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(history)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            logic.actions.pushHumanMessage('Repeat request.')
+            runSpy.mockResolvedValue({ status: 'completed' } as any)
+            logsSpy.mockResolvedValue([
+                ...history,
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Final response.' } }),
+            ])
+
+            await MockStream.latest().emitClose()
+            await flushPromises()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(['Final response.'])
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(['Repeat request.', 'Repeat request.'])
+            expect(logic.values.currentRunStatus).toEqual('completed')
+            expect(logic.values.logBootstrapLoading).toBe(false)
+            expect(MockStream.connections).toHaveLength(1)
+        })
+
+        it.each(['close', 'reset', 'run replacement'] as const)(
+            'discards pending recovery history after %s',
+            async (teardown) => {
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'in_progress' } as any)
+                let resolveHistory!: (entries: StoredLogEntry[]) => void
+                jest.spyOn(api.tasks.runs, 'getLogEntries')
+                    .mockReturnValueOnce(new Promise((resolve) => (resolveHistory = resolve)))
+                    .mockResolvedValue([])
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const originalStream = MockStream.latest()
+                await originalStream.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Buffered old response.' } }),
+                    '1700-1'
+                )
+                if (teardown === 'close') {
+                    logic.actions.closeSse()
+                } else if (teardown === 'reset') {
+                    logic.actions.reset()
+                } else {
+                    logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-2' })
+                }
+                resolveHistory([
+                    sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Stale response.' } }),
+                ])
+                await flushPromises()
+
+                expect(logic.values.threadItems).toEqual([])
+                expect(originalStream.closed).toBe(true)
+                if (teardown === 'run replacement') {
+                    await MockStream.latest().emitMessage(
+                        sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'New run response.' } }),
+                        '1800-1'
+                    )
+                    expect(
+                        logic.values.threadItems
+                            .filter((item) => item.type === 'assistant_message')
+                            .map((item) => item.text)
+                    ).toEqual(['New run response.'])
+                }
+            }
+        )
+
         describe('resolveStreamTarget', () => {
             it('skips the token mint and streams from Django when the rollout is off', async () => {
                 expect(await resolveStreamTarget('997', 'task-1', 'run-1', false)).toBeNull()
@@ -3522,6 +5870,13 @@ describe('runStreamLogic', () => {
                     baseUrl: 'https://proxy.example/',
                     token: 'tok-1',
                 })
+                expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith(
+                    '997',
+                    'task-1',
+                    'run-1',
+                    { resync: true },
+                    { signal: undefined }
+                )
             })
 
             it('falls back to Django when the server resolves no base URL', async () => {
@@ -3548,7 +5903,13 @@ describe('runStreamLogic', () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
 
-            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith('997', 'task-1', 'run-1')
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledWith(
+                '997',
+                'task-1',
+                'run-1',
+                { resync: true },
+                { signal: expect.any(AbortSignal) }
+            )
             expect(MockStream.latest().options.proxyTarget).toEqual({
                 baseUrl: 'https://proxy.example',
                 token: 'tok-1',
@@ -3583,8 +5944,30 @@ describe('runStreamLogic', () => {
             expect(logic.values.sseStatus).toEqual('open')
         })
 
+        it('pauses after five proxy-token remints until manual Retry', async () => {
+            jest.useFakeTimers()
+            enableProxy()
+            jest.mocked(tasksRunsStreamTokenRetrieve).mockResolvedValue({
+                token: 'fake-token',
+                stream_base_url: 'https://example.com',
+            })
+            jest.mocked(api.tasks.runs.openStream).mockRejectedValue({ status: 401 })
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+            await jest.advanceTimersByTimeAsync(0)
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledTimes(6)
+            expect(logic.values.runConnectionState).toMatchObject({ kind: 'connection_failed', retryable: true })
+            await jest.advanceTimersByTimeAsync(120000)
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledTimes(6)
+            MockStream.install()
+            logic.actions.retryConnection()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.sseStatus).toBe('open')
+            expect(tasksRunsStreamTokenRetrieve).toHaveBeenCalledTimes(7)
+            jest.useRealTimers()
+        })
+
         it('finalizes on the stream-end sentinel without reconnecting, and clears the resume cursor', async () => {
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
 
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()
@@ -3608,7 +5991,7 @@ describe('runStreamLogic', () => {
 // Drain queued microtasks (chained `await`s in async listeners) without relying on timers, so it
 // works under both real and fake timers.
 async function flushPromises(): Promise<void> {
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 40; i++) {
         await Promise.resolve()
     }
 }

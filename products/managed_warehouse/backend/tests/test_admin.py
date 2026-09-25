@@ -1,10 +1,12 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.db import connection
+from django.forms.models import model_to_dict
 from django.http import Http404, HttpRequest
 from django.test import RequestFactory
 from django.urls import reverse
@@ -13,8 +15,18 @@ from rest_framework.response import Response
 
 from posthog.models import Organization, Team
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.admin.duckgres_server_admin import DuckgresServerAdmin
-from products.managed_warehouse.backend.models import DuckgresServer
+from products.managed_warehouse.backend.admin.view_translation_admin import (
+    ManagedWarehouseViewTranslationJobAdmin,
+    ManagedWarehouseViewTranslationJobForm,
+    ManagedWarehouseViewTranslationResultAdmin,
+)
+from products.managed_warehouse.backend.models import (
+    DuckgresServer,
+    ManagedWarehouseViewTranslationJob,
+    ManagedWarehouseViewTranslationResult,
+)
 
 MW = "products.managed_warehouse.backend.presentation.views"
 
@@ -26,6 +38,108 @@ def _attach_messages(request) -> None:
 
 def _messages(request) -> list[str]:
     return [str(m) for m in get_messages(request)]
+
+
+class TestManagedWarehouseViewTranslationJobAdmin(BaseTest):
+    def test_selected_view_form_normalizes_saved_query_ids(self) -> None:
+        DuckgresServer.objects.create(
+            organization=self.organization,
+            host="managed.example.com",
+            database="ducklake",
+            username="root",
+            password="secret",
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="selected_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        form = ManagedWarehouseViewTranslationJobForm(
+            data={
+                "organization": str(self.organization.id),
+                "scope": ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS,
+                "selected_saved_query_ids": f"{saved_query.id},\n{saved_query.id}",
+            }
+        )
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["selected_saved_query_ids"] == [str(saved_query.id)]
+
+    def test_adding_a_job_dispatches_it_after_commit(self) -> None:
+        request = RequestFactory().post("/admin/managed_warehouse/managedwarehouseviewtranslationjob/add/")
+        request.user = self.user
+        model_admin = ManagedWarehouseViewTranslationJobAdmin(ManagedWarehouseViewTranslationJob, AdminSite())
+        job = ManagedWarehouseViewTranslationJob(organization=self.organization)
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.admin.view_translation_admin._start_translation_job"
+            ) as start_job,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            model_admin.save_model(request, job, MagicMock(), change=False)
+
+        job.refresh_from_db()
+        assert job.created_by == self.user
+        assert job.status == ManagedWarehouseViewTranslationJob.Status.PENDING
+        start_job.assert_called_once_with(job.id, self.organization.id)
+
+    def test_retry_selected_results_creates_a_selected_view_job(self) -> None:
+        saved_queries = [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            )
+            for name in ["failed_view", "stale_view"]
+        ]
+        source_job = ManagedWarehouseViewTranslationJob.objects.create(
+            organization=self.organization,
+            status=ManagedWarehouseViewTranslationJob.Status.COMPLETED_WITH_ERRORS,
+        )
+        results = [
+            ManagedWarehouseViewTranslationResult.all_teams.create(
+                job=source_job,
+                team=self.team,
+                saved_query_id=saved_query.id,
+                saved_query_name=saved_query.name,
+                source_query_hash="0" * 64,
+                status=status,
+            )
+            for saved_query, status in zip(
+                saved_queries,
+                [
+                    ManagedWarehouseViewTranslationResult.Status.FAILED,
+                    ManagedWarehouseViewTranslationResult.Status.STALE,
+                ],
+                strict=True,
+            )
+        ]
+        request = RequestFactory().post("/admin/managed_warehouse/managedwarehouseviewtranslationresult/")
+        request.user = self.user
+        _attach_messages(request)
+        model_admin = ManagedWarehouseViewTranslationResultAdmin(
+            ManagedWarehouseViewTranslationResult,
+            AdminSite(),
+        )
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.admin.view_translation_admin._start_translation_job"
+            ) as start_job,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            model_admin.retry_selected_translations(
+                request,
+                ManagedWarehouseViewTranslationResult.all_teams.filter(id__in=[result.id for result in results]),
+            )
+
+        retry_job = ManagedWarehouseViewTranslationJob.objects.exclude(id=source_job.id).get()
+        assert retry_job.trigger_source == ManagedWarehouseViewTranslationJob.TriggerSource.RETRY
+        assert retry_job.scope == ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS
+        assert retry_job.retry_of == source_job
+        assert set(retry_job.selected_saved_query_ids) == {str(saved_query.id) for saved_query in saved_queries}
+        start_job.assert_called_once_with(retry_job.id, self.organization.id)
 
 
 class TestDuckgresServerAdminProvision(BaseTest):
@@ -83,6 +197,36 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         assert "username" in field_names
         assert "password" not in field_names
+        assert "trino_password" not in field_names
+        assert "new_trino_password" in field_names
+
+    def test_change_form_sets_encrypted_trino_password_without_revealing_or_erasing_it(self) -> None:
+        server = self._server()
+        request = self._get("/admin/posthog/duckgresserver/")
+        form_class = self.admin.get_form(request, server)
+        assert "trino_password" not in form_class.base_fields
+        assert "password" not in form_class.base_fields
+
+        data = model_to_dict(server)
+        data["new_trino_password"] = "trino-test-secret"
+        form = form_class(data=data, instance=server)
+        assert form.is_valid(), form.errors
+        form.save()
+
+        server.refresh_from_db()
+        assert server.trino_password == "trino-test-secret"
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT trino_password FROM posthog_duckgresserver WHERE id = %s", [str(server.id)])
+            stored = cursor.fetchone()[0]
+        assert stored != "trino-test-secret"
+        assert stored.startswith("gAAAAA")
+        assert "trino-test-secret" not in form_class(instance=server).as_p()
+
+        form = form_class(data=model_to_dict(server), instance=server)
+        assert form.is_valid(), form.errors
+        form.save()
+        server.refresh_from_db()
+        assert server.trino_password == "trino-test-secret"
 
     def test_provision_post_calls_managed_warehouse_bypassing_flag(self) -> None:
         request = self._post(
@@ -99,7 +243,12 @@ class TestDuckgresServerAdminProvision(BaseTest):
             response = self.admin.provision_view(request)
 
         mock_provision.assert_called_once_with(
-            self.organization.id, "my-warehouse", self.team.id, "prod_events", require_enabled=False
+            self.organization.id,
+            "my-warehouse",
+            self.team.id,
+            "prod_events",
+            require_enabled=False,
+            triggered_by=f"django-admin:{self.user.email}",
         )
         # Success renders the credentials once, in the page body...
         assert response.status_code == 200
@@ -169,7 +318,13 @@ class TestDuckgresServerAdminProvision(BaseTest):
         ) as mock_onboard:
             self.admin.enable_backfill_view(request, str(server.pk))
 
-        mock_onboard.assert_called_once_with(self.organization.id, self.team.id, "env_b", require_enabled=False)
+        mock_onboard.assert_called_once_with(
+            self.organization.id,
+            self.team.id,
+            "env_b",
+            require_enabled=False,
+            triggered_by=f"django-admin:{self.user.email}",
+        )
 
     def test_enable_backfill_invalid_server_returns_404(self) -> None:
         request = self._get("/admin/posthog/duckgresserver/999999/enable-backfill/")
@@ -183,7 +338,9 @@ class TestDuckgresServerAdminProvision(BaseTest):
         with patch(f"{MW}.deprovision", return_value=Response({"status": "ok"}, status=200)) as mock_deprovision:
             self.admin.deprovision_view(request, str(server.pk))
 
-        mock_deprovision.assert_called_once_with(self.organization.id, require_enabled=False)
+        mock_deprovision.assert_called_once_with(
+            self.organization.id, require_enabled=False, triggered_by=f"django-admin:{self.user.email}"
+        )
 
     def test_deprovision_invalid_server_returns_404(self) -> None:
         request = self._get("/admin/posthog/duckgresserver/999999/deprovision/")
@@ -216,7 +373,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
         mock_warning.assert_called_once_with(
             "admin_managed_warehouse_action_failed",
             action=f"Deprovisioned managed warehouse for org {self.organization.id}",
-            triggered_by=self.user.email,
+            triggered_by=f"django-admin:{self.user.email}",
             status_code=409,
             error="still running",
         )

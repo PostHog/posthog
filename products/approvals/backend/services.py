@@ -5,6 +5,7 @@ from typing import Any, Optional
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.api.utils import ServiceRequest
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
@@ -25,14 +26,20 @@ from products.approvals.backend.notifications import (
 logger = logging.getLogger(__name__)
 
 
-class RequestContext:
-    def __init__(self, method: str, user, data: dict):
-        self.method = method
-        self.user = user
+class RequestContext(ServiceRequest):
+    """The request shim an apply replays a serializer write under.
+
+    An apply is not an authenticated read, so `successful_authenticator` stays None and a
+    serializer keeps an encrypted flag payload redacted.
+    """
+
+    def __init__(self, method: str, user, data: dict, skip_opportunistic_filter_cleanup: bool = False):
+        super().__init__(user, method=method)
         self.data = data
-        self.session: dict[str, Any] = {}
-        self.META: dict[str, str] = {}
-        self.headers: dict[str, str] = {}
+        # Carried from the original request via the intent. A write that sent no filters must not
+        # have them rewritten on replay either, and the exemption cannot be inferred here: an
+        # approved ordinary update should still get the cleanup.
+        self.skip_opportunistic_filter_cleanup = skip_opportunistic_filter_cleanup
 
 
 def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
@@ -58,6 +65,7 @@ def apply_change_request(change_request: ChangeRequest, request=None) -> Any:
         method=change_request.intent.get("http_method", "PATCH"),  # Stored in intent JSON
         user=change_request.created_by,  # Already in ChangeRequest
         data=change_request.intent.get("gated_changes", change_request.intent),  # Already in ChangeRequest
+        skip_opportunistic_filter_cleanup=bool(change_request.intent.get("skip_opportunistic_filter_cleanup")),
     )
 
     # Build base context with common metadata

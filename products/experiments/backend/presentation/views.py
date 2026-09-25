@@ -18,6 +18,7 @@ from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, 
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -28,17 +29,26 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+)
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import get_authenticator_scoped_team_ids, is_service_auth, posthog_feature_flag_enabled
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
     SessionBucketsBurstRateThrottle,
     SessionBucketsSustainedRateThrottle,
     SessionContextsBurstRateThrottle,
@@ -51,10 +61,18 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
+from products.experiments.backend.facade.legacy_migration import (
+    LegacyMigrationError,
+    migrate_experiment as migrate_legacy_experiment,
+)
+from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -62,6 +80,7 @@ from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentMetricsRecalculation,
+    ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
@@ -75,6 +94,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentInSessionExposureSerializer,
+    ExperimentMatchingIdsResponseSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
@@ -84,6 +105,8 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentSessionContextsResponseSerializer,
     ExperimentSessionEventDeltaRequestSerializer,
     ExperimentSessionEventDeltaResponseSerializer,
+    ExperimentSetupContextInputSerializer,
+    ExperimentSetupContextResponseSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -120,6 +143,11 @@ from products.experiments.backend.session_event_deltas import (
     all_card_session_ids,
     finalize_watch_cards,
     get_experiment_session_event_deltas,
+)
+from products.experiments.backend.setup_context import (
+    EXPERIMENT_SETUP_CONTEXT_FLAG,
+    SetupContextInputs,
+    build_setup_context,
 )
 from products.experiments.backend.temporal.models import (
     ExperimentMetricsRecalculationWorkflowInputs as MetricsRecalcInputs,
@@ -250,6 +278,134 @@ def _accessible_session_ids(
     return [session_id for session_id in session_ids if session_id not in denied_ids]
 
 
+# Query parameters shared by the list endpoint and matching_ids, which accepts the same filters.
+EXPERIMENT_LIST_FILTER_PARAMETERS = [
+    OpenApiParameter(
+        name="status",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        enum=["draft", "running", "paused", "exposure_frozen", "stopped", "complete", "all"],
+        description=(
+            'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: '
+            '"running" returns launched experiments with an active feature flag, "paused" returns launched '
+            'experiments whose feature flag is deactivated, and "exposure_frozen" returns launched '
+            "experiments whose exposure was frozen to the already-enrolled cohort while metrics keep "
+            'flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
+        ),
+        required=False,
+    ),
+    OpenApiParameter(
+        name="archived",
+        location=OpenApiParameter.QUERY,
+        type=bool,
+        description="Filter by archived state. Defaults to non-archived experiments only.",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="feature_flag_id",
+        location=OpenApiParameter.QUERY,
+        type=int,
+        description="Filter to experiments linked to the given feature flag ID.",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="created_by_id",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=(
+            "Filter to experiments created by the given user(s). Accepts a single user ID, "
+            "or a JSON-encoded / comma-separated list of user IDs to match any of them."
+        ),
+        required=False,
+    ),
+    OpenApiParameter(
+        name="search",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description="Free-text search applied to the experiment name (case-insensitive).",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="prompt_name",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=(
+            "Filter to experiments created from an LLM prompt with this name. "
+            "Matches experiments whose parameters.prompt_metadata.name equals the given value."
+        ),
+        required=False,
+    ),
+    OpenApiParameter(
+        name="event",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=(
+            "Filter to experiments whose metrics reference this event name. Matches events used "
+            "directly in metric queries as well as events behind any actions those metrics reference."
+        ),
+        required=False,
+    ),
+    OpenApiParameter(
+        name="order",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=(
+            "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, "
+            "created_at, updated_at, start_date, end_date, duration, and status."
+        ),
+        required=False,
+    ),
+    OpenApiParameter(
+        name="tags",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=(
+            "JSON-encoded list of tag names. Returns experiments carrying at least one of the "
+            'given tags, e.g. `["growth", "checkout"]`.'
+        ),
+        required=False,
+    ),
+    OpenApiParameter(
+        name="excluded_tags",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=(
+            "JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, "
+            "even when they also carry non-excluded tags."
+        ),
+        required=False,
+    ),
+]
+
+
+class ExperimentBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Same scope and rate as the default BurstRateThrottle so personal-key and session
+    # behavior is unchanged; the subclass only adds per-key throttling for PSAK requests,
+    # which the default throttles silently bypass (no personal key, no throttling).
+    scope = "burst"
+    rate = "480/minute"
+
+
+class ExperimentSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "sustained"
+    rate = "4800/hour"
+
+
+class ExperimentProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs — same size as the
+    per-key budget, so minting extra keys never multiplies a project's total burst capacity."""
+
+    scope = "experiment_psak_team_burst"
+    rate = "480/minute"
+
+
+class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs."""
+
+    scope = "experiment_psak_team_sustained"
+    rate = "4800/hour"
+
+
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
@@ -273,83 +429,7 @@ def _accessible_session_ids(
     # GET /experiments/ — DRF mixin, filtering via ExperimentService.filter_experiments_queryset
     list=extend_schema(
         description="List experiments for the current project. Supports filtering by status and archival state.",
-        parameters=[
-            OpenApiParameter(
-                name="status",
-                location=OpenApiParameter.QUERY,
-                type=str,
-                enum=["draft", "running", "paused", "exposure_frozen", "stopped", "complete", "all"],
-                description=(
-                    'Filter by experiment status. "running", "paused", and "exposure_frozen" are mutually exclusive: '
-                    '"running" returns launched experiments with an active feature flag, "paused" returns launched '
-                    'experiments whose feature flag is deactivated, and "exposure_frozen" returns launched '
-                    "experiments whose exposure was frozen to the already-enrolled cohort while metrics keep "
-                    'flowing. "complete" is an alias for "stopped". "all" disables status filtering.'
-                ),
-                required=False,
-            ),
-            OpenApiParameter(
-                name="archived",
-                location=OpenApiParameter.QUERY,
-                type=bool,
-                description="Filter by archived state. Defaults to non-archived experiments only.",
-                required=False,
-            ),
-            OpenApiParameter(
-                name="feature_flag_id",
-                location=OpenApiParameter.QUERY,
-                type=int,
-                description="Filter to experiments linked to the given feature flag ID.",
-                required=False,
-            ),
-            OpenApiParameter(
-                name="created_by_id",
-                location=OpenApiParameter.QUERY,
-                type=str,
-                description=(
-                    "Filter to experiments created by the given user(s). Accepts a single user ID, "
-                    "or a JSON-encoded / comma-separated list of user IDs to match any of them."
-                ),
-                required=False,
-            ),
-            OpenApiParameter(
-                name="search",
-                location=OpenApiParameter.QUERY,
-                type=str,
-                description="Free-text search applied to the experiment name (case-insensitive).",
-                required=False,
-            ),
-            OpenApiParameter(
-                name="prompt_name",
-                location=OpenApiParameter.QUERY,
-                type=str,
-                description=(
-                    "Filter to experiments created from an LLM prompt with this name. "
-                    "Matches experiments whose parameters.prompt_metadata.name equals the given value."
-                ),
-                required=False,
-            ),
-            OpenApiParameter(
-                name="event",
-                location=OpenApiParameter.QUERY,
-                type=str,
-                description=(
-                    "Filter to experiments whose metrics reference this event name. Matches events used "
-                    "directly in metric queries as well as events behind any actions those metrics reference."
-                ),
-                required=False,
-            ),
-            OpenApiParameter(
-                name="order",
-                location=OpenApiParameter.QUERY,
-                type=str,
-                description=(
-                    "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, "
-                    "created_at, updated_at, start_date, end_date, duration, and status."
-                ),
-                required=False,
-            ),
-        ],
+        parameters=EXPERIMENT_LIST_FILTER_PARAMETERS,
     ),
     # DELETE /experiments/{id}/
     # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
@@ -363,9 +443,25 @@ class EnterpriseExperimentsViewSet(
     ForbidDestroyModel,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
+    TaggedItemViewSetMixin,
     viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
+    # bulk_update_tags comes from TaggedItemViewSetMixin and must be opted into PAT access explicitly.
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
+    bulk_tag_activity_scope = "Experiment"
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key with experiment:read can export experiment definitions
+    # (list/retrieve) — a service credential not tied to one person's account. Everything
+    # else (writes, lifecycle actions, results) stays session/PAT/OAuth-only.
+    psak_allowed_actions = ["list", "retrieve"]
+    throttle_classes = [
+        ExperimentBurstRateThrottle,
+        ExperimentSustainedRateThrottle,
+        ExperimentProjectSecretApiKeyTeamBurstThrottle,
+        ExperimentProjectSecretApiKeyTeamSustainedThrottle,
+    ]
     serializer_class = ExperimentSerializer
     queryset = (
         Experiment.objects.select_related(
@@ -412,6 +508,16 @@ class EnterpriseExperimentsViewSet(
     @tracer.start_as_current_span("ExperimentViewSet.safely_get_queryset")
     def safely_get_queryset(self, queryset) -> QuerySet:
         request = getattr(self, "request", None)
+        if self.action == "bulk_update_tags":
+            # The bulk tag mutation reads only id/team_id/name and the tags themselves (which the
+            # mixin prefetches). Drop the detail joins and heavy JSON columns so selecting up to
+            # 500 experiments doesn't drag every metrics/filters payload along.
+            queryset = (
+                queryset.select_related(None)
+                .prefetch_related(None)
+                .select_related("created_by")
+                .defer(*LIST_DEFERRED_FIELDS)
+            )
         if self.action == "list":
             # ExperimentBasicSerializer omits metrics/saved_metrics, so drop the saved-metric
             # prefetch and defer the heavy JSON columns. The ?event= filter reads metrics via its
@@ -430,6 +536,45 @@ class EnterpriseExperimentsViewSet(
             query_params=getattr(request, "query_params", None),
             request_data=getattr(request, "data", None),
         )
+
+    @extend_schema(
+        responses={200: ExperimentMatchingIdsResponseSerializer},
+        parameters=EXPERIMENT_LIST_FILTER_PARAMETERS,
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None, required_scopes=["experiment:read"])
+    def matching_ids(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Get IDs of all experiments matching the current list filters.
+        Accepts the same query params as the list endpoint and returns only
+        IDs of experiments the user has permission to edit.
+        """
+        service = ExperimentService(team=self.team, user=request.user)
+        queryset = service.filter_experiments_queryset(
+            self.get_queryset(),
+            action="list",
+            query_params=request.query_params,
+        )
+
+        # Drop the class queryset's joins/prefetches; the access check below reads only the
+        # experiment ID and its creator, so load exactly those (a bare only("id") would leave
+        # created_by deferred and cost two refresh queries per row).
+        queryset = (
+            queryset.select_related(None).prefetch_related(None).select_related("created_by").only("id", "created_by")
+        )
+
+        if not self.user_access_control:
+            editable_ids = list(queryset.values_list("id", flat=True))
+        else:
+            experiments = list(queryset)
+            self.user_access_control.preload_object_access_controls(cast(list, experiments))
+            editable_ids = [
+                experiment.id
+                for experiment in experiments
+                if (user_access_level := self.user_access_control.get_user_access_level(experiment))
+                and access_level_satisfied_for_resource("experiment", user_access_level, "editor")
+            ]
+
+        return Response(ExperimentMatchingIdsResponseSerializer({"ids": editable_ids, "total": len(editable_ids)}).data)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> RequiredScopes | None:
         # Archiving with disable_feature_flag=true also disables and archives the linked flag,
@@ -463,6 +608,30 @@ class EnterpriseExperimentsViewSet(
         effective_level = user_permissions.team(self.team).effective_membership_level
         if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("Setting the default cleanup repository requires project admin access.")
+
+    def _check_copy_target_access(self, request: Request, target_team: Team) -> None:
+        """Authorize the target project of a cross-project copy.
+
+        Every class in the permission stack resolves against `view.team`, which is the source
+        project in the URL, so the target project is not checked at all by the time the action
+        body runs. This applies the same gates the target project's own `POST /experiments/`
+        would apply: the credential's project scope, project membership, and experiment editor
+        access in the target.
+        """
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams is not None and target_team.id not in scoped_teams:
+            raise PermissionDenied(f"API key does not have access to the requested project: ID {target_team.id}.")
+
+        user = cast(User, request.user)
+        effective_level = UserPermissions(user=user).team(target_team).effective_membership_level
+        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
+            raise PermissionDenied("You do not have write access to the target project.")
+
+        target_access_control = UserAccessControl(user=user, team=target_team)
+        if not target_access_control.check_access_level_for_object(
+            target_team, required_level="member"
+        ) or not target_access_control.check_access_level_for_resource("experiment", required_level="editor"):
+            raise PermissionDenied("You do not have permission to create experiments in the target project.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -899,6 +1068,43 @@ class EnterpriseExperimentsViewSet(
         )
 
     @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def migrate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Move a legacy experiment onto the new experiments engine.
+
+        Creates a new experiment with the same configuration and its metrics converted
+        to the new format, and returns it. The legacy experiment is left untouched and
+        keeps its results, so the project ends up with two experiments. Both point at
+        the same feature flag, so no new rollout is needed and users keep the variant
+        they already have.
+
+        Legacy shared metrics used by the experiment are converted as part of the same
+        call. Each one gets a new shared metric, and the new experiment links to that.
+
+        Calling this again returns the experiment created the first time instead of
+        making another copy.
+
+        Returns 400 if the experiment already uses the new engine.
+        """
+        experiment: Experiment = self.get_object()
+
+        if not experiment_has_legacy_metrics(experiment):
+            raise ValidationError(
+                "This experiment already uses the new experiments engine, so there is nothing to migrate."
+            )
+
+        try:
+            migration = migrate_legacy_experiment(experiment.id, self.team.id, migrate_shared_metrics=True)
+        except (LegacyMigrationError, ValueError) as e:
+            raise ValidationError(f"Couldn't migrate this experiment: {e}. Contact support if it keeps happening.")
+
+        return Response(ExperimentSerializer(migration.experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
         request=CreateFromPromptInputSerializer,
         responses=ExperimentSerializer,
     )
@@ -1033,11 +1239,7 @@ class EnterpriseExperimentsViewSet(
         if target_team is None:
             return Response({"detail": "Target team not found."}, status=404)
 
-        user_permissions = UserPermissions(user=cast(User, request.user))
-        target_team_permissions = user_permissions.team(target_team)
-        effective_level = target_team_permissions.effective_membership_level
-        if effective_level is None or effective_level < OrganizationMembership.Level.MEMBER:
-            return Response({"detail": "You do not have write access to the target project."}, status=403)
+        self._check_copy_target_access(request, target_team)
 
         feature_flag_key = request_serializer.validated_data.get("feature_flag_key")
         name = request_serializer.validated_data.get("name")
@@ -1213,9 +1415,18 @@ class EnterpriseExperimentsViewSet(
             except Exception:
                 # team-scoped filter: defense in depth so the rollback can never reach across teams even if
                 # recalculation_id were ever sourced from somewhere less trusted than the row we just created.
-                ExperimentMetricsRecalculation.objects.filter(team=self.team, id=recalculation_id).update(
-                    status=ExperimentMetricsRecalculation.Status.FAILED
-                )
+                # start_workflow can raise after the server accepted the start (e.g. RPC deadline on the
+                # response leg), so only roll back a row that is still PENDING with no query_to. A row past
+                # mark_started belongs to its running workflow and proceeds untouched. In the narrow window
+                # where only discovery ran, the rollback wins deliberately: the mark_started and
+                # mark_completed guards then terminate that orphan cleanly, and the client's retry of the
+                # failed POST starts the replacement.
+                ExperimentMetricsRecalculation.objects.filter(
+                    team=self.team,
+                    id=recalculation_id,
+                    status=ExperimentMetricsRecalculation.Status.PENDING,
+                    query_to__isnull=True,
+                ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
                 raise
 
         return Response(
@@ -1355,6 +1566,73 @@ class EnterpriseExperimentsViewSet(
             }
         )
 
+    @validated_request(
+        request_serializer=ExperimentSetupContextInputSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSetupContextResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="setup_context",
+        # The response carries saved-metric definitions and reuse counts, which the saved-metric
+        # API gates behind its own scope. Object-level filtering does not check token scopes.
+        # It also counts arbitrary events across the project, which /query/ gates behind query:read.
+        required_scopes=["experiment:read", "experiment_saved_metric:read", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def setup_context(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        """Facts about this project that decide how to configure a new experiment.
+
+        Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+        surface, the baseline of a candidate metric, how recent experiments were set up, and the
+        most reused shared metrics. Each section has its own status, so a slow or failed read
+        leaves the others valid. POST because the inputs describe a plan rather than a resource;
+        the endpoint only reads.
+        """
+        if not self._setup_context_enabled():
+            raise NotFound()
+
+        data = request.validated_data
+        # detail=False actions skip the automatic list-action ACL filtering, so filter here: the
+        # response names experiments and shared metrics, which must respect object-level access.
+        experiments = self.user_access_control.filter_queryset_by_access_level(
+            Experiment.objects.filter(team_id=self.team.pk)
+        )
+        saved_metrics = self.user_access_control.filter_queryset_by_access_level(
+            ExperimentSavedMetric.objects.filter(team_id=self.team.pk), resource="experiment_saved_metric"
+        )
+        context = build_setup_context(
+            team=self.team,
+            inputs=SetupContextInputs(
+                target_event=data.get("target_event") or None,
+                target_url_contains=data.get("target_url_contains") or None,
+                target_properties=tuple(data.get("target_properties") or ()),
+                metric_event=data.get("metric_event") or None,
+                metric_properties=tuple(data.get("metric_properties") or ()),
+                previous_experiments_limit=data["previous_experiments_limit"],
+                shared_metrics_limit=data["shared_metrics_limit"],
+            ),
+            experiments=experiments,
+            saved_metrics=saved_metrics,
+        )
+        return Response(ExperimentSetupContextResponseSerializer(context).data)
+
+    def _setup_context_enabled(self) -> bool:
+        # In a loginas impersonation session request.user is the customer. The flag is evaluated for the staff
+        # user, so support can read a customer's setup context without the flag being on for that customer.
+        # OAuth impersonation (MCP) has no session, so it keeps the customer's flag, which also gates the tool.
+        flag_user = get_original_user_from_session(self.request) if is_impersonated_session(self.request) else None
+        try:
+            return posthog_feature_flag_enabled(
+                EXPERIMENT_SETUP_CONTEXT_FLAG,
+                str((flag_user or cast(User, self.request.user)).distinct_id),
+                organization_id=self.organization_id,
+                team_id=self.team.id,
+            )
+        except Exception:
+            logger.warning("Failed to evaluate the experiment setup context flag", exc_info=True)
+            return False
+
     @extend_schema(
         description=(
             "Resolve which experiments (and variants) a session recording saw. Variants come from the session's "
@@ -1454,6 +1732,23 @@ class EnterpriseExperimentsViewSet(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
         )
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentInSessionExposureSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="in_session_exposure", required_scopes=["experiment:read"])
+    def in_session_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """How the recordings tab's in-session exposure scope reads on this experiment.
+
+        Resolved through the same seam as the recordings query's `in_session` refusal, so the
+        scope control disables exactly what a query would be refused for, and the copy can say
+        when sessions are matched on the stamped flag property rather than on the exposure event.
+        Postgres reads only, so it can serve the tab's mount path.
+        """
+        experiment: Experiment = self.get_object()
+        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(
         request_serializer=ExperimentSessionBucketRequestSerializer,

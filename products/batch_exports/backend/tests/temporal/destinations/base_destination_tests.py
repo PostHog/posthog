@@ -65,7 +65,7 @@ class BaseDestinationTest(ABC):
     @property
     @abstractmethod
     def destination_type(self) -> str:
-        """Return the destination type name (e.g., 'Databricks', 'S3', 'BigQuery')."""
+        """Return the destination type name (e.g., 'Databricks', 'AwsS3', 'BigQuery')."""
         pass
 
     @property
@@ -248,7 +248,6 @@ async def _get_records_from_clickhouse(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=destination_default_fields,

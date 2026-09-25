@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from typing import Literal, NotRequired, TypedDict
 
 STALE_EVENT_DAYS = 30
@@ -18,6 +19,23 @@ class CoreFilterDefinition(TypedDict):
     virtual: NotRequired[bool]
     used_for_debug: NotRequired[bool]
     primary_property: NotRequired[str]
+    # Keep this event out of pickers that build a query someone saves and runs later, because its rows
+    # are moving out of the events table. Surfaces that read live event data still offer it.
+    # This marks a migration in progress, not a permanent trait: drop the field once every event
+    # carrying it has moved and its old artifacts are migrated (RFC #1209).
+    hidden_in_query_builders: NotRequired[bool]
+
+
+def is_hidden_from_assistant(definition: CoreFilterDefinition) -> bool:
+    """Whether an LLM prompt must leave this entry out."""
+    return bool(definition.get("system") or definition.get("ignored_in_assistant"))
+
+
+def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]]:
+    """The entries of a taxonomy group that an LLM prompt may show."""
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP[group].items():
+        if not is_hidden_from_assistant(definition):
+            yield name, definition
 
 
 """
@@ -58,6 +76,8 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     "$app_version",
     "$browser",
     "$browser_version",
+    "$webview_app",
+    "$webview_app_version",
     "$device_type",
     "$current_url",
     "$pathname",
@@ -164,10 +184,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$feature_flag_called": {
             "label": "Feature flag called",
             "description": (
-                'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag event. If you want to filter other events, try "Active feature flags".'
+                "Sent by PostHog SDKs each time a feature flag is evaluated.\n\nPostHog still collects this event, but its data is moving, so a saved query built on it will stop returning results. To see how a flag is used, open the flag and check its Usage tab."
             ),
             "examples": ["beta-feature"],
             "ignored_in_assistant": True,  # Mostly irrelevant product-wise
+            "hidden_in_query_builders": True,
+            "primary_property": "$feature_flag",
+        },
+        "$experiment_exposure": {
+            "label": "Experiment exposure",
+            "description": "When a user is exposed to an experiment variant.",
+            "ignored_in_assistant": True,  # Duplicate of $feature_flag_called; mixing both double-counts exposures
             "primary_property": "$feature_flag",
         },
         "$feature_view": {
@@ -230,11 +257,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals": {
             "label": "Web vitals",
-            "description": "Automatically captured web vitals data.",
+            "description": "Automatically captured web vitals data. One event only carries the metrics that were ready when it was sent, so LCP, FCP, INP, and CLS are spread over different events.",
         },
         "$ai_generation": {
             "label": "AI generation (LLM)",
-            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
             "primary_property": "$ai_model",
         },
         "$ai_evaluation": {
@@ -268,6 +295,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_embedding": {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
+        },
+        "$recording_observed": {
+            "label": "Recording observed (Replay Vision)",
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "primary_property": "scanner_name",
         },
         "$csp_violation": {
             "label": "CSP violation",
@@ -455,6 +487,30 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$error_tracking_issue_spiking": {
             "label": "Error tracking issue spiking",
             "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
+        },
+        "$error_tracking_issue_resolved": {
+            "label": "Error tracking issue resolved",
+            "description": "Fires when an error tracking issue is marked as resolved.",
+        },
+        "$error_tracking_issue_suppressed": {
+            "label": "Error tracking issue suppressed",
+            "description": "Fires when an error tracking issue is marked as suppressed.",
+        },
+        "$error_tracking_issue_assigned": {
+            "label": "Error tracking issue assigned",
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
+        },
+        "$error_tracking_issue_unassigned": {
+            "label": "Error tracking issue unassigned",
+            "description": "Fires when an error tracking issue's assignee is removed.",
+        },
+        "$error_tracking_issue_merged": {
+            "label": "Error tracking issue merged",
+            "description": "Fires when error tracking issues are merged into another issue.",
+        },
+        "$error_tracking_issue_split": {
+            "label": "Error tracking issue split",
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
@@ -798,6 +854,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "ignored_in_assistant": True,
             "used_for_debug": True,
         },
+        "$sdk_debug_pending_queue_size": {
+            "label": "Pending queue size",
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "label": "Replay flush hold reason",
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated",
+            ],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "label": "Replay capture mode",
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": ["screenshot", "wireframe"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "label": "Replay throttle delay (ms)",
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [1000],
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "label": "Replay pending trigger conditions",
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
+            "used_for_debug": True,
+        },
         "$last_posthog_reset": {
             "label": "Timestamp of last call to `Reset` in the web sdk",
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",
@@ -819,12 +914,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$set": {
             "label": "Set person properties",
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$set_once": {
             "label": "Set person properties once",
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": True,
         },
         "$pageview_id": {
@@ -1570,6 +1665,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Name of the browser the user has used.",
             "examples": ["Chrome", "Firefox"],
         },
+        "$webview_app": {
+            "label": "In-app browser",
+            "description": "Name of the host app whose in-app browser the event came from, such as an event opened inside the LinkedIn or Instagram app. Set from the user agent when the SDK can identify the host app.",
+            "examples": ["LinkedIn", "Instagram", "TikTok"],
+        },
+        "$webview_app_version": {
+            "label": "In-app browser version",
+            "description": "Version of the host app whose in-app browser the event came from.",
+            "examples": ["309.1.0", "375.0.0"],
+        },
         "$os": {
             "label": "OS",
             "description": "The operating system of the user.",
@@ -1731,7 +1836,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_flag": {
             "label": "Feature flag",
-            "description": 'The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try "Active feature flags".',
+            "description": 'The key of the feature flag, sent on "Feature flag called", "Experiment exposure", and "Feature enrollment" events. To find other events where a flag was active, use "Active feature flags".',
             "examples": ["beta-feature"],
         },
         "$feature_flag_reason": {
@@ -1920,8 +2025,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["com.posthog.app"],
         },
         "version": {
-            "label": "App version",
-            "description": "The version of the app",
+            "label": "App version (app lifecycle)",
+            "description": "The version of the app. Mobile SDKs send this on app lifecycle events only. Most events carry App version ($app_version) instead.",
             "examples": ["1.0.0"],
         },
         "previous_version": {
@@ -1930,8 +2035,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["1.0.0"],
         },
         "build": {
-            "label": "App build",
-            "description": "The build number for the app",
+            "label": "App build (app lifecycle)",
+            "description": "The build number for the app. Mobile SDKs send this on app lifecycle events only. Most events carry App build ($app_build) instead.",
             "examples": ["1"],
         },
         "previous_build": {
@@ -2053,24 +2158,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$web_vitals_FCP_value": {
             "label": "Web vitals FCP value",
+            "description": "First contentful paint, in milliseconds: the time until the browser paints the first text or image. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [800, 1500, 3000],
+            "type": "Numeric",
         },
         "$web_vitals_LCP_event": {
             "label": "Web vitals LCP measure event details",
         },
         "$web_vitals_LCP_value": {
             "label": "Web vitals LCP value",
+            "description": "Largest contentful paint, in milliseconds: the time until the largest text or image in the viewport is painted. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. Each $web_vitals event only carries the metrics that were ready when it was sent, so the four metrics sit on different sets of events and their counts are not comparable.",
+            "examples": [1200, 2500, 4000],
+            "type": "Numeric",
         },
         "$web_vitals_INP_event": {
             "label": "Web vitals INP measure event details",
         },
         "$web_vitals_INP_value": {
             "label": "Web vitals INP value",
+            "description": "Interaction to next paint, in milliseconds: how long the page takes to respond to a user interaction. Aggregate it with a percentile such as P90, as the web analytics web vitals tab does, rather than a count or an average. INP is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP. A page with no user interaction has no INP value at all, so the metric counts are not comparable.",
+            "examples": [50, 200, 500],
+            "type": "Numeric",
         },
         "$web_vitals_CLS_event": {
             "label": "Web vitals CLS measure event details",
         },
         "$web_vitals_CLS_value": {
             "label": "Web vitals CLS value",
+            "description": "Cumulative layout shift, a score without a unit, usually between 0 and 1. Do not plot it on the same axis as the millisecond metrics, and aggregate it with a percentile such as P90 rather than a count or an average. CLS is only final when the page is hidden, so it lands on a later $web_vitals event than LCP and FCP, and the metric counts are not comparable.",
+            "examples": [0.01, 0.1, 0.25],
+            "type": "Numeric",
         },
         "$web_vitals_allowed_metrics": {
             "label": "Web vitals allowed metrics",
@@ -2269,7 +2386,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$ai_cache_creation_input_tokens": {
             "label": "AI cache creation input tokens (LLM)",
-            "description": "The number of tokens created in the cache for the input prompt (anthropic only).",
+            "description": "The number of tokens created in the cache for the input prompt.",
             "examples": [23],
         },
         "$ai_cache_creation_5m_input_tokens": {
@@ -2328,6 +2445,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI cost model source (LLM)",
             "description": "Where the cost data for this model was sourced from.",
             "examples": ["openrouter", "manual", "custom", "passthrough"],
+        },
+        "$ai_cost_passthrough": {
+            "label": "AI cost passthrough (LLM)",
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [True],
         },
         "$ai_cost_model_provider": {
             "label": "AI cost model provider (LLM)",
@@ -2423,6 +2545,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Evaluation Result (LLM)",
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
+        },
+        "$ai_evaluation_numeric_result": {
+            "label": "AI evaluation numeric result",
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [0, 0.75, 10],
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "label": "AI evaluation numeric result minimum",
+            "description": "The configured minimum score for an online evaluation.",
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "label": "AI evaluation numeric result maximum",
+            "description": "The configured maximum score for an online evaluation.",
+            "type": "Numeric",
         },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",
@@ -2846,6 +2984,26 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Full User-Agent string the MCP client sent on the transport. Often includes the agent name, version, and runtime mode — useful when $mcp_client_name and $mcp_client_version alone don't disambiguate the caller.",
             "examples": ["claude-code/2.1.141 (cli)", "Anthropic/ClaudeAI"],
         },
+        "$mcp_vendor_client": {
+            "label": "MCP vendor client",
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": ["ClaudeCode", "ClaudeAI", "Cowork"],
+        },
+        "$mcp_llm_model": {
+            "label": "MCP model",
+            "description": "The model used by the MCP client for this tool call. Taken from recognized client metadata when available, otherwise from the agent's self-reported llm_model argument. MCP does not attest model identity, so use this for analytics rather than billing or access control.",
+            "examples": ["claude-sonnet-5", "gpt-5.6-sol"],
+        },
+        "$mcp_llm_model_source": {
+            "label": "MCP model source",
+            "description": "How the model identifier was obtained. client_metadata means the MCP client supplied recognized metadata. self_reported means the agent filled the injected llm_model argument. Both sources are unverified.",
+            "examples": ["client_metadata", "self_reported"],
+        },
+        "$mcp_llm_model_missing_reason": {
+            "label": "MCP model missing reason",
+            "description": "Why PostHog's MCP server captured no model identifier. missing means llm_model was omitted; unknown means the agent explicitly reported unknown; invalid means the argument was blank or not a string; not_captured means a nonempty report was not captured by the analytics SDK; capture_error means analytics preparation failed. Only set when no model was captured. Older events and other MCP servers may omit this property.",
+            "examples": ["missing", "unknown", "invalid", "not_captured", "capture_error"],
+        },
         "$mcp_intent": {
             "label": "MCP intent",
             "description": "Free-text description of why the agent is calling this tool, written by the agent itself. Comes from a context argument the client supplied at call time, or — if none was supplied — from an intentFallback the MCP server provides.",
@@ -2925,6 +3083,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP region",
             "description": "The PostHog cloud region the MCP server routed the request to.",
             "examples": ["us", "eu"],
+        },
+        "$mcp_scope_preset": {
+            "label": "MCP scope preset",
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": ["scout", "research", "implementation", "sandbox", "user"],
         },
         "$mcp_oauth_client_name": {
             "label": "MCP OAuth client name",
@@ -3019,41 +3182,14 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Is error (unprefixed)",
             "description": "Older unprefixed variant of $mcp_is_error. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_is_error for new dashboards.",
         },
-        "source": {
-            "label": "Source",
-            "description": (
-                "Which PostHog surface the work came from. The surface values are 'web' (the app in a "
-                "browser), 'posthog_ai' (Max), 'desktop' (the PostHog Desktop app), 'mobile' (the PostHog "
-                "mobile app), 'slack' (the Slack app), 'mcp' (a third-party agent over MCP), 'cli', and "
-                "'api' (a direct API call). On API events, PostHog's own surfaces report themselves, so "
-                "'mcp' measures other people's agents. The $mcp_* events are stamped by the MCP server "
-                "instead, which cannot read the OAuth grant that identifies the Desktop app, so a Desktop "
-                "request can still show as 'mcp' on those. "
-                "'posthog_code' covers the headless coding agents: the cloud agent and the local agent. "
-                "'self_driving' is Signals: scouts, report implementations, and scout chat. "
-                "'wizard' is the setup agent and 'terraform' is the Terraform provider. "
-                "Four values are machines rather than surfaces: 'cache_warming', 'alert', 'export', and "
-                "'subscription'. "
-                "Two unrelated properties share this name, so filter to a specific event before breaking "
-                "down by it. The app also uses 'source' for which control fired an event, with values "
-                "like 'menu', 'keyboard-shortcut', and 'card_drag_handle'. Some backend paths use it for "
-                "something else again: 'static' on $http_log, 'blob_v2', 'blob', 'listing' and 'realtime' "
-                "on the session replay snapshot events, 'mcpcat' on the legacy MCP events, and 'template' "
-                "or 'custom' on 'mcp_store server installed'. Two "
-                "surface values also collide with older control names: on 'switched site mode', "
-                "'desktop' means the device-mode control rather than the app, and on the AI report "
-                "events, 'slack' means the delivery channel."
-            ),
-            "examples": ["web", "posthog_ai", "mcp", "desktop", "api"],
-        },
         "mcp_runtime": {
             "label": "MCP runtime",
             "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
             "examples": ["hono"],
         },
         "mcp_vendor_client": {
-            "label": "MCP vendor client",
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "label": "MCP vendor client (legacy)",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": ["ClaudeCode", "ClaudeAI"],
         },
         "mcp_session_client_name": {
@@ -3079,6 +3215,41 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP session vendor client",
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        # Replay Vision properties, all on `$recording_observed`. This group labels a property name
+        # everywhere it appears, so only names Replay Vision owns belong here. `session_id`,
+        # `triggered_by`, `credits`, `model_used` and `provider_used` are deliberately absent:
+        # error tracking, experiments, LLM analytics and signals send their own, with different
+        # values. `scanner_*` is safe because Replay Vision's own LLM calls carry it too.
+        "scanner_id": {
+            "label": "Scanner ID (Replay Vision)",
+            "description": "Scanner that produced the observation.",
+        },
+        "scanner_name": {
+            "label": "Scanner name (Replay Vision)",
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+        },
+        "scanner_type": {
+            "label": "Scanner type (Replay Vision)",
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": ["monitor", "classifier", "scorer", "summarizer"],
+        },
+        "scanner_version": {
+            "label": "Scanner version (Replay Vision)",
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "type": "Numeric",
+        },
+        "emits_signals": {
+            "label": "Emits signals (Replay Vision)",
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+        },
+        "recording_distinct_id": {
+            "label": "Observed distinct ID (Replay Vision)",
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+        },
+        "recording_subject_email": {
+            "label": "Observed subject email (Replay Vision)",
+            "description": "Email of the person in the recording, captured when the scan ran.",
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -3155,7 +3326,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_is_bot": {
             "label": "Is bot",
-            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent or from operator-published bot IP ranges.",
+            "description": "Whether the event was generated by a bot, crawler, or automation tool, detected from the user agent, from operator-published bot IP ranges, or from a bot the project defined itself in settings.",
             "type": "Boolean",
             "virtual": True,
         },
@@ -3168,7 +3339,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$virt_traffic_category": {
             "label": "Traffic category",
-            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc.",
+            "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
             "type": "String",
             "virtual": True,
@@ -3399,6 +3570,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The description of the error tracking issue this exception belongs to.",
             "type": "String",
         },
+        "$issue_severity": {
+            "label": "Issue severity",
+            "description": "The severity assigned when this exception creates an error tracking issue.",
+            "examples": ["low", "medium", "high", "critical"],
+            "type": "String",
+        },
         "$exception_release": {
             "label": "Exception release",
             "description": "The release associated with this exception event.",
@@ -3552,6 +3729,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$product_tours_activated": {
             "label": "Product tours activated",
             "description": "The product tours that have been activated for this user.",
+            "type": "String",
+        },
+        "$fbc": {
+            "label": "Facebook click ID (fbc)",
+            "description": "The Facebook click ID in the format Meta's Conversions API expects, built when PostHog saw the fbclid so it carries the time of the ad click. Equivalent to the `_fbc` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
+            "type": "String",
+        },
+        "$fbp": {
+            "label": "Facebook browser ID (fbp)",
+            "description": "The Facebook browser ID that Meta's Conversions API uses to match a conversion to a browser, read from the `_fbp` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.1098115397"],
             "type": "String",
         },
     },
@@ -3998,10 +4187,13 @@ PROPERTY_NAME_ALIASES_BY_TYPE: dict[str, dict[str, str]] = {
     for prop_type, group_name in _PROP_TYPE_TO_TAXONOMY_GROUP.items()
 }
 
+# Event properties that only carry person property updates for ingestion to apply. Querying them
+# is deprecated, so every place that offers properties to pick from — the taxonomic filter, the
+# property definitions API, HogQL and Hog autocomplete, the AI taxonomy — leaves them out.
+QUERY_DEPRECATED_EVENT_PROPERTIES: set[str] = {"$set", "$set_once"}
+
 IGNORED_EVENT_NAMES: list[str] = [
-    name
-    for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
-    if defn.get("system") or defn.get("ignored_in_assistant")
+    name for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items() if is_hidden_from_assistant(defn)
 ]
 
 # Core PostHog events, derived from the taxonomy. Used to determine which events
@@ -4013,3 +4205,20 @@ WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if name not in IGNORED_EVENT_NAMES and name != "All events"
 )
+
+
+def is_virtual_property(group: str, name: str) -> bool:
+    """Whether a property is virtual — computed at query time, never stored as a PropertyDefinition row.
+
+    Single source of truth for both taxonomy listings (read_taxonomy) and HogQL taxonomy validation
+    (execute_sql), so the two agree on which `$virt_*` names are known.
+    """
+    definition = CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}).get(name)
+    return definition is not None and definition.get("virtual") is True
+
+
+def virtual_property_names(group: str) -> frozenset[str]:
+    """Names of the group's virtual properties. See `is_virtual_property`."""
+    return frozenset(
+        name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}) if is_virtual_property(group, name)
+    )

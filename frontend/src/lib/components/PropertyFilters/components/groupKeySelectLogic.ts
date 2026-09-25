@@ -4,10 +4,11 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Group, GroupTypeIndex } from '~/types'
+
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
 
 export interface GroupKeySelectLogicProps {
     groupTypeIndex: GroupTypeIndex
@@ -28,8 +29,9 @@ export async function findGroups(
     const results = await Promise.all(
         groupKeys.map(async (groupKey) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use groupsFindRetrieve() from 'products/groups/frontend/generated/api' instead.
                 const response: Group = await api.get(
-                    `api/environments/${teamId}/groups/find/?${new URLSearchParams({
+                    `api/projects/${teamId}/groups/find/?${new URLSearchParams({
                         group_type_index: String(groupTypeIndex),
                         group_key: groupKey,
                         // Resolving a display name is read-only; don't lazily
@@ -157,8 +159,9 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
                     if (search) {
                         params.search = search
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use groupsList() from 'products/groups/frontend/generated/api' instead.
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/groups/?${new URLSearchParams(
+                        `api/projects/${values.currentTeamId}/groups/?${new URLSearchParams(
                             Object.entries(params).map(([k, v]) => [k, String(v)])
                         ).toString()}`
                     )

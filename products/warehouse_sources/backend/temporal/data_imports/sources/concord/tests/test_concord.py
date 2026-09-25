@@ -2,9 +2,10 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
@@ -14,8 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.concord.co
     ConcordResumeConfig,
     _agreement_incremental_params,
     _flatten_folder_tree,
+    _iter_agreement_fanout,
     _iter_events_windows,
     _iter_page,
+    _member_id,
     _to_epoch_ms,
     base_url_for_environment,
     concord_source,
@@ -304,7 +307,7 @@ class TestOffsetPagination:
 
 
 class TestEventsWindowPagination:
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_walks_weekly_windows_with_bounded_range(self):
         last_value = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp() * 1000)
         _rows, urls, manager = _run(
@@ -320,7 +323,7 @@ class TestEventsWindowPagination:
         # windows advance and checkpoint so a crash resumes at the next window
         assert manager.saved and manager.saved[-1].window_start_ms is not None
 
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_resumes_from_saved_window(self):
         resume_ms = int(datetime(2024, 1, 15, tzinfo=UTC).timestamp() * 1000)
         manager = FakeManager(ConcordResumeConfig(window_start_ms=resume_ms))
@@ -353,18 +356,196 @@ class TestEventsWindowPagination:
         emitted = [r["id"] for table in tables for r in table.to_pylist()]
         return emitted, manager
 
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_mid_window_flush_advances_row_offset_monotonically(self):
         _emitted, manager = self._iter_single_window()
         window_ms = int(datetime(2024, 1, 18, tzinfo=UTC).timestamp() * 1000)
         # flushes after rows 1 and 3 (0-indexed) → committed counts 2 then 4, never rewinding to 0
         assert [(s.window_start_ms, s.row_offset) for s in manager.saved] == [(window_ms, 2), (window_ms, 4)]
 
-    @freeze_time("2024-01-20")
+    @time_machine.travel("2024-01-20", tick=False)
     def test_resume_skips_already_emitted_window_rows(self):
         emitted, _ = self._iter_single_window(start_row_offset=3)
         # rows 0–2 were committed last run; the resume must not re-emit them
         assert emitted == [3, 4]
+
+
+class TestMemberId:
+    @parameterized.expand(
+        [
+            ("active_user", {"status": "ACTIVE", "user": {"id": 7}}, 7),
+            ("invitation", {"status": "INVITED", "invitation": {"id": 3}}, 3),
+            # An invitation can carry the invitee's user account too; the invitation id still wins so
+            # every INVITED row is keyed on the same id space.
+            ("invitation_with_user", {"status": "INVITED", "user": {"id": 7}, "invitation": {"id": 3}}, 3),
+            ("neither", {"status": "ACTIVE"}, None),
+        ]
+    )
+    def test_member_id(self, _name, row, expected):
+        assert _member_id(row) == expected
+
+
+class TestAgreementFanout:
+    def _run(self, endpoint, *, agreements, child, manager=None):
+        """Drive get_rows for a fan-out endpoint; `child` may be a payload or a url->payload callable."""
+        urls: list[str] = []
+        manager = manager or FakeManager()
+
+        def fake_fetch(session, url, headers, logger):
+            urls.append(url)
+            if "/user/me/organizations" in url:
+                return {"items": agreements}
+            return child(url) if callable(child) else child
+
+        with mock.patch.object(concord, "_fetch", side_effect=fake_fetch):
+            rows = _collect(
+                get_rows(
+                    api_key="key",
+                    environment="production",
+                    organization_id="42",
+                    endpoint=endpoint,
+                    logger=mock.MagicMock(),
+                    manager=manager,
+                )
+            )
+        return rows, urls, manager
+
+    def test_fetches_each_agreement_and_injects_the_parent_uid(self):
+        rows, urls, _ = self._run(
+            "agreement_fields",
+            agreements=[{"uuid": "A"}, {"uuid": "B"}],
+            child={"fields": [{"id": 1, "name": "price", "value": "10"}]},
+        )
+        assert [(r["agreement_uuid"], r["id"]) for r in rows] == [("A", 1), ("B", 1)]
+        assert any("/agreements/A/summary/fields" in url for url in urls)
+        assert any("/agreements/B/summary/fields" in url for url in urls)
+
+    def test_activities_send_the_required_type_param(self):
+        _rows, urls, _ = self._run(
+            "agreement_activities",
+            agreements=[{"uuid": "A"}],
+            child={"activities": [{"id": "e1", "createdAt": 1700000000000}]},
+        )
+        assert "type=AUDIT" in urls[-1]
+
+    def test_members_read_a_bare_array_response(self):
+        rows, _urls, _ = self._run(
+            "agreement_members",
+            agreements=[{"uuid": "A"}],
+            child=[{"status": "ACTIVE", "user": {"id": 7}}],
+        )
+        assert [(r["agreement_uuid"], r["status"], r["member_id"]) for r in rows] == [("A", "ACTIVE", 7)]
+
+    def test_members_keep_user_and_invitation_ids_apart(self):
+        rows, _urls, _ = self._run(
+            "agreement_members",
+            agreements=[{"uuid": "A"}],
+            child=[
+                {"status": "ACTIVE", "user": {"id": 7, "email": "a@example.com"}},
+                {"status": "INVITED", "invitation": {"id": 7, "email": "b@example.com"}},
+            ],
+        )
+        # The same numeric id in two id spaces must stay two rows, or merge would collapse them.
+        assert [(r["status"], r["member_id"]) for r in rows] == [("ACTIVE", 7), ("INVITED", 7)]
+
+    def test_clause_tables_select_different_arrays_of_one_summary_response(self):
+        summary = {"clauses": [{"id": 1, "title": "term"}], "endclauses": [{"id": 9, "title": "renewal"}]}
+        clauses, clause_urls, _ = self._run("agreement_clauses", agreements=[{"uuid": "A"}], child=summary)
+        endclauses, _urls, _ = self._run("agreement_endclauses", agreements=[{"uuid": "A"}], child=summary)
+        assert [r["id"] for r in clauses] == [1]
+        assert [r["id"] for r in endclauses] == [9]
+        assert any(url.endswith("/agreements/A/summary") for url in clause_urls)
+
+    def test_versions_read_a_bare_array_response(self):
+        rows, urls, _ = self._run(
+            "agreement_versions",
+            agreements=[{"uuid": "A"}],
+            child=[{"id": 1, "displayVersion": "1.0"}, {"id": 2, "displayVersion": "2.0"}],
+        )
+        assert [(r["agreement_uuid"], r["id"]) for r in rows] == [("A", 1), ("A", 2)]
+        assert any(url.endswith("/agreements/A/versions") for url in urls)
+
+    @parameterized.expand(
+        [
+            ("approval", "agreement_approval", {"status": "PENDING", "blockThirdPartySignature": True}),
+            ("signature", "agreement_signature", {"enforceOrder": True, "signatureProvider": "CONCORD"}),
+            ("metadata", "agreement_metadata", {"title": "NDA", "status": "DRAFT"}),
+        ]
+    )
+    def test_single_object_child_becomes_one_row_per_agreement(self, _name, endpoint, child):
+        rows, _urls, _ = self._run(endpoint, agreements=[{"uuid": "A"}, {"uuid": "B"}], child=child)
+        assert [r["agreement_uuid"] for r in rows] == ["A", "B"]
+        # the object's own fields land on the row alongside the parent uid
+        assert set(child) <= set(rows[0])
+
+    @parameterized.expand([("approval", "agreement_approval"), ("signature", "agreement_signature")])
+    def test_single_object_child_skips_an_agreement_with_nothing_configured(self, _name, endpoint):
+        rows, _urls, _ = self._run(endpoint, agreements=[{"uuid": "A"}], child={})
+        # an empty body would otherwise seed a row carrying nothing but the parent uid
+        assert rows == []
+
+    @parameterized.expand([("forbidden", 403), ("not_found", 404)])
+    def test_skips_an_agreement_the_key_cannot_read(self, _name, status_code):
+        def child(url):
+            if "/agreements/A/" in url:
+                response = requests.Response()
+                response.status_code = status_code
+                raise requests.HTTPError(response=response)
+            return {"fields": [{"id": 1}]}
+
+        rows, _urls, _ = self._run("agreement_fields", agreements=[{"uuid": "A"}, {"uuid": "B"}], child=child)
+        assert [r["agreement_uuid"] for r in rows] == ["B"]
+
+    def test_other_child_errors_fail_the_sync(self):
+        def child(url):
+            response = requests.Response()
+            response.status_code = 400
+            raise requests.HTTPError(response=response)
+
+        with pytest.raises(requests.HTTPError):
+            self._run("agreement_fields", agreements=[{"uuid": "A"}], child=child)
+
+    def test_resumes_from_the_saved_parent_position(self):
+        manager = FakeManager(ConcordResumeConfig(parent_page=3, parent_index=1))
+        rows, urls, _ = self._run(
+            "agreement_fields",
+            agreements=[{"uuid": "A"}, {"uuid": "B"}],
+            child={"fields": [{"id": 1}]},
+            manager=manager,
+        )
+        assert "page=3" in urls[0]
+        # agreement A finished last run, so only B is fetched again
+        assert [r["agreement_uuid"] for r in rows] == ["B"]
+
+    def test_mid_agreement_flush_checkpoints_the_agreement_still_in_flight(self):
+        manager = FakeManager()
+        # chunk_size=2 flushes every two rows, so each agreement's three rows straddle a flush.
+        batcher = Batcher(logger=mock.MagicMock(), chunk_size=2)
+
+        def fake_fetch(session, url, headers, logger):
+            if "/user/me/organizations" in url:
+                return {"items": [{"uuid": "A"}, {"uuid": "B"}]}
+            return {"fields": [{"id": 1}, {"id": 2}, {"id": 3}]}
+
+        with mock.patch.object(concord, "_fetch", side_effect=fake_fetch):
+            list(
+                _iter_agreement_fanout(
+                    session=mock.MagicMock(),
+                    base_url="https://x",
+                    org_id="42",
+                    child_template="/organizations/42/agreements/{agreement_uid}/summary/fields",
+                    headers={},
+                    config=CONCORD_ENDPOINTS["agreement_fields"],
+                    logger=mock.MagicMock(),
+                    batcher=batcher,
+                    manager=manager,
+                    start_page=0,
+                    start_index=0,
+                )
+            )
+        # The checkpoint never names an agreement past the one being batched: A's third row is still
+        # buffered when the first flush fires, so a resume has to redo A rather than skip to B.
+        assert [(s.parent_page, s.parent_index) for s in manager.saved] == [(0, 0), (0, 1), (0, 1)]
 
 
 class TestConcordSource:

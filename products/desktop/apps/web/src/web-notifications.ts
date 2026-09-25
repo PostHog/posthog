@@ -3,11 +3,13 @@ import type {
   NotificationOptions,
   NotificationTarget,
 } from "@posthog/platform/notifications";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import type {
   IActiveView,
   INotificationSettings,
   NotificationSettings,
 } from "@posthog/ui/features/notifications/identifiers";
+import { resolveActiveNotificationTarget } from "@posthog/ui/features/notifications/routeNotification";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
   getCurrentMatches,
@@ -73,6 +75,7 @@ export const webNotificationSettings: INotificationSettings = {
       completionVolume: s.completionVolume,
       scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
       customSounds: s.customSounds,
+      notificationsPausedUntil: s.notificationsPausedUntil,
     };
   },
 };
@@ -84,26 +87,18 @@ export const webActiveView: IActiveView = {
   getActiveTarget: (): NotificationTarget | undefined => {
     const matches = getCurrentMatches();
     const last = matches[matches.length - 1];
-    if (!last) return undefined;
-    const params = last.params as Record<string, string | undefined>;
-    // `fullPath`, not `routeId`: the space routes sit under the pathless
-    // `_shell` layout, which routeId spells out and the URL pattern doesn't.
-    switch (last.fullPath) {
-      case "/tasks/$taskId":
-      case "/spaces/$channelId/tasks/$taskId":
-        return params.taskId
-          ? { kind: "task", taskId: params.taskId }
-          : undefined;
-      case "/spaces/$channelId/dashboards/$dashboardId":
-        return params.channelId && params.dashboardId
-          ? {
-              kind: "canvas",
-              channelId: params.channelId,
-              dashboardId: params.dashboardId,
-            }
-          : undefined;
-      default:
-        return undefined;
-    }
+    const params = last?.params as
+      | Record<string, string | undefined>
+      | undefined;
+    const threadPanel = useThreadPanelStore.getState();
+    const openThreadTaskId = params?.channelId
+      ? threadPanel.openByChannel[params.channelId]
+      : undefined;
+
+    return resolveActiveNotificationTarget(
+      last ? { fullPath: last.fullPath, params: params ?? {} } : undefined,
+      openThreadTaskId,
+      threadPanel.collapsed,
+    );
   },
 };

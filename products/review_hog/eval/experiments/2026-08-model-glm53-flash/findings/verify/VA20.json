@@ -1,0 +1,6 @@
+{
+    "id": "VA20",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Verified in frozen tree. receivers.py:151-154 has no exception handling: _resolve_assigned_reviewer (lines 180-207) and ReviewUserSettings.load hit the main DB and can raise. stamphog tasks.py:876-879 calls the carve-out (resolver at line 205) and retries the whole Celery task on any exception (max_retries=3, delay 5s, line 809). The stale-approval retraction (tasks.py:887-898) runs only AFTER that block succeeds. webhooks.py:63-64 ACKs 202 before the task runs, so GitHub never redelivers. A main-DB failure spanning ~15s exhausts retries; the task dies, _retract_stale_approvals_on_skip never runs, and the prior approval stays active on the new unreviewed head. Reachable only for bot-authored self-driving PRs on synchronize/reopen, and the retraction path needs only product DB + GitHub, so the resolver needlessly gates the safety action."
+}

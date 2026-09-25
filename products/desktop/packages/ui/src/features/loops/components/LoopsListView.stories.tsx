@@ -1,6 +1,7 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { LoopSpace } from "../loopScopes";
 import { LoopsListViewPresentation } from "./LoopsListView";
 
 const POSTHOG_HOG: UserBasic = {
@@ -35,6 +36,19 @@ function notifications(
       events,
       params: { channel_id: "C012345", channel_name: slackChannel },
     },
+  };
+}
+
+const SPACES: LoopSpace[] = [
+  { id: "space-growth", name: "growth", channelType: "public" },
+  { id: "space-me", name: "me", channelType: "personal" },
+];
+
+function inSpace(space: LoopSpace): LoopSchemas.LoopContextTarget {
+  return {
+    channel_id: space.id,
+    name: space.name,
+    outputs: { post_to_feed: true, update_context: false, canvas_id: null },
   };
 }
 
@@ -108,6 +122,7 @@ const MIXED_LOOPS: LoopSchemas.Loop[] = [
   loop("team-slack", {
     name: "Agentic-detection rollout monitoring",
     visibility: "team",
+    context_target: inSpace(SPACES[0]),
     notifications: notifications(["slack"], "agentic-rollout"),
   }),
   loop("team-all", {
@@ -120,6 +135,21 @@ const MIXED_LOOPS: LoopSchemas.Loop[] = [
     name: "Paused loop without notifications",
     visibility: "team",
     enabled: false,
+    context_target: inSpace(SPACES[0]),
+  }),
+  loop("team-personal-space", {
+    name: "Open PRs digest",
+    visibility: "team",
+    context_target: inSpace(SPACES[1]),
+  }),
+  loop("team-gone-space", {
+    name: "Loop in a space that was deleted",
+    visibility: "team",
+    context_target: {
+      channel_id: "space-gone",
+      name: "old-team",
+      outputs: { post_to_feed: true, update_context: false, canvas_id: null },
+    },
   }),
   loop("team-former-owner", {
     name: "Loop owned by a former organization member",
@@ -144,6 +174,7 @@ const meta: Meta<typeof LoopsListViewPresentation> = {
   ],
   args: {
     loops: MIXED_LOOPS,
+    spaces: SPACES,
     members: [POSTHOG_HOG, PAUL],
     onStartBlank: () => {},
     onStartFromTemplate: () => {},
@@ -166,11 +197,19 @@ export const LongMixedList: Story = {
       return loop(`long-list-${index + 1}`, {
         name: `Loop ${String(index + 1).padStart(2, "0")} · ${index % 2 === 0 ? "Monitor product health" : "Summarize customer feedback"}`,
         visibility,
+        context_target:
+          visibility === "team" ? inSpace(SPACES[index % 2]) : null,
         created_by_id: visibility === "team" ? POSTHOG_HOG.id : 1,
         enabled: index % 7 !== 0,
         notifications: notifications(channels, `team-loop-${index + 1}`),
       });
     }),
+  },
+};
+
+export const OnlySpaceLoops: Story = {
+  args: {
+    loops: MIXED_LOOPS.filter((entry) => entry.context_target !== null),
   },
 };
 

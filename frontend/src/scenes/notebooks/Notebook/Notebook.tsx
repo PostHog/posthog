@@ -14,6 +14,8 @@ import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/not
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -21,7 +23,6 @@ import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
-import { NotebookVariablesBar } from './NotebookVariablesBar'
 
 // Counts mounted notebooks so the <body> marker class survives overlapping mounts
 // (e.g. one in the scene and one in the side panel)
@@ -55,9 +56,21 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing } = useValues(logic)
+    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, isShared } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
+    useAttachedContext(
+        notebook && !isShared
+            ? [
+                  { type: 'notebook', key: shortId, label: notebook.title ?? 'Notebook' },
+                  {
+                      type: 'instructions',
+                      hidden: true,
+                      value: 'The user is working in a notebook. Notebook documents use MDX: Markdown with live component tags. Add cells with notebooks-add-cell instead of returning fenced tags as a chat answer. Before building a visualization, search reusable-widgets-list for a suitable saved widget, then inspect reusable-widgets-retrieve and notebooks-get. Bind matching dataframes directly, even if their names differ from the input slots. Use Hog only when columns need reshaping. Insert a Widget component and call notebooks-widget-attach with its node_id and explicit input bindings. When a specific widget and existing node are supplied, attach that widget there without creating another node. Never put live component tags inside code fences. If catalog tools are unavailable, do not invent widget IDs.',
+                  },
+              ]
+            : null
+    )
 
     useEffect(() => {
         if (initialContent && mode === 'canvas') {
@@ -145,8 +158,6 @@ export function Notebook({
                             It's a great place to gather ideas before turning into a saved Notebook!
                         </LemonBanner>
                     ) : null}
-
-                    <NotebookVariablesBar />
 
                     <div className="Notebook_content">
                         <NotebookColumnLeft />

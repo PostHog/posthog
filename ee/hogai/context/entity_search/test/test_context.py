@@ -24,9 +24,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.entity_search import EntitySearchContext
+from ee.hogai.context.entity_search.context import SEARCH_LIMIT, EntitySearchContext
 
 if TYPE_CHECKING:
     from products.customer_analytics.backend.models import Account
@@ -59,6 +60,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             ("notebook", "test_notebook_id", "/project/{team_id}/notebooks/test_notebook_id"),
             ("alert_configuration", "test_alert_id", "/project/{team_id}/alerts?alert_id=test_alert_id"),
             ("account", "test_account_id", "/project/{team_id}/customer_analytics/accounts/test_account_id"),
+            ("hog_flow", "test_flow_id", "/project/{team_id}/workflows/test_flow_id/workflow"),
         ]
     )
     def test_build_url(self, entity_type, result_id, expected_path):
@@ -260,6 +262,25 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted_flag" not in result_keys
         assert "deleted flag" not in result_names
 
+    async def test_feature_flag_filters_exclude_archived(self):
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="active_flag", name="active flag", archived=False, created_by=self.user
+        )
+        await FeatureFlag.objects.acreate(
+            team=self.team,
+            key="archived_flag",
+            name="archived flag",
+            active=False,
+            archived=True,
+            created_by=self.user,
+        )
+
+        results, _ = await self.context.search_entities({"feature_flag"}, "flag")
+
+        result_keys = [r["extra_fields"].get("key", "") for r in results]
+        assert "active_flag" in result_keys
+        assert "archived_flag" not in result_keys
+
     async def test_action_filters_exclude_deleted(self):
         await Action.objects.acreate(team=self.team, name="active action", deleted=False, created_by=self.user)
         await Action.objects.acreate(team=self.team, name="deleted action", deleted=True, created_by=self.user)
@@ -313,6 +334,9 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             created_by=self.user,
             type=Survey.SurveyType.POPOVER,
         )
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="deleted workflow", status="archived"
+        )
 
         results, _ = await self.context.search_entities("all", "deleted")
 
@@ -322,6 +346,7 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert "deleted action" not in result_names
         assert "deleted cohort" not in result_names
         assert "archived survey" not in result_names
+        assert "deleted workflow" not in result_names
 
     async def test_list_entities_insight(self):
         insight1 = await Insight.objects.acreate(
@@ -383,6 +408,49 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert len(entities) == 1
         assert total == 1
         assert entities[0]["extra_fields"]["name"] == "List Dashboard"
+
+    async def test_list_entities_workflow_surfaces_status_and_hides_archived(self):
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="welcome email", status="active"
+        )
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="win-back draft", status="draft"
+        )
+        await create_workflow_for_test(
+            team_id=self.team.id, created_by_id=self.user.id, name="old campaign", status="archived"
+        )
+
+        results, total_count = await self.context.list_entities("hog_flow")
+
+        assert total_count == 2
+        assert {(r["extra_fields"]["name"], r["extra_fields"]["status"]) for r in results} == {
+            ("welcome email", "active"),
+            ("win-back draft", "draft"),
+        }
+
+    async def test_search_entities_merges_workflows_into_the_shared_ranked_limit(self):
+        await Dashboard.objects.abulk_create(
+            [
+                Dashboard(
+                    team=self.team,
+                    name=f"Dashboard {index}",
+                    description="priority workflow",
+                    created_by=self.user,
+                )
+                for index in range(SEARCH_LIMIT)
+            ]
+        )
+        await create_workflow_for_test(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Priority workflow",
+            status="active",
+        )
+
+        results, _ = await self.context.search_entities({"dashboard", "hog_flow"}, "priority workflow")
+
+        assert len(results) == SEARCH_LIMIT
+        assert results[0]["type"] == "hog_flow"
 
     async def test_list_entities_account(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")

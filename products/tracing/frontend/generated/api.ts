@@ -9,8 +9,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    LogsRetentionRuleNameSuggestionApi,
+    LogsRetentionRuleReorderApi,
+    LogsRetentionRuleSuggestNameApi,
+    PaginatedTracesRetentionRuleListApi,
     PaginatedTracingViewListApi,
+    PatchedTeamTracingConfigApi,
+    PatchedTracesRetentionRuleApi,
     PatchedTracingViewApi,
+    TeamTracingConfigApi,
+    TracesRetentionRuleApi,
+    TracingRetentionRulesListParams,
+    TracingRetentionRulesReorderCreateParams,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
@@ -27,12 +37,22 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingDurationHistogramRequestApi,
+    _TracingDurationHistogramResponseApi,
+    _TracingErrorCountsRequestApi,
+    _TracingErrorCountsResponseApi,
+    _TracingImpactRequestApi,
+    _TracingImpactResponseApi,
     _TracingLatencyHeatmapRequestApi,
     _TracingLatencyHeatmapResponseApi,
     _TracingQueryRequestApi,
+    _TracingQueryResponseApi,
+    _TracingServiceNamesResponseApi,
     _TracingSparklineRequestApi,
+    _TracingSparklineResponseApi,
     _TracingTraceRequestApi,
+    _TracingTraceResponseApi,
     _TracingTreeRequestApi,
+    _TracingTreeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -51,6 +71,256 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getOrganizationsProjectsTracingConfigRetrieveUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+ * resolves alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigRetrieve = async (
+    organizationId: string,
+    id: number,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOrganizationsProjectsTracingConfigPartialUpdateUrl = (organizationId: string, id: number) => {
+    return `/api/organizations/${organizationId}/projects/${id}/tracing_config/`
+}
+
+/**
+ * Manage tracing product configuration for this project's canonical environment.
+ * Members can read; writing requires project admin, matching the admin-only
+ * settings UI. Mirrors the env-router action so /api/projects/:id/tracing_config/
+ * resolves alongside the legacy /api/environments/:id/tracing_config/ alias.
+ */
+export const organizationsProjectsTracingConfigPartialUpdate = async (
+    organizationId: string,
+    id: number,
+    patchedTeamTracingConfigApi?: NonReadonly<PatchedTeamTracingConfigApi>,
+    options?: RequestInit
+): Promise<TeamTracingConfigApi> => {
+    return apiMutator<TeamTracingConfigApi>(getOrganizationsProjectsTracingConfigPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTeamTracingConfigApi),
+    })
+}
+
+export const getTracingRetentionRulesListUrl = (projectId: string, params?: TracingRetentionRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/retention_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/retention_rules/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesList = async (
+    projectId: string,
+    params?: TracingRetentionRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedTracesRetentionRuleListApi> => {
+    return apiMutator<PaginatedTracesRetentionRuleListApi>(getTracingRetentionRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingRetentionRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesCreate = async (
+    projectId: string,
+    tracesRetentionRuleApi: NonReadonly<TracesRetentionRuleApi>,
+    options?: RequestInit
+): Promise<TracesRetentionRuleApi> => {
+    return apiMutator<TracesRetentionRuleApi>(getTracingRetentionRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracesRetentionRuleApi),
+    })
+}
+
+export const getTracingRetentionRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TracesRetentionRuleApi> => {
+    return apiMutator<TracesRetentionRuleApi>(getTracingRetentionRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingRetentionRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesUpdate = async (
+    projectId: string,
+    id: string,
+    tracesRetentionRuleApi: NonReadonly<TracesRetentionRuleApi>,
+    options?: RequestInit
+): Promise<TracesRetentionRuleApi> => {
+    return apiMutator<TracesRetentionRuleApi>(getTracingRetentionRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracesRetentionRuleApi),
+    })
+}
+
+export const getTracingRetentionRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTracesRetentionRuleApi?: NonReadonly<PatchedTracesRetentionRuleApi>,
+    options?: RequestInit
+): Promise<TracesRetentionRuleApi> => {
+    return apiMutator<TracesRetentionRuleApi>(getTracingRetentionRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTracesRetentionRuleApi),
+    })
+}
+
+export const getTracingRetentionRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/${id}/`
+}
+
+/**
+ * Span retention rules.
+ *
+ * Shares the logs implementation over its own model. Only the model, the access-control scope and
+ * the feature flag differ.
+ */
+export const tracingRetentionRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTracingRetentionRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTracingRetentionRulesReorderCreateUrl = (
+    projectId: string,
+    params?: TracingRetentionRulesReorderCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/retention_rules/reorder/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/retention_rules/reorder/`
+}
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const tracingRetentionRulesReorderCreate = async (
+    projectId: string,
+    logsRetentionRuleReorderApi: LogsRetentionRuleReorderApi,
+    params?: TracingRetentionRulesReorderCreateParams,
+    options?: RequestInit
+): Promise<PaginatedTracesRetentionRuleListApi> => {
+    return apiMutator<PaginatedTracesRetentionRuleListApi>(
+        getTracingRetentionRulesReorderCreateUrl(projectId, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(logsRetentionRuleReorderApi),
+        }
+    )
+}
+
+export const getTracingRetentionRulesSuggestNameCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/retention_rules/suggest_name/`
+}
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const tracingRetentionRulesSuggestNameCreate = async (
+    projectId: string,
+    logsRetentionRuleSuggestNameApi: LogsRetentionRuleSuggestNameApi,
+    options?: RequestInit
+): Promise<LogsRetentionRuleNameSuggestionApi> => {
+    return apiMutator<LogsRetentionRuleNameSuggestionApi>(getTracingRetentionRulesSuggestNameCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleSuggestNameApi),
+    })
+}
 
 export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/aggregate/`
@@ -141,12 +411,35 @@ export const tracingSpansDurationHistogramCreate = async (
     projectId: string,
     _tracingDurationHistogramRequestApi: _TracingDurationHistogramRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansDurationHistogramCreateUrl(projectId), {
+): Promise<_TracingDurationHistogramResponseApi> => {
+    return apiMutator<_TracingDurationHistogramResponseApi>(getTracingSpansDurationHistogramCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_tracingDurationHistogramRequestApi),
+    })
+}
+
+export const getTracingSpansErrorCountsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/error-counts/`
+}
+
+/**
+ * Count the exceptions the spans in view hit, by trace, by span and by session, for the
+ * span list's error badges.
+ *
+ * A caller asks about the id kinds it has, and each kind is a separate lookup.
+ */
+export const tracingSpansErrorCountsCreate = async (
+    projectId: string,
+    _tracingErrorCountsRequestApi: _TracingErrorCountsRequestApi,
+    options?: RequestInit
+): Promise<_TracingErrorCountsResponseApi> => {
+    return apiMutator<_TracingErrorCountsResponseApi>(getTracingSpansErrorCountsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingErrorCountsRequestApi),
     })
 }
 
@@ -161,6 +454,23 @@ export const tracingSpansHasSpansRetrieve = async (
     return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingSpansImpactCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/spans/impact/`
+}
+
+export const tracingSpansImpactCreate = async (
+    projectId: string,
+    _tracingImpactRequestApi: _TracingImpactRequestApi,
+    options?: RequestInit
+): Promise<_TracingImpactResponseApi> => {
+    return apiMutator<_TracingImpactResponseApi>(getTracingSpansImpactCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_tracingImpactRequestApi),
     })
 }
 
@@ -189,8 +499,8 @@ export const tracingSpansQueryCreate = async (
     projectId: string,
     _tracingQueryRequestApi: _TracingQueryRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansQueryCreateUrl(projectId), {
+): Promise<_TracingQueryResponseApi> => {
+    return apiMutator<_TracingQueryResponseApi>(getTracingSpansQueryCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -221,8 +531,8 @@ export const tracingSpansServiceNamesRetrieve = async (
     projectId: string,
     params?: TracingSpansServiceNamesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
+): Promise<_TracingServiceNamesResponseApi> => {
+    return apiMutator<_TracingServiceNamesResponseApi>(getTracingSpansServiceNamesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -236,8 +546,8 @@ export const tracingSpansSparklineCreate = async (
     projectId: string,
     _tracingSparklineRequestApi: _TracingSparklineRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
+): Promise<_TracingSparklineResponseApi> => {
+    return apiMutator<_TracingSparklineResponseApi>(getTracingSpansSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -271,8 +581,8 @@ export const tracingSpansTraceCreate = async (
     traceId: string,
     _tracingTraceRequestApi?: _TracingTraceRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansTraceCreateUrl(projectId, traceId), {
+): Promise<_TracingTraceResponseApi> => {
+    return apiMutator<_TracingTraceResponseApi>(getTracingSpansTraceCreateUrl(projectId, traceId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -288,8 +598,8 @@ export const tracingSpansTreeCreate = async (
     projectId: string,
     _tracingTreeRequestApi: _TracingTreeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTracingSpansTreeCreateUrl(projectId), {
+): Promise<_TracingTreeResponseApi> => {
+    return apiMutator<_TracingTreeResponseApi>(getTracingSpansTreeCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

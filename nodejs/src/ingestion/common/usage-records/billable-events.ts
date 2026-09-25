@@ -1,22 +1,22 @@
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
+import { isAiEventName } from '~/ingestion/common/ai-event-types'
 
 export const EVENTS_USAGE_KEY = 'events'
 export const AI_EVENTS_USAGE_KEY = 'ai_events'
 export const EXCEPTIONS_USAGE_KEY = 'exceptions'
+export const SURVEY_RESPONSES_USAGE_KEY = 'survey_responses'
 
 /** Null means the event is not billed at all. */
 export type UsageKeyResolver = (event: string) => string | null
 
-// Mirrors BILLABLE_EVENT_EXCLUDED_EVENTS in posthog/tasks/usage_report.py, minus the AI events,
-// which are billed under their own key rather than excluded. The two lists have to agree or the
-// usage records and the org usage report bill the same team differently.
+// Mirrors BILLABLE_EVENT_EXCLUDED_EVENTS in posthog/tasks/usage_report.py. The two lists have to
+// agree or the usage records and the org usage report bill the same team differently.
 const NON_BILLABLE_EVENTS = new Set([
     '$feature_flag_called',
     '$experiment_exposure',
-    'survey sent',
     'survey shown',
     'survey dismissed',
     '$exception',
+    '$llm_prompt_fetched',
     '$conversations_loaded',
     '$conversations_widget_loaded',
     '$conversations_message_sent',
@@ -28,12 +28,15 @@ const NON_BILLABLE_EVENTS = new Set([
 
 /**
  * Bills each event under the key its own product owns, wherever the event turns up.
- * Matching the exact AI event names rather than the `$ai_` prefix keeps an unknown
- * `$ai_*` event billable as a standard event, which is what the nightly report does.
+ * Every `$ai_*` event bills as an AI event, matching the nightly report's
+ * `startsWith(event, '$ai_')` split between the two meters.
  */
 export const resolveAnalyticsUsageKey: UsageKeyResolver = (event) => {
-    if (AI_EVENT_TYPES.has(event)) {
+    if (isAiEventName(event)) {
         return AI_EVENTS_USAGE_KEY
+    }
+    if (event === 'survey sent') {
+        return SURVEY_RESPONSES_USAGE_KEY
     }
     return NON_BILLABLE_EVENTS.has(event) ? null : EVENTS_USAGE_KEY
 }

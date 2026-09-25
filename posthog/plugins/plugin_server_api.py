@@ -108,10 +108,13 @@ def create_hog_flow_scheduled_invocation(
     team_id: int, hog_flow_id: str, variables: dict[str, object]
 ) -> requests.Response:
     logger.info(f"Creating scheduled hog flow invocation for hog flow {hog_flow_id} on workers")
+    # Same rationale as get_hog_flow_in_flight_count below: a stalled CDP connection must not pin
+    # the calling request thread indefinitely.
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
         headers=get_internal_api_headers(),
+        timeout=10,
     )
 
 
@@ -215,6 +218,32 @@ def cancel_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str)
         json={},
         headers={"Authorization": f"Bearer {_mint_cancel_batch_jwt(team_id, hog_flow_id, batch_job_id)}"},
         timeout=30,
+    )
+
+
+WORKFLOWS_STEP_RESUME_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_STEP_RESUME,
+    settings_name="WORKFLOWS_STEP_RESUME_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_step_resume_jwt(team_id: int, origin_key: str) -> str:
+    """Short-lived scoped JWT for one step_resume call, pinned to the team and the dispatch key so a
+    leaked token can wake exactly one step. Verified in the plugin server's CdpApi.postWorkflowStepResume."""
+    if not WORKFLOWS_STEP_RESUME_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_STEP_RESUME_JWT_SECRET is not configured — cannot call step_resume")
+    return WORKFLOWS_STEP_RESUME_JWT_PURPOSE.mint({"team_id": team_id, "origin_key": origin_key})
+
+
+def resume_workflow_step(team_id: int, origin_key: str, status: str, result: dict) -> requests.Response:
+    """Wake the parked workflow step that dispatched `origin_key`. 409 means the worker still holds the
+    job and the caller should retry; every other 2xx outcome is final."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/workflow_steps/resume",
+        json={"origin_key": origin_key, "status": status, "result": result},
+        headers={"Authorization": f"Bearer {_mint_step_resume_jwt(team_id, origin_key)}"},
+        timeout=10,
     )
 
 

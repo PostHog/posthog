@@ -116,6 +116,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
                 loadDevUsers: async (_, breakpoint) => {
                     breakpoint()
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.get<{ users: DevUser[] }>('api/login/dev')
                         breakpoint()
                         return response.users
@@ -150,20 +151,21 @@ export const devLoginLogic = kea<devLoginLogicType>([
     listeners(({ actions }) => ({
         devLogin: async ({ email }) => {
             // Dynamic import to avoid a circular dependency: loginLogic statically imports this logic.
-            const { loginLogic, handleLoginRedirect } = await import('scenes/authentication/login/loginLogic')
+            const { loginLogic, redirectAfterLogin } = await import('scenes/authentication/login/loginLogic')
             loginLogic.actions.clearGeneralError()
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create<any>('api/login/dev', { email })
             } catch (e) {
                 const { code, detail } = e as Record<string, any>
                 loginLogic.actions.setGeneralError(code || 'dev_login_failed', detail || 'Dev login failed')
                 return
             }
-            handleLoginRedirect()
-            window.location.reload()
+            redirectAfterLogin()
         },
         createFreshAccount: async () => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create<any>('api/login/dev', { create_fresh_account: true })
             } catch (e) {
                 actions.createFreshAccountFailure((e as Record<string, any>).detail || 'Failed to create account')

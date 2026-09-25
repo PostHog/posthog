@@ -33,6 +33,7 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
+from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
 from posthog.temporal.data_modeling.metrics import (
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
@@ -57,6 +58,11 @@ from posthog.temporal.usage_report.metrics import (
     USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
 )
 
+from products.alerts.backend.facade.temporal import (
+    ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
+    ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+    AlertsPlatformTelemetryInterceptor,
+)
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
@@ -79,8 +85,14 @@ from products.logs.backend.facade.temporal import (
 from products.tasks.backend.facade.temporal import (
     TASKS_LATENCY_HISTOGRAM_BUCKETS,
     TASKS_LATENCY_HISTOGRAM_METRICS,
+    TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
+    TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
+    TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
+    TASKS_RUN_TURNS_HISTOGRAM_METRICS,
+    TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS,
+    TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
 )
 
 logger = get_write_only_logger()
@@ -166,6 +178,7 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
+    AlertsPlatformTelemetryInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     SurfacingScoringMetricsInterceptor,
@@ -179,7 +192,7 @@ ALL_INTERCEPTOR_CLASSES = [
 ]
 
 
-@dataclass
+@dataclass(frozen=False)
 class ManagedWorker:
     """A Temporal worker bundled with its associated resources for unified lifecycle management."""
 
@@ -198,6 +211,10 @@ class ManagedWorker:
         await self.worker.shutdown()
         if self.metrics_server:
             await self.metrics_server.stop()
+        shutdown_asyncify_executor()
+
+
+DEFAULT_MAX_CONCURRENT_TASKS = 50
 
 
 async def create_worker(
@@ -218,6 +235,7 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
+    activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
 ) -> ManagedWorker:
@@ -248,6 +266,8 @@ async def create_worker(
             If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
+        activity_ramp_throttle: Minimum interval between two activity slot issues.
+            Defaults to the SDK value of 50 ms. Only takes effect if target_memory_usage is set.
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
@@ -293,7 +313,13 @@ async def create_worker(
             )
         )
         | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS, itertools.repeat(TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS)
+            )
+        )
         | dict(zip(TASKS_RUN_TOKENS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS)))
+        | dict(zip(TASKS_RUN_TURNS_HISTOGRAM_METRICS, itertools.repeat(TASKS_RUN_TURNS_HISTOGRAM_BUCKETS)))
         | dict(
             zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
@@ -310,6 +336,12 @@ async def create_worker(
             zip(
                 SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
@@ -345,6 +377,13 @@ async def create_worker(
             zip(
                 DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+    if task_queue == settings.TASKS_TASK_QUEUE:
+        histogram_bucket_overrides |= dict(
+            zip(
+                TASKS_SDK_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
 
@@ -386,6 +425,11 @@ async def create_worker(
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
     ]
 
+    # `activity_executor` below only serves sync activity functions, so `@asyncify` coroutines need their own.
+    configure_asyncify_executor(
+        min(max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS, settings.ASYNCIFY_MAX_WORKERS)
+    )
+
     if target_memory_usage is not None:
         worker = Worker(
             client,
@@ -395,12 +439,17 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=supported_interceptors,
-            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage or 1.0,
-                workflow_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_workflow_tasks or 50),
-                activity_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_activities or 50),
+                workflow_config=ResourceBasedSlotConfig(
+                    maximum_slots=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS
+                ),
+                activity_config=ResourceBasedSlotConfig(
+                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
+                    ramp_throttle=activity_ramp_throttle,
+                ),
             ),
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
@@ -415,9 +464,9 @@ async def create_worker(
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
             interceptors=supported_interceptors,
-            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
-            max_concurrent_activities=max_concurrent_activities or 50,
-            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
+            max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
+            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),

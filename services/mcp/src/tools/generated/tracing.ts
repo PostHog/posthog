@@ -2,34 +2,23 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    TracingSpansAggregateCreateBody,
-    TracingSpansAttributeBreakdownCreateBody,
-    TracingSpansAttributesRetrieveQueryParams,
-    TracingSpansCountCreateBody,
-    TracingSpansDurationHistogramCreateBody,
-    TracingSpansLatencyHeatmapCreateBody,
-    TracingSpansQueryCreateBody,
-    TracingSpansServiceNamesRetrieveQueryParams,
-    TracingSpansSparklineCreateBody,
-    TracingSpansTraceCreateBody,
-    TracingSpansTraceCreateParams,
-    TracingSpansTreeCreateBody,
-    TracingSpansValuesRetrieveQueryParams,
-} from '@/generated/tracing/api'
+import * as orvalSchemas from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
+const ApmAttributeBreakdownSchema = () => {
+    const TracingSpansAttributeBreakdownCreateBody = orvalSchemas.TracingSpansAttributeBreakdownCreateBody()
+    return TracingSpansAttributeBreakdownCreateBody
+}
 
 const apmAttributeBreakdown = (): ToolBase<
-    typeof ApmAttributeBreakdownSchema,
+    ReturnType<typeof ApmAttributeBreakdownSchema>,
     Schemas._TracingAttributeBreakdownResponse
 > => ({
     name: 'apm-attribute-breakdown',
-    schema: ApmAttributeBreakdownSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmAttributeBreakdownSchema>) => {
+    schema: ApmAttributeBreakdownSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmAttributeBreakdownSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -45,12 +34,15 @@ const apmAttributeBreakdown = (): ToolBase<
     },
 })
 
-const ApmAttributeValuesListSchema = TracingSpansValuesRetrieveQueryParams
+const ApmAttributeValuesListSchema = () => {
+    const TracingSpansValuesRetrieveQueryParams = orvalSchemas.TracingSpansValuesRetrieveQueryParams()
+    return TracingSpansValuesRetrieveQueryParams
+}
 
-const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema, unknown> => ({
+const apmAttributeValuesList = (): ToolBase<ReturnType<typeof ApmAttributeValuesListSchema>, unknown> => ({
     name: 'apm-attribute-values-list',
-    schema: ApmAttributeValuesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmAttributeValuesListSchema>) => {
+    schema: ApmAttributeValuesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmAttributeValuesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -68,12 +60,18 @@ const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema,
     },
 })
 
-const ApmAttributesListSchema = TracingSpansAttributesRetrieveQueryParams
+const ApmAttributesListSchema = () => {
+    const TracingSpansAttributesRetrieveQueryParams = orvalSchemas.TracingSpansAttributesRetrieveQueryParams()
+    return TracingSpansAttributesRetrieveQueryParams
+}
 
-const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, Schemas._TracingAttributesResponse> => ({
+const apmAttributesList = (): ToolBase<
+    ReturnType<typeof ApmAttributesListSchema>,
+    Schemas._TracingAttributesResponse
+> => ({
     name: 'apm-attributes-list',
-    schema: ApmAttributesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmAttributesListSchema>) => {
+    schema: ApmAttributesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmAttributesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas._TracingAttributesResponse>({
             method: 'GET',
@@ -91,14 +89,20 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, Schemas._
     },
 })
 
-const ApmServicesListSchema = TracingSpansServiceNamesRetrieveQueryParams
+const ApmServicesListSchema = () => {
+    const TracingSpansServiceNamesRetrieveQueryParams = orvalSchemas.TracingSpansServiceNamesRetrieveQueryParams()
+    return TracingSpansServiceNamesRetrieveQueryParams
+}
 
-const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => ({
+const apmServicesList = (): ToolBase<
+    ReturnType<typeof ApmServicesListSchema>,
+    Schemas._TracingServiceNamesResponse
+> => ({
     name: 'apm-services-list',
-    schema: ApmServicesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmServicesListSchema>) => {
+    schema: ApmServicesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmServicesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingServiceNamesResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
@@ -111,12 +115,18 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
     },
 })
 
-const ApmSpansAggregateSchema = TracingSpansAggregateCreateBody
+const ApmSpansAggregateSchema = () => {
+    const TracingSpansAggregateCreateBody = orvalSchemas.TracingSpansAggregateCreateBody()
+    return TracingSpansAggregateCreateBody
+}
 
-const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, Schemas._TracingAggregationResponse> => ({
+const apmSpansAggregate = (): ToolBase<
+    ReturnType<typeof ApmSpansAggregateSchema>,
+    Schemas._TracingAggregationResponse
+> => ({
     name: 'apm-spans-aggregate',
-    schema: ApmSpansAggregateSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansAggregateSchema>) => {
+    schema: ApmSpansAggregateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansAggregateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -132,12 +142,15 @@ const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, Schemas._
     },
 })
 
-const ApmSpansCountSchema = TracingSpansCountCreateBody
+const ApmSpansCountSchema = () => {
+    const TracingSpansCountCreateBody = orvalSchemas.TracingSpansCountCreateBody()
+    return TracingSpansCountCreateBody
+}
 
-const apmSpansCount = (): ToolBase<typeof ApmSpansCountSchema, Schemas._TracingCountResponse> => ({
+const apmSpansCount = (): ToolBase<ReturnType<typeof ApmSpansCountSchema>, Schemas._TracingCountResponse> => ({
     name: 'apm-spans-count',
-    schema: ApmSpansCountSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansCountSchema>) => {
+    schema: ApmSpansCountSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansCountSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -153,18 +166,24 @@ const apmSpansCount = (): ToolBase<typeof ApmSpansCountSchema, Schemas._TracingC
     },
 })
 
-const ApmSpansDurationHistogramSchema = TracingSpansDurationHistogramCreateBody
+const ApmSpansDurationHistogramSchema = () => {
+    const TracingSpansDurationHistogramCreateBody = orvalSchemas.TracingSpansDurationHistogramCreateBody()
+    return TracingSpansDurationHistogramCreateBody
+}
 
-const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramSchema, unknown> => ({
+const apmSpansDurationHistogram = (): ToolBase<
+    ReturnType<typeof ApmSpansDurationHistogramSchema>,
+    Schemas._TracingDurationHistogramResponse
+> => ({
     name: 'apm-spans-duration-histogram',
-    schema: ApmSpansDurationHistogramSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansDurationHistogramSchema>) => {
+    schema: ApmSpansDurationHistogramSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansDurationHistogramSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingDurationHistogramResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/duration-histogram/`,
             body,
@@ -174,15 +193,18 @@ const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramS
     },
 })
 
-const ApmSpansLatencyHeatmapSchema = TracingSpansLatencyHeatmapCreateBody
+const ApmSpansLatencyHeatmapSchema = () => {
+    const TracingSpansLatencyHeatmapCreateBody = orvalSchemas.TracingSpansLatencyHeatmapCreateBody()
+    return TracingSpansLatencyHeatmapCreateBody
+}
 
 const apmSpansLatencyHeatmap = (): ToolBase<
-    typeof ApmSpansLatencyHeatmapSchema,
+    ReturnType<typeof ApmSpansLatencyHeatmapSchema>,
     Schemas._TracingLatencyHeatmapResponse
 > => ({
     name: 'apm-spans-latency-heatmap',
-    schema: ApmSpansLatencyHeatmapSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansLatencyHeatmapSchema>) => {
+    schema: ApmSpansLatencyHeatmapSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansLatencyHeatmapSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
@@ -198,18 +220,24 @@ const apmSpansLatencyHeatmap = (): ToolBase<
     },
 })
 
-const ApmSpansSparklineSchema = TracingSpansSparklineCreateBody
+const ApmSpansSparklineSchema = () => {
+    const TracingSpansSparklineCreateBody = orvalSchemas.TracingSpansSparklineCreateBody()
+    return TracingSpansSparklineCreateBody
+}
 
-const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> => ({
+const apmSpansSparkline = (): ToolBase<
+    ReturnType<typeof ApmSpansSparklineSchema>,
+    Schemas._TracingSparklineResponse
+> => ({
     name: 'apm-spans-sparkline',
-    schema: ApmSpansSparklineSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansSparklineSchema>) => {
+    schema: ApmSpansSparklineSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansSparklineSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingSparklineResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/sparkline/`,
             body,
@@ -219,18 +247,21 @@ const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> 
     },
 })
 
-const ApmSpansTreeSchema = TracingSpansTreeCreateBody
+const ApmSpansTreeSchema = () => {
+    const TracingSpansTreeCreateBody = orvalSchemas.TracingSpansTreeCreateBody()
+    return TracingSpansTreeCreateBody
+}
 
-const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
+const apmSpansTree = (): ToolBase<ReturnType<typeof ApmSpansTreeSchema>, Schemas._TracingTreeResponse> => ({
     name: 'apm-spans-tree',
-    schema: ApmSpansTreeSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansTreeSchema>) => {
+    schema: ApmSpansTreeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ApmSpansTreeSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.query !== undefined) {
             body['query'] = params.query
         }
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingTreeResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
             body,
@@ -240,15 +271,17 @@ const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
     },
 })
 
-const ApmTraceGetSchema = TracingSpansTraceCreateParams.omit({ project_id: true }).extend(
-    TracingSpansTraceCreateBody.shape
-)
+const ApmTraceGetSchema = () => {
+    const TracingSpansTraceCreateBody = orvalSchemas.TracingSpansTraceCreateBody()
+    const TracingSpansTraceCreateParams = orvalSchemas.TracingSpansTraceCreateParams()
+    return TracingSpansTraceCreateParams.omit({ project_id: true }).extend(TracingSpansTraceCreateBody.shape)
+}
 
-const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
+const apmTraceGet = (): ToolBase<ReturnType<typeof ApmTraceGetSchema>, WithPostHogUrl<Schemas._TracingTraceResponse>> =>
     withUiApp('trace-span-list', {
         name: 'apm-trace-get',
-        schema: ApmTraceGetSchema,
-        handler: async (context: Context, params: z.infer<typeof ApmTraceGetSchema>) => {
+        schema: ApmTraceGetSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof ApmTraceGetSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.dateRange !== undefined) {
@@ -260,7 +293,7 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.offset !== undefined) {
                 body['offset'] = params.offset
             }
-            const result = await context.api.request<unknown>({
+            const result = await context.api.request<Schemas._TracingTraceResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
@@ -270,19 +303,22 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
         },
     })
 
-const QueryApmSpansSchema = TracingSpansQueryCreateBody
+const QueryApmSpansSchema = () => {
+    const TracingSpansQueryCreateBody = orvalSchemas.TracingSpansQueryCreateBody()
+    return TracingSpansQueryCreateBody
+}
 
-const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
+const queryApmSpans = (): ToolBase<ReturnType<typeof QueryApmSpansSchema>, Schemas._TracingQueryResponse> =>
     withUiApp('trace-span-list', {
         name: 'query-apm-spans',
-        schema: QueryApmSpansSchema,
-        handler: async (context: Context, params: z.infer<typeof QueryApmSpansSchema>) => {
+        schema: QueryApmSpansSchema(),
+        handler: async (context: Context, params: z.infer<ReturnType<typeof QueryApmSpansSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
             if (params.query !== undefined) {
                 body['query'] = params.query
             }
-            const result = await context.api.request<unknown>({
+            const result = await context.api.request<Schemas._TracingQueryResponse>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,

@@ -1,9 +1,8 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import kafka_engine
+from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
-from .log_attributes2 import TABLE_NAME as LOG_ATTRIBUTES_TABLE_NAME
 from .log_attributes3 import TABLE_NAME as LOG_ATTRIBUTES3_TABLE_NAME
 
 TABLE_NAME = "logs34"
@@ -155,105 +154,6 @@ SETTINGS background_insert_batch = 1
 """
 
 
-def LOGS34_TO_LOG_ATTRIBUTES_MV():
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
-(
-    `team_id` Int32,
-    `time_bucket` DateTime64(0),
-    `original_expiry_time_bucket` DateTime64(0),
-    `service_name` LowCardinality(String),
-    `resource_fingerprint` UInt64,
-    `attribute_key` LowCardinality(String),
-    `attribute_value` String,
-    `attribute_type` LowCardinality(String),
-    `attribute_count` SimpleAggregateFunction(sum, UInt64)
-)
-AS SELECT
-    team_id,
-    time_bucket,
-    original_expiry_time_bucket,
-    service_name,
-    resource_fingerprint,
-    attribute_key,
-    attribute_value,
-    attribute_type,
-    attribute_count
-FROM
-(
-    SELECT
-        team_id AS team_id,
-        toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-        toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-        service_name AS service_name,
-        resource_fingerprint,
-        mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
-        arrayJoin(attributes) AS attribute,
-        'log' AS attribute_type,
-        attribute.1 AS attribute_key,
-        attribute.2 AS attribute_value,
-        sumSimpleState(1) AS attribute_count
-    FROM {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
-    GROUP BY
-        team_id,
-        time_bucket,
-        original_expiry_time_bucket,
-        service_name,
-        resource_fingerprint,
-        attributes
-)
-"""
-
-
-def LOGS34_TO_RESOURCE_ATTRIBUTES_MV():
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES_TABLE_NAME}
-(
-    `team_id` Int32,
-    `time_bucket` DateTime64(0),
-    `original_expiry_time_bucket` DateTime64(0),
-    `service_name` LowCardinality(String),
-    `resource_fingerprint` UInt64,
-    `attribute_key` LowCardinality(String),
-    `attribute_value` String,
-    `attribute_type` LowCardinality(String),
-    `attribute_count` SimpleAggregateFunction(sum, UInt64)
-)
-AS SELECT
-    team_id,
-    time_bucket,
-    original_expiry_time_bucket,
-    service_name,
-    resource_fingerprint,
-    attribute_key,
-    attribute_value,
-    attribute_type,
-    attribute_count
-FROM
-(
-    SELECT
-        team_id AS team_id,
-        toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
-        toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
-        service_name AS service_name,
-        resource_fingerprint,
-        arrayJoin(resource_attributes) AS attribute,
-        'resource' AS attribute_type,
-        attribute.1 AS attribute_key,
-        attribute.2 AS attribute_value,
-        sumSimpleState(1) AS attribute_count
-    FROM {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
-    GROUP BY
-        team_id,
-        time_bucket,
-        original_expiry_time_bucket,
-        service_name,
-        resource_fingerprint,
-        resource_attributes
-)
-"""
-
-
 def LOGS34_TO_LOG_ATTRIBUTES3_MV():
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes3 TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES3_TABLE_NAME}
@@ -386,7 +286,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TA
 ENGINE = {kafka_engine(topic=KAFKA_TOPIC, group=KAFKA_GROUP, serialization="Avro", named_collection=KAFKA_NAMED_COLLECTION)}
 SETTINGS
     kafka_skip_broken_messages = 100,
-    kafka_num_consumers = 8,
+    kafka_num_consumers = {kafka_num_consumers(8)},
     kafka_poll_timeout_ms = 3000,
     kafka_poll_max_batch_size = 1000,
     kafka_thread_per_consumer = 1,
@@ -462,32 +362,29 @@ AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 """
 
 
-def LOGS34_TO_VOLUME_BUCKETS_MV():
+def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # Groups rows exactly like _rollup_sql in
     # products/logs/backend/temporal/volume_tick/aggregation.py, which carries
-    # the reasoning for the environment fallback and severity lowercasing. The
-    # 300s grid literal is frozen into the DDL at migration time; BUCKET_SECONDS
-    # there must stay equal to it or the detector reads buckets this MV never
-    # writes.
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
-(
-    `team_id` Int32,
-    `time_bucket` DateTime('UTC'),
-    `service_name` LowCardinality(String),
-    `namespace` LowCardinality(String),
-    `environment` LowCardinality(String),
-    `severity_text` LowCardinality(String),
-    `log_count` SimpleAggregateFunction(sum, UInt64)
-)
-AS SELECT
+    # the reasoning for the environment fallback and severity lowercasing;
+    # `retention_days` is a measure folded into each group, not a dimension.
+    # The 300s grid literal is frozen into the DDL at migration time;
+    # BUCKET_SECONDS there must stay equal to it or the detector reads buckets
+    # this MV never writes.
+    #
+    # `retention_days` rounds the lifetime from the bucket to the raw expiry up
+    # to whole days, so event-time skew and bucket rounding cannot expire the
+    # rollup before its logs. Microseconds preserve fractional-second expiries.
+    # The 3650-day guard sits above the product's retention ceiling and bounds
+    # corrupt expiries. Max keeps mixed retentions as long as the latest expiry.
+    return f"""SELECT
     team_id,
     time_bucket,
     service_name,
     namespace,
     environment,
     severity_text,
+    maxSimpleState(retention_days) AS retention_days,
     sumSimpleState(1) AS log_count
 FROM
 (
@@ -509,10 +406,28 @@ FROM
                 resource_attributes['env']
             )
         ) AS environment,
-        lower(severity_text) AS severity_text
+        lower(severity_text) AS severity_text,
+        toUInt16(least(intDiv(greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0) + 86399999999, 86400000000), 3650)) AS retention_days
     FROM {db}.{TABLE_NAME}
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text"""
+
+
+def LOGS34_TO_VOLUME_BUCKETS_MV():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.logs_volume_buckets
+(
+    `team_id` Int32,
+    `time_bucket` DateTime('UTC'),
+    `service_name` LowCardinality(String),
+    `namespace` LowCardinality(String),
+    `environment` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `retention_days` SimpleAggregateFunction(max, UInt16),
+    `log_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS {LOGS34_TO_VOLUME_BUCKETS_MV_SELECT()}
 """
 
 

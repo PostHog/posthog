@@ -33,15 +33,26 @@ org/                 mission, ICP, personas, teams, business model
 areas/<area>.md      one hub page per product area
 decisions/<date>-<slug>.md   product decisions: what, why, who, source
 projects/<project-id>/overview.md              project identity and context
-projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id)
+projects/<project-id>/spaces/<slug>.md         one page per Desktop Space (frontmatter: team_id, channel_id, and the goals/reading/watching lists the Context page renders)
 scripts/lint         the structure linter (also run server-side at land)
 scripts/publish      the server-owned publishing client
 ```
 
 The root file is AGENTS.md because the layer must work for every model and harness; the CLAUDE.md symlink covers Claude-native tooling.
 
+The `goals`, `reading`, and `watching` frontmatter lists are checked against the schema the Desktop Context page reads (`products/desktop/packages/core/src/canvas/contextDocument.ts`).
+The linter is stdlib-only, so it reads a strict subset of YAML: block lists and mappings, one-line plain or quoted text, and `|` literal blocks.
+Anything outside that subset, an unknown key, or a value of the wrong type rejects the commit with the path of the offending field.
+
 During enablement, malformed wiki-link brackets in legacy Space context are encoded as readable HTML entities instead of blocking setup. The imported page includes a note asking the dreaming agent to review and repair those links. Later wiki edits still pass through the strict structure linter.
+
+Enablement and nightly reconciliation also migrate legacy `channels/*.md` pages into their public Space's project directory.
+The migration preserves the page content, adds `team_id`, and updates wiki links to the moved pages.
+It stops without publishing if a channel cannot be resolved, a destination already exists, or a path uses a symlink.
+Resolve those conflicts before retrying reconciliation. Existing pages are never overwritten.
 
 ## Dreaming
 
 A nightly Temporal coordinator (`context-layer-dream-coordinator`, 03:00 UTC) dispatches one cloud task per enabled organization using GPT-5.6 Sol with high reasoning. Each tick dispatches up to 1,000 due organizations, least-recently-dreamt first. Before dispatch, deterministic reconciliation creates a project-scoped page for every public Space and regenerates the project and Space indexes. The run works unlocked on its own clone all night, on a dated `dream/<YYYY-MM-DD>` branch, and lands it through the commits endpoint as one two-parent merge commit (`dream: <date>`): `git log --merges` lists the dreams, and `git revert -m 1` undoes a whole night. The skills live in `products/context_layer/skills/` and source context from completed tasks and loops, merged PRs, and instrumented events. Activity pagination follows cursors until the window or budget is exhausted: up to 100 newest items total per Space across channel-scoped sources, and 100 per organization-wide source. Each run also rechecks completed tasks from the previous seven days so work that finishes after an earlier review is not lost behind the incremental cursor. A first dream includes empty public Space pages in its scan and fills them only when their channels have qualifying activity in the seed window. Dream branches may change sourced content pages only; the server rejects changes to repository instructions, generated indexes, scripts, or Space paths. A per-org failure streak pauses a lane after repeated dispatch failures (`ContextLayerConfig.dreaming_paused`).
+
+The Desktop context page reads the same history back: `GET context_layer/dreams/` returns the active dreaming task and lists the landed runs (subject, summary, page-change counts), while `GET context_layer/dreams/<sha>/` returns one run's per-file unified patches. Landed runs are derived from merge commits at request time and cached per head sha; active task state stays live.

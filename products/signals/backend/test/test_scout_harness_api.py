@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import json
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -16,9 +20,11 @@ from rest_framework import status
 from social_django.models import UserSocialAuth
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted
 from posthog.models import OAuthApplication
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import (
@@ -29,23 +35,44 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    SyncResult,
+    _compute_row_hash,
+    canonical_skill_names,
+    discover_canonical_skills,
+)
+from products.signals.backend.scout_harness.limits import (
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+    MAX_RUN_NOTE_CHARS,
+    STALE_RUN_CUTOFF_S,
+)
+from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
-from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
+from products.signals.backend.scout_harness.serializers import (
+    SignalScoutConfigUpdateSerializer,
+    SignalScoutSlackDestinationSerializer,
+)
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
+from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -54,16 +81,29 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
-def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout") -> None:
+def _authenticate_as_scout(
+    test: APIBaseTest,
+    *,
+    scopes: PosthogMcpScopes = "signals_scout",
+    sandbox_task_id: UUID | None = None,
+    team_id: int | None = None,
+) -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
-    reaches these endpoints in production. The emit / scratchpad write actions require
-    `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
-    default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
-    a session. `logout()` first so the token is the sole credential on every request.
+    reaches these endpoints in production. The emit action requires `signal_scout_internal:write`
+    and the scratchpad writes `signal_scratchpad_internal:write` — both are server-mint-only and
+    reject session auth, so the default `APIBaseTest` force-login isn't enough for the write
+    surface — only reads pass on a session. `logout()` first so the token is the sole credential
+    on every request.
 
     `scopes` selects the posture: the default `signals_scout` covers emit-signal / scratchpad;
     pass `signals_scout_reports` (the report-channel posture, which adds `signal_scout_report:write`)
     to exercise the emit-report / edit-report surface.
+
+    `sandbox_task_id` binds the token to a task, which is how a report-pipeline run is minted and
+    the only way the scratchpad write path can resolve its writer identity.
+
+    `team_id` confines the token to a team other than the test's own, which is how a child
+    environment's token is minted.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -80,7 +120,13 @@ def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "sig
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=scopes, include_internal_scopes=True)
+    token = create_oauth_access_token_for_user(
+        test.user,
+        team_id if team_id is not None else test.team.id,
+        scopes=scopes,
+        include_internal_scopes=True,
+        sandbox_task_id=sandbox_task_id,
+    )
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -246,8 +292,6 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
 def _make_emission(team: Team, run: SignalScoutRun, *, finding_id: str, **overrides) -> SignalScoutEmission:
     defaults: dict = {
         "description": "Checkout 500s post-deploy",
-        "weight": 0.7,
-        "confidence": 0.85,
         "severity": "P1",
         "source_id": f"run:{run.id}:finding:{finding_id}",
     }
@@ -270,8 +314,8 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
         first = body[0]
         assert first["run_id"] == str(run.id)
         assert first["description"] == "Checkout 500s post-deploy"
-        assert first["weight"] == 0.7
-        assert first["confidence"] == 0.85
+        assert "weight" not in first
+        assert "confidence" not in first
         assert first["severity"] == "P1"
         assert first["tags"] == ["cost-spike"]
         assert first["source_id"] == f"run:{run.id}:finding:{newer.finding_id}"
@@ -307,6 +351,8 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
 _FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
+_RUN_TOKEN_COSTS_QUERY = "products.signals.backend.scout_harness.run_costs.get_local_task_run_token_costs"
+_SCOUT_COSTS_QUERY = "products.signals.backend.scout_harness.scout_costs.get_local_task_run_token_costs"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -473,6 +519,115 @@ class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
             response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+
+class TestScoutHarnessRunTokenCostsAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/token-costs/"
+
+    def test_staff_reads_the_cost_of_every_requested_run(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        priced = _make_run(self.team)
+        unpriced = _make_run(self.team)
+        with patch(_RUN_TOKEN_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.25")}):
+            response = self.client.post(
+                self._url(), data={"run_ids": [str(priced.id), str(unpriced.id)]}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["available"] is True
+        costs = {row["run_id"]: row["token_cost_usd"] for row in body["costs"]}
+        # A run with no generations attributed reports null, not 0 — the number the roster showed
+        # for every scout run while the read was keyed on the desktop `ai_product`.
+        assert costs == {str(priced.id): 1.25, str(unpriced.id): None}
+
+    def test_non_staff_is_refused(self) -> None:
+        # Fleet spend is an internal operating number, and the generations sit in a project other
+        # than the one in the path.
+        run = _make_run(self.team)
+        with patch(_RUN_TOKEN_COSTS_QUERY) as query:
+            response = self.client.post(self._url(), data={"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+
+class TestScoutHarnessScoutCostsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def _url(self, query: str = "") -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/costs/{query}"
+
+    def _make_staff(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+    def test_staff_reads_spend_counts_and_reports_per_scout(self) -> None:
+        self._make_staff()
+        priced = _make_run(self.team, emitted_report_ids=["r-1"], edited_report_ids=["r-1", "r-2"])
+        _make_run(self.team)
+        with patch(_SCOUT_COSTS_QUERY, return_value={str(priced.task_run_id): Decimal("1.68")}):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["available"] is True
+        assert body["window_days"] == 7
+        assert body["scouts"] == [
+            {
+                "skill_name": "signals-scout-general",
+                "spend_usd": 1.68,
+                "run_count": 2,
+                # The run that spent nothing is out of the per-run divisor, not priced at zero.
+                "priced_run_count": 1,
+                # `r-1` was filed and then edited by the same run, so it counts once.
+                "reports_touched": 2,
+            }
+        ]
+
+    def test_non_staff_is_refused(self) -> None:
+        # Fleet spend is an internal operating number, and the generations sit in a project other
+        # than the one in the path. Same gate as the per-run cost read.
+        _make_run(self.team)
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+    def test_child_scoped_api_key_cannot_read_parent_costs(self) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_staff()
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[child.id],
+        )
+        self.client.logout()
+
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(
+                f"/api/projects/{child.id}/signals/scout/runs/costs/",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        query.assert_not_called()
+
+    def test_unsupported_window_is_refused_rather_than_silently_widened(self) -> None:
+        # The parameter exists so a detail page can ask for 30 days later. Until it can, a request
+        # for 30 must not come back as a 7-day number labelled 30.
+        self._make_staff()
+        with patch(_SCOUT_COSTS_QUERY) as query:
+            response = self.client.get(self._url("?window_days=30"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        query.assert_not_called()
 
 
 class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
@@ -656,7 +811,6 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def _payload(self, **overrides) -> dict:
         body: dict = {
             "description": "Checkout 500s spike correlates with payment-flag rollout",
-            "confidence": 0.7,
             "evidence": [
                 {
                     "source_product": "error_tracking",
@@ -707,6 +861,19 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_emit.assert_not_called()
+
+    @parameterized.expand([("in_range", 0.7), ("out_of_range", 1.1)])
+    def test_emit_finding_ignores_retired_confidence_field(self, _name: str, confidence: float) -> None:
+        # A custom scout still sending the retired field must keep emitting: the serializer drops the
+        # unknown key, so no value reaches the signal's `extra`, whatever it holds.
+        run = _make_run(self.team)
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+            response = self.client.post(
+                self._emit_signal_url(str(run.id)), data=self._payload(confidence=confidence), format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_emit.await_args is not None
+        assert "confidence" not in mock_emit.await_args.kwargs["extra"]
 
     def test_emit_finding_rejects_non_in_progress_run(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -1082,6 +1249,35 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.structured_output_schema == _STRUCTURED_OUTPUT_SCHEMA
 
+    @parameterized.expand(
+        [
+            ("custom_scout_clears", "signals-scout-judge", _STRUCTURED_OUTPUT_SCHEMA, status.HTTP_200_OK, None),
+            (
+                "canonical_shipped_schema_refused",
+                "signals-scout-mcp-tool-calls",
+                _STRUCTURED_OUTPUT_SCHEMA,
+                status.HTTP_400_BAD_REQUEST,
+                _STRUCTURED_OUTPUT_SCHEMA,
+            ),
+            ("canonical_null_to_null_is_a_no_op", "signals-scout-mcp-tool-calls", None, status.HTTP_200_OK, None),
+        ]
+    )
+    def test_patch_null_clears_a_custom_schema_but_not_a_shipped_one(
+        self, _name: str, skill_name: str, stored: dict | None, expected_status: int, expected_schema: dict | None
+    ) -> None:
+        # The per-tick reconcile refills a null schema on a canonical scout, so accepting the clear
+        # would turn recording back on within the hour with nothing in the response saying so. A
+        # patch that sends null over a null column is not a clear and must not be refused.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name=skill_name, structured_output_schema=stored
+        )
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"structured_output_schema": None}, format="json"
+        )
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        assert config.structured_output_schema == expected_schema
+
     def test_patch_rejects_invalid_schema(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
         response = self.client.patch(
@@ -1138,6 +1334,236 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         config.refresh_from_db()
         assert config.structured_output_schema is None
+
+
+class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def _config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-hygiene", **kwargs)
+
+    def _own_the_scout(self, user: User) -> None:
+        LLMSkillOwner.objects.for_team(self.team.id).create(
+            team=self.team, skill_name="signals-scout-hygiene", user=user
+        )
+
+    def _authored_by(self, user: User) -> None:
+        LLMSkill.objects.create(team=self.team, name="signals-scout-hygiene", description="", body="", created_by=user)
+
+    def _other_member(self) -> User:
+        return User.objects.create_and_join(self.organization, "other@example.com", None)
+
+    def _become_admin(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _personal_api_key(self, scopes: list[str]) -> str:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        return raw
+
+    def test_patch_persists_a_grant_and_read_surfaces_it(self) -> None:
+        # Wiring guard for the serializer matrix below: the viewset routes `write_scopes` through
+        # the update serializer, and the read shape hands it back so the settings UI can show it.
+        self._become_admin()
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["insight:write", "dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["write_scopes"] == ["dashboard:write", "insight:write"]
+        config.refresh_from_db()
+        assert config.write_scopes == ["dashboard:write", "insight:write"]
+
+    def test_patch_rejects_a_scope_outside_the_allowlist(self) -> None:
+        # The whole point of the field is that it can only ever carry the reviewed set, so a
+        # rejection names the grantable values rather than only the refusal.
+        self._become_admin()
+        config = self._config()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["feature_flag:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "dashboard:write" in str(response.json())
+        config.refresh_from_db()
+        assert config.write_scopes == []
+
+    @parameterized.expand(
+        [
+            # A member who neither authored the scout nor administers the project must not widen
+            # what the scout's runs can change in this project.
+            ("plain_member", False, False, False, status.HTTP_403_FORBIDDEN),
+            # Any skill editor can rewrite a skill's owner list, so being on it must not be enough:
+            # otherwise a member appoints themselves an owner and grants the scout from there.
+            ("skill_owner_only", True, False, False, status.HTTP_403_FORBIDDEN),
+            # The runs act as whoever authored the scout body, so that person may widen them.
+            ("scout_author", False, True, False, status.HTTP_200_OK),
+            ("project_admin", False, False, True, status.HTTP_200_OK),
+        ]
+    )
+    def test_granting_write_access_requires_the_acting_user_or_an_admin(
+        self, _name: str, is_owner: bool, is_author: bool, is_admin: bool, expected: int
+    ) -> None:
+        config = self._config()
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_owner:
+            self._own_the_scout(self.user)
+        if is_admin:
+            self._become_admin()
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else [])
+
+    def test_a_non_author_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
+        # Clients resend whole config objects, so an unchanged `write_scopes` must not turn an
+        # ordinary schedule edit into a permission error.
+        config = self._config(write_scopes=["dashboard:write"])
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": ["dashboard:write"], "run_interval_minutes": 720},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.run_interval_minutes == 720
+
+    def test_revoking_write_access_needs_the_same_claim(self) -> None:
+        # Narrowing is safe, but the refusal keeps one rule to state: a member who cannot grant
+        # cannot rewrite the field at all, so nobody can flip a scout's access behind its author.
+        config = self._config(write_scopes=["dashboard:write"])
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"write_scopes": []}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.write_scopes == ["dashboard:write"]
+
+    def test_a_stored_object_is_not_a_grant_to_compare_against(self) -> None:
+        # The mint path treats a non-list column as no grant, so the gate must read it the same
+        # way. Iterating the object's keys would make a non-author's request for exactly those
+        # keys look unchanged, and the save would turn a value that grants nothing into a grant.
+        config = self._config(write_scopes={"dashboard:write": False})
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"write_scopes": ["dashboard:write"]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.write_scopes == {"dashboard:write": False}
+
+    def test_creating_a_scout_with_a_grant_records_it_in_the_activity_log(self) -> None:
+        # A creation diffs against nothing, so without this the log's first entry for a granted
+        # scout says nothing about its access and a later revoke has no "before" to point at.
+        self._authored_by(self.user)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/configs/",
+            data={"skill_name": "signals-scout-hygiene", "write_scopes": ["dashboard:write"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        entry = ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", activity="created").latest(
+            "created_at"
+        )
+        assert entry.detail is not None
+        assert [(change["field"], change["action"], change["after"]) for change in entry.detail["changes"]] == [
+            ("write access", "created", ["dashboard:write"])
+        ]
+
+    @parameterized.expand(
+        [
+            # A key minted with only the config scope must not turn into `dashboard:write` on the
+            # scout's next run; the person narrowed that credential on purpose.
+            ("narrow_key_cannot_grant", ["signal_scout:write"], [], ["dashboard:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "key_carrying_the_scope_can_grant",
+                ["signal_scout:write", "dashboard:write"],
+                [],
+                ["dashboard:write"],
+                status.HTTP_200_OK,
+            ),
+            # Revoking adds nothing to the credential, so the narrow key may still do it.
+            ("narrow_key_can_revoke", ["signal_scout:write"], ["dashboard:write"], [], status.HTTP_200_OK),
+        ]
+    )
+    def test_a_scoped_api_key_must_carry_each_scope_it_grants(
+        self, _name: str, key_scopes: list[str], current: list[str], requested: list[str], expected: int
+    ) -> None:
+        self._become_admin()
+        config = self._config(write_scopes=current)
+        raw = self._personal_api_key(key_scopes)
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"write_scopes": requested},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.write_scopes == (requested if expected == status.HTTP_200_OK else current)
+
+
+class TestWriteScopesValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_is_read_only", [], True, []),
+            ("allowlisted_pair", ["insight:write", "dashboard:write"], True, ["dashboard:write", "insight:write"]),
+            # Sorted and deduped, so resending the same set in another order is not a change and
+            # never shows up in the activity log as one.
+            ("deduped_and_sorted", ["alert:write", "alert:write"], True, ["alert:write"]),
+            (
+                "skills_and_warehouse_scopes",
+                ["warehouse_view:write", "llm_skill:write"],
+                True,
+                ["llm_skill:write", "warehouse_view:write"],
+            ),
+            ("ungrantable_scope", ["feature_flag:write"], False, None),
+            # A scout run acts as its skill's author, so this scope would let a scout widen its own
+            # grant through the scout config endpoint. It stays ungrantable until that has a gate.
+            ("scout_config_scope", ["signal_scout:write"], False, None),
+            # A read scope grants nothing but would read as a grant in the settings UI.
+            ("read_scope", ["dashboard:read"], False, None),
+            ("internal_scope", ["signal_scout_report:write"], False, None),
+        ]
+    )
+    def test_write_scopes_validation(
+        self, _name: str, scopes: list[str], valid: bool, expected: list[str] | None
+    ) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"write_scopes": scopes}, partial=True)
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            assert serializer.validated_data["write_scopes"] == expected
+        else:
+            assert "write_scopes" in serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -1216,7 +1642,7 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
 class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # remember (create) and forget require `signal_scout_internal:write` — session auth
+        # remember (create) and forget require `signal_scratchpad_internal:write` — session auth
         # is rejected, so authenticate with the scout-internal token like the harness does.
         _authenticate_as_scout(self)
 
@@ -1233,6 +1659,30 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         data = response.json()
         assert data["key"] == "k1"
         assert data["content"] == "checkout regression noise — already tracked"
+
+    def test_remember_stamps_the_pipeline_stage_behind_the_token(self) -> None:
+        # The wiring guard for writer identity: the stage is derived from the token's bound task,
+        # so a research run's memory has to come back attributed without the body saying anything.
+        # A scout's write is unaffected — `test_remember_creates_entry` covers that path.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="Research: checkout 500s",
+            description="research",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        TaskRun.objects.create(task=task, team=self.team, state={"ai_stage": AI_STAGE_RESEARCH})
+        _authenticate_as_scout(self, scopes="signals_research", sandbox_task_id=task.id)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "payments team owns checkout"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["created_by_skill"] == PIPELINE_AUDIENCE
 
     def test_remember_idempotent_upsert_on_team_key(self) -> None:
         first = self.client.post(self._list_url(), data={"key": "k1", "content": "v1"}, format="json")
@@ -1310,16 +1760,45 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScratchpad.objects.filter(team=self.team).exists()
 
-    def test_remember_rejects_expires_at_in_the_past(self) -> None:
-        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
-        # mistake worth a 400 rather than a silently useless row.
+    @parameterized.expand(
+        [
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "in thirty days"),
+        ]
+    )
+    def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
+        # The agent computes `expires_at` itself and a share of writes carry a past or unparseable
+        # value. The content is the memory worth keeping, so an invalid expiry is dropped (the entry
+        # lands durable) rather than rejecting the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.expires_at is None
+        assert row.content == "v"
+
+    @parameterized.expand(
+        [
+            # The agent writes the expiry from a clock it can only guess at, so it often omits the
+            # UTC offset or gives the date alone. Both read as a valid instant in the project's
+            # timezone. Each used to be refused at the client boundary, which cost the whole write.
+            ("no_offset", "2035-10-05T09:30:00", datetime(2035, 10, 5, 9, 30, tzinfo=UTC)),
+            ("bare_date", "2035-10-05", datetime(2035, 10, 5, 0, 0, tzinfo=UTC)),
+        ]
+    )
+    def test_remember_honors_an_expiry_that_names_no_offset(
+        self, _name: str, expires_at: str, expected: datetime
+    ) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").expires_at == expected
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -1355,7 +1834,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
     def test_remember_drops_run_id_from_another_team(self) -> None:
         # A run UUID from another team must not create cross-team lineage on this
         # team's memory row — but lineage is best-effort, so the write still lands
-        # with `created_by_run_id` left null rather than being rejected.
+        # with `created_by_run_id` left null rather than being rejected. This caller's
+        # token names no task, so there is no sandbox run to fall back to either.
         other = Team.objects.create(organization=self.organization, name="Other")
         other_run = _make_run(other)
         response = self.client.post(
@@ -1369,7 +1849,8 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
 
     def test_remember_drops_unknown_run_id(self) -> None:
         # A well-formed UUID that doesn't reference any run row is dropped (no orphan
-        # lineage), but the memory write itself must never be lost over it.
+        # lineage), but the memory write itself must never be lost over it. This caller's
+        # token names no task, so there is no sandbox run to fall back to either.
         response = self.client.post(
             self._list_url(),
             data={"key": "k1", "content": "v", "run_id": "00000000-0000-0000-0000-000000000000"},
@@ -1379,14 +1860,65 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         row = SignalScratchpad.objects.get(team=self.team, key="k1")
         assert row.created_by_run_id is None
 
-    def test_remember_rejects_malformed_run_id(self) -> None:
-        # UUIDField in the serializer rejects non-UUID strings before the view runs.
+    @parameterized.expand(
+        [
+            ("not_a_uuid", "not-a-uuid"),
+            # The shape scouts actually send: a run UUID retyped out of the run prompt with a
+            # group dropped.
+            ("truncated_uuid", "01a0658a-30c3-7efb-bf14e4690b67"),
+        ]
+    )
+    def test_remember_keeps_the_write_when_run_id_is_unparseable(self, _name: str, run_id: str) -> None:
+        # The scout copies `run_id` out of its prompt by hand, so a share of writes carry a
+        # mistyped one. Lineage is best-effort metadata and the memory is the part worth keeping,
+        # so an unparseable id must not cost the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "run_id": "not-a-uuid"},
+            data={"key": "k1", "content": "v", "run_id": run_id},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v"
+
+    @parameterized.expand(
+        [
+            ("omitted", None),
+            ("unparseable", "01a0658a-30c3-7efb-bf14e4690b67"),
+            ("names_no_run", "00000000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_remember_attributes_the_entry_to_the_sandbox_run(self, _name: str, run_id: str | None) -> None:
+        # The contract the scout fleet depends on: a memory written from a scout sandbox keeps its
+        # run link even when the body carries no usable `run_id`. The token's bound task is the
+        # server's own record of which run is writing, so the typo costs nothing.
+        run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+        body: dict = {"key": "k1", "content": "v"}
+        if run_id is not None:
+            body["run_id"] = run_id
+
+        response = self.client.post(self._list_url(), data=body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert str(row.created_by_run_id) == str(run.id)
+
+    def test_remember_prefers_a_run_id_the_body_names_over_the_sandbox_run(self) -> None:
+        # The fallback only fills a gap. A scout writing on behalf of an earlier run still gets
+        # the run it named.
+        named = _make_run(self.team)
+        sandbox_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=sandbox_run.task_run.task_id)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "run_id": str(named.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert str(row.created_by_run_id) == str(named.id)
 
 
 class TestScoutHarnessNotesAPI(APIBaseTest):
@@ -1400,7 +1932,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/scout/notes/{note_id}/"
 
     def _make_scout_skill(self, name: str = "signals-scout-web-analytics") -> None:
+        # A scout is a skill that holds a config, so a note target needs both rows.
         LLMSkill.objects.create(team=self.team, name=name, description="scout", body="watch")
+        SignalScoutConfig.objects.create(team=self.team, skill_name=name)
 
     def test_create_and_list_roundtrip_with_attribution(self) -> None:
         self._make_scout_skill()
@@ -1423,23 +1957,38 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert listed.status_code == status.HTTP_200_OK
         assert [row["id"] for row in listed.json()] == [created["id"]]
 
+    def test_create_accepts_a_pipeline_audience_with_no_scout_skill(self) -> None:
+        # A pipeline audience names a stage of the report pipeline, which has no `LLMSkill` row,
+        # so it must clear the write path without one.
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "route billing-adjacent reports to the billing folks", "skill_name": PIPELINE_AUDIENCE},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["skill_name"] == PIPELINE_AUDIENCE
+
     @parameterized.expand(
         [
-            # (include_general, expected contents) — a scout's list must carry its own notes plus
-            # the fleet-wide general notes, and never another scout's.
-            ("with_general", "true", {"for the fleet", "for web analytics"}),
-            ("own_notes_only", "false", {"for web analytics"}),
+            # (target, include_general, expected contents) — a target's list must carry its own
+            # notes plus the fleet-wide general notes, and never another target's. A pipeline
+            # audience reads the same way a scout does, and neither one sees the other's notes.
+            ("scout_with_general", "signals-scout-web-analytics", "true", {"for the fleet", "for web analytics"}),
+            ("scout_own_notes_only", "signals-scout-web-analytics", "false", {"for web analytics"}),
+            ("pipeline_with_general", PIPELINE_AUDIENCE, "true", {"for the fleet", "for research"}),
+            ("pipeline_own_notes_only", PIPELINE_AUDIENCE, "false", {"for research"}),
         ]
     )
-    def test_list_scopes_to_skill_plus_general(self, _name: str, include_general: str, expected: set[str]) -> None:
+    def test_list_scopes_to_target_plus_general(
+        self, _name: str, target: str, include_general: str, expected: set[str]
+    ) -> None:
         SignalScoutNote.objects.create(team=self.team, skill_name="", content="for the fleet")
         SignalScoutNote.objects.create(
             team=self.team, skill_name="signals-scout-web-analytics", content="for web analytics"
         )
         SignalScoutNote.objects.create(team=self.team, skill_name="signals-scout-logs", content="for logs")
-        response = self.client.get(
-            f"{self._list_url()}?skill_name=signals-scout-web-analytics&include_general={include_general}"
-        )
+        SignalScoutNote.objects.create(team=self.team, skill_name=PIPELINE_AUDIENCE, content="for research")
+        response = self.client.get(self._list_url(), data={"skill_name": target, "include_general": include_general})
         assert response.status_code == status.HTTP_200_OK
         assert {row["content"] for row in response.json()} == expected
 
@@ -1465,8 +2014,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             # both a non-scout name and a scout name with no matching skill on the project.
             ("bad_target", {"content": "note", "skill_name": "web-analytics"}),
             ("unknown_scout", {"content": "note", "skill_name": "signals-scout-web-anlytics"}),
-            # A note born expired would never be seen by anyone.
-            ("past_expiry", {"content": "note", "expires_at": "2020-01-01T00:00:00Z"}),
+            # Same reasoning for the pipeline family: it is an allowlist, not a free-form prefix,
+            # so a stage that reads no notes cannot be addressed.
+            ("unknown_pipeline_audience", {"content": "note", "skill_name": "pipeline:implementation"}),
             ("blank_content", {"content": "   ", "skill_name": ""}),
         ]
     )
@@ -1474,6 +2024,47 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         response = self.client.post(self._list_url(), data=body, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    def test_create_rejects_a_note_for_a_skill_that_is_not_a_scout(self) -> None:
+        # The name now says nothing about whether a skill runs, so the config row is what makes
+        # it addressable. A note left for an ordinary skill would sit unread.
+        LLMSkill.objects.create(team=self.team, name="my-ordinary-skill", description="s", body="b")
+
+        response = self.client.post(
+            self._list_url(), data={"content": "note", "skill_name": "my-ordinary-skill"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
+
+    def test_create_accepts_a_note_for_a_scout_without_the_prefix(self) -> None:
+        self._make_scout_skill("my-churn-watch")
+
+        response = self.client.post(
+            self._list_url(), data={"content": "watch weekend churn", "skill_name": "my-churn-watch"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutNote.objects.get(team=self.team).skill_name == "my-churn-watch"
+
+    @parameterized.expand(
+        [
+            # A note born expired would never be seen by anyone, so the expiry goes and the note
+            # stays. Same stance for a value no clock can read.
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "next Friday"),
+        ]
+    )
+    def test_create_drops_invalid_expiry_without_losing_the_note(self, _name: str, expires_at: str) -> None:
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "watch checkout", "expires_at": expires_at},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        note = SignalScoutNote.objects.get(team=self.team)
+        assert note.expires_at is None
+        assert note.content == "watch checkout"
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned
@@ -1638,12 +2229,36 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
+    # A client that truncates a long tool result keeps the prefix, so the emit gate has to sit
+    # inside a small leading slice of the response however large the inventory grows.
+    GATE_PREFIX_CHARS = 2000
+
     def _seed_profile(self, *, team: Team | None = None) -> str:
         """Persist a real, schema-valid profile via the build path so a later read hits the
         cache, and return its profile_id. Building here is fine — the behavior under test is
         that the *read* doesn't build, not that nothing ever builds.
         """
         return compute_project_profile(team=team or self.team).profile_id
+
+    def _pad_stored_inventory(self, *, entries: int) -> None:
+        """Inflate the cached profile with schema-valid `recent_dashboards` rows.
+
+        Creating hundreds of real dashboards would buy a slow test for a property of the
+        response shape; padding the stored payload produces the same oversized inventory.
+        """
+        row = SignalProjectProfile.objects.filter(team=self.team).order_by("-computed_at").first()
+        assert row is not None
+        row.payload["inventory"]["recent_dashboards"] = [
+            {
+                "id": index,
+                "name": f"Dashboard {index} " + "long enough to add up " * 8,
+                "last_accessed_at": "2026-01-01T00:00:00+00:00",
+                "last_refresh": None,
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+            for index in range(entries)
+        ]
+        row.save(update_fields=["payload"])
 
     # --- untrusted (session) callers: read-only, never build ---
 
@@ -1662,7 +2277,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["profile_id"] == seeded_id
-        assert {"profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
+        assert {"summary", "profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
         assert "inventory" in body["payload"]
         # Read-only: no new row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
@@ -1706,6 +2321,43 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         # No second row written.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
+    @parameterized.expand([(False,), (True,)])
+    def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self, summary_only: bool) -> None:
+        run = _make_run(self.team)
+        assert run.scout_config is not None
+        SignalScoutConfig.objects.filter(pk=run.scout_config.pk).update(emit=False)
+        self._seed_profile()
+        # The sandbox token is bound to the task that dispatched the run, which is how the endpoint
+        # knows which scout is asking — the scout passes nothing.
+        _authenticate_as_scout(self, sandbox_task_id=run.task_run.task_id)
+
+        response = self.client.get(self._list_url(), {"summary_only": str(summary_only).lower()})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        eligibility = body["summary"]["emit_eligibility"]
+        if summary_only:
+            assert "payload" not in body
+        else:
+            assert body["payload"]["inventory"]["emit_eligibility"] == eligibility
+
+        assert eligibility["can_emit"] is False
+        assert eligibility["scout_emit_enabled"] is False
+        assert eligibility["blocking_reason"] == "scout_emit_disabled"
+        assert eligibility["remediation"]
+        # The team-wide gates are untouched, so the block really is this scout's own posture.
+        assert eligibility["ai_processing_approved"] is True
+        assert eligibility["source_enabled"] is True
+        stored = SignalProjectProfile.objects.get(team=self.team).payload["inventory"]["emit_eligibility"]
+        assert stored["can_emit"] is True
+        assert stored["scout_emit_enabled"] is None
+
+    def test_read_outside_a_run_keeps_the_team_wide_eligibility(self) -> None:
+        # No scout to answer for, so there is no per-scout toggle to report and the stored floor stands.
+        self._seed_profile()
+        eligibility = self.client.get(self._list_url()).json()["payload"]["inventory"]["emit_eligibility"]
+        assert eligibility["scout_emit_enabled"] is None
+        assert eligibility["can_emit"] is True
+
     def test_scout_read_inventory_payload_carries_expected_keys(self) -> None:
         _authenticate_as_scout(self)
         response = self.client.get(self._list_url())
@@ -1734,6 +2386,46 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_reviewer_corrections",
             "top_events",
         }
+
+    def test_emit_gate_stays_in_the_response_prefix_for_a_large_profile(self) -> None:
+        # The gate is the scout's first read and a long response can reach it truncated, so it
+        # must arrive ahead of the inventory rather than buried behind it.
+        _authenticate_as_scout(self)
+        self._seed_profile()
+        self._pad_stored_inventory(entries=500)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        rendered = response.content.decode()
+        assert len(rendered) > 20 * self.GATE_PREFIX_CHARS, "padding did not produce an oversized profile"
+        body = response.json()
+        # The envelope repeats the inventory rather than carrying a second, drifting copy.
+        assert body["summary"]["emit_eligibility"] == body["payload"]["inventory"]["emit_eligibility"]
+        assert body["summary"]["existing_inbox_reports"] == body["payload"]["inventory"]["existing_inbox_reports"]
+        prefix = rendered[: self.GATE_PREFIX_CHARS]
+        assert f'"can_emit":{json.dumps(body["summary"]["emit_eligibility"]["can_emit"])}' in prefix
+        assert '"remediation"' in prefix
+        assert '"existing_inbox_reports"' in prefix
+
+    def test_summary_only_drops_the_payload_and_keeps_the_gate(self) -> None:
+        _authenticate_as_scout(self)
+        self._seed_profile()
+
+        response = self.client.get(self._list_url(), {"summary_only": "true"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert "payload" not in body
+        assert set(body["summary"]["emit_eligibility"]) == {
+            "ai_processing_approved",
+            "source_enabled",
+            "scout_emit_enabled",
+            "can_emit",
+            "blocking_reason",
+            "remediation",
+        }
+        assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
 
 
 class TestRunCronScheduleValidation(SimpleTestCase):
@@ -1782,6 +2474,64 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             body="# test scout",
         )
 
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    def test_display_name_update_preserves_identity_and_running_history(self) -> None:
+        skill = self._make_skill("signals-scout-daily-digest")
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name=skill.name,
+            source_product="replay_vision",
+            source_id=str(uuid4()),
+            output_destinations={"webhook": {"hog_function_id": "test-webhook"}},
+        )
+        run = _make_run(self.team, scout_config=config, skill_name=skill.name)
+        note = SignalScoutNote.objects.create(team=self.team, skill_name=skill.name, content="Check checkout errors.")
+        memory = SignalScratchpad.objects.create(
+            team=self.team, key=f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test", content="Keep this memory."
+        )
+        original_config = next(
+            item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id)
+        )
+        assert original_config["display_name"] == ""
+        assert original_config["updated_at"] == "2026-09-01T12:00:00Z"
+
+        with time_machine.travel("2026-09-01T13:00:00Z", tick=False):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), data={"display_name": "  Checkout / daily digest  "}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            **original_config,
+            "display_name": "Checkout / daily digest",
+            "updated_at": "2026-09-01T13:00:00Z",
+        }
+        saved_config = next(item for item in self.client.get(self._list_url()).json() if item["id"] == str(config.id))
+        assert saved_config == response.json()
+        config.refresh_from_db()
+        skill.refresh_from_db()
+        run.refresh_from_db()
+        note.refresh_from_db()
+        memory.refresh_from_db()
+        assert config.skill_name == skill.name == run.skill_name == note.skill_name == "signals-scout-daily-digest"
+        assert memory.key == f"{FOLLOWUP_KEY_PREFIX}{skill.name}:test"
+        assert memory.content == "Keep this memory."
+
+    @parameterized.expand([("", 200), ("Shared name", 200), ("a" * 201, 400), (None, 400)])
+    def test_display_name_validation(self, display_name: str | None, expected_status: int) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", display_name="Original"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-bar", display_name="Shared name")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"display_name": display_name}, format="json"
+        )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.display_name == (display_name if expected_status == 200 else "Original")
+
     def test_list_returns_team_configs_ordered_by_skill(self) -> None:
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
@@ -1794,6 +2544,38 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
         assert body[0]["run_interval_minutes"] == 1440
+
+    def test_list_orders_by_the_name_each_scout_displays_under(self) -> None:
+        # A renamed scout has to sort where the reader sees it, not where its slug puts it —
+        # ordering by the identifier files "Alpha" under S for `signals-scout-zeta`.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-zeta", display_name="Alpha watch")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-zeta", "signals-scout-beta"]
+
+    @parameterized.expand(
+        [
+            ("by display name", "checkout", ["signals-scout-zeta"]),
+            ("by skill name", "beta", ["signals-scout-beta"]),
+            ("case-insensitively", "CHECKOUT", ["signals-scout-zeta"]),
+            ("matching neither", "nothing here", []),
+        ]
+    )
+    def test_list_search_matches_either_name(self, _name: str, search: str, expected: list[str]) -> None:
+        # The two audiences know a scout by different names: a person types the label, a stored
+        # client types the identifier. Matching only one leaves the other unable to find it.
+        SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-zeta", display_name="Checkout failures"
+        )
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.get(self._list_url(), data={"search": search})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == expected
 
     def test_list_excludes_withheld_config(self) -> None:
         # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
@@ -1893,6 +2675,30 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["scout_origin"] == expected_origin
 
+    @parameterized.expand(
+        [
+            # Both names are real on-disk canonical scouts, one of each role.
+            (
+                "operational_canonical",
+                "signals-scout-inbox-validation",
+                {"seeded_by": HARNESS_SEEDED_BY},
+                "operational",
+            ),
+            ("specialist_canonical", "signals-scout-general", {"seeded_by": HARNESS_SEEDED_BY}, "specialist"),
+            ("hand_authored_lookalike", "signals-scout-inbox-validation", {}, "specialist"),
+        ]
+    )
+    def test_list_classifies_role_from_the_canonical_fleet(
+        self, _name: str, skill_name: str, metadata: dict, expected_role: str
+    ) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="d", body="...", metadata=metadata)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["scout_role"] == expected_role
+
     @parameterized.expand(["list", "partial_update", "sync"])
     def test_config_responses_carry_the_skills_owners(self, action: str) -> None:
         # Every response path builds the serializer's context by hand, and one that forgets the
@@ -1951,6 +2757,33 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["owners"] == []
 
+    def test_list_says_who_turned_a_scout_off(self) -> None:
+        # The roster could only say *when* a scout went off, so a reader had to open the activity
+        # log to learn who did it, and a system pause looked like somebody's decision.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(
+            self._detail_url(str(SignalScoutConfig.objects.get(skill_name="signals-scout-checkout").id)),
+            data={"enabled": False},
+            format="json",
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"]["email"] == self.user.email
+
+    def test_list_hides_who_turned_a_scout_off_from_a_scout_sandbox_token(self) -> None:
+        # Same rule as `owners`: the actor is member PII, and the sandbox token carries
+        # `signal_scout:read`, so a run must not read it off the fleet's configs.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-checkout")
+        self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+        _authenticate_as_scout(self)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["status_changed_by"] is None
+
     def test_list_origin_defaults_to_custom_when_skill_absent(self) -> None:
         # A config with no live skill row isn't a canonical scout.
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
@@ -1991,6 +2824,105 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
         assert config.mcp_gateway_server_ids == [server_id]
+
+    @parameterized.expand(
+        [
+            (
+                "normalized",
+                ["PostHog/PostHog", " posthog/posthog-js "],
+                status.HTTP_200_OK,
+                ["posthog/posthog", "posthog/posthog-js"],
+            ),
+            ("malformed", ["posthog"], status.HTTP_400_BAD_REQUEST, None),
+            ("duplicated", ["posthog/posthog", "PostHog/PostHog"], status.HTTP_400_BAD_REQUEST, None),
+            ("unreachable", ["posthog/secret"], status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_partial_update_pins_repositories_the_scout_can_reach(
+        self, _name: str, repositories: list[str], expected_status: int, expected_stored: list[str] | None
+    ) -> None:
+        # A pin the sandbox cannot clone must be refused on save. Discovered mid-run instead, it
+        # costs the scout a whole run and trips the failure breaker on a fixable typo.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with (
+            patch(
+                "products.tasks.backend.facade.api.readonly_github_integration_id",
+                return_value=integration.id,
+            ),
+            patch(
+                "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+                return_value=[{"full_name": "PostHog/posthog"}, {"full_name": "posthog/posthog-js"}],
+            ),
+        ):
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": repositories},
+                format="json",
+            )
+
+        assert response.status_code == expected_status
+        config.refresh_from_db()
+        assert config.repositories == (expected_stored or [])
+
+    def test_partial_update_refuses_repositories_without_a_github_connection(self) -> None:
+        # Nothing to clone with means the scout would run repo-less no matter what it holds, so the
+        # pin is refused rather than silently ignored on every run.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"repositories": ["posthog/posthog"]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        config.refresh_from_db()
+        assert config.repositories == []
+
+    def test_partial_update_resending_stored_repositories_skips_the_github_check(self) -> None:
+        # The settings form and an MCP update resend the whole config on every save. Re-checking
+        # an unchanged pin against GitHub on each of them is a network call for nothing, and it
+        # turns a GitHub outage into a save that fails for a scout whose pins did not change.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-foo", repositories=["posthog/posthog"]
+        )
+
+        with patch("products.tasks.backend.facade.api.readonly_github_integration_id") as resolve_integration:
+            response = self.client.patch(
+                self._detail_url(str(config.id)),
+                data={"repositories": ["PostHog/posthog"], "emit": False},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        resolve_integration.assert_not_called()
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
+        assert config.emit is False
+
+    def test_partial_update_checks_repositories_against_the_canonical_team(self) -> None:
+        # Scout configs live on the parent team and a run mints from the parent's installation, so
+        # a PATCH that arrives on a child-environment URL has to check the pin there too, or a
+        # connected project refuses every pin made from one of its environments.
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        Integration.objects.create(team=self.team, kind="github", config={"account": {"type": "org"}})
+
+        with patch(
+            "products.tasks.backend.github_repository_access.GitHubIntegration.list_all_cached_repositories",
+            return_value=[{"full_name": "PostHog/posthog"}],
+        ):
+            response = self.client.patch(
+                f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+                data={"repositories": ["posthog/posthog"]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        config.refresh_from_db()
+        assert config.repositories == ["posthog/posthog"]
 
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
@@ -2225,11 +3157,55 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # A partial update skips the `thread_reports` default, so the flag reaches the reader
         # through the response only and the stored destination keeps the shape it was sent in.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "thread_reports": False},
+            "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
+
+    def test_partial_update_slack_dm_destination_round_trips(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Reads render both target keys, null when unset; the stored JSON keeps only what was sent.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "channel": None, "thread_reports": True},
+            "webhook": None,
+        }
+        config.refresh_from_db()
+        assert config.output_destinations == destination
+
+    def test_partial_update_slack_destination_preserves_explicit_thread_opt_out(self) -> None:
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            output_destinations={
+                "slack": {
+                    "integration_id": integration.id,
+                    "channel": "CSCOUTS|#scout-findings",
+                    "thread_reports": False,
+                }
+            },
+        )
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations["slack"]["thread_reports"] is False
 
     @parameterized.expand(
         [
@@ -2417,6 +3393,23 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    @parameterized.expand([(False,), (True,)])
+    def test_destroy_refuses_an_operational_scout(self, archived: bool) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-inbox-validation")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-inbox-validation",
+            description="d",
+            body="...",
+            metadata={"seeded_by": HARNESS_SEEDED_BY},
+            deleted=archived,
+        )
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
 
     def test_destroy_unknown_id_returns_404(self) -> None:
         response = self.client.delete(self._detail_url("00000000-0000-0000-0000-000000000000"))
@@ -2632,6 +3625,103 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # Storage is untouched — the row is hidden from the response, not deleted.
         assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
 
+    def test_sync_tombstones_a_retired_canonical_scout(self) -> None:
+        # A scout removed from `products/signals/skills/` leaves a live row on every team the
+        # harness seeded it into, and the roster keeps listing a scout that can never run again.
+        # The sync reaps it, on the same terms as the coordinator tick.
+        retired = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-retired",
+            description="retired scout",
+            body="# retired scout",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+            category="scout",
+            version=1,
+            is_latest=True,
+        )
+        retired.metadata["canonical_hash"] = _compute_row_hash(retired, [])
+        retired.save(update_fields=["metadata"])
+        hand_authored = self._make_skill("signals-scout-mine")
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        retired.refresh_from_db()
+        assert retired.deleted is True
+        assert retired.is_latest is False
+        assert "signals-scout-retired" not in {c["skill_name"] for c in response.json()}
+        # A team's own scout carrying the same prefix is never the harness's to reap.
+        hand_authored.refresh_from_db()
+        assert hand_authored.deleted is False
+        assert "signals-scout-mine" in {c["skill_name"] for c in response.json()}
+
+    def test_sync_records_what_the_materialization_did(self) -> None:
+        # The endpoint discarded the `SyncResult` it got back, so a materialization left nothing
+        # countable behind: not the projects a tab-open rescued, not the scouts a sync seeded.
+        with patch("products.signals.backend.scout_harness.fleet_sync.posthoganalytics.capture") as capture:
+            response = self.client.post(f"{self._sync_url()}?surface=roster")
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_fleet_synced"]
+        properties = call.kwargs["properties"]
+        assert properties["surface"] == "roster"
+        assert properties["team_id"] == self.team.id
+        # The rescue metric: this project had nothing and now has its fleet.
+        assert properties["was_empty"] is True
+        assert properties["created_count"] == len(discover_canonical_skills())
+        assert properties["configs_registered_count"] == len(response.json())
+        assert properties["fleet_size"] == len(response.json())
+        assert properties["pruned_count"] == 0
+        assert properties["unexpected_prune"] is False
+        assert properties["skipped_reason"] is None
+
+    def test_sync_records_a_no_op_pass(self) -> None:
+        # Zero counts are the denominator for "how often does opening the tab find work to do",
+        # so a pass that changed nothing still has to report.
+        self.client.post(self._sync_url())
+
+        with patch("products.signals.backend.scout_harness.fleet_sync.posthoganalytics.capture") as capture:
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_fleet_synced"]
+        properties = call.kwargs["properties"]
+        assert properties["created_count"] == 0
+        assert properties["configs_registered_count"] == 0
+        assert properties["was_empty"] is False
+        assert properties["surface"] == "unknown"
+
+    @parameterized.expand([("a retirement", False), ("a mass prune", True)])
+    def test_sync_reports_a_prune_too_large_to_be_a_retirement(self, _name: str, mass: bool) -> None:
+        # A deploy that ships a partial `products/signals/skills/` makes the reap strip live
+        # scouts off every project that opens the tab. Retiring one scout at a time is ordinary
+        # and must stay quiet; reaping the whole fleet in one pass has to reach error tracking,
+        # because the server log line it used to leave is watched by nothing.
+        fleet_size = len([n for n in canonical_skill_names() if n.startswith(SIGNALS_SCOUT_SKILL_PREFIX)])
+        pruned = tuple(f"signals-scout-gone-{i}" for i in range(fleet_size if mass else 1))
+        with (
+            patch(
+                "products.signals.backend.scout_harness.fleet_sync.sync_canonical_skills",
+                return_value=SyncResult(pruned_skill_names=pruned),
+            ),
+            patch("products.signals.backend.scout_harness.fleet_sync.capture_exception") as capture_exception,
+            patch("products.signals.backend.scout_harness.fleet_sync.posthoganalytics.capture") as capture,
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_fleet_synced"]
+        assert call.kwargs["properties"]["pruned_count"] == len(pruned)
+        assert call.kwargs["properties"]["unexpected_prune"] is mass
+        assert capture_exception.called is mass
+
+    def test_sync_rejects_an_unknown_surface(self) -> None:
+        # Wiring guard for `@validated_request`: the action reads `validated_query_data`, which
+        # only the decorator sets, so dropping it turns every sync into a 500.
+        response = self.client.post(f"{self._sync_url()}?surface=somewhere")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -2762,7 +3852,35 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.emit is True
         assert config.run_interval_minutes == 120
 
-    _CAP_PATCH = "products.signals.backend.scout_harness.views.MAX_ENABLED_SCOUTS_PER_TEAM"
+    def test_create_upsert_preserves_omitted_slack_thread_opt_out(self) -> None:
+        self._make_skill("signals-scout-fresh")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-fresh",
+            output_destinations={
+                "slack": {
+                    "integration_id": integration.id,
+                    "channel": "COLD|#old",
+                    "thread_reports": False,
+                }
+            },
+        )
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "skill_name": "signals-scout-fresh",
+                "output_destinations": {"slack": {"integration_id": integration.id, "channel": "CNEW|#new"}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
+        assert config.output_destinations["slack"]["thread_reports"] is False
+
+    _CAP_PATCH = "products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM"
 
     def test_create_disabled_config_is_allowed_at_team_cap(self) -> None:
         self._make_skill("signals-scout-first")
@@ -2802,6 +3920,84 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            # A project given more capacity in the flag may enable past the code fallback.
+            ("raised", {"max_enabled_scouts": 2}, status.HTTP_200_OK, True),
+            # Lowering it below current usage blocks the next enable without touching what runs.
+            ("lowered", {"max_enabled_scouts": 1}, status.HTTP_400_BAD_REQUEST, False),
+        ]
+    )
+    def test_enable_is_gated_by_the_flag_configured_cap(
+        self, _name: str, team_config: dict, expected_status: int, expected_enabled: bool
+    ) -> None:
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=False)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"team_configs": {str(self.team.id): team_config}}):
+            response = self.client.patch(self._detail_url(str(second.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == expected_status
+        second.refresh_from_db()
+        assert second.enabled is expected_enabled
+        # A lowered cap never pauses what is already running.
+        first.refresh_from_db()
+        assert first.enabled is True
+
+    def test_cap_rejection_names_the_resolved_cap(self) -> None:
+        # The number a person reads must be the number enforcement used, or the message sends
+        # them looking for scouts that are not there.
+        self._make_skill("signals-scout-first")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-second", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already has 1 enabled scouts" in response.json()["detail"]
+
+    def test_cap_rejection_above_a_lowered_cap_names_the_count_and_the_scouts_to_disable(self) -> None:
+        # A lowered cap leaves every running scout enabled, so the count can sit above the cap.
+        # Reporting the cap as the count, or asking for one disable, leaves the next enable refused.
+        for name in ("signals-scout-first", "signals-scout-second", "signals-scout-third"):
+            self._make_skill(name)
+            SignalScoutConfig.objects.create(team=self.team, skill_name=name, enabled=True)
+        self._make_skill("signals-scout-fourth")
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            response = self.client.post(
+                self._list_url(), data={"skill_name": "signals-scout-fourth", "enabled": True}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "This project already has 3 enabled scouts, and its limit is 1. Disable 3 scouts before you enable another."
+        )
+
+    def test_disabling_and_editing_stay_allowed_below_a_lowered_cap(self) -> None:
+        # Lowering the cap must leave a project able to dig itself out: disabling frees a slot,
+        # and tuning an enabled scout is not a net-new enable.
+        self._make_skill("signals-scout-first")
+        first = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-first", enabled=True)
+        self._make_skill("signals-scout-second")
+        second = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-second", enabled=True)
+
+        with patch(_METADATA_PAYLOAD_PATH, return_value={"default_team_config": {"max_enabled_scouts": 1}}):
+            tuned = self.client.patch(
+                self._detail_url(str(first.id)), data={"run_interval_minutes": 120}, format="json"
+            )
+            disabled = self.client.patch(self._detail_url(str(second.id)), data={"enabled": False}, format="json")
+
+        assert tuned.status_code == status.HTTP_200_OK
+        assert disabled.status_code == status.HTTP_200_OK
+        second.refresh_from_db()
+        assert second.enabled is False
+
+    @parameterized.expand(
+        [
             # Re-asserting `enabled=True` on the already-enabled scout: it's excluded from
             # its own cap count, so the upsert must not read as exceeding the cap.
             ("create_reassert_enabled", "create", {"skill_name": "signals-scout-first", "enabled": True}),
@@ -2824,16 +4020,80 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_skill", "signals-scout-nonexistent"),
-            ("non_scout_prefix", "my-ordinary-skill"),
+            ("unknown_skill", "signals-scout-nonexistent", False),
+            # The inbox reads these as sub-pages of `/inbox/scouts/`, so a scout under one could
+            # never be opened. They stay valid as ordinary skill names.
+            ("reserved_scratchpad", "scratchpad", True),
+            ("reserved_findings", "findings", True),
+            ("reserved_runs", "runs", True),
+            # `create_skill` and the `skill-create` MCP tool never check the name pattern, so a
+            # colon-bearing row can exist. Registering one as a scout would put its notes under a
+            # `pipeline:` audience the report-research stage reads, crossing the two families
+            # `note_targets` keeps apart.
+            ("pipeline_audience", "pipeline:report-research", True),
+            # `review-hog-` is another product's registered prefix, and both products re-stamp the
+            # server-owned category on sync, so registering one as a scout would thrash its tab.
+            ("foreign_product_prefix", "review-hog-security", True),
         ]
     )
-    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str) -> None:
-        if not skill_name.startswith("signals-scout-"):
+    def test_create_rejects_invalid_skill_name(self, _name: str, skill_name: str, make_skill: bool) -> None:
+        if make_skill:
             self._make_skill(skill_name)
         response = self.client.post(self._list_url(), data={"skill_name": skill_name}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists()
+
+    def test_create_registers_a_skill_without_the_scout_prefix(self) -> None:
+        # Explicit registration is the only way a bare-named skill becomes a scout, since
+        # auto-registration still scans for the prefix.
+        self._make_skill("my-ordinary-skill")
+
+        response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
+
+    @parameterized.expand(
+        [
+            # Registering puts the skill body on the schedule as the run's prompt, and the run acts
+            # as the skill's author. A config-only key must not reach that, whatever the name.
+            ("config_scope_only_prefixed", "signals-scout-fresh", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("config_scope_only_bare", "my-ordinary-skill", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", "my-ordinary-skill", ["signal_scout:write", "llm_skill:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_requires_skill_authoring_scope(
+        self, _name: str, skill_name: str, scopes: list[str], expected: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        self._make_skill(skill_name)
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(), data={"skill_name": skill_name}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == expected, response.content
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name=skill_name).exists() == (
+            expected == status.HTTP_201_CREATED
+        )
+
+    def test_create_requires_skill_editor_access(self) -> None:
+        # Same RBAC bar as creating a scout from scratch: a member who may tune scouts but may
+        # not author skills cannot put someone else's skill on the schedule.
+        self._make_skill("my-ordinary-skill")
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
+        ) as check_resource:
+            check_resource.side_effect = lambda resource, *args, **kwargs: resource != "llm_skill"
+            response = self.client.post(self._list_url(), data={"skill_name": "my-ordinary-skill"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="my-ordinary-skill").exists()
 
     def test_create_rejects_skill_belonging_to_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -2880,7 +4140,33 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
             "max_runs_per_day",
             "runs_today",
             "runs_remaining_today",
+            "max_enabled_scouts",
         }
+
+    @parameterized.expand(
+        [
+            ("no_override", {}, MAX_ENABLED_SCOUTS_PER_TEAM),
+            ("fleet_default", {"default_team_config": {"max_enabled_scouts": 400}}, 400),
+            (
+                "project_override_wins",
+                {
+                    "default_team_config": {"max_enabled_scouts": 400},
+                    "team_configs": {"__team__": {"max_enabled_scouts": 500}},
+                },
+                500,
+            ),
+        ]
+    )
+    def test_metadata_reports_the_enforced_enabled_cap(self, _name: str, extra: dict, expected: int) -> None:
+        # The endpoint exists to show the enforced number, so the cap it reports must be the one
+        # the write surfaces apply — the same three layers, resolved the same way.
+        payload = {"guaranteed_team_ids": [self.team.id], **extra}
+        if "team_configs" in payload:
+            payload["team_configs"] = {str(self.team.id): payload["team_configs"]["__team__"]}
+
+        body = self._get(payload).json()
+
+        assert body["limits"]["max_enabled_scouts"] == expected
 
     @parameterized.expand([("listed", True), ("not_listed", False)])
     def test_enrolled_reflects_guaranteed_team_ids(self, _name: str, listed: bool) -> None:
@@ -2960,12 +4246,16 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         assert body["limits"]["runs_today"] == 1
 
 
-_QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
-_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
+# The gates themselves live in `run_gates`, shared with the workflow-triggered run path, so
+# that's where they're patched; the view only maps their outcome onto DRF exceptions.
+_QUOTA = "products.signals.backend.scout_harness.run_gates.self_driving_quota_gate"
+_QUOTA_CAPTURE = "products.signals.backend.scout_harness.run_gates.capture_signal_report_quota_paused"
+_UNDER_QUOTA = SelfDrivingQuotaGate(limited=False, enforced=False)
+_DAILY_GATE = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
+_FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
-_FLAG = "products.signals.backend.scout_harness.views._read_flag_payload"
 
 
 class TestScoutHarnessConfigRunAPI(APIBaseTest):
@@ -2989,7 +4279,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         # guard for the "allow disabled" decision; a stray `enabled` gate would fail the disabled case.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=enabled)
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_CONNECT) as connect,
             patch(_START, return_value="wf-123") as start,
         ):
@@ -2997,20 +4287,134 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json() == {"skill_name": "signals-scout-foo", "workflow_id": "wf-123", "started": True}
-        start.assert_called_once_with(connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo")
+        start.assert_called_once_with(
+            connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo", run_note=None
+        )
 
-    def test_run_over_quota_returns_429_without_dispatching(self) -> None:
+    @parameterized.expand(
+        [
+            ("note", "Focus on the checkout regression.", "Focus on the checkout regression."),
+            ("padded", "  Focus on the checkout regression.  ", "Focus on the checkout regression."),
+            # Whitespace must not reach the prompt as a section saying someone left a note.
+            ("blank", "   ", None),
+        ]
+    )
+    def test_run_carries_a_one_off_note_to_the_dispatch(self, _name: str, note: str, expected: str | None) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        with patch(_QUOTA, return_value=True), patch(_START) as start:
+        with (
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT) as connect,
+            patch(_START, return_value="wf-123") as start,
+        ):
+            response = self.client.post(self._run_url(str(config.id)), data={"note": note}, format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        start.assert_called_once_with(
+            connect.return_value, team_id=self.team.id, skill_name="signals-scout-foo", run_note=expected
+        )
+
+    def test_run_with_oversized_note_returns_400_without_dispatching(self) -> None:
+        # An unbounded note would crowd out the instructions it is meant to steer.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START) as start:
+            response = self.client.post(
+                self._run_url(str(config.id)), data={"note": "x" * (MAX_RUN_NOTE_CHARS + 1)}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        start.assert_not_called()
+
+    def test_run_with_a_note_requires_skill_editor_access(self) -> None:
+        # A note clears the scout-note RBAC bar; triggering a run without one stays on the config write.
+        from posthog.scopes import APIScopeObject
+
+        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_llm_skill(
+            self_: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if resource == "llm_skill" else real_check(self_, resource, required_level)
+
+        with (
+            patch.object(UserAccessControl, "check_access_level_for_resource", autospec=True) as mock_check,
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
+            mock_check.side_effect = deny_llm_skill
+            with_note = self.client.post(
+                self._run_url(str(config.id)), data={"note": "focus on checkout"}, format="json"
+            )
+            assert with_note.status_code == status.HTTP_403_FORBIDDEN
+            start.assert_not_called()
+
+            plain = self.client.post(self._run_url(str(config.id)))
+            assert plain.status_code == status.HTTP_202_ACCEPTED, plain.json()
+            start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            # Steering a run with prose an agent reads verbatim is the skill-authoring capability.
+            ("scout_scope_only", ["signal_scout:write"], status.HTTP_403_FORBIDDEN),
+            ("both_scopes", ["signal_scout:write", "llm_skill:write"], status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_note_scope_requirements_for_api_keys(self, _name: str, scopes: list[str], expected: int) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+        with (
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123"),
+        ):
+            response = self.client.post(
+                self._run_url(str(config.id)),
+                data={"note": "focus on checkout"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == expected, response.content
+
+    @parameterized.expand(
+        [
+            ("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS, False),
+            # Dark launch: the pause is reported, but the run still dispatches.
+            ("dark_launch", False, status.HTTP_202_ACCEPTED, True),
+        ]
+    )
+    def test_run_over_quota_reports_the_pause_and_blocks_only_when_enforced(
+        self, _name: str, enforced: bool, expected_status: int, dispatches: bool
+    ) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        gate = SelfDrivingQuotaGate(limited=True, enforced=enforced)
+        with (
+            patch(_QUOTA, return_value=gate),
+            patch(_QUOTA_CAPTURE) as capture,
+            patch(_CONNECT),
+            patch(_START, return_value="wf-123") as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        start.assert_not_called()
+        assert response.status_code == expected_status
+        assert start.called is dispatches
+        # Without this the pause leaves no event trail: a rejected trigger never reaches the
+        # activity that would otherwise report it.
+        assert capture.call_args.kwargs["stage"] == "scout_run"
+        assert capture.call_args.kwargs["enforced"] is enforced
 
     def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
             patch(_START) as start,
         ):
@@ -3022,7 +4426,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_with_in_flight_run_returns_409_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         _make_run(self.team, skill_name="signals-scout-foo")  # TaskRun IN_PROGRESS by default
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_409_CONFLICT
@@ -3031,13 +4435,13 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_maps_workflow_already_started_race_to_409(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         race = WorkflowAlreadyStartedError("wf", "RunSignalsScoutWorkflow")
-        with patch(_QUOTA, return_value=False), patch(_CONNECT), patch(_START, side_effect=race):
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_CONNECT), patch(_START, side_effect=race):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_409_CONFLICT
 
     def test_run_unknown_config_returns_404_without_dispatching(self) -> None:
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url("00000000-0000-0000-0000-000000000000"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -3047,7 +4451,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
             patch(_WITHHELD, return_value={"signals-scout-foo"}),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
@@ -3059,7 +4463,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         # A config can outlive its skill; dispatching would 202 then fail in the runner with no run
         # row to poll. Reject up front — guards the latest-non-deleted-skill check in `run`.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-orphan")
-        with patch(_QUOTA, return_value=False), patch(_START) as start:
+        with patch(_QUOTA, return_value=_UNDER_QUOTA), patch(_START) as start:
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -3075,7 +4479,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         TaskRun = apps.get_model("tasks", "TaskRun")
         TaskRun.objects.filter(id=stale.task_run_id).update(created_at=old)
         with (
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_CONNECT),
             patch(_START, return_value="wf-123") as start,
         ):
@@ -3091,7 +4495,7 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with (
             patch(_FLAG, return_value={"guaranteed_team_ids": [self.team.id], "skip_team_ids": [self.team.id]}),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
@@ -3111,13 +4515,22 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
                 _FLAG,
                 return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 1}},
             ),
-            patch(_QUOTA, return_value=False),
+            patch(_QUOTA, return_value=_UNDER_QUOTA),
             patch(_START) as start,
         ):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         start.assert_not_called()
+
+
+_TEAM_ROSTER = "products.signals.backend.report_generation.team_membership.get_github_team_roster"
+
+
+def _membership(login: str, slug: str, *, is_maintainer: bool = False) -> GitHubTeamMembership:
+    return GitHubTeamMembership(
+        member_handle=login, team_slug=slug, team_name=slug.replace("-", " ").title(), is_maintainer=is_maintainer
+    )
 
 
 class TestScoutHarnessMembersAPI(APIBaseTest):
@@ -3127,6 +4540,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/members/"
+
+    def _link_github(self, user: User, login: str) -> None:
+        UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
 
     def test_lists_project_members_with_resolved_github_login(self) -> None:
         # self.user has a GitHub identity (login lowercased on resolution); a second member has
@@ -3168,6 +4584,70 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
         assert self.user.email in emails
         assert "outsider@example.com" not in emails
 
+    def test_team_filter_returns_the_team_with_its_maintainers_first(self) -> None:
+        # Routing input names a team while the artefact holds individuals, so the slug resolves to
+        # people. Guards both halves: the filter dropping a non-member, and the maintainer split.
+        self._link_github(self.user, "Plain")
+        maintainer = User.objects.create_and_join(self.organization, "boss@posthog.com", None, first_name="Boss")
+        self._link_github(maintainer, "boss")
+        outsider = User.objects.create_and_join(self.organization, "other@posthog.com", None, first_name="Other")
+        self._link_github(outsider, "other")
+        roster = GitHubTeamRoster(
+            memberships=(
+                _membership("plain", "team-desktop"),
+                _membership("boss", "team-desktop", is_maintainer=True),
+                _membership("other", "team-signals"),
+            ),
+            synced=True,
+        )
+
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "@PostHog/Team-Desktop"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()
+        assert [row["email"] for row in rows] == ["boss@posthog.com", self.user.email]
+        assert rows[0]["teams"] == [
+            {"provider": "github", "slug": "team-desktop", "name": "Team Desktop", "is_maintainer": True}
+        ]
+
+    @parameterized.expand(
+        [
+            # Nothing synced, so a 200 with an empty list would read as "nobody is on that team".
+            ("unsynced", GitHubTeamRoster(memberships=(), synced=False), "no synced team roster"),
+            # Synced, but no rows under this slug. Teams sync one at a time, so it is not a missing team.
+            (
+                "slug_not_covered",
+                GitHubTeamRoster(memberships=(_membership("someone", "team-signals"),), synced=True),
+                "isn't synced here",
+            ),
+        ]
+    )
+    def test_team_filter_that_resolves_nothing_says_why(self, _name: str, roster, expected: str) -> None:
+        with patch(_TEAM_ROSTER, return_value=roster):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
+
+    def test_team_filter_reports_a_failed_roster_read_as_retryable(self) -> None:
+        # A read failure and an unsynced project both resolve nothing, but the fixes differ. Telling
+        # a scout to turn a sync on when the sync is already on sends it to change a correct setting,
+        # and it caches that reason.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url(), data={"team": "team-desktop"})
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert "Try the call again" in response.json()["detail"]
+
+    def test_unfiltered_roster_survives_a_failing_membership_read(self) -> None:
+        # Teams ride along on the member list, so a warehouse failure must not take the roster down.
+        with patch(_TEAM_ROSTER, side_effect=RuntimeError("warehouse down")):
+            response = self.client.get(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [row["teams"] for row in response.json()] == [[]]
+
     @parameterized.expand([("session", None), ("public_read_token", "read_only")])
     def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:
         # The roster (member PII) is gated on the internal `signal_scout_internal` scope object, so neither
@@ -3181,6 +4661,55 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
             _authenticate_as_scout(self, scopes=scopes)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestScoutCanonicalTeamGuardAPI(APIBaseTest):
+    """Every scout surface that canonicalizes to the parent team must authorize against it.
+
+    The scout models persist under the canonical (parent) team, so a request made through a child
+    environment URL reads the parent's rows. A credential confined to the child alone passes the
+    default team check (URL team == child) and would otherwise reach data it was never scoped to.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+
+    @parameterized.expand(
+        [
+            ("scratchpad", "scratchpad/"),
+            ("project_profile", "project_profile/current/"),
+            ("metadata", "metadata/current/"),
+        ]
+    )
+    def test_child_scoped_api_key_cannot_read_parent_surface(self, _name: str, path: str) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:read"],
+            scoped_teams=[self.env.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.env.id}/signals/scout/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_child_scoped_scout_token_cannot_read_parent_members(self) -> None:
+        # The roster is member PII and only a sandbox token reaches it, so the child-scoped case
+        # needs that token rather than a PAK — an internal scope is never on a user-grantable key.
+        _authenticate_as_scout(self, team_id=self.env.id)
+
+        response = self.client.get(f"/api/projects/{self.env.id}/signals/scout/members/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
 
 
 class TestScoutRunDerivedMetadata(APIBaseTest):
@@ -3286,6 +4815,52 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
         assert self._stamp(run)["has_self_validation"] is False
 
+    def test_self_validation_counts_a_run_that_wrote_a_report_check(self) -> None:
+        # Writing a check *is* the validation being scheduled, unlike writing a queue entry, which
+        # only asks a future run to do it. Keeping the same field name is deliberate: the flag means
+        # "this run closed a loop", and scouts are moving from the queue onto checks.
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_self_validation_counts_a_run_that_recorded_a_verdict(self) -> None:
+        run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.CHECK_RESULT,
+            content="{}",
+            task_id=run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is True
+
+    def test_another_runs_check_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        other_run = _make_run(self.team)
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s")
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Re-read the issue."},
+            next_run_at=timezone.now() + timedelta(days=3),
+            expires_at=timezone.now() + timedelta(days=30),
+            task_id=other_run.task_run.task_id,
+        )
+        assert self._stamp(run)["has_self_validation"] is False
+
     def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:
         # Guards the serializer field: a `DictField(child=CharField())` coerces the nested map to
         # its Python repr, which turns a queryable object into unparseable prose.
@@ -3296,3 +4871,209 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         metadata = response.json()["metadata"]
         assert metadata["model"] == "some-model"
         assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False
+
+
+class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both_channel_and_users", {"integration_id": 1, "channel": "C1|#alerts", "users": ["U0123ABC|@a"]}),
+            ("not_a_member_id", {"integration_id": 1, "users": ["andy"]}),
+            ("channel_id_in_users", {"integration_id": 1, "users": ["C0123ABC456|#alerts"]}),
+            ("lowercase_member_id", {"integration_id": 1, "users": ["u0123abc456|@a"]}),
+            ("too_many_users", {"integration_id": 1, "users": [f"U0{index}ABCDE|@u{index}" for index in range(6)]}),
+        ]
+    )
+    def test_rejects_invalid_dm_destinations(self, _name: str, data: dict) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_dedupes_users_by_member_id(self) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(
+            data={"integration_id": 1, "users": ["U0123ABC|@a", "U0123ABC", "W0456DEF|@b"]}
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]
+
+
+_LIGHTHOUSE_API_SETTINGS = {
+    "LIGHTHOUSE_BROWSERLESS_URL": "https://browserless.example.com",
+    "LIGHTHOUSE_BROWSERLESS_TOKEN": "secret-token",
+    "SIGNALS_LIGHTHOUSE_ALLOWED_HOSTS": {"posthog.com"},
+}
+
+_LIGHTHOUSE_REPORT = {
+    "data": {
+        "lighthouseVersion": "13.4.1",
+        "finalDisplayedUrl": "https://posthog.com/pricing",
+        "categories": {"performance": {"score": 0.28}},
+        "audits": {"largest-contentful-paint": {"numericValue": 4553.2}},
+    }
+}
+
+
+# The endpoint's metering lives here rather than in the tool tests because the ordering under
+# test — validate, then reserve under the row lock, then load the page — lives in the view.
+class TestScoutHarnessLighthouseAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
+        _authenticate_as_scout(self)
+
+    def _audit_url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/lighthouse-audit/"
+
+    def _post(self, run: SignalScoutRun, url: str = "https://posthog.com/pricing", **setting_overrides):
+        response = MagicMock(status_code=200, content=b"{}")
+        response.json.return_value = _LIGHTHOUSE_REPORT
+        settings_used = {
+            **_LIGHTHOUSE_API_SETTINGS,
+            "SIGNALS_LIGHTHOUSE_TEAM_IDS": {self.team.id},
+            **setting_overrides,
+        }
+        with self.settings(**settings_used):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=response
+                ) as browserless:
+                    return (
+                        self.client.post(self._audit_url(str(run.id)), data={"url": url}, format="json"),
+                        browserless,
+                    )
+
+    def _spent(self, run: SignalScoutRun) -> int:
+        run.refresh_from_db()
+        return (run.metadata or {}).get(RUN_AUDIT_COUNT_KEY, 0)
+
+    def test_a_successful_audit_spends_exactly_one_slot(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["audits_remaining"] == MAX_AUDITS_PER_RUN - 1
+        assert self._spent(run) == 1
+        assert browserless.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("off_allowlist_host", "https://example.com/pricing", {}),
+            ("not_https", "http://posthog.com/pricing", {}),
+            ("team_not_enabled", "https://posthog.com/pricing", {"SIGNALS_LIGHTHOUSE_TEAM_IDS": set()}),
+        ]
+    )
+    def test_a_rejection_that_never_loads_a_page_costs_no_budget(self, _name: str, url: str, overrides: dict) -> None:
+        # A scout that misread the host rule would otherwise burn all five slots on instant
+        # round-trips and then be told it had spent them on audits.
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, url=url, **overrides)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+        # The remaining count rides in the message, so a scout can tell a rejection
+        # (budget intact) from an exhausted budget.
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_the_per_run_cap_is_enforced_without_reaching_browserless(self) -> None:
+        run = _make_run(self.team, metadata={RUN_AUDIT_COUNT_KEY: MAX_AUDITS_PER_RUN})
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "0 still available" in response.json()["detail"]
+        browserless.assert_not_called()
+
+    def test_a_failed_page_load_still_spends_its_slot(self) -> None:
+        # The runaway case the cap exists for is a scout retrying a page that cannot load.
+        run = _make_run(self.team)
+        broken = MagicMock(status_code=500, content=b"")
+        broken.text = "upstream error"
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request", return_value=broken
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._spent(run) == 1
+
+    def test_a_fleet_at_capacity_gives_the_slot_back(self) -> None:
+        # The egress gate refuses before a browser starts, so five refusals must not read as five
+        # audits — a busy fleet would otherwise empty a run's budget without measuring anything.
+        run = _make_run(self.team)
+        with self.settings(**_LIGHTHOUSE_API_SETTINGS, SIGNALS_LIGHTHOUSE_TEAM_IDS={self.team.id}):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.posthoganalytics.get_feature_flag_payload",
+                return_value=None,
+            ):
+                with patch(
+                    "products.signals.backend.scout_harness.tools.lighthouse.browserless_request",
+                    side_effect=BrowserlessEgressBudgetExhausted("Browserless egress budget exhausted"),
+                ):
+                    response = self.client.post(
+                        self._audit_url(str(run.id)),
+                        data={"url": "https://posthog.com/pricing"},
+                        format="json",
+                    )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert self._spent(run) == 0
+        assert f"{MAX_AUDITS_PER_RUN} of {MAX_AUDITS_PER_RUN} audits still available" in response.json()["detail"]
+
+    def test_returns_501_when_the_deployment_has_no_browserless(self) -> None:
+        run = _make_run(self.team)
+
+        response, browserless = self._post(run, LIGHTHOUSE_BROWSERLESS_URL="")
+
+        assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+        browserless.assert_not_called()
+        assert self._spent(run) == 0
+
+    def test_rejects_a_run_that_is_not_in_progress(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        browserless.assert_not_called()
+
+    def test_another_teams_run_is_not_auditable(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        run = _make_run(other_team)
+
+        response, browserless = self._post(run)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        browserless.assert_not_called()
+
+    def test_a_sandbox_token_may_only_spend_its_own_runs_budget(self) -> None:
+        # Team scoping alone leaves the per-run cap in name only: a scout can list its siblings
+        # and spend each one's five slots, and every slot is a real browser session. Both halves
+        # matter — without the first, refusing everything would pass just as well.
+        own_run = _make_run(self.team)
+        sibling_run = _make_run(self.team)
+        _authenticate_as_scout(self, sandbox_task_id=own_run.task_run.task_id)
+
+        allowed, browserless_for_own = self._post(own_run)
+        refused, browserless_for_sibling = self._post(sibling_run)
+
+        assert allowed.status_code == status.HTTP_200_OK, allowed.json()
+        assert browserless_for_own.call_count == 1
+        assert self._spent(own_run) == 1
+
+        assert refused.status_code == status.HTTP_404_NOT_FOUND
+        browserless_for_sibling.assert_not_called()
+        assert self._spent(sibling_run) == 0

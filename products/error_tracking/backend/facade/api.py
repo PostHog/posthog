@@ -13,8 +13,11 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
-from .. import logic, weekly_digest
-from ..logic import external_references, rules
+from products.access_control.backend.facade.api import valid_role_member_user_ids
+
+from .. import logic, weekly_digest, weekly_digest_delivery
+from ..indexed_embedding import EMBEDDING_TABLES
+from ..logic import external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -25,6 +28,7 @@ from ..remote_config import build_error_tracking_config as build_error_tracking_
 from . import contracts
 from .contracts import (
     CrashFreeSummary as CrashFreeSummary,
+    DocumentEmbeddingTable as DocumentEmbeddingTable,
     ExceptionSummary as ExceptionSummary,
 )
 
@@ -57,6 +61,8 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             display_name=integration.display_name,
         ),
         external_url=external_references.build_external_issue_url(reference),
+        external_id=external_references.external_issue_id(reference),
+        title=external_references.external_issue_title(reference),
     )
 
 
@@ -106,7 +112,7 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
 def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssueAssignmentNotification:
     role_member_user_ids: list[int] = []
     if assignment.role_id:
-        role_member_user_ids = list(assignment.role.members.values_list("id", flat=True))
+        role_member_user_ids = valid_role_member_user_ids(role_id=assignment.role_id)
 
     issue = assignment.issue
     return contracts.ErrorTrackingIssueAssignmentNotification(
@@ -125,8 +131,8 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
     )
 
 
-def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
-    issues = logic.list_issues(team_id)
+def list_issues(team_id: int, limit: int = logic.MAX_LISTED_ISSUES) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues(team_id, limit=limit)
     return [_to_issue_preview(issue) for issue in issues]
 
 
@@ -692,6 +698,16 @@ def is_supported_external_issue_provider(kind: str) -> bool:
     return external_references.is_supported_external_issue_provider(kind=kind)
 
 
+def prepare_github_external_reference_jobs(
+    event_type: str, payload: dict[str, Any]
+) -> list[contracts.GitHubExternalReferenceJob]:
+    return github_external_references.prepare_jobs(event_type, payload)
+
+
+def link_github_external_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
+    return github_external_references.link_reference(job)
+
+
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:
     return logic.get_issue_values(team_id=team_id, key=key, value=value)
 
@@ -768,8 +784,22 @@ def build_team_digest_data(team: Any) -> dict[str, Any] | None:
 
 
 def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
-    return weekly_digest.build_team_section_payload(data)
+    return weekly_digest_delivery.build_team_section_payload(data)
 
 
 def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
-    weekly_digest.send_digest_to_workflow(digest, distinct_id)
+    weekly_digest_delivery.send_digest_to_workflow(digest, distinct_id)
+
+
+def document_embedding_tables() -> list[DocumentEmbeddingTable]:
+    """Every per-model embeddings table.
+
+    Other products embed their documents into these tables too, so a sweep that removes a
+    product's rows needs the full list rather than the one model it writes with.
+    """
+    return [
+        DocumentEmbeddingTable(
+            sharded_table=table.sharded_table_name(), distributed_table=table.distributed_table_name()
+        )
+        for table in EMBEDDING_TABLES
+    ]

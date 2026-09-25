@@ -9,14 +9,24 @@ concurrency:
     group: desktop-agent-release
     cancel-in-progress: false
 
+env:
+    SLACK_CHANNEL: 'C0C3FBES5ST'
+    # npm's audit blocks the pnpm bootstrap. See .github/actions/pnpm-install for why.
+    NPM_CONFIG_AUDIT: 'false'
+    NPM_CONFIG_FUND: 'false'
+
 jobs:
     release:
         name: Publish agent to npm
-        runs-on: ubuntu-latest
+        # npm provenance requires a github-hosted runner; Depot registers as self-hosted
+        runs-on: ubuntu-24.04
         timeout-minutes: 30
+        environment: npm-posthog-agent
         permissions:
             contents: read
             id-token: write
+        outputs:
+            version: ${{ steps.version.outputs.version }}
         defaults:
             run:
                 working-directory: products/desktop
@@ -63,23 +73,99 @@ jobs:
               env:
                   NPM_CONFIG_PROVENANCE: true
 
-    rebuild-sandbox-images:
-        name: Rebuild tasks sandbox base images
+    # hogli-lint: not-a-required-gate -- reads the release result only to report it in Slack
+    notify-release:
+        name: Post the release to Slack
         needs: release
-        runs-on: ubuntu-latest
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            actions: read
+        outputs:
+            thread_ts: ${{ steps.slack.outputs.ts }}
+        steps:
+            - name: Describe the release
+              id: meta
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  RUN_ID: ${{ github.run_id }}
+                  RESULT: ${{ needs.release.result }}
+                  TAG: ${{ github.ref_name }}
+                  SHA: ${{ github.sha }}
+              run: |
+                  started=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}" --jq .run_started_at 2>/dev/null || true)
+                  if [ -n "$started" ]; then
+                    elapsed=$(( $(date +%s) - $(date -d "$started" +%s) ))
+                    duration="$((elapsed / 60))m $((elapsed % 60))s"
+                  else
+                    duration="Unknown"
+                  fi
+                  if [ "$RESULT" = "success" ]; then
+                    emoji=":white_check_mark:"
+                    status="Published to npm"
+                  else
+                    emoji=":red_circle:"
+                    status="Release ${RESULT}"
+                  fi
+                  {
+                    echo "version=${TAG#agent-v}"
+                    echo "emoji=$emoji"
+                    echo "status=$status"
+                    echo "duration=$duration"
+                    echo "commit=${SHA:0:7} (${TAG})"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Post to Slack
+              id: slack
+              # Slack is a courtesy: a failed post must not stop the pin bump below.
+              continue-on-error: true
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: "${{ steps.meta.outputs.emoji }} @posthog/agent ${{ steps.meta.outputs.version }}: ${{ steps.meta.outputs.status }}"
+                      unfurl_links: false
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "${{ steps.meta.outputs.emoji }} *<https://www.npmjs.com/package/@posthog/agent/v/${{ steps.meta.outputs.version }}|@posthog/agent ${{ steps.meta.outputs.version }}>*"
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Status*\n${{ steps.meta.outputs.status }}"
+                            - type: "mrkdwn"
+                              text: "*Commit*\n`${{ steps.meta.outputs.commit }}`"
+                            - type: "mrkdwn"
+                              text: "*Duration*\n${{ steps.meta.outputs.duration }}"
+                            - type: "mrkdwn"
+                              text: "*Run*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Desktop Agent Release #${{ github.run_number }}>"
+
+    bump-sandbox-agent-pin:
+        name: Open a PR bumping the sandbox agent pin
+        needs: [release, notify-release]
+        # notify-release runs on !cancelled(), so this job restates the release gate it used to inherit.
+        if: ${{ !cancelled() && needs.release.result == 'success' }}
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
             actions: write
         steps:
-            # Same-repo dispatch: the agent now lives in this repository, so the
-            # cross-repo GH_APP_POSTHOG_WORKFLOW_TRIGGER app is retired and the
-            # ambient token dispatches the rebuild directly.
-            - name: Dispatch sandbox image rebuild
+            - name: Dispatch the agent version bump
               env:
                   GH_TOKEN: ${{ github.token }}
+                  AGENT_VERSION: ${{ needs.release.outputs.version }}
+                  SLACK_THREAD_TS: ${{ needs.notify-release.outputs.thread_ts }}
               run: |
-                  echo "Dispatching sandbox base image rebuild for $GITHUB_REF_NAME"
-                  gh workflow run cd-sandbox-base-image.yml \
+                  echo "Dispatching sandbox agent pin bump to $AGENT_VERSION"
+                  gh workflow run update-sandbox-agent-version.yml \
                     --repo PostHog/posthog \
-                    --ref master
+                    --ref master \
+                    -f version="$AGENT_VERSION" \
+                    -f slack_thread_ts="$SLACK_THREAD_TS"

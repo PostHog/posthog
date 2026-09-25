@@ -1,6 +1,10 @@
 Return a scalar count of log entries matching a filter set. Use this as a cheap pre-flight before `query-logs` — if the count exceeds `query-logs`'s max `limit` of 1000, narrow the filters before pulling rows.
 
-All parameters must be nested inside a `query` object.
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
 
 # When to use
 

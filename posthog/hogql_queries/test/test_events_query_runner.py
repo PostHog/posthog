@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, cast
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -11,6 +11,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -44,7 +46,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_id, timestamp, event_properties = row[0], row[1], row[2]
             # Optional 4th element pins the event uuid so cursor-pagination SQL stays deterministic.
             event_uuid = row[3] if len(row) > 3 else None
-            with freeze_time(timestamp):
+            with time_machine.travel(timestamp, tick=False):
                 if distinct_id not in distinct_ids_handled:
                     person_result.append(
                         _create_person(
@@ -95,7 +97,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def _run_boolean_field_query(self, filter: EventPropertyFilter):
-        with freeze_time("2020-01-11T12:01:00"):
+        with time_machine.travel("2020-01-11T12:01:00", tick=False):
             query = EventsQuery(
                 after="-24h",
                 event="$pageview",
@@ -153,7 +155,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with freeze_time("2020-01-11T12:01:00"):
+        with time_machine.travel("2020-01-11T12:01:00", tick=False):
             query = EventsQuery(kind="EventsQuery", after="-24h", orderBy=["timestamp ASC"], select=["*"])
             response = EventsQueryRunner(query=query, team=self.team).run()
 
@@ -163,7 +165,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # String session id is checked for a recording (none exists, so False); non-string ones are skipped.
         assert by_distinct_id["good"]["$has_recording"] is False
         for distinct_id in ("dict", "list", "int"):
-            assert "$has_recording" not in by_distinct_id[distinct_id]
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert isinstance(by_distinct_id[distinct_id]["$session_id"], str)
+                assert by_distinct_id[distinct_id]["$has_recording"] is False
+            else:
+                assert "$has_recording" not in by_distinct_id[distinct_id]
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(
@@ -221,7 +227,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        with freeze_time("2020-01-11T12:01:00"):
+        with time_machine.travel("2020-01-11T12:01:00", tick=False):
             query = EventsQuery(
                 after="-24h",
                 event="$pageview",
@@ -255,7 +261,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        with freeze_time("2020-01-11T12:01:00"):
+        with time_machine.travel("2020-01-11T12:01:00", tick=False):
             query = EventsQuery(
                 after="-24h",
                 event="$pageview",
@@ -377,7 +383,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         flush_persons_and_events()
 
-        with freeze_time("2020-01-11T12:01:00"):
+        with time_machine.travel("2020-01-11T12:01:00", tick=False):
             query = EventsQuery(
                 after="2020-01-11",
                 before="2020-01-15",
@@ -402,7 +408,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_element_chain_property_filter(self):
         # Create an event with 'div' in elements_chain
         _create_event(
@@ -487,7 +493,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results[0][0]["properties"]["attr"], "no div")
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_presorted_events_table(self):
         self._create_events(
             data=[
@@ -536,7 +542,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_presorted_events_table_order_by_event(self):
         """Test presorted optimization when ordering by event column."""
         self._create_events(data=[("p2", "2021-01-20T12:00:14Z", {})], event="beta_event")
@@ -563,7 +569,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2][0]["distinct_id"] == "p3"
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_presorted_events_table_order_by_property(self):
         """Test presorted optimization when ordering by property."""
         self._create_events(
@@ -595,7 +601,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[2][0]["distinct_id"] == "p3"
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-21")
+    @time_machine.travel("2021-01-21", tick=False)
     def test_presorted_events_table_multiple_order_by(self):
         """Test presorted optimization with multiple ORDER BY clauses."""
         self._create_events(
@@ -930,7 +936,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         all_results = []
         for offset in (0, 2, 4):
-            with freeze_time("2020-01-12"):
+            with time_machine.travel("2020-01-12", tick=False):
                 query = EventsQuery(
                     kind="EventsQuery",
                     select=["properties.idx", "timestamp"],
@@ -989,7 +995,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         all_results = []
         cursor = None
         for _ in range(3):
-            with freeze_time("2020-01-12"):
+            with time_machine.travel("2020-01-12", tick=False):
                 query = EventsQuery(
                     kind="EventsQuery",
                     select=["properties.idx", "timestamp"],
@@ -1029,7 +1035,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         all_results = []
         cursor = None
         for _ in range(3):
-            with freeze_time("2020-01-12"):
+            with time_machine.travel("2020-01-12", tick=False):
                 query = EventsQuery(
                     kind="EventsQuery",
                     select=["properties.idx", "timestamp"],
@@ -1064,7 +1070,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        with freeze_time("2020-01-12"):
+        with time_machine.travel("2020-01-12", tick=False):
             query = EventsQuery(
                 kind="EventsQuery",
                 select=["event", "timestamp"],
@@ -1088,7 +1094,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        with freeze_time("2020-01-12"):
+        with time_machine.travel("2020-01-12", tick=False):
             query = EventsQuery(
                 kind="EventsQuery",
                 select=["count()", "timestamp"],
@@ -1112,7 +1118,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        with freeze_time("2020-01-12"):
+        with time_machine.travel("2020-01-12", tick=False):
             query = EventsQuery(
                 kind="EventsQuery",
                 select=["*"],
@@ -1143,7 +1149,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         all_indices: list[str] = []
         cursor = None
         for _ in range(5):
-            with freeze_time("2020-01-12"):
+            with time_machine.travel("2020-01-12", tick=False):
                 query = EventsQuery(
                     kind="EventsQuery",
                     select=["uuid", "properties.idx", "timestamp"],
@@ -1180,7 +1186,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             event="custom_event",
         )
 
-        with freeze_time("2020-01-12"):
+        with time_machine.travel("2020-01-12", tick=False):
             query = EventsQuery(
                 kind="EventsQuery",
                 select=["*"],
@@ -1202,7 +1208,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         self.organization.save()
 
-    @freeze_time("2020-01-11T12:00:05Z")
+    @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_person_properties_stripped_from_person_column(self):
         from posthog.models import PropertyDefinition
 
@@ -1247,7 +1253,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "email" not in person_data["properties"]
         assert "name" in person_data["properties"]
 
-    @freeze_time("2020-01-11T12:00:05Z")
+    @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_event_property_in_select_raises_error(self):
         from posthog.hogql.errors import ResolutionError
 
@@ -1283,7 +1289,51 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ResolutionError):
             runner.run()
 
-    @freeze_time("2020-01-11T12:00:05Z")
+    @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
+    def test_restricted_display_property_does_not_break_person_display_name(self):
+        from posthog.models import PropertyDefinition
+
+        from products.access_control.backend.models.property_access_control import PropertyAccessControl
+        from products.access_control.backend.property_access_control import PropertyAccessLevel
+
+        self._enable_property_access_control()
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"email": "secret@example.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:01Z",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        # restrict "email", the first default display-name property
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        query = EventsQuery(select=["person_display_name -- Person"], after="2020-01-10")
+        runner = EventsQueryRunner(query=query, team=self.team, user=self.user)
+        response = runner.run()
+
+        # The query must succeed and mask the restricted value, not raise.
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert len(response.results) > 0
+        assert response.results[0][0]["display_name"] == "Test User"
+
+    @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_users_with_different_restrictions_get_different_cache_keys(self):
         self._enable_property_access_control()
 
@@ -1332,7 +1382,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "Users with different property access restrictions must get different cache keys"
         )
 
-    @freeze_time("2020-01-11T12:00:05Z")
+    @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_users_without_restrictions_share_cache_key(self):
         # no property access control rules — both users should share the same cache key
         other_user = self._create_user("other@posthog.com")
@@ -1354,7 +1404,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "Users without property access restrictions should share the same cache key"
         )
 
-    @freeze_time("2020-01-11T12:00:05Z")
+    @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_cached_results_not_served_across_restriction_boundaries(self):
         from posthog.models import PropertyDefinition
 

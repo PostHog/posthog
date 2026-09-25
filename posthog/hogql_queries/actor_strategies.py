@@ -12,7 +12,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
@@ -150,6 +150,11 @@ class PersonStrategy(ActorStrategy):
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
                             left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
+                            right=ast.Constant(value=f"%{search}%"),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "Email"])]),
                             right=ast.Constant(value=f"%{search}%"),
                         ),
                         ast.CompareOperation(

@@ -189,6 +189,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiTask": {
+        "template": "/ai",
+        "params": [],
+        "scope": "project"
+    },
     "alert": {
         "template": "/alerts",
         "params": [],
@@ -249,9 +254,34 @@
         "params": [],
         "scope": "project"
     },
+    "broadcast": {
+        "template": "/broadcasts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "broadcastNew": {
+        "template": "/broadcasts/new",
+        "params": [],
+        "scope": "project"
+    },
+    "broadcasts": {
+        "template": "/broadcasts",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeSettings": {
+        "template": "/business-knowledge/settings",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeSource": {
+        "template": "/business-knowledge/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "canvas": {
@@ -277,6 +307,11 @@
     "codeChannelLink": {
         "template": "/code/channel/{channelId}",
         "params": ["channelId"],
+        "scope": "project"
+    },
+    "codeLoopLink": {
+        "template": "/code/loop/{loopId}",
+        "params": ["loopId"],
         "scope": "project"
     },
     "codeReview": {
@@ -308,16 +343,6 @@
         "template": "/feature_flags/staff/cohorts",
         "params": [],
         "scope": "global"
-    },
-    "comment": {
-        "template": "/data-management/comments/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "comments": {
-        "template": "/data-management/comments",
-        "params": [],
-        "scope": "project"
     },
     "communitySkills": {
         "template": "/skills/community",
@@ -357,6 +382,11 @@
     "customerAnalyticsAccount": {
         "template": "/customer_analytics/accounts/{accountId}",
         "params": ["accountId"],
+        "scope": "project"
+    },
+    "customerAnalyticsAccountByExternalId": {
+        "template": "/customer_analytics/accounts/by-external-id/{externalId}",
+        "params": ["externalId"],
         "scope": "project"
     },
     "customerAnalyticsAccounts": {
@@ -399,6 +429,11 @@
         "params": [],
         "scope": "project"
     },
+    "customerAnalyticsTasks": {
+        "template": "/customer_analytics/tasks",
+        "params": [],
+        "scope": "project"
+    },
     "customerJourneyBuilder": {
         "template": "/customer_analytics/journeys/new",
         "params": [],
@@ -417,11 +452,6 @@
     "dashboard": {
         "template": "/dashboard/{id}",
         "params": ["id"],
-        "scope": "project"
-    },
-    "dashboardButtonTile": {
-        "template": "/dashboard/{id}/button-tiles/{buttonTileId}",
-        "params": ["id", "buttonTileId"],
         "scope": "project"
     },
     "dashboardSharing": {
@@ -444,9 +474,9 @@
         "params": ["templateId"],
         "scope": "project"
     },
-    "dashboardTextTile": {
-        "template": "/dashboard/{id}/text-tiles/{textTileId}",
-        "params": ["id", "textTileId"],
+    "dashboardTile": {
+        "template": "/dashboard/{id}/tiles/{tileId}",
+        "params": ["id", "tileId"],
         "scope": "project"
     },
     "dashboards": {
@@ -574,8 +604,8 @@
         "params": ["handle"],
         "scope": "project"
     },
-    "engineeringAnalyticsHealth": {
-        "template": "/engineering-analytics/health",
+    "engineeringAnalyticsDeploys": {
+        "template": "/engineering-analytics/deploys",
         "params": [],
         "scope": "project"
     },
@@ -599,8 +629,8 @@
         "params": [],
         "scope": "project"
     },
-    "engineeringAnalyticsTestHealth": {
-        "template": "/engineering-analytics/test-health",
+    "engineeringAnalyticsTests": {
+        "template": "/engineering-analytics/tests",
         "params": [],
         "scope": "project"
     },
@@ -646,11 +676,6 @@
     },
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "errorTrackingIssueFingerprints": {
-        "template": "/error_tracking/{id}/fingerprints",
         "params": ["id"],
         "scope": "project"
     },
@@ -812,6 +837,11 @@
     "identityMatching": {
         "template": "/identity-matching",
         "params": [],
+        "scope": "project"
+    },
+    "identityProviderConfig": {
+        "template": "/settings/organization-authentication/{feature}/{configId}",
+        "params": ["feature", "configId"],
         "scope": "project"
     },
     "inbox": {
@@ -1054,6 +1084,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalytics": {
+        "template": "/mcp-analytics",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsActivity": {
         "template": "/mcp-analytics/activity",
         "params": [],
@@ -1066,6 +1101,11 @@
     },
     "mcpAnalyticsIntentClustering": {
         "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
         "params": [],
         "scope": "project"
     },
@@ -1112,6 +1152,11 @@
     "mcpGatewayTab": {
         "template": "/mcp-servers/{tab}",
         "params": ["tab"],
+        "scope": "project"
+    },
+    "mcpRegistry": {
+        "template": "/mcp-registry",
+        "params": [],
         "scope": "project"
     },
     "metrics": {
@@ -1161,6 +1206,11 @@
     },
     "organizationBilling": {
         "template": "/organization/billing",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationBillingRealTimeUsage": {
+        "template": "/organization/billing/real-time-usage",
         "params": [],
         "scope": "global"
     },
@@ -1219,6 +1269,11 @@
         "params": [],
         "scope": "project"
     },
+    "precomputeDebug": {
+        "template": "/debug/precompute",
+        "params": [],
+        "scope": "project"
+    },
     "preflight": {
         "template": "/preflight",
         "params": [],
@@ -1238,6 +1293,11 @@
         "template": "/organization/create-project",
         "params": [],
         "scope": "global"
+    },
+    "projectFiles": {
+        "template": "/files",
+        "params": [],
+        "scope": "project"
     },
     "projectHomepage": {
         "template": "/home",
@@ -1304,26 +1364,6 @@
         "params": [],
         "scope": "project"
     },
-    "replayVisionAction": {
-        "template": "/replay-vision/actions/{actionId}",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionEdit": {
-        "template": "/replay-vision/actions/{actionId}/edit",
-        "params": ["actionId"],
-        "scope": "project"
-    },
-    "replayVisionActionNew": {
-        "template": "/replay-vision/{scannerId}/actions/new",
-        "params": ["scannerId"],
-        "scope": "project"
-    },
-    "replayVisionActionRun": {
-        "template": "/replay-vision/actions/{actionId}/runs/{runId}",
-        "params": ["actionId", "runId"],
-        "scope": "project"
-    },
     "replayVisionObservation": {
         "template": "/replay-vision/observations/{observationId}",
         "params": ["observationId"],
@@ -1374,6 +1414,11 @@
         "params": ["resourceKind", "resourceId"],
         "scope": "project"
     },
+    "reusableWidget": {
+        "template": "/notebooks/widgets/{widgetId}",
+        "params": ["widgetId"],
+        "scope": "project"
+    },
     "revenueSettings": {
         "template": "/data-management/revenue",
         "params": [],
@@ -1417,6 +1462,11 @@
     "sharedDashboard": {
         "template": "/shared_dashboard/{shareToken}",
         "params": ["shareToken"],
+        "scope": "project"
+    },
+    "shipIt": {
+        "template": "/games/shipit",
+        "params": [],
         "scope": "project"
     },
     "signup": {
@@ -1584,6 +1634,11 @@
         "params": [],
         "scope": "project"
     },
+    "terminal": {
+        "template": "/terminal",
+        "params": [],
+        "scope": "project"
+    },
     "toolbarLaunch": {
         "template": "/toolbar",
         "params": [],
@@ -1591,6 +1646,16 @@
     },
     "tracing": {
         "template": "/tracing",
+        "params": [],
+        "scope": "project"
+    },
+    "tracingRetentionDetail": {
+        "template": "/tracing/retention-rules/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "tracingRetentionNew": {
+        "template": "/tracing/retention-rules/new",
         "params": [],
         "scope": "project"
     },
@@ -1689,6 +1754,11 @@
         "params": ["repoId"],
         "scope": "project"
     },
+    "warehouseDestinations": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseProperties": {
         "template": "/data-management/warehouse-properties",
         "params": [],
@@ -1706,6 +1776,11 @@
     },
     "webAnalyticsBotAnalytics": {
         "template": "/web/bots",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsContentAutopilot": {
+        "template": "/web/content-autopilot",
         "params": [],
         "scope": "project"
     },
@@ -1754,8 +1829,8 @@
         "params": [],
         "scope": "project"
     },
-    "wizard": {
-        "template": "/wizard",
+    "wizardRuns": {
+        "template": "/wizard/runs",
         "params": [],
         "scope": "project"
     },

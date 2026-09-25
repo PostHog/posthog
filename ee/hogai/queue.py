@@ -30,7 +30,7 @@ class QueueFullError(Exception):
     pass
 
 
-@dataclass
+@dataclass(frozen=False)
 class ConversationQueueStore:
     conversation_id: str
     max_messages: int = MAX_QUEUE_MESSAGES
@@ -105,7 +105,7 @@ class ConversationQueueStore:
             queue = self.list()
             for index, item in enumerate(queue):
                 if item.get("id") == queue_id:
-                    queue[index] = {**item, "content": content}  # ty: ignore[invalid-assignment]
+                    queue[index] = {**item, "content": content}
                     self.save(queue)
                     return queue
             return queue

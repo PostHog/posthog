@@ -7,6 +7,7 @@ import posixpath
 from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 from urllib.parse import urlencode
@@ -33,6 +34,7 @@ from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
+from social_core.backends.utils import load_backends
 from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
 from statshog.defaults.django import statsd
 
@@ -46,13 +48,14 @@ from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
-from posthog.models import Team, User
+from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_HEADER,
-    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     activity_storage,
+    client_from_header,
+    record_agent_intent,
 )
-from posthog.models.utils import generate_random_token
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -119,6 +122,120 @@ default_cookie_options = {
 }
 
 cookie_api_paths_to_ignore = {"api", "flags", "scim"}
+
+# Both regions share the `posthog.com` domain, so a browser signed in to both carries both of
+# these, which is what lets the OAuth region picker tell one live region apart from two. The
+# `ph_*` cookies above cannot: they are one slot, last writer wins.
+REGION_AUTHENTICATED_COOKIES = {"US": "ph_authenticated_us", "EU": "ph_authenticated_eu"}
+
+
+def region_authenticated_cookie_name() -> str | None:
+    return REGION_AUTHENTICATED_COOKIES.get((settings.CLOUD_DEPLOYMENT or "").upper())
+
+
+def session_age_for_user(user: User) -> int:
+    org_id = user.current_organization_id
+    if org_id:
+        org_session_age = cache.get(f"org_session_age:{org_id}")
+        if org_session_age is not None:
+            return org_session_age
+    return settings.SESSION_COOKIE_AGE
+
+
+MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS = 60
+MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS = 5
+
+
+class ManagedProxyClientIPOutcome(StrEnum):
+    VALID = "valid"
+    # The instance holds no signing key, which is the normal state outside PostHog Cloud.
+    NOT_CONFIGURED = "not_configured"
+    TIMESTAMP_OUT_OF_WINDOW = "timestamp_out_of_window"
+    INVALID_INPUT = "invalid_input"
+    BAD_SIGNATURE = "bad_signature"
+
+
+# Alert on `valid` falling to zero while managed proxy traffic continues. Do not alert on the
+# failure outcomes, because anyone can raise those by sending forged headers to the origin.
+MANAGED_PROXY_CLIENT_IP_VERIFICATIONS = Counter(
+    "posthog_managed_proxy_client_ip_verifications",
+    "Verifications of the client IP that the managed reverse proxy signs, by outcome.",
+    ["outcome"],
+)
+
+
+def verify_managed_proxy_client_ip(
+    ip: str | None, timestamp: str | None, signature: str | None
+) -> ManagedProxyClientIPOutcome:
+    """Report whether the managed reverse proxy signed this client IP.
+
+    The proxy Worker sends hex(HMAC-SHA256(key, f"{ip}:{timestamp}")) with the timestamp in unix seconds.
+    A change to this format must also go to the Worker, or Django ignores the signed IP on every request.
+    """
+    keys = [key for key in settings.MANAGED_PROXY_SIGNING_KEYS if key]
+    if not keys:
+        return ManagedProxyClientIPOutcome.NOT_CONFIGURED
+    if not ip or not timestamp or not signature:
+        return ManagedProxyClientIPOutcome.INVALID_INPUT
+    # int() raises ValueError on very long digit strings, so check the length first.
+    if len(timestamp) > 12 or not (timestamp.isascii() and timestamp.isdigit()):
+        return ManagedProxyClientIPOutcome.INVALID_INPUT
+    try:
+        ip_address(ip)
+    except ValueError:
+        return ManagedProxyClientIPOutcome.INVALID_INPUT
+    age_seconds = time.time() - int(timestamp)
+    if not -MANAGED_PROXY_SIGNATURE_MAX_CLOCK_SKEW_SECONDS <= age_seconds <= MANAGED_PROXY_SIGNATURE_MAX_AGE_SECONDS:
+        return ManagedProxyClientIPOutcome.TIMESTAMP_OUT_OF_WINDOW
+
+    message = f"{ip}:{timestamp}".encode()
+    provided = signature.lower()
+    for key in keys:
+        if signatures_match(hmac_sha256_signature(key, message), provided):
+            return ManagedProxyClientIPOutcome.VALID
+    return ManagedProxyClientIPOutcome.BAD_SIGNATURE
+
+
+class ManagedProxyClientIPMiddleware:
+    """Use the client IP that the managed reverse proxy signed as the request's client IP.
+
+    Envoy sets X-Forwarded-For to its peer, which is a Cloudflare edge for managed proxy traffic.
+    Only a shared secret can recover the real client, because a Cloudflare edge range identifies
+    Cloudflare and not PostHog's Worker: any Cloudflare tenant can point a zone at this origin.
+    The ingress must therefore keep overwriting X-Forwarded-For rather than appending to it.
+
+    After a valid signature, X-Forwarded-For holds only the signed IP, so get_ip_address,
+    get_trusted_client_ip, axes, DRF throttles and the request log all see the real client.
+    The rewrite goes into request.META because axes/ipware and the DRF throttles read
+    HTTP_X_FORWARDED_FOR from META directly, which a request attribute would not reach.
+
+    REMOTE_ADDR stays the transport peer. get_trusted_client_ip then returns the signed IP only
+    when that peer is in TRUSTED_PROXIES, or when TRUST_ALL_PROXIES is set.
+
+    Any other outcome keeps the edge IP and lets the request through. The edge IP comes from Envoy
+    rather than from the client, so the fallback costs precision and not safety. A rejection would
+    instead turn a key or Worker mistake into failed requests on a path that carries event capture.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        # Remove the headers on every request, so that no later code can read an unverified value.
+        ip = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP", None)
+        timestamp = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP_TIMESTAMP", None)
+        signature = request.META.pop("HTTP_X_POSTHOG_CLIENT_IP_SIGNATURE", None)
+        if ip is None and timestamp is None and signature is None:
+            return self.get_response(request)
+
+        outcome = verify_managed_proxy_client_ip(ip, timestamp, signature)
+        MANAGED_PROXY_CLIENT_IP_VERIFICATIONS.labels(outcome=outcome.value).inc()
+        if outcome is ManagedProxyClientIPOutcome.VALID:
+            request.META["HTTP_X_FORWARDED_FOR"] = ip
+        # request.headers caches a copy of META on first access, and the pops above changed META.
+        # Drop the cache so that a later reader sees the change.
+        request.__dict__.pop("headers", None)
+        return self.get_response(request)
 
 
 class AllowIPMiddleware:
@@ -247,26 +364,18 @@ class AutoProjectMiddleware:
                 and path_parts[0] == "project"
                 and (path_parts[1].startswith("phc_") or path_parts[1] in self.token_allowlist)
             ):
+                new_team = Team.objects.filter(api_token=path_parts[1]).first()
 
-                def do_redirect():
+                if new_team is not None and self.switch_team_if_allowed(new_team, request):
+                    path_parts[1] = str(new_team.pk)
                     new_path = "/".join(path_parts)
                     search_params = request.GET.urlencode()
-
                     return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
 
-                try:
-                    new_team = Team.objects.get(api_token=path_parts[1])
-
-                    if not self.can_switch_to_team(new_team, request):
-                        raise Team.DoesNotExist
-
-                    path_parts[1] = str(new_team.pk)
-                    return do_redirect()
-
-                except Team.DoesNotExist:
-                    if user.team:
-                        path_parts[1] = str(user.team.pk)
-                        return do_redirect()
+                # The token names no project the person can open. The address keeps the token,
+                # which tells them nothing about the project behind it.
+                if user.team:
+                    request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
                 project_id_in_url = int(path_parts[1])
@@ -280,11 +389,16 @@ class AutoProjectMiddleware:
                 project_id_in_url = int(path_parts[2])
 
             if project_id_in_url and user.team and user.team.pk != project_id_in_url:
+                switched = False
                 try:
                     new_team = Team.objects.get(pk=project_id_in_url)
-                    self.switch_team_if_allowed(new_team, request)
+                    switched = self.switch_team_if_allowed(new_team, request)
                 except Team.DoesNotExist:
                     pass
+                if not switched and path_parts[0] == "project":
+                    # We keep serving the user's own team here, so the app must say so instead of
+                    # rendering that team under another project's address.
+                    request.project_access_denied = path_parts[1]  # type: ignore
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
@@ -334,11 +448,11 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team_if_allowed(actual_item.team, request)
 
-    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest) -> bool:
         user = cast(User, request.user)
 
         if not self.can_switch_to_team(new_team, request):
-            return
+            return False
 
         old_team_id = user.current_team_id
         user.team = new_team
@@ -347,6 +461,7 @@ class AutoProjectMiddleware:
         user.save()
         # Information for POSTHOG_APP_CONTEXT
         request.switched_team = old_team_id  # type: ignore
+        return True
 
     def can_switch_to_team(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
@@ -824,6 +939,11 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
+            # Unlike the two above, leaving this one behind would redirect the picker into a
+            # region the visitor just left.
+            region_cookie = region_authenticated_cookie_name()
+            if region_cookie:
+                response.delete_cookie(region_cookie, domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated:
             if request.user.team:
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (httponly=False intentional, read by JS)
@@ -861,6 +981,30 @@ class PostHogTokenCookieMiddleware(MiddlewareMixin):
                     secure=default_cookie_options["secure"],
                     samesite=default_cookie_options["samesite"],
                 )
+
+            region_cookie = region_authenticated_cookie_name()
+            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+            if region_cookie and session_created_at:
+                # SessionAgeMiddleware ages a session from creation and never slides that
+                # deadline, so count down to the same instant rather than renew a window here.
+                remaining = int(session_created_at + session_age_for_user(request.user) - time.time())
+                if remaining > 0:
+                    response.set_cookie(
+                        key=region_cookie,
+                        value="1",
+                        max_age=remaining,
+                        expires=None,
+                        path=default_cookie_options["path"],
+                        domain=default_cookie_options["domain"],
+                        secure=default_cookie_options["secure"],
+                        # The oauth.posthog.com worker reads this from the request Cookie header,
+                        # so nothing in the browser needs it. HttpOnly keeps a script on any
+                        # sibling posthog.com origin from reading or overwriting it.
+                        httponly=True,
+                        # Strict, used above, is withheld on the cross-site top-level navigation
+                        # an OAuth client sends the visitor to oauth.posthog.com by.
+                        samesite="Lax",
+                    )
 
             auth_backend = request.session.get("_auth_user_backend")
             login_method = AUTH_BACKEND_KEYS.get(auth_backend)
@@ -903,14 +1047,7 @@ class SessionAgeMiddleware:
         # Get session creation time
         session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
         if session_created_at:
-            # Get timeout from Redis cache first, fallback to settings
-            org_id = request.user.current_organization_id
-            session_age = None
-            if org_id:
-                session_age = cache.get(f"org_session_age:{org_id}")
-
-            if session_age is None:
-                session_age = settings.SESSION_COOKIE_AGE
+            session_age = session_age_for_user(request.user)
 
             current_time = time.time()
             if current_time - session_created_at > session_age:
@@ -1067,8 +1204,8 @@ class OAuthCoopMiddleware:
     window.opener when a cross-origin popup navigates to our pages — breaking
     popup-based OAuth flows that rely on the opener reference to detect completion.
 
-    We set COOP to "unsafe-none" on all OAuth-related paths so the opener
-    reference is preserved.
+    We set COOP to "unsafe-none" on OAuth paths, and on the social-auth and signup
+    pages that an OAuth flow passes through, so the opener reference is preserved.
     """
 
     OAUTH_PATH_PREFIXES = (
@@ -1090,15 +1227,37 @@ class OAuthCoopMiddleware:
                 return True
         return False
 
+    @staticmethod
+    def _is_social_auth_path(path: str) -> bool:
+        parts = path.strip("/").split("/")
+        if len(parts) != 2 or parts[0] not in ("login", "complete"):
+            return False
+        return parts[1] in load_backends(settings.AUTHENTICATION_BACKENDS)
+
+    def _targets_oauth_flow(self, next_url: str) -> bool:
+        if not next_url:
+            return False
+        normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
+        return self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES)
+
+    def _needs_opener_reference(self, request) -> bool:
+        path = request.path
+        if self._matches_oauth_prefix(path, self.OAUTH_PATH_PREFIXES):
+            return True
+        if self._is_social_auth_path(path):
+            # The provider redirects back to /complete/ without a next parameter, so read the destination
+            # that social-auth stored in the session at /login/.
+            session = getattr(request, "session", None)
+            session_next = session.get("next", "") if session is not None else ""
+            return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
+        if path in ("/login", "/login/", "/signup", "/signup/"):
+            return self._targets_oauth_flow(request.GET.get("next", ""))
+        return False
+
     def __call__(self, request):
         response = self.get_response(request)
-        if self._matches_oauth_prefix(request.path, self.OAUTH_PATH_PREFIXES):
+        if self._needs_opener_reference(request):
             response["Cross-Origin-Opener-Policy"] = "unsafe-none"
-        elif request.path == "/login" or request.path == "/login/":
-            next_url = request.GET.get("next", "")
-            normalized = posixpath.normpath(next_url) if next_url.startswith("/") else next_url
-            if self._matches_oauth_prefix(normalized, self.OAUTH_PATH_PREFIXES):
-                response["Cross-Origin-Opener-Policy"] = "unsafe-none"
         return response
 
 
@@ -1120,10 +1279,11 @@ class ActivityLoggingMiddleware:
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+            record_agent_intent(request)
 
         client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
         if client_header:
-            activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+            activity_storage.set_client(client_from_header(client_header))
 
         activity_storage.set_ip_address(get_ip_address(request) or None)
 
@@ -1132,93 +1292,6 @@ class ActivityLoggingMiddleware:
         finally:
             # Clean up activity storage after request
             activity_storage.clear_all()
-
-        return response
-
-
-class CSPMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        nonce = generate_random_token(16)
-        request.csp_nonce = nonce
-
-        # nonce must be added to request (above) before generating response
-        response = self.get_response(request)
-
-        content_type = response.get("Content-Type", "")
-        # csp headers only matter on html documents, so for defense in depth, add strong csp to all other requests
-        if "text/html" not in content_type:
-            response.headers["Content-Security-Policy"] = "default-src 'none'"
-            return response
-
-        is_admin_view = request.path.startswith("/admin/")
-        if is_admin_view:
-            django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
-            csp_parts = [
-                "default-src 'self'",
-                "style-src 'self' 'unsafe-inline'",
-                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
-                "font-src data: https://fonts.gstatic.com",
-                "worker-src 'none'",
-                "child-src 'none'",
-                "object-src 'none'",
-                "frame-ancestors 'none'",
-                "manifest-src 'none'",
-                # used by the error page
-                "frame-src https://posthog.com",
-                "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2",
-                "report-to posthog",
-            ]
-
-            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-            # `report-to posthog` directive keeps routing violations to `posthog`.
-            admin_report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"
-            response.headers["Reporting-Endpoints"] = (
-                f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
-            )
-            response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
-        else:
-            resource_url = "https://*.posthog.com"
-            if settings.DEBUG or settings.TEST:
-                resource_url = "http://localhost:8234"
-            elif settings.SITE_URL.endswith(".dev.posthog.dev"):
-                resource_url = "https://*.dev.posthog.dev"
-
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            csp_parts = [
-                "default-src 'self'",
-                f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
-                f"script-src 'self' 'nonce-{nonce}' {resource_url} https://*.i.posthog.com",
-                f"font-src 'self' {resource_url} https://app-static.eu.posthog.com https://app-static-prod.posthog.com https://d1sdjtjk6xzm7.cloudfront.net https://fonts.gstatic.com https://cdn.jsdelivr.net https://assets.faircado.com https://use.typekit.net",
-                "worker-src 'self'",
-                "child-src 'none'",
-                "object-src 'none'",
-                "media-src https://res.cloudinary.com",
-                f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
-                "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
-                # allow all sites for displaying heatmaps
-                "frame-src https:",
-                "manifest-src 'self'",
-                "base-uri 'self'",
-                "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",
-                "report-to posthog",
-            ]
-
-            report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"
-            user = getattr(request, "user", None)
-            if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
-                # Crash reports arrive after the tab already died, so the report body is the
-                # only chance to attribute them; carrying the distinct_id in the endpoint URL
-                # ties the event to the person instead of a random per-report id.
-                report_endpoint += "&" + urlencode({"distinct_id": user.distinct_id})
-            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
-            # `report-to posthog` directive keeps routing violations to `posthog`.
-            response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
-            response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
 
@@ -1281,9 +1354,43 @@ class SocialAuthExceptionMiddleware:
         return error_detail
 
 
-class ActiveOrganizationMiddleware:
+# Page prefixes kept per block, keyed by the page that explains it. An invite targets the inviting
+# organization, which this check never judges. Settling the balance is how a member lifts a
+# deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
+ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
+    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/"),
+    "/organization-deactivated": (
+        "/organization-deactivated",
+        "/signup/",
+        "/organization/billing",
+        "/billing/authorization_status",
+    ),
+}
+
+
+def organization_block_page(organization: Organization) -> Optional[str]:
+    """The page explaining why this organization is closed to its members, or None when it is open.
+
+    Only an explicit `False` deactivates. `is_active` is nullable, but the migration that added it
+    backfilled every row to `True` and operators write `False` explicitly, so a null means "never
+    deactivated".
     """
-    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    if organization.is_pending_deletion:
+        return "/organization-pending-deletion"
+    if organization.is_active is False:
+        return "/organization-deactivated"
+    return None
+
+
+class ActiveOrganizationMiddleware:
+    """Keep members out of an organization that is deactivated or pending deletion.
+
+    Runs after `AutoProjectMiddleware`, which switches the user into the organization a
+    `/project/<id>` URL names, so this middleware needs no path parsing of its own.
+    `test_middleware.py` pins the order.
+
+    This is UX, not enforcement: every `/api` path is skipped, and `ActiveOrganizationPermission`
+    is what holds the API.
     """
 
     _IGNORED_PATHS = ("/logout", "/api", "/admin")
@@ -1300,26 +1407,21 @@ class ActiveOrganizationMiddleware:
             return self.get_response(request)
 
         user = cast(User, request.user)
+        organization = user.current_organization
 
-        if user.current_organization is None:
+        if organization is None:
             return self.get_response(request)
 
-        # Check pending deletion first — takes priority over is_active
-        if user.current_organization.is_pending_deletion:
-            return (
-                self.get_response(request)
-                if request.path == "/organization-pending-deletion"
-                else redirect("/organization-pending-deletion")
-            )
+        block_page = organization_block_page(organization)
 
-        if user.current_organization.is_active is not False:
-            return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
+        if block_page is None:
+            # A member sitting on a block page has been let back in.
+            return redirect("/") if request.path in ALLOWED_WHILE_BLOCKED else self.get_response(request)
 
-        return (
-            self.get_response(request)
-            if request.path == "/organization-deactivated"
-            else redirect("/organization-deactivated")
-        )
+        if any(request.path.startswith(allowed) for allowed in ALLOWED_WHILE_BLOCKED[block_page]):
+            return self.get_response(request)
+
+        return redirect(block_page)
 
 
 # Session key used to mark an impersonation session as read-only
@@ -1370,8 +1472,24 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
             r"^/api/(environments|projects)/([0-9]+|@current)/external_data_schemas/[^/]+/incremental_fields/?$"
         ),
     ),
+    # POST but read-only: parses the query's SQL to report whether it can be materialized
+    # incrementally, and writes nothing. The editor calls it on every open of a model's
+    # materialization panel, so blocking it hides the whole Refresh mode section with no error.
+    # The action is named exactly, because the same prefix hosts the mutating saved-query
+    # actions (materialize, run, cancel, resume).
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/warehouse_saved_queries/check_incremental/?$"),
+    ),
+    # POST but read-only: reads the project facts that decide how to configure a new experiment, for
+    # support on identity and bucketing tickets. The action is named exactly, because the same prefix
+    # hosts the mutating experiment actions.
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/experiments/setup_context/?$")),
     # POST but read-only: kicks off insight/dashboard/session replay export renders (e.g. MP4)
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/exports/?$")),
+    # POST but read-only: counts the persons a workflow audience matches. The action is named
+    # exactly, because the same `hog_flows/` prefix hosts the writing actions (publish, run).
+    ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/hog_flows/user_blast_radius/?$")),
     # POST but read-only: the Logs product sends its queries as POST because the filter payload
     # is too large for a query string. Action names are enumerated rather than allowing the whole
     # `logs/` prefix, which also hosts writing CRUD viewsets (alerts, views, sampling_rules,

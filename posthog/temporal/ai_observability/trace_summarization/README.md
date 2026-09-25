@@ -57,7 +57,7 @@ Both activities are unified — they handle trace-level and generation-level sum
 
 ### Coordinator: `llma-trace-summarization-coordinator`
 
-Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`).
+Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.
 
@@ -124,35 +124,67 @@ temporal workflow start \
 
 > Local dev uses `development-task-queue`, production uses `general-purpose-task-queue`.
 
+A per-team run returns an empty result if the team's organization did not approve third-party AI data processing.
+See [AI data processing consent](#ai-data-processing-consent).
+
 ### Scheduled Execution
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
 ### Team Discovery
 
-Teams are discovered dynamically via `team_discovery.py`. Guaranteed teams (in `GUARANTEED_TEAM_IDS`) are always included, plus a configurable random sample of teams with AI events. Manual triggers can target any team.
+Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.
+Every discovered team must also pass the consent gate below, guaranteed teams included.
+
+### AI data processing consent
+
+A team is summarized only if its organization approved third-party AI data processing (`Organization.is_ai_data_processing_approved`).
+An unset flag counts as not approved.
+
+The rule is applied in two places:
+
+- Team discovery drops every team without consent, so a guaranteed team is not exempt.
+- The per-team workflow repeats the check and returns an empty result when consent is absent. This also gates a manual trigger and a stale allowlist entry, which both skip discovery.
+
+Discovery retries transient consent database connection errors up to three attempts, with a 100 ms wait between attempts.
+These retries reuse the candidate teams without repeating the ClickHouse discovery query.
+Discovery fails closed if consent remains unreadable: it returns no teams and increments `llma_coordinator_consent_query_failed` once.
+Look for this counter and the `AI data processing consent filter failed` log line when discovery returns no teams unexpectedly.
+If discovery exhausts its activity retries or times out, new summarization and clustering coordinator runs fail before they dispatch any team workflows.
+The old hardcoded fallback is retained only for replaying existing workflow histories.
+
+Each consent query reads all candidate teams at once and returns only team IDs.
+Each per-team summarization run checks consent once more before sampling, including manual runs and queued work.
+These queries run in the database thread pool with connection cleanup; they do not block the workflow event loop or run once per trace.
+Once a team run passes its entry check, it finishes without further consent checks between processing steps.
 
 ## Configuration
 
 Key constants in `constants.py`:
 
-| Constant                                    | Default        | Description                                     |
-| ------------------------------------------- | -------------- | ----------------------------------------------- |
-| `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15             | Max items per window                            |
-| `DEFAULT_BATCH_SIZE`                        | 5              | Concurrent item processing                      |
-| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 20             | Max teams to process in parallel                |
-| `DEFAULT_MODE`                              | "detailed"     | Summary detail level                            |
-| `DEFAULT_MODEL`                             | "gpt-4.1-nano" | LLM model for summarization                     |
-| `DEFAULT_WINDOW_MINUTES`                    | 60             | Time window to query                            |
-| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 30             | Max per-team workflow duration                  |
-| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55             | Max coordinator workflow duration               |
-| `SAMPLE_TIMEOUT_SECONDS`                    | 900            | Sampling activity timeout (per attempt)         |
-| `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s           | Fetch + format activity timeout (per attempt)   |
-| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s            | Heartbeat window for fetch activity             |
-| `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s           | Summarize + save activity timeout (per attempt) |
-| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s            | Heartbeat window for summarize activity         |
+| Constant                                    | Default      | Description                                     |
+| ------------------------------------------- | ------------ | ----------------------------------------------- |
+| `DEFAULT_MAX_ITEMS_PER_WINDOW`              | 15           | Max items per window                            |
+| `DEFAULT_BATCH_SIZE`                        | 5            | Concurrent item processing                      |
+| `DEFAULT_MAX_CONCURRENT_TEAMS`              | 20           | Max teams to process in parallel                |
+| `DEFAULT_MODE`                              | "detailed"   | Summary detail level                            |
+| `DEFAULT_MODEL`                             | "gpt-5-nano" | LLM model for summarization (flex service tier) |
+| `DEFAULT_WINDOW_MINUTES`                    | 60           | Time window to query                            |
+| `WORKFLOW_EXECUTION_TIMEOUT_MINUTES`        | 30           | Max per-team workflow duration                  |
+| `COORDINATOR_EXECUTION_TIMEOUT_MINUTES`     | 55           | Max coordinator workflow duration               |
+| `SAMPLE_TIMEOUT_SECONDS`                    | 900          | Sampling activity timeout (per attempt)         |
+| `FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT`   | 120s         | Fetch + format activity timeout (per attempt)   |
+| `FETCH_AND_FORMAT_HEARTBEAT_TIMEOUT`        | 60s          | Heartbeat window for fetch activity             |
+| `SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT` | 900s         | Summarize + save activity timeout (per attempt) |
+| `SUMMARIZE_AND_SAVE_HEARTBEAT_TIMEOUT`      | 60s          | Heartbeat window for summarize activity         |
 
 Retry policies: `SAMPLE_RETRY_POLICY` (5 attempts with backoff), `FETCH_AND_FORMAT_RETRY_POLICY` (2 attempts), `SUMMARIZE_AND_SAVE_RETRY_POLICY` (2 attempts with backoff, `TextReprExpiredError` non-retryable), `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` (1 attempt). All retry policies exclude `ValueError` and `TypeError` from retries.
+
+The text representation handed to the model is capped by `batch_text_repr_budget` (see `products/ai_observability/backend/summarization/budget.py`).
+The batch job runs unattended over every team's traces, so its context size drives a recurring bill.
+The cap holds the input near a cost-conscious ceiling instead of the model's full context window, which never bounds a typical trace.
+Oversized trace text is reduced by uniform line sampling before the LLM call.
+Oversized generation text splits the budget between the input and output sections, so a large input never drops the output section.
 
 Sampling keeps ClickHouse capacity errors retryable deliberately: each run covers a disjoint wall-clock window with no persisted cursor, so a run that gives up loses that hour of traces for that team permanently.
 Concurrency is bounded centrally by `CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES`, not by this workflow's fan-out, because trace clustering and eval reports draw on the same budget.

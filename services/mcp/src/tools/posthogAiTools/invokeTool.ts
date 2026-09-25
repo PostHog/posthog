@@ -1,9 +1,7 @@
+import type { Schemas } from '@/api/generated'
 import type { Context } from '@/tools/types'
 
-export interface McpToolResult {
-    success: boolean
-    content: string
-}
+export type McpToolResult = Schemas.MCPToolResponse
 
 /**
  * Invoke an MCP tool via the PostHog API.

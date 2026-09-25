@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta, tzinfo
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -172,7 +173,8 @@ def _earliest_timestamp_query_tags() -> AbstractContextManager[None]:
     marketing analytics keep their own attribution.
     """
     current = get_query_tags()
-    overrides: dict[str, Any] = {}
+    # The query-scan trigger uses this tag to leave the lookup out of the run it judges.
+    overrides: dict[str, Any] = {"lookup": "earliest_timestamp"}
     if current.product is None:
         overrides["product"] = Product.PRODUCT_ANALYTICS
     if current.feature is None:
@@ -251,7 +253,6 @@ def get_earliest_timestamp_from_series(
         else:
             nodes.append(node)
 
-    timestamps = []
     if len(nodes) == 1 or settings.IN_UNIT_TESTING:
         timestamps = [_get_earliest_timestamp_from_node(team, node, user) for node in nodes]
 
@@ -263,7 +264,7 @@ def get_earliest_timestamp_from_series(
                 executor.submit(contextvars.copy_context().run, _get_earliest_timestamp_from_node, team, node, user)
                 for node in nodes
             ]
-            timestamps = [future.result() for future in futures]
+            timestamps = [cast(datetime, future.result()) for future in futures]
 
     return min(timestamps)
 
@@ -294,7 +295,12 @@ def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
     )
 
     with _earliest_timestamp_query_tags():
-        result = execute_hogql_query(query=query, team=team)
+        result = execute_hogql_query(
+            query=query,
+            team=team,
+            # The read has no upper bound and no filter, so the first row in sort key order is the answer.
+            context=HogQLContext(team_id=team.pk, order_events_reads_by_sort_key=True),
+        )
     if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
         earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
         # Only cache real results: a team with no events yet should keep re-checking rather than

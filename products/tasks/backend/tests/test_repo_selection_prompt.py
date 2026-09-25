@@ -1,0 +1,178 @@
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from asgiref.sync import async_to_sync
+
+from posthog.models.repo_routing_rule import RepoRoutingRule
+
+from products.tasks.backend.logic.repo_selection.agent import (
+    PINNED_REPOSITORY_REASON,
+    _build_repo_selection_prompt,
+    _routing_rules_block,
+    select_repository,
+)
+from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
+from products.tasks.backend.models import Task
+
+_AGENT = "products.tasks.backend.logic.repo_selection.agent"
+
+
+def test_corrections_section_included_only_when_given() -> None:
+    base = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"])
+    assert "Past selection corrections" not in base
+
+    with_corrections = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"], past_corrections="- 2026-01-01: entry")
+    assert "- 2026-01-01: entry" in with_corrections
+    # The section sits between the candidate list and the cache instructions, so the agent reads
+    # the corrections together with the candidates they constrain.
+    assert (
+        with_corrections.index("`acme/b`")
+        < with_corrections.index("Past selection corrections")
+        < with_corrections.index("## The cache")
+    )
+
+
+def test_routing_rules_section_included_only_when_given() -> None:
+    base = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"])
+    assert "Team routing rules" not in base
+
+    with_rules = _build_repo_selection_prompt(
+        "ctx",
+        ["acme/a", "acme/b"],
+        past_corrections="- correction entry",
+        routing_rules="1. Support app asks → `acme/b`",
+    )
+    assert "1. Support app asks → `acme/b`" in with_rules
+    # Rules sit between the candidate list and the corrections, so the agent reads them together
+    # with the candidates they constrain.
+    assert (
+        with_rules.index("`acme/b`")
+        < with_rules.index("Team routing rules")
+        < with_rules.index("Past selection corrections")
+    )
+
+
+@pytest.mark.django_db
+def test_routing_rules_block_orders_filters_and_lowercases(team) -> None:
+    RepoRoutingRule.objects.create(team=team, rule_text="Second\nrule", repository="Acme/B", priority=1)
+    RepoRoutingRule.objects.create(team=team, rule_text="First rule", repository="acme/a", priority=0)
+    RepoRoutingRule.objects.create(team=team, rule_text="Disconnected", repository="acme/gone", priority=2)
+
+    block = _routing_rules_block(team.id, ["acme/a", "acme/b"])
+
+    assert block == "1. First rule → `acme/a`\n2. Second rule → `acme/b`"
+
+
+def test_prompt_labels_candidate_visibility() -> None:
+    prompt = _build_repo_selection_prompt(
+        "ctx", ["acme/a", "acme/b", "acme/c"], visibility={"acme/a": True, "acme/b": False}
+    )
+
+    assert "1. `acme/a` (private)" in prompt
+    assert "2. `acme/b` (public)" in prompt
+    assert "3. `acme/c` (visibility unknown)" in prompt
+    assert "**Source privacy.**" in prompt
+    assert "source privacy rule" in prompt
+
+
+def test_prompt_text_caps_over_long_legacy_rules() -> None:
+    rule = RepoRoutingRule(rule_text="term " * 100)
+    assert len(rule.prompt_text) == RepoRoutingRule.MAX_RULE_TEXT_LENGTH
+
+
+@pytest.mark.django_db
+def test_routing_rules_block_empty_when_no_rules_match(team) -> None:
+    assert _routing_rules_block(team.id, ["acme/a"]) is None
+
+    RepoRoutingRule.objects.create(team=team, rule_text="Disconnected", repository="acme/gone", priority=0)
+    assert _routing_rules_block(team.id, ["acme/a"]) is None
+
+
+def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> None:
+    result = RepoSelectionResult(repository="acme/b", reason="rule match")
+    session = MagicMock()
+    session.end = AsyncMock()
+    start = AsyncMock(return_value=(session, result))
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [
+        {"full_name": "Acme/A", "private": True},
+        {"full_name": "acme/b"},
+    ]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value="1. Support app asks → `acme/b`"),
+        patch(f"{_AGENT}.MultiTurnSession.start", start),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+        )
+
+    assert selected.repository == "acme/b"
+    prompt = start.call_args.kwargs["prompt"]
+    assert "Team routing rules" in prompt
+    assert "1. Support app asks → `acme/b`" in prompt
+    assert "1. `acme/a` (private)" in prompt
+    assert "2. `acme/b` (visibility unknown)" in prompt
+
+
+@pytest.mark.parametrize(
+    "pinned,expected_repository",
+    [("Acme/B", "acme/b"), (" acme/b ", "acme/b"), ("acme/gone", None)],
+)
+def test_pinned_repository_answers_without_running_the_agent(pinned: str, expected_repository: str | None) -> None:
+    start = AsyncMock()
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}.MultiTurnSession.start", start),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+            pinned_repository=pinned,
+        )
+
+    assert selected.repository == expected_repository
+    if expected_repository:
+        assert selected.reason == PINNED_REPOSITORY_REASON
+    else:
+        assert "acme/gone" in selected.reason
+    start.assert_not_awaited()
+
+
+def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a"}),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "which repo?",
+            origin_product=Task.OriginProduct.SLACK,
+            github=github,
+            candidate_repos=["acme/a"],
+            pinned_repository="acme/b",
+        )
+
+    assert selected.repository is None

@@ -13,6 +13,9 @@ It is exercised locally via management commands, and it is also used by the prod
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
+  - A repository the signals name themselves is pinned before the agent runs. See `source_repository.py`.
+- `source_repository.py`
+  The repository a report's signals were filed against. A GitHub issue names its own repository in its URL, so `select_repo.py` pins it: the selector returns it when the team can reach it, and `repository=None` carrying the mismatch when it cannot, so a PR never lands in a repository the report never pointed at. Only one unambiguous repository counts; issues from two repositories name neither.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:
@@ -21,8 +24,20 @@ It is exercised locally via management commands, and it is also used by the prod
   - priority assessment when actionable
   - final report title
   - very short factual summary
-  - optional charts (see below), when the team is opted in
-    The repository used for research is tracked separately via the `repo_selection` artefact.
+  - optional typed impact metrics (see below), when the team is opted in
+  - optional charts (see below)
+  - an optional task-attributed fix verification note for actionable reports
+
+  The repository used for research is tracked separately via the `repo_selection` artefact.
+
+- `ownership_reviewers.py`
+  Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. A human reviewer edit prevents subsequent research runs from replacing the selection.
+
+- `team_membership.py`
+  Resolves which teams a person belongs to, so a report can be routed at a team slug rather than at a name. Provider-neutral by design (a membership is a slug, a display name, and whether the person maintains the team); the synced GitHub org roster read through the engineering_analytics facade is the only source behind it today.
+  - Backs the `team` filter and the `teams` field on `scout-members-list` (`resolve_reviewers.list_project_members`).
+  - The roster is a warehouse snapshot, so it can lag the live team, and the membership endpoint is off by default at the source (it needs the org Members grant). A slug with no rows therefore means "not synced here", never "no such team", and callers must keep those two apart.
+  - A failed read degrades rather than raising, so a warehouse hiccup never takes down the member list beside it. It is marked `read_failed`, kept apart from a genuinely unsynced roster: a filtered call answers 503 and asks for a retry, because telling a scout to turn on a sync that is already on sends it to change a correct setting.
 - `reviewer_telemetry.py`
   Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).
@@ -52,12 +67,19 @@ It is exercised locally via management commands, and it is also used by the prod
   show previous actionability, priority, title, and summary as context
   the agent confirms still-correct findings/assessments (via the `*Update` wrapper schemas) instead of regenerating them — `ReportResearchOutput` splits its findings/assessments into `old_artefacts` (confirmed unchanged, already persisted) and `new_artefacts` (produced this run), and the caller activity persists the new ones unconditionally; read the report's effective state via the `effective_*` accessors
 
-When a report was spawned because a signal would have grouped into an already-**resolved** report (resolved reports are terminal and never reopen), the grouping pipeline links the two with symmetric `related_to` artefacts (one on each, pointing at the other). The caller activity finds the linked report that is resolved and passes `resolved_report_title` / `resolved_report_summary`. The initial research prompt then includes a `## Previously resolved report` block so the agent can judge whether the recurrence is a regression, a new dimension of the same issue, or distinct.
+When a signal matches a resolved or fixed-dismissed report, the grouping pipeline can create a new report for the recurrence.
+It writes a directed `recurrence_of` report link from the new report to its parent.
+The caller activity prefers this link and supports legacy `related_to` links for resolved parents only.
+The parent must be resolved or dismissed as fixed. The activity excludes parents whose latest safety judgment rejects their content.
+It reads that judgment from the writer database to avoid replica lag.
+The activity passes `resolved_report_title` and `resolved_report_summary` to a `## Previously closed report` prompt block.
+The agent uses this context to assess regression, a new part of the same issue, or a separate issue.
 
 In production, the `update` path is triggered automatically when a `ready` report is re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`) reconstructs the previous `ReportResearchOutput` from stored artefacts and the report's title/summary fields, then passes it to `run_multi_turn_research()`.
 
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
+Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
 
 ### Charts
 
@@ -65,12 +87,71 @@ The presentation step can also author `charts` — query nodes the inbox draws o
 
 - **Expected on a data-shaped finding.** `_REPORT_CHARTS_GUIDANCE` tells the presentation step to attach the chart whenever the finding rests on data moving (a metric that broke, a rate that slid, a distribution that shifted), and to attach nothing when it lives in code, in a config, or in a single count. That pairs with the summary's 200-word target and 300-word ceiling: the chart carries the interval-by-interval series so the prose can state the finding and stop. Charts today correlate with longer summaries rather than shorter ones, because a run that attaches one still narrates the series underneath it, so the two rules only work together. Nothing but this guidance decides how many charts a report gets, so softening it back toward "usually the wrong call" is what returns the inbox to unillustrated walls of text.
 - **A malformed chart costs the whole report.** `charts` rides in the same `ReportPresentationOutput` as the title and summary, and `MultiTurnSession._parse_and_validate` calls `model_validate` with no retry, so one bad node raises and the research run fails with nothing persisted. `_resolve_report_charts_payload` never sees it. That is why the guidance names the outer-node wrapping explicitly and tells the run to drop a doubtful chart rather than risk it. Giving a malformed chart its own degrade path would need a retry or a partial parse in the runner, which is shared with every other multi-turn caller.
-- **Opt-in.** Gated per team by the `signals-report-charts` flag (`_team_report_charts_enabled` in the caller activity; on in DEBUG). When off, both the chart guidance and the `charts` field itself are dropped from the presentation prompt (chart-free schema), and the caller drops anything the model returns anyway — so an un-opted team is never shown or steered toward charts on the delicate fleet-wide path.
 - **Replace, not append.** `charts` is the report's whole set. On a re-research the previous charts are shown back as context (loaded from `SignalReport.charts` by `_load_previous_research`); the run keeps, refreshes, or drops them and the caller replaces the column with the result.
-- **Persistence is atomic with the prose.** `run_agentic_report_activity` only _resolves_ the charts payload (`_resolve_report_charts_payload`) and returns it on `RunAgenticReportOutput.charts`; the column is written by the transition activity that also writes the title/summary (`mark_report_ready_activity` / `mark_report_pending_input_activity`), inside the same `transition_to` transaction. So charts and the prose they illustrate land together — a failed run or the not-actionable reset (neither writes the new prose) leaves the charts alone by construction, with no separate-transaction window. The resolver yields three outcomes: a valid non-empty set (replace the column); `None` when the team isn't opted in **or** the run authored no charts (leave the column alone — the presentation field is optional, so an omitted key and a deliberate "drop everything" both arrive empty and are indistinguishable, and wiping user-visible charts on that ambiguity is the worse failure, so the pipeline never auto-clears to zero; a human can clear from the inbox); and `[]` when the set busts the whole-set caps (clear, so a stale set can't sit under the new summary).
+- **Persistence is atomic with the prose.** `run_agentic_report_activity` only _resolves_ the charts payload (`_resolve_report_charts_payload`) and returns it on `RunAgenticReportOutput.charts`; the column is written by the transition activity that also writes the title/summary (`mark_report_ready_activity` / `mark_report_pending_input_activity`), inside the same `transition_to` transaction. So charts and the prose they illustrate land together — a failed run or the not-actionable reset (neither writes the new prose) leaves the charts alone by construction, with no separate-transaction window. The resolver yields three outcomes: a valid non-empty set (replace the column); `None` when the run authored no charts (leave the column alone — the presentation field is optional, so an omitted key and a deliberate "drop everything" both arrive empty and are indistinguishable, and wiping user-visible charts on that ambiguity is the worse failure, so the pipeline never auto-clears to zero; a human can clear from the inbox); and `[]` when the set busts the whole-set caps (clear, so a stale set can't sit under the new summary).
 - **Not safety-judged.** The pipeline's safety judge screens the input signals before research runs, so it never sees research-authored charts — the same as it never sees research-authored title/summary. Charts are agent output derived from already-screened signals, consistent with that model. (This differs from the scout emit path, where charts and prose are judged together.)
 
+### Impact metrics
+
+The presentation step can also author up to six typed `metrics` alongside the prose and charts. A metric separates measurement semantics (`kind`) from display (`value_format` and `unit`) and identifies one optional `primary` observation. Every metric must include a bounded PostHog `InsightVizNode` wrapping a live `TrendsQuery` whose sources are only `EventsNode` or `ActionsNode`. Its paired `value` and `value_at` are an optional cached fallback: the agent may seed them from an observed value, and a later inbox or report open replaces them. Report detail executes every metric through the standard query engine and cache, while report lists use snapshot projections only so loading the inbox never fans out into one query per report.
+
+- **Affected people and sessions are distinct.** An `affected_users` metric uses exactly one event or action series with `math: "dau"`. An `affected_sessions` metric uses exactly one event or action series with `math: "unique_session"`. Neither kind uses formulas, group math, breakdowns, or compare mode. Never sum interval buckets.
+- **One bounded live measurement.** Every metric has a live query built only from event or action sources, rejects breakdown and compare mode, and must produce exactly one output series. Without a formula that means exactly one source. A conversion or rate may combine at most ten event/action sources through exactly one formula output. The longitudinal result is capped at 1,000 estimated interval points, including the current partial bucket.
+- **A malformed metric costs the whole report.** `metrics` rides in the same `ReportPresentationOutput` as the title and summary, and `MultiTurnSession._parse_and_validate` calls `model_validate` with no retry, so one rejected item fails the research run with nothing persisted. `_resolve_report_metrics_payload` never sees it, because `metric_batch_error` only checks whole-set rules (count, total query characters, duplicate ids, one primary, one affected-users). This is the same tradeoff as a malformed chart, on a wider surface: `ReportMetric` carries about fifteen field validators plus a cross-field one, against four on `ReportChart`, so a metric has many more ways to fail late. Giving one metric its own degrade path needs a retry or a partial parse in the runner, which is shared with every other multi-turn caller. Until then the `signals-report-metrics` flag bounds who is exposed, and the authoring guidance keeps the surface small by telling the run to omit a metric it cannot measure honestly.
+- **Consumers own the display.** Authored Trends display is not the report presentation contract. Consumers derive `BoldNumber` for the first output series' whole-window `aggregated_value` and `ActionsBar` for longitudinal buckets. Every metric runs through both derived shapes and the normal query cache. The inbox does not maintain a separate time-series table.
+- **Snapshots are optional fallbacks.** `value` and `value_at` travel together, preserve zero as measured data, and never replace the live query. Opening the inbox list or a report refreshes the stale snapshots on screen through the query cache without changing report ordering; there is no background job. Snapshot-only or queryless rows are legacy or malformed and are always redacted.
+- **Independent opt-in.** Metrics use the organization-level `signals-report-metrics` flag (`report_content_gates.py`, on in DEBUG). Charts do not require a feature flag. When off, pipeline metric guidance and schema fields are removed and the caller preserves existing metrics. Every writer reads the flag, including the scout report channel, which drops a supplied set before the safety judge. Scout-authored metrics are safety-judged with the rest of the report.
+- **Replace, clear, or preserve as a set.** Metrics are the report's whole typed set. A valid non-empty pipeline result replaces them, an explicit or invalid enabled result clears them, and a disabled run returns `None` to preserve them. Scout edits use the same tri-state contract: omission preserves, `[]` clears, and a non-empty list replaces.
+- **Persistence is atomic with prose.** The agentic activity returns the resolved metric payload on `RunAgenticReportOutput.metrics`; the ready or pending-input transition writes it in the same transaction as title and summary. There is no partially updated report state.
+- **Design for more than user counts.** `kind`, `role`, format, unit, caption, and optional comparison support conversion, errors, latency, revenue, sessions, and occurrence metrics without overloading an affected-user field. `percentage` means percentage points while `percentage_scaled` means a 0–1 ratio, matching the two standard Trends axis formats. The schema still enforces at most one primary metric and at most one affected-users metric.
+
+Which kind fits which report:
+
+| The report is about                                                                                                                                               | Kind                            | Query shape                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| Something a person experiences: a captured exception with person context, a dead click, a rage click, a failed request on a surface, a pageview on a broken URL   | `affected_users`                | one series, `math: dau`                                                              |
+| Noise nobody was hurt by, or a backend failure with no person on the event: a Temporal, Celery, or job exception, or a volume counter such as tool calls per week | `occurrences`                   | total count                                                                          |
+| A flow that fails, or a flow that stalls                                                                                                                          | `error_rate`, `conversion_rate` | two event or action series and one formula such as `B / A`, with `percentage_scaled` |
+| A latency, an amount of money, or another measurement an event or action query produces                                                                           | `duration`, `revenue`, `custom` | one series, formatted for the kind                                                   |
+
+A figure with no event or action query behind it, such as a database statistic, a build duration read from another tool, or a number quoted from an external source, stays in the report prose, because every metric carries a live query. A weak number is worse than none: one support ticket, a one-off migration crash, a rate over a handful of attempts, or a count with no person context is a metric to leave out.
+
+**Use an inclusive default window.** A metric defaults to `dateRange.date_from: "-13d"` with `interval: "day"`. This gives 14 inclusive daily buckets, including today. The inbox strip keeps at most the trailing 14 buckets. A longer window makes the whole-window value cover more time than the strip, so the caption says why it is needed. Do not author comparisons until the server can keep equal adjacent windows live.
+
+**Title the observation, and caption only what the tile cannot show.** `title` says what was observed and for whom in one line a reader can act on (`Users who hit "Not found" opening a shared chat link`), not a label (`Users affected`). A tile prints the figure with its unit, title, and query window. The primary metric also names its query with a link that opens it as a new insight. `caption` stays empty unless it carries a fact the reader cannot see there.
+
+**`unit` is one word.** A non-currency unit is one lowercase word, such as `users`, `sessions`, `failure`, `ms`, or `s`. A `%` unit is redundant. Revenue uses an uppercase ISO currency code such as `USD`.
+
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
+
+### Fleet steering
+
+The caller activity also passes `steering_section`, resolved by `report_steering.load_research_steering` from the notes the team left the scout fleet. `build_initial_research_prompt` renders it verbatim under the research protocol, and renders nothing when it is empty, so a team with no notes pays no tokens for a heading.
+
+Why this stage needs it: dismissing, discussing, or rating an inbox report leaves the person's text as a scout note, and until this landed only scheduled scout runs read those. Research is the stage that produces the findings, actionability, priority, and title, so a reviewer's "this is expected, it's the approval flow" shaped the scout and not the judgment it was actually about.
+
+The research variant includes **every** note origin, unlike the implementation run, which reads `HUMAN` notes only, and it is the one reader of the `pipeline:report-research` audience, merged newest first with the scout and fleet-wide notes under the same cap. See the `report_steering` module docstring for the reasoning on both sides. The section itself carries the untrusted-input rule, says that most notes will not apply to this report and that a note counts only when it speaks to the same behavior, entity, or area the signals describe, and asks the run to name the note in the explanation of any assessment it changed, so a reviewer can see their feedback land.
+
+`signals_research_steering_attached` fires once per run with `notes_attached`, `dismissal_notes_attached`, `pipeline_notes_attached`, `scratchpad_available`, and `memory_protocol`. Join it to `signal_report_completed` on `report_id` to read whether steering moved the outcome; there is deliberately no self-reported "steering applied" artefact, because the agent's own claim is weaker evidence than that join.
+
+### Research memory
+
+The same section asks the run to write back what it verified, so the next report over the same entities starts from that judgment instead of re-deriving it.
+Findings and assessments die with the run; the scratchpad is the one channel that is entity-keyed, searchable, and shared with the scouts.
+
+It renders only when the run's token carries `signal_scratchpad_internal:write`.
+`load_research_steering` takes `memory_writable`, and the caller activity derives it from `oauth.grants_scratchpad_write(RESEARCH_MCP_SCOPES)`, the same constant it mints the token with, so the instruction cannot outlive the scope behind it. That is the implementation side's arrangement too.
+Entries are attributed to `pipeline:report-research` through `SignalScratchpad.created_by_identity`, resolved server-side from the sandbox token's task (`pipeline_identity.py`) rather than from anything the agent claims.
+
+What the protocol asks for: entity-keyed judgments (`noise:`, `already_addressed:`, `pattern:`), operational learnings under `pattern:research:<topic>`, and a record of which steering notes were absorbed.
+What it forbids: writing anything unverified, restating the report, quoting note or signal text, blind-overwriting a key on a shared keyspace, and omitting `expires_at`.
+The report id is interpolated into the section rather than asked for, because the research prompt names one only on a re-research and a first run would otherwise omit or invent it.
+The read pointer normally waits until the team's scratchpad holds an entry; under the write posture it ships anyway, because a writer has to read a key before it overwrites it.
+That is the one place the two stages differ in shape: the implementation protocol carries its own search step and replaces the pointer, so `_compose` takes `keep_pointer` and this stage passes it.
+
+Per-run counts of entries read and written are not on the steering event: the calls happen inside the sandbox over MCP, so they are only visible to the pipeline as tool-call telemetry, not as a value the activity holds.
+
+Both stages write, under one gate and three shared rules: describe never quote, search the key then condense, always set `expires_at`. The autostarted implementation run holds `signals_implementation` and keys its entries on a repository (see "Fleet memory the implementation run writes back" in `products/signals/ARCHITECTURE.md`); this stage holds `signals_research` and keys its entries on the entities a report names. Keep the two prompt sections consistent when either changes.
 
 ## Local debug commands
 

@@ -372,17 +372,18 @@ impl SeederOrchestrator {
                 continue;
             };
             match prepared {
-                PreparedRun::Behavioral(run) => {
+                PreparedRun::Behavioral(prepared) => {
                     record_claim(kind, RunKind::Behavioral);
                     let ctx = ChunkTaskContext {
                         chunk,
                         lease,
-                        run: run.clone(),
+                        prepared: prepared.clone(),
                         store: self.store.clone(),
                         scanner: self.scanner.clone(),
                         producer: self.producer.clone(),
                         pacer: self.pacer.clone(),
                         producer_settings: self.settings.producer,
+                        retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();
                     tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
@@ -407,7 +408,8 @@ impl SeederOrchestrator {
                         producer: self.producer.clone(),
                         pacer: person.pacer.clone(),
                         producer_settings: self.settings.producer,
-                        emit_nonmatchers: person_settings.emit_nonmatchers,
+                        emission: person_settings.emission,
+                        retry_backoff: self.settings.retry_backoff,
                     };
                     let shutdown = shutdown.clone();
                     person_tasks.spawn(async move { execute_person_chunk(ctx, shutdown).await });

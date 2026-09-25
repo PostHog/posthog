@@ -50,7 +50,7 @@ def _wire(responses: list[Response]) -> tuple[requests.Session, list[Any]]:
         sent.append(prepared)
         return responses[len(sent) - 1]
 
-    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
+    session.send = mock.MagicMock(side_effect=_send)  # type: ignore[method-assign]
     return session, sent
 
 

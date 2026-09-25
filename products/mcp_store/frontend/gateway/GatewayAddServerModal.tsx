@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import {
     LemonButton,
-    LemonCheckbox,
     LemonCollapse,
     LemonInput,
     LemonModal,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSwitch,
 } from '@posthog/lemon-ui'
@@ -14,6 +14,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { InstallCustomAuthTypeEnumApi } from '../generated/api.schemas'
 import { isValidMcpUrl } from './gatewayAddServer'
+import { AGENT_GRANT_SCOPE_OPTIONS } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
 const AUTH_TYPE_OPTIONS = [
@@ -29,8 +30,6 @@ export function GatewayAddServerModal(): JSX.Element | null {
         addingServer,
         canManageAgentAccess,
         isAdmin,
-        serviceAccounts,
-        serviceAccountsLoading,
     } = useValues(mcpGatewayLogic)
     const { closeAddServerModal, setAddServerFormValue, submitAddServer } = useActions(mcpGatewayLogic)
 
@@ -43,14 +42,6 @@ export function GatewayAddServerModal(): JSX.Element | null {
             closeAddServerModal()
         }
     }
-    const setAgentSelected = (accountId: string, selected: boolean): void => {
-        setAddServerFormValue(
-            'agentIds',
-            selected
-                ? [...addServerForm.agentIds, accountId]
-                : addServerForm.agentIds.filter((candidate) => candidate !== accountId)
-        )
-    }
     const urlError =
         addServerForm.url.trim() && !isValidMcpUrl(addServerForm.url)
             ? 'Enter a full URL, like https://mcp.example.com/mcp.'
@@ -61,7 +52,7 @@ export function GatewayAddServerModal(): JSX.Element | null {
             isOpen
             onClose={closeModal}
             title="Add MCP server"
-            description="Connect a remote MCP server, then choose who and which agents can use it."
+            description="Connect a remote MCP server and choose how far to share it."
             width={640}
             footer={
                 <div className="flex items-center justify-end gap-2">
@@ -218,29 +209,22 @@ export function GatewayAddServerModal(): JSX.Element | null {
                 )}
 
                 {canManageAgentAccess && (
-                    <LemonField.Pure label="Share with agents (optional)">
-                        <div className="flex flex-col gap-2 rounded border p-3">
-                            {serviceAccountsLoading ? (
-                                <span className="text-sm text-secondary">Loading agents…</span>
-                            ) : serviceAccounts.length === 0 ? (
-                                <span className="text-sm text-secondary">No PostHog agents are available.</span>
-                            ) : (
-                                serviceAccounts.map((account) => (
-                                    <LemonCheckbox
-                                        key={account.id}
-                                        checked={addServerForm.agentIds.includes(account.id)}
-                                        onChange={(checked) => setAgentSelected(account.id, checked)}
-                                        label={
-                                            <span>
-                                                <span className="font-medium">{account.name}</span>
-                                                <span className="ml-2 text-xs text-secondary">{account.handle}</span>
-                                            </span>
-                                        }
-                                    />
-                                ))
-                            )}
+                    <div className="flex items-center justify-between gap-4 rounded border p-3">
+                        <div>
+                            <div className="font-semibold">Who can use this connection?</div>
+                            <div className="text-sm text-secondary">
+                                {addServerForm.agentScope === 'team'
+                                    ? 'Anyone in this project can use this connection'
+                                    : 'Only you can use this connection'}
+                            </div>
                         </div>
-                    </LemonField.Pure>
+                        <LemonSegmentedButton
+                            size="small"
+                            value={addServerForm.agentScope}
+                            options={AGENT_GRANT_SCOPE_OPTIONS}
+                            onChange={(agentScope) => setAddServerFormValue('agentScope', agentScope)}
+                        />
+                    </div>
                 )}
             </form>
         </LemonModal>
