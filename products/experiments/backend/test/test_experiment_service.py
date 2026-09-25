@@ -6161,8 +6161,14 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_attaching_saved_metric_regenerates_stored_inline_uuid_that_collides(
-        self, _name, field, other_field, ordering_attr, metric_type, collides
-    ):
+        self,
+        _name: str,
+        field: str,
+        other_field: str,
+        ordering_attr: str,
+        metric_type: str,
+        collides: bool,
+    ) -> None:
         self._create_flag(key="attach-dedup-with-saved")
         inline_uuid = "66bfb66a-51f5-48d0-a87e-bde2b4c958a6"
         service = self._service()
@@ -6226,8 +6232,8 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_update_keeps_saved_metric_uuid_in_ordering_when_stored_inline_copy_collides(
-        self, _name, field, ordering_attr, metric_type, attach_another
-    ):
+        self, _name: str, field: str, ordering_attr: str, metric_type: str, attach_another: bool
+    ) -> None:
         self._create_flag(key="stored-collision")
         shared_uuid = "77bfb66a-51f5-48d0-a87e-bde2b4c958a6"
         sm = ExperimentSavedMetric.objects.create(
