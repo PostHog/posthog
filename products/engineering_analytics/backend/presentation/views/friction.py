@@ -11,11 +11,13 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.presentation.serializers.friction import (
     AuthorFrictionDetailSerializer,
     AuthorFrictionListSerializer,
+    PullRequestFrictionDetailSerializer,
 )
 from products.engineering_analytics.backend.presentation.views._base import (
     _SOURCE_ID,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
+    _require_int_param,
 )
 
 _GITHUB_TEAM = OpenApiParameter(
@@ -44,8 +46,25 @@ _REPO = OpenApiParameter(
 )
 
 
+_PR_NUMBER = OpenApiParameter(
+    name="pr_number",
+    type=OpenApiTypes.INT,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="Pull request number to show.",
+)
+
+_PR_REPO = OpenApiParameter(
+    name="repo",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description="'owner/name' repository the pull request belongs to.",
+)
+
+
 class FrictionActionsMixin(EngineeringAnalyticsViewSetBase):
-    READ_ACTIONS = ["author_friction", "author_friction_detail"]
+    READ_ACTIONS = ["author_friction", "author_friction_detail", "pull_request_friction"]
 
     @extend_schema(
         operation_id="engineering_analytics_author_friction",
@@ -103,3 +122,34 @@ class FrictionActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid author, source_id or repo")
         return Response(AuthorFrictionDetailSerializer(instance=detail).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_pull_request_friction",
+        parameters=[_PR_NUMBER, _PR_REPO, _SOURCE_ID],
+        responses={
+            200: PullRequestFrictionDetailSerializer,
+            400: OpenApiResponse(description="Missing pr_number or repo, or invalid source_id."),
+        },
+        description=(
+            "One merged pull request's friction as a multiple of the typical pull request, with the counts behind "
+            "it: red CI by cause, re-runs that failed again, CI time per push, the wait for the first approval, "
+            "merge-queue time and kickouts, and rework. Covers pull requests merged in the last 30 days."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def pull_request_friction(self, request: Request, **kwargs) -> Response:
+        repo = request.query_params.get("repo")
+        try:
+            pr_number = _require_int_param(request, "pr_number")
+            if not repo:
+                raise ValueError("repo is required")
+            detail = api.get_pull_request_friction(
+                team=self.team,
+                pr_number=pr_number,
+                repo=repo,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(PullRequestFrictionDetailSerializer(instance=detail).data)

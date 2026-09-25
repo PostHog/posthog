@@ -7,6 +7,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     AuthorFrictionDetail,
     AuthorFrictionList,
     FrictionGroupShare,
+    PullRequestFrictionBreakdown,
+    PullRequestFrictionDetail,
     PullRequestFrictionItem,
     TeamFriction,
 )
@@ -125,4 +127,46 @@ class AuthorFrictionDetailSerializer(DataclassSerializer):
             "ranked_author_count": {"help_text": "Authors ranked in the repository: the denominator of rank."},
             "has_membership_data": {"help_text": "False when the team membership table isn't synced."},
             "pr_count": {"help_text": "The author's merged pull requests in the window."},
+        }
+
+
+class PullRequestFrictionBreakdownSerializer(DataclassSerializer):
+    groups = FrictionGroupShareSerializer(many=True, help_text="The pull request's friction split by kind.")
+
+    class Meta:
+        dataclass = PullRequestFrictionBreakdown
+        extra_kwargs = {
+            "score": {"help_text": "Friction as a multiple of the typical pull request in the repository."},
+            "flake_red_count": {"help_text": "Red stretches that a re-run of the same commit turned green."},
+            "master_red_count": {
+                "help_text": "Red stretches where the same job failed on the default branch within 12 hours."
+            },
+            "unknown_red_count": {"help_text": "Red stretches with no provable cause."},
+            "own_red_count": {"help_text": "Red stretches that a later push fixed."},
+            "futile_rerun_count": {"help_text": "Re-runs that failed again."},
+            "push_count": {"help_text": "Pushes that triggered CI."},
+            "ci_wait_seconds": {"help_text": "CI running time of each push, oldest first."},
+            "first_approval_wait_seconds": {
+                "help_text": "From ready for review to the first approval. Null when either is not observed."
+            },
+            "pushes_after_approval": {"help_text": "Pushes after the first approval. Null without an approval."},
+            "queue_seconds": {"help_text": "Time in the merge queue. Null when the pull request never entered it."},
+            "kickout_count": {"help_text": "Times the merge queue removed the pull request. Null without queue data."},
+        }
+
+
+class PullRequestFrictionDetailSerializer(DataclassSerializer):
+    pull_request = PullRequestFrictionBreakdownSerializer(
+        allow_null=True,
+        help_text="Null when the pull request did not merge in the window, or a bot authored it.",
+    )
+
+    class Meta:
+        dataclass = PullRequestFrictionDetail
+        extra_kwargs = {
+            "available": {
+                "help_text": "False when the per-PR friction view does not exist yet: it needs a GitHub source "
+                "with workflow runs, workflow jobs and pull requests synced."
+            },
+            "window_days": {"help_text": "Pull requests merged in this many days before the view last refreshed."},
         }

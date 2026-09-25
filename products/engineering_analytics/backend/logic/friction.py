@@ -32,6 +32,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     AuthorFrictionList,
     FrictionGroup,
     FrictionGroupShare,
+    PullRequestFrictionBreakdown,
+    PullRequestFrictionDetail,
     PullRequestFrictionItem,
     TeamFriction,
 )
@@ -539,4 +541,38 @@ def build_author_friction_detail(*, curated: CuratedGitHubSource, author: str) -
             )
             for scored in top
         ],
+    )
+
+
+def build_pull_request_friction(*, curated: CuratedGitHubSource, number: int) -> PullRequestFrictionDetail:
+    """One pull request's friction as a multiple of the typical pull request, with the counts behind it.
+
+    The score needs the whole repository as its baseline, so the read scores every pull request in the
+    window, the same way the author page does."""
+    window_days = pr_friction.FRICTION_WINDOW.days
+    pull_requests = _query_pull_requests(curated)
+    if pull_requests is None:
+        return PullRequestFrictionDetail(available=False, window_days=window_days, pull_request=None)
+    pr = next((pr for pr in pull_requests if pr.number == number), None)
+    if pr is None:
+        return PullRequestFrictionDetail(available=True, window_days=window_days, pull_request=None)
+    scored = next(s for s in FrictionScorer(pull_requests).pull_request_scores(pr.author) if s.pr.number == number)
+    return PullRequestFrictionDetail(
+        available=True,
+        window_days=window_days,
+        pull_request=PullRequestFrictionBreakdown(
+            score=scored.score,
+            groups=[FrictionGroupShare(group=group, score=value) for group, value in scored.groups.items()],
+            flake_red_count=pr.flake_red_count,
+            master_red_count=pr.master_red_count,
+            unknown_red_count=pr.unknown_red_count,
+            own_red_count=pr.own_red_count,
+            futile_rerun_count=pr.futile_rerun_count,
+            push_count=pr.push_count,
+            ci_wait_seconds=list(pr.ci_wait_seconds),
+            first_approval_wait_seconds=pr.first_approval_wait_seconds,
+            pushes_after_approval=pr.pushes_after_approval,
+            queue_seconds=pr.queue_seconds,
+            kickout_count=pr.kickout_count,
+        ),
     )

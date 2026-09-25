@@ -1083,6 +1083,56 @@ export interface WorkflowRunDetailApi {
     is_merge_queue: boolean
 }
 
+export interface PullRequestFrictionBreakdownApi {
+    /** The pull request's friction split by kind. */
+    groups: FrictionGroupShareApi[]
+    /** Friction as a multiple of the typical pull request in the repository. */
+    score: number
+    /** Red stretches that a re-run of the same commit turned green. */
+    flake_red_count: number
+    /** Red stretches where the same job failed on the default branch within 12 hours. */
+    master_red_count: number
+    /** Red stretches with no provable cause. */
+    unknown_red_count: number
+    /** Red stretches that a later push fixed. */
+    own_red_count: number
+    /** Re-runs that failed again. */
+    futile_rerun_count: number
+    /** Pushes that triggered CI. */
+    push_count: number
+    /** CI running time of each push, oldest first. */
+    ci_wait_seconds: number[]
+    /**
+     * From ready for review to the first approval. Null when either is not observed.
+     * @nullable
+     */
+    first_approval_wait_seconds: number | null
+    /**
+     * Pushes after the first approval. Null without an approval.
+     * @nullable
+     */
+    pushes_after_approval: number | null
+    /**
+     * Time in the merge queue. Null when the pull request never entered it.
+     * @nullable
+     */
+    queue_seconds: number | null
+    /**
+     * Times the merge queue removed the pull request. Null without queue data.
+     * @nullable
+     */
+    kickout_count: number | null
+}
+
+export interface PullRequestFrictionDetailApi {
+    /** Null when the pull request did not merge in the window, or a bot authored it. */
+    pull_request: PullRequestFrictionBreakdownApi | null
+    /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+    available: boolean
+    /** Pull requests merged in this many days before the view last refreshed. */
+    window_days: number
+}
+
 export interface PRTimelinePushApi {
     /** The pushed head commit. */
     head_sha: string
@@ -2533,6 +2583,21 @@ export type EngineeringAnalyticsPrLifecycleParams = {
 export type EngineeringAnalyticsPrRunsParams = {
     /**
      * Pull request number whose runs to list.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsPullRequestFrictionParams = {
+    /**
+     * Pull request number to show.
      */
     pr_number: number
     /**

@@ -603,6 +603,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             ("pr_cost_repo_missing", "pr_cost", {"pr_number": "10"}),
             ("workflow_jobs_run_id_invalid", "workflow_jobs", {"run_id": "nope"}),
             ("author_friction_detail_author_missing", "author_friction_detail", {}),
+            ("pull_request_friction_repo_missing", "pull_request_friction", {"pr_number": "10"}),
         ]
     )
     def test_bad_params_400(self, _name: str, action: str, params: dict[str, str]) -> None:

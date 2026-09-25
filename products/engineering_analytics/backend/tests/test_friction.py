@@ -17,6 +17,7 @@ from products.engineering_analytics.backend.logic.friction import (
     PullRequestFriction,
     build_author_friction,
     build_author_friction_detail,
+    build_pull_request_friction,
 )
 
 _MEMBERS = {"pair": ["typical", "calm"], "everyone": ["blocked", "typical", "calm", "newcomer"]}
@@ -182,3 +183,31 @@ class TestFrictionScore(SimpleTestCase):
         # The author stays out of their own team baseline, so "pair" drops below two other members.
         assert [team.github_team for team in detail.teams] == teams
         assert [(pr.number, pr.title) for pr in detail.pull_requests] == [(n, f"PR {n}") for n in numbers]
+
+    @parameterized.expand(
+        [
+            ("merged_in_window", _population(), 305, True, (2, 2)),
+            ("not_in_window", _population(), 999, True, None),
+            ("no_view_yet", None, 305, False, None),
+        ]
+    )
+    def test_pull_request(
+        self,
+        _name: str,
+        prs: list[PullRequestFriction] | None,
+        number: int,
+        available: bool,
+        counts: tuple[int, int] | None,
+    ) -> None:
+        curated = _Curated([_row(pr) for pr in prs] if prs is not None else None, _MEMBERS)
+
+        detail = build_pull_request_friction(curated=curated, number=number)  # type: ignore[arg-type]
+
+        assert detail.available is available
+        breakdown = detail.pull_request
+        assert (None if breakdown is None else (breakdown.master_red_count, breakdown.kickout_count)) == counts
+        if breakdown is not None:
+            # The PR page and the author page's top list must agree on a pull request's score.
+            author_page = build_author_friction_detail(curated=curated, author="blocked")  # type: ignore[arg-type]
+            listed = next(pr for pr in author_page.pull_requests if pr.number == number)
+            assert breakdown.score == pytest.approx(listed.score)

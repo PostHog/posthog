@@ -37,6 +37,7 @@ import type {
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPrRunsParams,
+    EngineeringAnalyticsPullRequestFrictionParams,
     EngineeringAnalyticsPullRequestTimelinesParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
@@ -59,6 +60,7 @@ import type {
     MasterFailureGroupApi,
     PRCostSummaryApi,
     PRLifecycleApi,
+    PullRequestFrictionDetailApi,
     PullRequestListApi,
     PullRequestTimelinesApi,
     QuarantineFileApi,
@@ -636,6 +638,39 @@ export const engineeringAnalyticsPrRuns = async (
     options?: RequestInit
 ): Promise<WorkflowRunDetailApi[]> => {
     return apiMutator<WorkflowRunDetailApi[]>(getEngineeringAnalyticsPrRunsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsPullRequestFrictionUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsPullRequestFrictionParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pull_request_friction/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pull_request_friction/`
+}
+
+/**
+ * One merged pull request's friction as a multiple of the typical pull request, with the counts behind it: red CI by cause, re-runs that failed again, CI time per push, the wait for the first approval, merge-queue time and kickouts, and rework. Covers pull requests merged in the last 30 days.
+ */
+export const engineeringAnalyticsPullRequestFriction = async (
+    projectId: string,
+    params: EngineeringAnalyticsPullRequestFrictionParams,
+    options?: RequestInit
+): Promise<PullRequestFrictionDetailApi> => {
+    return apiMutator<PullRequestFrictionDetailApi>(getEngineeringAnalyticsPullRequestFrictionUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

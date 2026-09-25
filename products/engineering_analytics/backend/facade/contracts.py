@@ -1830,6 +1830,36 @@ class AuthorFrictionDetail:
 
 
 @dataclass(frozen=True)
+class PullRequestFrictionBreakdown:
+    """One merged pull request's friction, and the counts from the per-PR friction view behind it."""
+
+    score: float
+    groups: list[FrictionGroupShare]
+    flake_red_count: int
+    master_red_count: int
+    unknown_red_count: int
+    own_red_count: int
+    futile_rerun_count: int
+    push_count: int
+    # CI running time of each push, oldest first.
+    ci_wait_seconds: list[float]
+    # None when the pull request's ready-for-review moment or first approval is not observed.
+    first_approval_wait_seconds: float | None
+    pushes_after_approval: int | None
+    # None when the pull request never entered the merge queue.
+    queue_seconds: float | None
+    kickout_count: int | None
+
+
+@dataclass(frozen=True)
+class PullRequestFrictionDetail:
+    available: bool
+    window_days: int
+    # None when the pull request did not merge in the window, or a bot authored it.
+    pull_request: PullRequestFrictionBreakdown | None
+
+
+@dataclass(frozen=True)
 class AuthorFrictionList:
     # False when the team has no per-PR friction view yet (it needs runs, jobs and pull requests synced).
     available: bool

@@ -171,6 +171,9 @@ tools:
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
         enabled: false
+    engineering-analytics-pull-request-friction:
+        operation: engineering_analytics_pull_request_friction
+        enabled: false
     engineering-analytics-pull-request-timelines:
         operation: engineering_analytics_pull_request_timelines
         enabled: false
