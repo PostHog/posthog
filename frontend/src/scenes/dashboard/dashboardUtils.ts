@@ -115,9 +115,9 @@ export function dashboardToSaveableTemplate(
 
 export function dashboardTemplateForExport(
     template: DashboardTemplateEditorType | undefined
-): DashboardTemplateEditorType | undefined {
+): DashboardTemplateEditorType | null {
     if (!template) {
-        return undefined
+        return null
     }
     return {
         ...template,

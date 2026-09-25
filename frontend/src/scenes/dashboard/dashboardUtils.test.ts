@@ -180,6 +180,7 @@ describe('dashboardToSaveableTemplate', () => {
         expect(dashboardTemplateForExport(dashboardToSaveableTemplate(dashboard))?.tiles[0]).not.toHaveProperty(
             'agent_context'
         )
+        expect(dashboardTemplateForExport(undefined)).toBeNull()
     })
 })
 
