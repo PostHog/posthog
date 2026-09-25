@@ -4,7 +4,10 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
+import { WorkflowStagedSuggestion } from './WorkflowStagedSuggestion'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
+import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
+import { WorkflowSuggestionsSwitch } from './WorkflowSuggestionsSwitch'
 
 function SuggestionsOffNotice(): JSX.Element {
     return (
@@ -32,6 +35,7 @@ function SuggestionsUnreadableNotice(): JSX.Element {
 export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
     const {
         pendingProposals,
+        approvedProposals,
         appliedProposals,
         outcomes,
         optimisationEnabled,
@@ -39,16 +43,28 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         optimisationLoading,
         optimisationUnreadable,
         proposalsResponse,
+        approvedResponse,
+        appliedResponse,
         proposalsResponseLoading,
+        approvedResponseLoading,
+        appliedResponseLoading,
     } = useValues(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
+    // Each list answers separately; "nothing here" is unknown until all have.
+    const listsUnknown = proposalsResponse === null || approvedResponse === null || appliedResponse === null
+    const listsSettling =
+        proposalsResponseLoading ||
+        approvedResponseLoading ||
+        appliedResponseLoading ||
+        appliedProposals.some((proposal) => !outcomes[proposal.id])
 
-    if (optimisation === null && optimisationLoading) {
+    if ((optimisation === null && optimisationLoading) || (optimisationEnabled && listsUnknown)) {
         return <Spinner />
     }
 
-    const nothingFiled = pendingProposals.length === 0 && measuredApplied.length === 0
+    const nothingFiled = pendingProposals.length === 0 && approvedProposals.length === 0 && measuredApplied.length === 0
+
     // A failed read leaves the setting unknown, so it cannot stand in for "off".
     const notice = optimisationUnreadable ? (
         <SuggestionsUnreadableNotice />
@@ -56,8 +72,20 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         <SuggestionsOffNotice />
     ) : null
 
-    if (notice && nothingFiled) {
-        return notice
+    if (nothingFiled) {
+        if (optimisationUnreadable) {
+            return <SuggestionsUnreadableNotice />
+        }
+
+        // Off with nothing filed is the introduction; off with a queue still shows the queue, since the
+        // server keeps those resolvable.
+        if (!optimisationEnabled) {
+            return <WorkflowSuggestionsIntroduction id={id} enabled={false} />
+        }
+
+        if (!listsSettling) {
+            return <WorkflowSuggestionsIntroduction id={id} enabled />
+        }
     }
 
     return (
@@ -65,10 +93,11 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
             {/* Off, or unreadable, still leaves what was already filed for someone to resolve. */}
             {notice}
             <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Waiting for you</h3>
-                {proposalsResponse === null && proposalsResponseLoading ? (
-                    <Spinner />
-                ) : pendingProposals.length === 0 ? (
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <h3 className="mb-0">Waiting for you</h3>
+                    <WorkflowSuggestionsSwitch id={id} />
+                </div>
+                {pendingProposals.length === 0 ? (
                     <p className="mb-0 text-secondary">
                         Nothing to review. PostHog reads this workflow's metrics on a schedule and files a suggestion
                         here when it finds a change worth making. Nothing reaches anyone until you approve a suggestion
@@ -80,6 +109,14 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                     ))
                 )}
             </div>
+            {approvedProposals.length > 0 && (
+                <div className="flex flex-col gap-2">
+                    <h3 className="mb-0">Staged as draft</h3>
+                    {approvedProposals.map((proposal) => (
+                        <WorkflowStagedSuggestion key={proposal.id} id={id} proposal={proposal} />
+                    ))}
+                </div>
+            )}
             {measuredApplied.length > 0 && (
                 <div className="flex flex-col gap-2">
                     <h3 className="mb-0">Applied</h3>
