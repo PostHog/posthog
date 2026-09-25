@@ -181,8 +181,8 @@ tools:
             persons-retrieve to see which distinct IDs it holds. Returns 201 once the split is queued, and the split
             then runs asynchronously. There is no re-merge endpoint, so this operation is irreversible.
         agent_note: >
-            The split was queued, not applied. Read the person again with persons-retrieve to confirm which distinct
-            IDs are left, and remember a split-off distinct ID still resolves to the original person until the task
+            The split was queued, not applied. Read the person again with persons-retrieve to confirm which distinct IDs
+            are left, and remember a split-off distinct ID still resolves to the original person until the task
             completes.
         exclude_params:
             - format
