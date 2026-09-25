@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { MergePersonUpdate, PendingPersonChanges } from '~/common/persons/person-update-batch'
+import { MergePersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
@@ -59,9 +59,6 @@ export interface PersonsStoreTransactionForBatch {
 
     /** The target's row as it stands and the sources' rows, sources row-locked until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
-
-    /** The store's unflushed changes for a person, if any. */
-    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
@@ -243,10 +240,6 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         distinctId: string
     ): Promise<InternalPerson[]> {
         return this.tx.readMergeRows(teamId, targetId, sourceIds, distinctId)
-    }
-
-    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
-        return this.tx.pendingChanges(teamId, personId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

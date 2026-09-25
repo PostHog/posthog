@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { MergePersonUpdate, PendingPersonChanges } from '~/common/persons/person-update-batch'
+import { MergePersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
@@ -108,10 +108,6 @@ export class PersonsStoreTransaction {
         distinctId: string
     ): Promise<InternalPerson[]> {
         return await this.store.readMergeRows(teamId, targetId, sourceIds, distinctId, this.tx)
-    }
-
-    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
-        return this.store.pendingChanges(teamId, personId)
     }
 
     async addDistinctId(

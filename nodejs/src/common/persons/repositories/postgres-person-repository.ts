@@ -2180,7 +2180,8 @@ export class PostgresPersonRepository
                     FOR NO KEY UPDATE
                 )
                 UPDATE posthog_person AS p SET
-                    properties = (p.properties || batch.new_properties::jsonb) - unset.keys,
+                    properties = (p.properties || batch.new_properties::jsonb)
+                        - ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)),
                     is_identified = p.is_identified OR batch.new_is_identified,
                     created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
                     last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),
@@ -2194,9 +2195,6 @@ export class PostgresPersonRepository
                     $6::text[],
                     $7::text[]
                 ) AS batch(batch_uuid, batch_team_id, new_properties, new_is_identified, new_created_at, new_last_seen_at, unset_json)
-                CROSS JOIN LATERAL (
-                    SELECT COALESCE(ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)), ARRAY[]::text[]) AS keys
-                ) AS unset
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
                   AND p.id IN (SELECT id FROM locked)
                 RETURNING ${PERSON_COLUMNS_PREFIXED}

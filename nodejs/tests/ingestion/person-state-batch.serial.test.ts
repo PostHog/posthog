@@ -2224,74 +2224,6 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
         })
 
-        it.each([
-            ['before the transaction', 'inTransaction'],
-            ['while the target is fetched', 'fetchForUpdate'],
-        ])(`merge keeps the source's pending set when its cache entry is dropped %s`, async (_when, boundary) => {
-            await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
-                distinctId: oldUserDistinctId,
-            })
-            await createPerson(hub, timestamp2, { b: 2 }, {}, {}, teamId, null, false, newUserUuid, {
-                distinctId: newUserDistinctId,
-            })
-            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
-            const source = await batchStore.fetchForUpdate(teamId, oldUserDistinctId, 0)
-            await batchStore.updatePersonWithPropertiesDiffForUpdate(
-                source!,
-                { pending: 'yes' },
-                [],
-                {},
-                oldUserDistinctId,
-                0
-            )
-
-            // A sibling merge on this pod clears the source's entry after the merge fetched it.
-            if (boundary === 'inTransaction') {
-                jest.spyOn(personRepository, 'inTransaction').mockImplementationOnce(async (description, body) => {
-                    batchStore.clearAllCachesForPersonId(teamId, source!.id)
-                    return await PostgresPersonRepository.prototype.inTransaction.call(
-                        personRepository,
-                        description,
-                        body
-                    )
-                })
-            } else {
-                const fetchForUpdate = batchStore.fetchForUpdate.bind(batchStore)
-                jest.spyOn(batchStore, 'fetchForUpdate').mockImplementation(async (team, distinctId, batchId) => {
-                    if (distinctId === newUserDistinctId) {
-                        batchStore.clearAllCachesForPersonId(teamId, source!.id)
-                    }
-                    return await fetchForUpdate(team, distinctId, batchId)
-                })
-            }
-
-            const mergeService = personMergeService(
-                {
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: { $anon_distinct_id: oldUserDistinctId },
-                },
-                hub,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                batchStore
-            )
-            const result = await mergeService.handleIdentifyOrAlias()
-            expect(result.success).toBe(true)
-            if (!result.success) {
-                throw new Error('Expected successful merge result')
-            }
-            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
-
-            const persons = await fetchPostgresPersonsH()
-            expect(persons.length).toEqual(1)
-            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { a: 1, b: 2, pending: 'yes' } })
-        })
-
         it(`a merge that rolls back after its move leaves the source's pending set for the survivor`, async () => {
             await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
                 distinctId: oldUserDistinctId,
@@ -2310,8 +2242,8 @@ describe('PersonState.processEvent()', () => {
                 0
             )
 
-            // The first attempt's move runs and clears the source's entry, then the transaction fails
-            // before the target's cache update; the retry merges afresh.
+            // The first attempt fails after its move; the rollback leaves the source's entry and
+            // its pending in place, and the retry merges afresh.
             jest.spyOn(personRepository, 'updateCohortsAndFeatureFlagsForMerge').mockImplementationOnce(() =>
                 Promise.reject(Object.assign(new Error('deadlock detected'), { code: '40P01' }))
             )

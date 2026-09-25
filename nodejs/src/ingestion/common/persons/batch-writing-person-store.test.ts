@@ -147,7 +147,7 @@ describe('BatchWritingPersonStore', () => {
                     results.set(update.uuid, {
                         success: true,
                         version: update.version + 1,
-                        kafkaMessage: undefined,
+                        kafkaMessage: {},
                     })
                 }
                 return Promise.resolve(results)

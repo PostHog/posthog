@@ -395,7 +395,7 @@ describe('PostgresPersonRepository', () => {
                 'lockOrderReorder'
             )
 
-            // A merge holds the lower id, the way lockPersons takes it, while the batch write arrives
+            // A merge holds the lower id, the way readMergeRows locks sources, while the batch write arrives
             // with the higher id first. Ordered locking blocks the write on the lower id and leaves
             // the higher one free; join-order locking would have taken the higher one already.
             let markLocked!: () => void

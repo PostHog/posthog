@@ -156,7 +156,6 @@ describe('PostgresPersonMerge merge events', () => {
                 .mockImplementation((_teamId: number, distinctId: string) =>
                     Promise.resolve(distinctId === 'd' ? existingPerson : null)
                 ),
-            pendingChanges: jest.fn().mockReturnValue(null),
             inTransaction: jest
                 .fn()
                 .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
@@ -203,7 +202,6 @@ describe('PostgresPersonMerge merge events', () => {
         }
         const store = {
             fetchForUpdate: jest.fn().mockResolvedValue(null),
-            pendingChanges: jest.fn().mockReturnValue(null),
             inTransaction: jest
                 .fn()
                 .mockImplementation(async (_description: string, body: (tx: unknown) => Promise<unknown>) => {
@@ -236,7 +234,6 @@ describe('PostgresPersonMerge merge events', () => {
         }
         const store = {
             fetchForUpdate: jest.fn().mockResolvedValue(person),
-            pendingChanges: jest.fn().mockReturnValue(null),
             fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([mapping]),
         }
         const debounce = new MergeMappingDebounce(100, 60_000)
@@ -308,7 +305,6 @@ describe('PostgresPersonMerge merge events', () => {
         const target = { id: 't1', uuid: targetPerson.uuid } as InternalPerson
         const store = {
             fetchForUpdate: jest.fn().mockResolvedValue(target),
-            pendingChanges: jest.fn().mockReturnValue(null),
             fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),
         }
         const eventUuid = new UUIDT().toString()

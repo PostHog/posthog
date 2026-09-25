@@ -814,9 +814,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // Process batch results
         for (const update of updates) {
             const result = batchResults.get(update.uuid)
-            if (result?.success) {
+            if (result?.success && result.kafkaMessage) {
                 allKafkaMessages.push({
-                    messages: result.kafkaMessage ? [result.kafkaMessage] : [],
+                    messages: [result.kafkaMessage],
                     teamId: update.team_id,
                     uuid: update.uuid,
                     distinctId: update.distinct_id,
