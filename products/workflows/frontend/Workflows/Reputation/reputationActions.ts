@@ -1,3 +1,4 @@
+import { endWithPunctation, humanList } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -11,6 +12,7 @@ import type {
 import {
     CONFIGURE_CHANNELS_DOCS_URL,
     OTHER_ISP,
+    RATE_KINDS,
     RATE_THRESHOLDS,
     REPUTATION_DOCS_URL,
     RateKind,
@@ -19,12 +21,13 @@ import {
     formatRate,
     ispDisplayName,
     minimumVolumeToClassify,
+    workflowName,
 } from './reputationUtils'
 
 export type ReputationActionSeverity = 'high' | 'medium' | 'low'
 
 // pinned: part of the data-attr on each action's buttons, which autocapture dashboards read
-export type ReputationActionKind =
+type ReputationActionKind =
     | 'project-suspended'
     | 'provider-status'
     | 'paused-workflow'
@@ -33,7 +36,7 @@ export type ReputationActionKind =
     | 'workflow-rate'
     | 'provider-rate'
 
-export interface ReputationActionLink {
+interface ReputationActionLink {
     label: string
     to: string
     external?: boolean
@@ -85,6 +88,7 @@ const GROUP_ORDER = {
 // Complaints come first: their lines are far lower than the bounce lines, and the endpoint ranks
 // workflows by complaint rate for the same reason.
 const KIND_ORDER: Record<RateKind, number> = { complaint: 0, bounce: 1 }
+const RATE_KIND_LIST: readonly RateKind[] = ['complaint', 'bounce']
 const NO_KIND_ORDER = 2
 
 const DNS_FINDINGS = new Set<string>(['DKIM', 'DMARC', 'SPF'])
@@ -103,9 +107,8 @@ function openWorkflow(workflow: WorkflowEmailSendingRatesApi): ReputationActionL
     return { label: 'Open workflow', to: urls.workflow(workflow.hog_flow_id, 'workflow') }
 }
 
-// Matches the workflow table, which shows the id for an unnamed workflow.
-function workflowName(workflow: WorkflowEmailSendingRatesApi): string {
-    return workflow.hog_flow_name || workflow.hog_flow_id
+function optOutsLink(inputs: ReputationActionInputs): ReputationActionLink {
+    return { label: 'Opt-outs', to: inputs.tabUrl('opt-outs') }
 }
 
 function formatShare(share: number): string {
@@ -125,8 +128,8 @@ function exceededLevel(rate: number, kind: RateKind, volume: number): ExceededLe
 }
 
 function providerSays(finding: AwsTenantFindingApi): string {
-    const detail = finding.description.trim().replace(/\.$/, '')
-    return detail ? ` Your email provider reports: ${detail}.` : ''
+    const detail = endWithPunctation(finding.description)
+    return detail ? ` Your email provider reports: ${detail}` : ''
 }
 
 interface Offender {
@@ -248,12 +251,11 @@ function findingAction(
         magnitude: 0,
     }
 
-    if (type === 'COMPLAINT' || type === 'BOUNCE') {
-        const kind: RateKind = type === 'COMPLAINT' ? 'complaint' : 'bounce'
+    const kind = RATE_KIND_LIST.find((k) => RATE_KINDS[k].findingType === type)
+    if (kind) {
         const offender = offenders[kind]
-        const name = offender ? workflowName(offender.workflow) : ''
         const share = offender
-            ? `${name} sends ${formatShare(offender.sendShare)} of your email but gets ${formatShare(offender.eventShare)} of your ${kind === 'bounce' ? 'bounces' : 'spam complaints'}.`
+            ? `${workflowName(offender.workflow)} sends ${formatShare(offender.sendShare)} of your email but gets ${formatShare(offender.eventShare)} of your ${RATE_KINDS[kind].events}.`
             : ''
         return {
             ...base,
@@ -268,11 +270,7 @@ function findingAction(
                       ? `${share} Send it only to people who opted in, and make unsubscribing easy.`
                       : 'Your email provider sees too many spam complaints for this project. Send only to people who opted in, and make unsubscribing easy.',
             primary: offender ? openWorkflow(offender.workflow) : guideLink(),
-            secondary: offender
-                ? kind === 'bounce'
-                    ? guideLink()
-                    : { label: 'Opt-outs', to: inputs.tabUrl('opt-outs') }
-                : undefined,
+            secondary: offender ? (kind === 'bounce' ? guideLink() : optOutsLink(inputs)) : undefined,
         }
     }
     if (DNS_FINDINGS.has(type)) {
@@ -339,10 +337,10 @@ function workflowRateActions(
             group: GROUP_ORDER.workflowRate,
             rateKind: kind,
             magnitude: rate / RATE_THRESHOLDS[kind].elevated,
-            title: `${workflowName(workflow)} has a ${formatRate(rate)} ${kind === 'bounce' ? 'bounce' : 'spam complaint'} rate`,
+            title: `${workflowName(workflow)} has a ${formatRate(rate)} ${RATE_KINDS[kind].event} rate`,
             description: rateAdvice(kind, level),
             primary: openWorkflow(workflow),
-            secondary: kind === 'bounce' ? guideLink() : { label: 'Opt-outs', to: inputs.tabUrl('opt-outs') },
+            secondary: kind === 'bounce' ? guideLink() : optOutsLink(inputs),
         })
     }
     return actions
@@ -366,25 +364,28 @@ function projectRateAction(inputs: ReputationActionInputs, kind: RateKind): Rank
         group: GROUP_ORDER.projectRate,
         rateKind: kind,
         magnitude: rate / RATE_THRESHOLDS[kind].elevated,
-        title: `Your project has a ${formatRate(rate)} ${kind === 'bounce' ? 'bounce' : 'spam complaint'} rate`,
+        title: `Your project has a ${formatRate(rate)} ${RATE_KINDS[kind].event} rate`,
         description:
             kind === 'bounce'
                 ? 'No single workflow stands out, so the bounces come from many smaller sends. Check where your audiences come from, and stop sending to imported or purchased lists.'
                 : 'No single workflow stands out, so the complaints come from many smaller sends. Send only to people who opted in, and make unsubscribing easy.',
         primary: guideLink(),
-        secondary: kind === 'complaint' ? { label: 'Opt-outs', to: inputs.tabUrl('opt-outs') } : undefined,
+        secondary: kind === 'complaint' ? optOutsLink(inputs) : undefined,
     }
 }
 
 function providerRateActions(inputs: ReputationActionInputs): RankedAction[] {
     const sharedNote =
         inputs.sharedDomains.length > 0
-            ? ` These counts include email other projects send from ${inputs.sharedDomains.join(', ')}.`
+            ? ` These counts include email other projects send from ${humanList(inputs.sharedDomains)}.`
             : ''
     const actions: RankedAction[] = []
     for (const isp of inputs.isps) {
-        const level = isp.bounce_rate === null ? null : exceededLevel(isp.bounce_rate, 'bounce', isp.emails_sent)
-        if (!level || isp.bounce_rate === null) {
+        if (isp.bounce_rate === null) {
+            continue
+        }
+        const level = exceededLevel(isp.bounce_rate, 'bounce', isp.emails_sent)
+        if (!level) {
             continue
         }
         const provider = isp.isp === OTHER_ISP ? 'other providers' : ispDisplayName(isp.isp)
@@ -416,19 +417,17 @@ function compareActions(a: RankedAction, b: RankedAction): number {
 export function buildReputationActions(inputs: ReputationActionInputs): ReputationAction[] {
     const findings = inputs.aws?.findings ?? []
     const findingTypes = new Set(findings.map((f) => f.finding_type))
+    const hasFinding = (kind: RateKind): boolean => findingTypes.has(RATE_KINDS[kind].findingType)
     const offenders: Record<RateKind, Offender | null> = {
-        bounce: findingTypes.has('BOUNCE') ? worstOffender(inputs, 'bounce') : null,
-        complaint: findingTypes.has('COMPLAINT') ? worstOffender(inputs, 'complaint') : null,
+        bounce: hasFinding('bounce') ? worstOffender(inputs, 'bounce') : null,
+        complaint: hasFinding('complaint') ? worstOffender(inputs, 'complaint') : null,
     }
 
-    const workflowActions = (['complaint', 'bounce'] as const).flatMap((kind) =>
+    const workflowActions = RATE_KIND_LIST.flatMap((kind) =>
         workflowRateActions(inputs, kind, offenders[kind]?.workflow.hog_flow_id)
     )
-    const projectActions = (['complaint', 'bounce'] as const).flatMap((kind) => {
-        const covered =
-            findingTypes.has(kind === 'bounce' ? 'BOUNCE' : 'COMPLAINT') ||
-            !!offenders[kind] ||
-            workflowActions.some((action) => action.rateKind === kind)
+    const projectActions = RATE_KIND_LIST.flatMap((kind) => {
+        const covered = hasFinding(kind) || workflowActions.some((action) => action.rateKind === kind)
         const action = covered ? null : projectRateAction(inputs, kind)
         return action ? [action] : []
     })

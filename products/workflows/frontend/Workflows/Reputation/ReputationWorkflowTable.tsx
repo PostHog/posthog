@@ -8,11 +8,11 @@ import { urls } from 'scenes/urls'
 import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { RateCell } from './RateCell'
-import { WORKFLOW_LIMIT } from './reputationUtils'
+import { WORKFLOW_LIMIT, workflowName } from './reputationUtils'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 export function ReputationWorkflowTable(): JSX.Element {
-    const { tableWorkflows, tableLoading, workflowSearchFailed, workflowSnapshots, search } =
+    const { tableWorkflows, tableLoading, workflowSearchFailed, workflowSnapshots, search, searchTerm } =
         useValues(workflowsReputationLogic)
     const { setSearch } = useActions(workflowsReputationLogic)
 
@@ -27,7 +27,7 @@ export function ReputationWorkflowTable(): JSX.Element {
                     className="max-w-80"
                     data-attr="workflows-reputation-search"
                 />
-                {!search.trim() && workflowSnapshots.length >= WORKFLOW_LIMIT && (
+                {!searchTerm && workflowSnapshots.length >= WORKFLOW_LIMIT && (
                     <span className="text-secondary text-xs">
                         Showing the {WORKFLOW_LIMIT} workflows with the highest rates. Search to find any other sending
                         workflow.
@@ -41,7 +41,7 @@ export function ReputationWorkflowTable(): JSX.Element {
                 emptyState={
                     workflowSearchFailed
                         ? "Couldn't search your workflows. Check your connection, then change the search to try again."
-                        : search.trim()
+                        : searchTerm
                           ? 'No sending workflows match your search.'
                           : 'No workflows have sent email in the last 30 days.'
                 }
@@ -52,7 +52,7 @@ export function ReputationWorkflowTable(): JSX.Element {
                         render: (_, snapshot: WorkflowEmailSendingRatesApi) => (
                             <span className="inline-flex flex-wrap items-center gap-2">
                                 <Link to={urls.workflow(snapshot.hog_flow_id, 'workflow')} className="font-semibold">
-                                    {snapshot.hog_flow_name || snapshot.hog_flow_id}
+                                    {workflowName(snapshot)}
                                 </Link>
                                 {/* Without this, a workflow we paused ourselves reads as healthy here,
                                     because the rest of this tab reports the provider's verdict only. */}

@@ -17,11 +17,11 @@ import type {
 
 import { ReputationAction, ReputationSetupTab, buildReputationActions } from './reputationActions'
 
-export type ReputationBreakdownTab = 'workflows' | 'providers'
+type ReputationBreakdownTab = 'workflows' | 'providers'
 
-export type ReputationLoadError = 'forbidden' | 'failed'
+type ReputationLoadError = 'forbidden' | 'failed'
 
-export interface WorkflowSearchResults {
+interface WorkflowSearchResults {
     search: string
     workflows: readonly WorkflowEmailSendingRatesApi[]
     failed: boolean
@@ -37,6 +37,7 @@ export interface workflowsReputationLogicValues {
     } // router
     activeBreakdownTab: ReputationBreakdownTab
     awsReputation: AwsTenantReputationApi | null
+    currentSearchResults: WorkflowSearchResults | null
     hasSendingData: boolean
     ispSendingHealth: readonly IspSendingHealthApi[]
     ispSharedDomains: readonly string[]
@@ -46,6 +47,7 @@ export interface workflowsReputationLogicValues {
     reputationResponse: TeamEmailReputationResponseApi | null
     reputationResponseLoading: boolean
     search: string
+    searchTerm: string
     sendingAllowance: EmailSendingAllowanceApi | null
     showAllActions: boolean
     tabUrl: (tab: ReputationSetupTab) => string
@@ -92,34 +94,12 @@ export interface workflowsReputationLogicActions {
         errorObject?: any
     }
     searchWorkflowsSuccess: (
-        workflowSearchResults:
-            | {
-                  failed: true
-                  search: string
-                  workflows: never[]
-              }
-            | {
-                  failed: false
-                  search: string
-                  workflows: readonly WorkflowEmailSendingRatesApi[]
-              }
-            | null,
+        workflowSearchResults: WorkflowSearchResults | null,
         payload?: {
             value: true
         }
     ) => {
-        workflowSearchResults:
-            | {
-                  failed: true
-                  search: string
-                  workflows: never[]
-              }
-            | {
-                  failed: false
-                  search: string
-                  workflows: readonly WorkflowEmailSendingRatesApi[]
-              }
-            | null
+        workflowSearchResults: WorkflowSearchResults | null
         payload?: {
             value: true
         }
@@ -153,16 +133,21 @@ export interface workflowsReputationLogicMeta {
             reputationResponse: TeamEmailReputationResponseApi | null,
             tabUrl: (tab: ReputationSetupTab) => string
         ) => ReputationAction[]
-        tableWorkflows: (
-            search: string,
-            workflowSnapshots: readonly WorkflowEmailSendingRatesApi[],
+        searchTerm: (search: string) => string
+        currentSearchResults: (
+            searchTerm: string,
             workflowSearchResults: WorkflowSearchResults | null
+        ) => WorkflowSearchResults | null
+        tableWorkflows: (
+            searchTerm: string,
+            workflowSnapshots: readonly WorkflowEmailSendingRatesApi[],
+            currentSearchResults: WorkflowSearchResults | null
         ) => readonly WorkflowEmailSendingRatesApi[]
-        workflowSearchFailed: (search: string, workflowSearchResults: WorkflowSearchResults | null) => boolean
+        workflowSearchFailed: (currentSearchResults: WorkflowSearchResults | null) => boolean
         tableLoading: (
             reputationResponseLoading: boolean,
-            search: string,
-            workflowSearchResults: WorkflowSearchResults | null
+            searchTerm: string,
+            currentSearchResults: WorkflowSearchResults | null
         ) => boolean
     }
 }
@@ -207,8 +192,8 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         workflowSearchResults: [
             null as WorkflowSearchResults | null,
             {
-                searchWorkflows: async (_, breakpoint) => {
-                    const search = values.search.trim()
+                searchWorkflows: async (_, breakpoint): Promise<WorkflowSearchResults | null> => {
+                    const search = values.searchTerm
                     if (!search || !values.currentProjectId) {
                         return null
                     }
@@ -338,33 +323,30 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
                       })
                     : [],
         ],
+        searchTerm: [(s) => [s.search], (search: string): string => search.trim()],
+        // The search starts after a debounce, so the typed term runs ahead of the loader. Results
+        // for an older term must not answer the term on screen.
+        currentSearchResults: [
+            (s) => [s.searchTerm, s.workflowSearchResults],
+            (searchTerm: string, results: WorkflowSearchResults | null): WorkflowSearchResults | null =>
+                !!searchTerm && results?.search === searchTerm ? results : null,
+        ],
         tableWorkflows: [
-            (s) => [s.search, s.workflowSnapshots, s.workflowSearchResults],
+            (s) => [s.searchTerm, s.workflowSnapshots, s.currentSearchResults],
             (
-                search: string,
+                searchTerm: string,
                 workflowSnapshots: readonly WorkflowEmailSendingRatesApi[],
                 results: WorkflowSearchResults | null
-            ): readonly WorkflowEmailSendingRatesApi[] => {
-                const term = search.trim()
-                if (!term) {
-                    return workflowSnapshots
-                }
-                return results?.search === term ? results.workflows : []
-            },
+            ): readonly WorkflowEmailSendingRatesApi[] => (searchTerm ? (results?.workflows ?? []) : workflowSnapshots),
         ],
         workflowSearchFailed: [
-            (s) => [s.search, s.workflowSearchResults],
-            (search: string, results: WorkflowSearchResults | null): boolean =>
-                !!results?.failed && results.search === search.trim(),
+            (s) => [s.currentSearchResults],
+            (results: WorkflowSearchResults | null): boolean => !!results?.failed,
         ],
-        // The search starts after a debounce, so the typed term runs ahead of the loader. The
-        // table counts as loading until the rows answer the term on screen.
         tableLoading: [
-            (s) => [s.reputationResponseLoading, s.search, s.workflowSearchResults],
-            (reputationResponseLoading: boolean, search: string, results: WorkflowSearchResults | null): boolean => {
-                const term = search.trim()
-                return reputationResponseLoading || (!!term && results?.search !== term)
-            },
+            (s) => [s.reputationResponseLoading, s.searchTerm, s.currentSearchResults],
+            (reputationResponseLoading: boolean, searchTerm: string, results: WorkflowSearchResults | null): boolean =>
+                reputationResponseLoading || (!!searchTerm && !results),
         ],
     }),
     afterMount(({ actions }) => {

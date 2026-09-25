@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonTable, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { humanList } from 'lib/utils/strings'
 
 import type { IspSendingHealthApi } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -68,7 +69,7 @@ export function ReputationProviderBreakdown(): JSX.Element {
                         others. A provider that accepts your email and then files it as spam still reads as healthy
                         here. {WINDOW_TOOLTIP}
                         {ispSharedDomains.length > 0 &&
-                            ` Counts every email sent from ${ispSharedDomains.join(', ')}, including email from other projects using ${ispSharedDomains.length > 1 ? 'those domains' : 'that domain'}.`}
+                            ` Counts every email sent from ${humanList(ispSharedDomains)}, including email from other projects using ${ispSharedDomains.length > 1 ? 'those domains' : 'that domain'}.`}
                     </p>
                     <LemonTable
                         dataSource={[...ispSendingHealth]}
@@ -161,7 +162,7 @@ export function ReputationProviderBreakdown(): JSX.Element {
             )}
             {ispWithheldDomains.length > 0 && (
                 <div className="text-secondary text-xs" data-attr="workflows-reputation-isp-withheld">
-                    {ispWithheldDomains.join(', ')} {ispWithheldDomains.length > 1 ? 'are' : 'is'} left out of the
+                    {humanList(ispWithheldDomains)} {ispWithheldDomains.length > 1 ? 'are' : 'is'} left out of the
                     provider breakdown. Another project sends from {ispWithheldDomains.length > 1 ? 'them' : 'it'}, and
                     you do not have access to that project.
                 </div>

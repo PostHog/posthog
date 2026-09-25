@@ -1,23 +1,18 @@
 import { useActions, useValues } from 'kea'
 
 import * as partyPng from '@posthog/brand/hoggies/png/party'
-import { LemonButton, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { pluralize } from 'lib/utils/strings'
 
 import { ReputationActionRow } from './ReputationActionRow'
-import type { ReputationActionSeverity } from './reputationActions'
+import { SEVERITY_STYLE } from './reputationUtils'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
 const HedgehogParty = pngHoggie(partyPng)
 
 const COLLAPSED_COUNT = 5
-
-const COUNT_TAG_TYPE: Record<ReputationActionSeverity, LemonTagType> = {
-    high: 'danger',
-    medium: 'warning',
-    low: 'muted',
-}
 
 export function ReputationActionList(): JSX.Element {
     const { reputationActions, showAllActions, awsReputation, ispSendingHealth } = useValues(workflowsReputationLogic)
@@ -31,8 +26,9 @@ export function ReputationActionList(): JSX.Element {
 
     if (reputationActions.length === 0) {
         return (
-            <section
-                className="border rounded bg-surface-primary flex flex-col items-center text-center gap-2 px-4 py-8"
+            <LemonCard
+                hoverEffect={false}
+                className="flex flex-col items-center text-center gap-2 px-4 py-8"
                 data-attr="workflows-reputation-nothing-to-fix"
             >
                 <HedgehogParty className="w-32" />
@@ -43,17 +39,17 @@ export function ReputationActionList(): JSX.Element {
                         : 'No workflow is over the bounce or spam complaint lines.'}
                     {ispSendingHealth.length > 0 && ' Every mailbox provider is under the bounce line too.'}
                 </p>
-            </section>
+            </LemonCard>
         )
     }
 
     return (
-        <section className="border rounded bg-surface-primary @container" data-attr="workflows-reputation-actions">
+        <LemonCard hoverEffect={false} className="p-0 @container" data-attr="workflows-reputation-actions">
             <div className="px-4 py-3 border-b">
                 <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-base font-semibold mb-0">Improve your sending reputation</h2>
-                    <LemonTag type={COUNT_TAG_TYPE[reputationActions[0].severity]}>
-                        {`${reputationActions.length} ${reputationActions.length === 1 ? 'item' : 'items'}`}
+                    <LemonTag type={SEVERITY_STYLE[reputationActions[0].severity].tagType}>
+                        {pluralize(reputationActions.length, 'item')}
                     </LemonTag>
                 </div>
                 <p className="text-secondary mb-0 mt-1">
@@ -79,6 +75,6 @@ export function ReputationActionList(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-        </section>
+        </LemonCard>
     )
 }
