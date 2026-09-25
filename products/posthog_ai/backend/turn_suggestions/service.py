@@ -187,7 +187,9 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
         return _skipped(refusal.value)
     if not transcript.assistant_text and not transcript.tool_calls:
         return _skipped("empty_turn")
-    available = available_offers(transcript, scouts_available=scout_creation_available(team=task_run.team, user=user))
+    available = available_offers(
+        transcript, scouts_available=scout_creation_available(team_id=task_run.team_id, user_id=user.id)
+    )
     if not available:
         return _skipped("no_offers_available")
 
