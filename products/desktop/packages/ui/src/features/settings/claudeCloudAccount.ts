@@ -1,4 +1,7 @@
-import type { UserClaudeIntegration } from "@posthog/api-client/posthog-client";
+import {
+  ClaudeIntegrationUnavailableError,
+  type UserClaudeIntegration,
+} from "@posthog/api-client/posthog-client";
 import { useServiceOptional } from "@posthog/di/react";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import {
@@ -17,11 +20,11 @@ import {
 export const claudeCloudAccountQueryKey = ["claude-cloud-account"] as const;
 
 export interface ClaudeCloudConnectResult {
-  integration: UserClaudeIntegration;
+  integration: UserClaudeIntegration | null;
   localClearError: Error | null;
 }
 
-export function useClaudeCloudAccount(): UseQueryResult<UserClaudeIntegration> {
+export function useClaudeCloudAccount(): UseQueryResult<UserClaudeIntegration | null> {
   const client = useOptionalAuthenticatedClient();
   return useQuery({
     queryKey: claudeCloudAccountQueryKey,
@@ -58,7 +61,18 @@ export function useConnectClaudeCloudAccount(
   return useMutation({
     mutationFn: async (token) => {
       if (!client) throw new Error("Log in to PostHog first.");
-      const integration = await client.connectClaudeUserIntegration(token);
+      let integration: UserClaudeIntegration;
+      try {
+        integration = await client.connectClaudeUserIntegration(token);
+      } catch (error) {
+        if (
+          !(error instanceof ClaudeIntegrationUnavailableError) ||
+          !tokenStore
+        )
+          throw error;
+        await tokenStore.save(token);
+        return { integration: null, localClearError: null };
+      }
       let localClearError: Error | null = null;
       if (tokenStore) {
         try {
@@ -72,7 +86,9 @@ export function useConnectClaudeCloudAccount(
     },
     onSuccess: ({ integration, localClearError }) => {
       queryClient.setQueryData(claudeCloudAccountQueryKey, integration);
-      if (!localClearError) {
+      if (!integration) {
+        queryClient.setQueryData(claudeSubscriptionTokenQueryKey, true);
+      } else if (!localClearError) {
         queryClient.setQueryData(claudeSubscriptionTokenQueryKey, false);
       }
     },

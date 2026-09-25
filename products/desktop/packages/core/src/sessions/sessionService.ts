@@ -6818,7 +6818,10 @@ export class SessionService {
     const authStatus = await this.getAuthCredentialsStatus();
     if (authStatus.kind !== "ready") return null;
     try {
-      return (await authStatus.auth.client.getClaudeUserIntegration()).status;
+      return (
+        (await authStatus.auth.client.getClaudeUserIntegration())?.status ??
+        null
+      );
     } catch (error) {
       this.d.log.warn("Failed to check the Claude cloud token", { error });
       return null;

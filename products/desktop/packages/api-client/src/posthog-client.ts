@@ -499,6 +499,13 @@ export interface UserClaudeIntegration {
   connected_at: string | null;
 }
 
+export class ClaudeIntegrationUnavailableError extends Error {
+  constructor() {
+    super("PostHog cannot store Claude tokens yet.");
+    this.name = "ClaudeIntegrationUnavailableError";
+  }
+}
+
 /** The `tokens` object of the `auth.json` that `codex login` writes. */
 export interface CodexAuthTokens {
   access_token: string;
@@ -2207,14 +2214,19 @@ export class PostHogAPIClient {
     }
   }
 
-  async getClaudeUserIntegration(): Promise<UserClaudeIntegration> {
+  async getClaudeUserIntegration(): Promise<UserClaudeIntegration | null> {
     const urlPath = `/api/users/@me/integrations/claude/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    return (await response.json()) as UserClaudeIntegration;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+      });
+      return (await response.json()) as UserClaudeIntegration;
+    } catch (error) {
+      if (requestErrorStatus(error) === 404) return null;
+      throw error;
+    }
   }
 
   async connectClaudeUserIntegration(
@@ -2231,6 +2243,7 @@ export class PostHogAPIClient {
       return (await response.json()) as UserClaudeIntegration;
     } catch (error) {
       if (!(error instanceof ApiRequestError)) throw error;
+      if (error.status === 404) throw new ClaudeIntegrationUnavailableError();
       const body = (error.body ?? {}) as { token?: unknown; detail?: unknown };
       const tokenError = Array.isArray(body.token) ? body.token[0] : body.token;
       if (typeof tokenError === "string" && tokenError) {

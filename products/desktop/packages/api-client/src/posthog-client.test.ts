@@ -2,6 +2,7 @@ import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it, vi } from "vitest";
 import { ApiRequestError, type FetchImplementation } from "./fetcher";
 import {
+  ClaudeIntegrationUnavailableError,
   CloudCommandError,
   CloudUsageLimitError,
   DESKTOP_BILLING_LIMIT_ERROR_CODE,
@@ -232,6 +233,24 @@ describe("PostHogAPIClient", () => {
       const [url, request] = fetch.mock.calls[0];
       expect((url as URL).pathname).toBe("/api/users/@me/integrations/claude/");
       expect(JSON.parse(request.body)).toEqual({ token: "sk-ant-oat01-bad" });
+    });
+
+    it("reports a backend without the endpoint as unavailable", async () => {
+      const fetch = vi
+        .fn()
+        .mockImplementation(async () => new Response("{}", { status: 404 }));
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(client.getClaudeUserIntegration()).resolves.toBeNull();
+      await expect(
+        client.connectClaudeUserIntegration("sk-ant-oat01-token"),
+      ).rejects.toBeInstanceOf(ClaudeIntegrationUnavailableError);
     });
   });
 

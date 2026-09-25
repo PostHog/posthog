@@ -34,8 +34,13 @@ export function ClaudeCloudTokenSection({
   if (!tokenStore) return null;
 
   const pending = connect.isPending || disconnect.isPending;
-  const status = account.data?.status ?? "not_connected";
   const hasLocalToken = localToken.data === true;
+  const serverStoresToken = account.data !== null;
+  const status = serverStoresToken
+    ? (account.data?.status ?? "not_connected")
+    : hasLocalToken
+      ? "connected"
+      : "not_connected";
 
   const saveToken = (): void => {
     if (pending) return;
@@ -110,7 +115,7 @@ export function ClaudeCloudTokenSection({
   const formHint =
     status === "reauth_required"
       ? "Your Claude token stopped working. Create a new token, then paste it below."
-      : hasLocalToken
+      : hasLocalToken && serverStoresToken
         ? "Paste your token again so cloud tasks can run when Desktop is closed."
         : "Create a token, then paste it below.";
 
@@ -132,10 +137,11 @@ export function ClaudeCloudTokenSection({
         />
       </div>
       <span className="text-muted-foreground text-xs">
-        PostHog keeps your Claude token for your cloud tasks. Tasks run when
-        Desktop is closed. Compute is billed separately.
+        {serverStoresToken
+          ? "PostHog keeps your Claude token for your cloud tasks. Tasks run when Desktop is closed. Compute is billed separately."
+          : "Keep Desktop open to start or resume. Compute is billed separately."}
       </span>
-      {account.isPending ? (
+      {account.isPending || (!serverStoresToken && localToken.isPending) ? (
         <output className="text-muted-foreground text-xs">
           Checking token…
         </output>
