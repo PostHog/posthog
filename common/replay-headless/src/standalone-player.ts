@@ -44,7 +44,7 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     }
     controller.onWindowChange((onScreen) => {
         for (const tab of windows) {
-            tab.root.style.display = tab === onScreen ? '' : 'none'
+            tab.root.style.visibility = tab === onScreen ? 'visible' : 'hidden'
         }
         scaler.fitReplayer(onScreen.replayer)
     })

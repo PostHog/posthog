@@ -126,7 +126,10 @@ export async function createReplayers(
             continue
         }
         const root = document.createElement('div')
-        root.style.display = 'none'
+        // Hidden but still laid out: a display:none iframe drops the scroll positions its fast-forward sets.
+        root.style.position = 'absolute'
+        root.style.inset = '0'
+        root.style.visibility = 'hidden'
         rootEl.appendChild(root)
         const replayer = new Replayer(windowEvents, {
             root,
@@ -146,6 +149,7 @@ export async function createReplayers(
             root,
             initialURL: firstHref(windowEvents),
             firstTimestamp: windowEvents[0].timestamp,
+            lastTimestamp: windowEvents[windowEvents.length - 1].timestamp,
         })
     }
     if (!windows.length) {

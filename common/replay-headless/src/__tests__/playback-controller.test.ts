@@ -38,7 +38,7 @@ function mockReplayer() {
 }
 
 function oneWindow(replayer: ReturnType<typeof mockReplayer>, firstTimestamp: number): PlaybackWindow[] {
-    return [{ windowId: 1, replayer: replayer as any, firstTimestamp }]
+    return [{ windowId: 1, replayer: replayer as any, firstTimestamp, lastTimestamp: Number.MAX_SAFE_INTEGER }]
 }
 
 describe('PlaybackController', () => {
@@ -302,8 +302,8 @@ describe('PlaybackController', () => {
                 a,
                 b,
                 windows: [
-                    { windowId: 1, replayer: a as any, firstTimestamp: 1000 },
-                    { windowId: 2, replayer: b as any, firstTimestamp: 3000 },
+                    { windowId: 1, replayer: a as any, firstTimestamp: 1000, lastTimestamp: 5000 },
+                    { windowId: 2, replayer: b as any, firstTimestamp: 3000, lastTimestamp: 9000 },
                 ],
                 segments: [
                     makeSegment({ startTimestamp: 1000, endTimestamp: 5000, windowId: 1 }),
@@ -331,6 +331,44 @@ describe('PlaybackController', () => {
             expect(b.play).toHaveBeenCalledWith(2500)
             expect(shown).toEqual([1, 2])
             expect(controller.getFrameSessionMs()).toEqual([4500])
+
+            jest.restoreAllMocks()
+        })
+
+        it('starts in the window that owns the start offset', () => {
+            jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0)
+            const { a, b, windows, segments } = twoWindows()
+            const controller = new PlaybackController(windows, segments, 1000, {}, mockBridge())
+
+            controller.start(6000)
+
+            expect(controller.activeWindow.windowId).toBe(2)
+            expect(b.play).toHaveBeenCalledWith(4000)
+            expect(a.play).not.toHaveBeenCalled()
+
+            jest.restoreAllMocks()
+        })
+
+        it('switches windows when an inactivity skip lands in another window', () => {
+            let rafCallback: FrameRequestCallback | null = null
+            jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+                rafCallback = cb
+                return 0
+            })
+            const { a, b, windows } = twoWindows()
+            const segments = [
+                makeSegment({ startTimestamp: 1000, endTimestamp: 3000, windowId: 1 }),
+                makeSegment({ startTimestamp: 3000, endTimestamp: 6000, windowId: 1, isActive: false, kind: 'gap' }),
+                makeSegment({ startTimestamp: 6000, endTimestamp: 9000, windowId: 2 }),
+            ]
+            const controller = new PlaybackController(windows, segments, 1000, { skipInactivity: true }, mockBridge())
+
+            controller.start(0)
+            a.getCurrentTime.mockReturnValue(2500)
+            rafCallback!(0)
+
+            expect(controller.activeWindow.windowId).toBe(2)
+            expect(b.play).toHaveBeenCalledWith(3000)
 
             jest.restoreAllMocks()
         })

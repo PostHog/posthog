@@ -12,6 +12,8 @@ export interface PlaybackWindow {
     replayer: Replayer
     /** Timestamp of the tab's first event, which is the zero of its replayer's clock. */
     firstTimestamp: number
+    /** Timestamp of the tab's last event, after which its replayer has nothing left to show. */
+    lastTimestamp: number
 }
 
 /**
@@ -108,7 +110,10 @@ export class PlaybackController {
             if (seg.isActive) {
                 return tab
             }
-            fallback ??= tab
+            // A merged inactive run keeps its first window's id even after that window has run out of events.
+            if (ts <= tab.lastTimestamp) {
+                fallback ??= tab
+            }
         }
         return fallback
     }
