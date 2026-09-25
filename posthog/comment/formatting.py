@@ -23,12 +23,10 @@ _RE_SLACK_ITALIC = re.compile(r"(?<!_)_([^_\n]+)_(?!_)")
 _RE_SLACK_STRIKE = re.compile(r"(?<!~)~([^~\n]+)~(?!~)")
 
 # Markdown patterns
-_RE_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _RE_MD_BOLD_ITALIC = re.compile(r"\*\*\*(.+?)\*\*\*")
 _RE_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
 _RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
-_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_INLINE_MENTION = re.compile(r"@\[([^\][\n]+)\]\(([^\s()@]+@[^\s()@]+)\)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
@@ -188,6 +186,58 @@ def _markdown_breaks_to_mrkdwn(text: str) -> str:
     return "".join(parts)
 
 
+def _scan_delimited_run(text: str, start: int, opener: str, closer: str) -> tuple[str, int] | None:
+    """Read the delimited run that starts at ``start``.
+
+    Returns the text between the delimiters and the index after the closing one, or None when
+    the run never closes. A nested pair keeps the run open, because a markdown link
+    destination can hold balanced parentheses: a HogQL share link carries the whole query in
+    its fragment, so a scan that stops at the first ``)`` cuts the URL in half.
+    """
+    if text[start : start + 1] != opener:
+        return None
+
+    depth = 0
+    index = start
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            index += 2
+            continue
+        if char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : index], index + 1
+        index += 1
+    return None
+
+
+def _markdown_links_to_mrkdwn(text: str, *, images: bool) -> str:
+    """Rewrite markdown ``[label](url)`` links, or ``![alt](url)`` images, into mrkdwn ``<url|label>``."""
+    marker = "!" if images else "["
+    out: list[str] = []
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            out.append(text[index : index + 2])
+            index += 2
+            continue
+        if char == marker:
+            label = _scan_delimited_run(text, index + 1 if images else index, "[", "]")
+            destination = _scan_delimited_run(text, label[1], "(", ")") if label else None
+            # An empty destination, or a link with no label, stays as the author wrote it.
+            if label and destination and destination[0] and (label[0] or images):
+                out.append(f"<{destination[0]}|{label[0]}>")
+                index = destination[1]
+                continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def content_to_slack_mrkdwn(
     content: str,
     organization_id: str | UUID | None = None,
@@ -228,7 +278,7 @@ def content_to_slack_mrkdwn(
 
     text = _RE_MD_ESCAPED_CHAR.sub(capture_escaped_char, text)
 
-    text = _RE_MD_IMAGE.sub(r"<\2|\1>", text)
+    text = _markdown_links_to_mrkdwn(text, images=True)
 
     bold_italic_matches: list[str] = []
 
@@ -260,7 +310,7 @@ def content_to_slack_mrkdwn(
         return f"@{name}"
 
     text = _RE_INLINE_MENTION.sub(render_inline_mention, text)
-    text = _RE_MD_LINK.sub(r"<\2|\1>", text)
+    text = _markdown_links_to_mrkdwn(text, images=False)
 
     for index, value in enumerate(bold_matches):
         text = text.replace(f"\x00B{index}\x00", f"*{value}*")
