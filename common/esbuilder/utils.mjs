@@ -98,16 +98,17 @@ export function copyIndexHtml(
         // The stable entry may already have run some stable chunks when it fails, and the default
         // entry would then run a second copy of those modules. So the stable variant reloads the page
         // on the default build instead. The server always serves the default build for
-        // ?stable_chunks=0 and clears the opt-in cookie, so the reload cannot loop.
+        // ?stable_chunks=fallback, so the reload cannot loop, and it stores no choice, so the next
+        // navigation tries the stable build again.
         const entryFallback = isStable
             ? `
                         var url = new URL(window.location.href)
-                        url.searchParams.set('stable_chunks', '0')
+                        url.searchParams.set('stable_chunks', 'fallback')
                         window.location.replace(url.toString())`
             : `
                         await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})`
         const scriptCode = `
-            // The server has already applied ?stable_chunks (it sets or clears the opt-in cookie),
+            // The server has already applied ?stable_chunks (1 and 0 also set the choice cookie),
             // so drop it from the address bar. A bookmarked or shared URL must not keep forcing a build.
             if (window.location.search.indexOf('stable_chunks=') !== -1) {
                 var cleanUrl = new URL(window.location.href)

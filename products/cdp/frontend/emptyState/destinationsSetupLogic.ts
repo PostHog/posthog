@@ -16,6 +16,8 @@ import { hogFunctionsList } from '../generated/api'
 export const destinationsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.PIPELINE_DESTINATIONS,
     path: ['products', 'cdp', 'frontend', 'emptyState', 'destinationsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const [hogFunctions, pluginDestinations, batchExports] = await Promise.all([

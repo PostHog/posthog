@@ -42,6 +42,15 @@ _GITHUB_LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,3
 # Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
 # files) from bloating the JSON response and worker memory. ~1 MB of text.
 _MAX_DIFF_CHARS = 1_000_000
+
+
+def _bounded_diff_response(diff_text: str) -> dict[str, Any]:
+    truncated = len(diff_text) > _MAX_DIFF_CHARS
+    if truncated:
+        diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+    return {"success": True, "diff": diff_text, "truncated": truncated}
+
+
 _MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
 
 
@@ -854,11 +863,26 @@ class GitHubIntegration(GitHubIntegrationBase):
         # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
         # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
         # the consumer can tell the diff was cut rather than silently showing a partial diff.
-        diff_text = response.text
-        truncated = len(diff_text) > _MAX_DIFF_CHARS
-        if truncated:
-            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
-        return {"success": True, "diff": diff_text, "truncated": truncated}
+        return _bounded_diff_response(response.text)
+
+    def get_pull_request_diff(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Return the durable unified diff GitHub stores for a pull request."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        if not _is_safe_github_repo_path(repo_path) or pr_number < 1:
+            return {"success": False, "error": "Invalid pull request reference.", "status_code": 400}
+
+        try:
+            response = self.api_request(
+                "GET",
+                f"/repos/{repo_path}/pulls/{pr_number}",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+                headers={"Accept": "application/vnd.github.diff"},
+            )
+        except GitHubIntegrationError:
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        return _bounded_diff_response(response.text)
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None

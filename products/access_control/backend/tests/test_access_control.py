@@ -1,4 +1,5 @@
 import json
+import uuid
 
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -19,9 +21,11 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.api import PropertyAccessControlRuleNotFoundError
 from products.access_control.backend.facade.object_names import display_model, resources_with_object_access_controls
 from products.access_control.backend.facade.user_access_control import AccessSource
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
@@ -2777,3 +2781,216 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
         # Each project costs one query for its rules; nothing per (member, project) pair
         Team.objects.create(organization=self.organization, name="Team D")
         assert query_count() == baseline + 1
+
+
+class TestAccessControlSubjectRuleWrites(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        colleague = self._create_user("colleague@example.com")
+        self.colleague_membership = colleague.organization_memberships.get(organization=self.organization)
+        self.role = Role.objects.create(name="Engineering", organization=self.organization)
+        self.dashboard = Dashboard.objects.create(team=self.team, name="Growth", created_by=self.user)
+
+    def _subject(self, subject: str) -> dict:
+        if subject == "member":
+            return {"member_id": str(self.colleague_membership.id)}
+        if subject == "role":
+            return {"role_id": str(self.role.id)}
+        return {}
+
+    def _put(self, subject: str, body: dict, **kwargs):
+        return self.client.put(f"/api/projects/@current/access_control_{subject}_rules", body, **kwargs)
+
+    @parameterized.expand(
+        [
+            (f"{subject}_{scope}", subject, scope)
+            for subject in ("default", "member", "role")
+            for scope in ("project", "resource", "object")
+        ]
+    )
+    def test_writes_a_rule_per_subject_and_scope(self, _name, subject, scope):
+        body = {
+            "project": {"resource": "project", "resource_id": str(self.team.id), "access_level": "admin"},
+            "resource": {"resource": "dashboard", "access_level": "editor"},
+            "object": {"resource": "dashboard", "resource_id": str(self.dashboard.id), "access_level": "viewer"},
+        }[scope]
+        res = self._put(subject, {**body, **self._subject(subject)})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+        expected_resource_id = {"project": str(self.team.id), "resource": None, "object": str(self.dashboard.id)}[scope]
+        row = AccessControl.objects.get(team=self.team, resource=body["resource"])
+        assert row.resource_id == expected_resource_id
+        assert row.access_level == body["access_level"]
+        assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
+        assert str(row.role_id or "") == self._subject(subject).get("role_id", "")
+        assert res.json() == {
+            "resource": body["resource"],
+            "resource_id": expected_resource_id,
+            "access_level": body["access_level"],
+            "member_id": self._subject(subject).get("member_id"),
+            "role_id": self._subject(subject).get("role_id"),
+        }
+
+    def test_null_level_clears_the_rule_and_clearing_again_is_idempotent(self):
+        body = {"resource": "dashboard", "access_level": "viewer", **self._subject("member")}
+        assert self._put("member", body).status_code == status.HTTP_200_OK
+        assert self._put("member", {**body, "access_level": "editor"}).status_code == status.HTTP_200_OK
+
+        res = self._put("member", {**body, "access_level": None})
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        assert not AccessControl.objects.filter(team=self.team, resource="dashboard").exists()
+        assert self._put("member", {**body, "access_level": None}).status_code == status.HTTP_204_NO_CONTENT
+
+        entry = self.client.get(
+            f"/api/projects/@current/access_control_members?member_id={self.colleague_membership.id}"
+        ).json()["results"][0]["resources"]["dashboard"]
+        assert entry["access_level"] is None
+
+    @parameterized.expand([("default",), ("member",), ("role",)])
+    def test_write_requires_access_control_write_scope(self, subject):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="read only", secure_value=hash_key_value(key_value), scopes=["access_control:read"]
+        )
+        res = self._put(
+            subject,
+            {"resource": "dashboard", "access_level": "viewer", **self._subject(subject)},
+            headers={"authorization": f"Bearer {key_value}"},
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "access_control:write" in res.json()["detail"]
+
+    def test_member_rule_requires_a_visible_member(self):
+        res = self._put("member", {"resource": "dashboard", "access_level": "viewer"})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json()["attr"] == "member_id"
+
+        other_org = Organization.objects.create(name="Other org")
+        other_user = User.objects.create_and_join(other_org, "other-org-user@posthog.com", None)
+        other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
+        res = self._put(
+            "member",
+            {"resource": "dashboard", "access_level": "viewer", "member_id": str(other_membership.id)},
+        )
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+        # A plain member in an organization that hides its member list cannot address other members
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self._put("member", {"resource": "dashboard", "access_level": "viewer", **self._subject("member")})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def test_role_rule_requires_the_role_based_access_feature_and_an_org_role(self):
+        other_role = Role.objects.create(name="Other org role", organization=Organization.objects.create(name="O"))
+        res = self._put("role", {"resource": "dashboard", "access_level": "viewer", "role_id": str(other_role.id)})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        res = self._put("role", {"resource": "dashboard", "access_level": "viewer", **self._subject("role")})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert not AccessControl.objects.filter(team=self.team, role=self.role).exists()
+
+    @parameterized.expand(
+        [
+            ("inheritance_child_without_object", {"resource": "warehouse_table", "access_level": "viewer"}),
+            ("organization", {"resource": "organization", "access_level": "admin"}),
+            ("project_with_foreign_id", {"resource": "project", "resource_id": "999", "access_level": "admin"}),
+            ("project_without_id", {"resource": "project", "access_level": "admin"}),
+            ("level_out_of_bounds", {"resource": "dashboard", "access_level": "owner"}),
+        ]
+    )
+    def test_rejects_scopes_that_store_an_inert_rule(self, _name, body):
+        res = self._put("default", body)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert not AccessControl.objects.filter(team=self.team).exists()
+
+    def test_object_rule_on_a_hidden_object_is_404(self):
+        owner = User.objects.create_and_join(self.organization, "owner@posthog.com", None)
+        hidden = Dashboard.objects.create(team=self.team, name="Confidential", created_by=owner)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        res = self._put("default", {"resource": "dashboard", "resource_id": str(hidden.id), "access_level": "editor"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def _property_definition(self) -> PropertyDefinition:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        return PropertyDefinition.objects.create(
+            team=self.team, name="salary", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+
+    @parameterized.expand([("default",), ("member",), ("role",)])
+    def test_property_rule_per_subject_sets_and_clears(self, subject):
+        prop = self._property_definition()
+        body = {"resource": "property_definition", "resource_id": str(prop.id), **self._subject(subject)}
+
+        res = self._put(subject, {**body, "access_level": "none"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert res.json()["access_level"] == "none"
+        row = PropertyAccessControl.objects.get(team=self.team, property_definition=prop)
+        assert str(row.organization_member_id or "") == self._subject(subject).get("member_id", "")
+        assert str(row.role_id or "") == self._subject(subject).get("role_id", "")
+
+        assert self._put(subject, {**body, "access_level": "read"}).status_code == status.HTTP_200_OK
+        assert self._put(subject, {**body, "access_level": None}).status_code == status.HTTP_204_NO_CONTENT
+        assert not PropertyAccessControl.objects.filter(team=self.team).exists()
+        assert self._put(subject, {**body, "access_level": None}).status_code == status.HTTP_204_NO_CONTENT
+
+    def test_property_rule_clear_that_loses_a_race_is_still_a_204(self):
+        prop = self._property_definition()
+        body = {"resource": "property_definition", "resource_id": str(prop.id), "access_level": None}
+        # The rule vanishes between the request and the delete, as a concurrent clear would make it
+        with patch(
+            "products.access_control.backend.facade.api.delete_property_access_control",
+            side_effect=PropertyAccessControlRuleNotFoundError,
+        ):
+            res = self._put("default", body)
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_property_rule_validation(self):
+        prop = self._property_definition()
+        base = {"resource": "property_definition", "resource_id": str(prop.id)}
+
+        res = self._put("default", {"resource": "property_definition", "access_level": "read"})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        res = self._put("default", {**base, "access_level": "viewer"})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        res = self._put("default", {**base, "resource_id": str(uuid.uuid4()), "access_level": "read"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+        # A property name instead of the id, for a set and for a clear
+        res = self._put("default", {**base, "resource_id": "salary", "access_level": "read"})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+        res = self._put("default", {**base, "resource_id": "salary", "access_level": None})
+        assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+        # Property access without role-based access: role rules stay gated like every other scope
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        res = self._put("role", {**base, "access_level": "read", **self._subject("role")})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        res = self._put("default", {**base, "access_level": "read"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert not PropertyAccessControl.objects.filter(team=self.team).exists()

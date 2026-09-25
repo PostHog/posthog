@@ -49,6 +49,8 @@ STAMPHOG_REVIEWHOG_LABEL = "reviewhog"
 # vendor the engine with the resolver beside it and the engine resolves the two layouts by offset.
 STAMPHOG_SANDBOX_OWNERS_DIR = f"{STAMPHOG_SANDBOX_REPO_DIR}/tools/owners"
 STAMPHOG_SANDBOX_CONTEXT_PATH = f"{STAMPHOG_SANDBOX_REPO_DIR}/.stamphog_review_context.json"
+# Outside the checkout, so the archive never shows up in the tree the reviewer explores.
+STAMPHOG_SANDBOX_PAYLOAD_PATH = "/tmp/stamphog/review-payload.tar.gz"
 
 # Trusted review-norms prose the engine reads as its reviewer system guidance, and
 # the gate policy entrypoint. Both are fetched from the target repo's DEFAULT branch
@@ -112,3 +114,10 @@ SANDBOX_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     non_retryable_error_types=["SandboxPhaseError"],
 )
+
+# The Claude Code CLI's own switches for its telemetry, error reporting and auto-update traffic.
+NETWORK_RESTRICTED_AGENT_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+}
