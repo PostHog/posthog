@@ -77,12 +77,12 @@ class TestMetadataSuggestionsApi(APIBaseTest):
         Tag.objects.create(name="billing", team=self.team)
         growth = Tag.objects.create(name="growth", team=self.team)
         insight = Insight.objects.create(team=self.team)
-        TaggedItem.objects.create(tag=growth, insight_id=insight.id)
+        TaggedItem.objects.create(tag=growth, insight=insight)
         other_org = Organization.objects.create(name="Other org")
         other_team = Team.objects.create(organization=other_org, name="Other team")
         other_tag = Tag.objects.create(name="other-team-secret", team=other_team)
         for _ in range(3):
-            TaggedItem.objects.create(tag=other_tag, insight_id=Insight.objects.create(team=other_team).id)
+            TaggedItem.objects.create(tag=other_tag, insight=Insight.objects.create(team=other_team))
 
         def decide(request: DecisionRequest) -> DecisionResult:
             return _result({key: NoulAnswer(probability=0.95) for key in request.questions})
