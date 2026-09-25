@@ -1,6 +1,6 @@
 import traceback
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, cast
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -12,7 +12,6 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.models.activity_logging.activity_log import ActivityLog, Trigger
-    from posthog.models.oauth import OAuthAccessToken
     from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -38,7 +37,7 @@ SCOUT_CLIENT_PREFIX = "scout:"
 SERVER_DERIVED_CLIENT_PREFIXES = (SCOUT_CLIENT_PREFIX,)
 
 
-CredentialType = Literal[
+DeclaredCredentialType = Literal[
     "session",
     "personal_api_key",
     "oauth",
@@ -51,8 +50,18 @@ CredentialType = Literal[
     "scim",
     "vercel",
     "partner",
-    "unattributed",
+    "sharing_access_token",
+    "sharing_password",
+    "widget_token",
+    "billing_service",
+    "gateway_agent",
+    "export_renderer",
+    "webhook",
+    "cross_region_signature",
 ]
+# `log_activity` writes `unattributed` for a row in a request where no authentication class recorded
+# a credential, so no class may declare it.
+CredentialType = Literal[DeclaredCredentialType, "unattributed"]
 # Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
 # ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
 ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH = 256
@@ -69,8 +78,9 @@ class ActivityCredential:
     type: CredentialType
     # The personal or project secret key id, the OAuth application UUID, the ID-JAG client id, the
     # SCIM identity provider config id, the service JWT audience, the Vercel installation id, the
-    # partner application UUID, or `session_public_id` for a session. None when the credential has
-    # no id of its own.
+    # partner application UUID, the sharing configuration id, the share password id, the gateway
+    # agent's service account id, the exported asset id, or `session_public_id` for a session. None
+    # when the credential has no id of its own.
     id: str | None = None
     impersonated_by_id: int | None = None
 
@@ -269,29 +279,43 @@ class ActivityLoggingStorage:
 activity_storage = ActivityLoggingStorage()
 
 
-def record_activity_actor(user: "User | None", credential: ActivityCredential) -> None:
-    """Attribute the request's activity rows to the credential an authentication class verified,
-    and to its user.
+class ActivityCredentialMixin:
+    """Declares the credential type of an authentication class, and records that credential on the
+    request's activity rows.
 
-    ActivityLoggingMiddleware runs before DRF authentication, so it can already hold a user, an
-    impersonation flag and a session credential from a cookie on the same request. Replace all
-    three, so that a row never pairs this credential with the session's user or flag. Pass
-    `user=None` for a credential that has no user. Only write when the middleware owns cleanup:
-    outside a request cycle (e.g. authenticate() called directly) the thread-local would leak.
+    `posthog/test/repo_invariants/test_authentication_credential_types.py` fails when a PostHog
+    authentication class does not declare a type.
     """
-    if not activity_storage.is_request_scoped():
-        return
-    activity_storage.set_user(user)
-    activity_storage.set_was_impersonated(credential.impersonated_by_id is not None)
-    activity_storage.set_credential(credential)
 
+    activity_credential_type: ClassVar[DeclaredCredentialType]
 
-def oauth_activity_credential(access_token: "OAuthAccessToken") -> ActivityCredential:
-    return ActivityCredential(
-        type="oauth",
-        id=str(access_token.application_id),
-        impersonated_by_id=access_token.impersonated_by_id,
-    )
+    @classmethod
+    def record_activity_actor(
+        cls,
+        user: "User | None",
+        credential_id: str | None = None,
+        impersonated_by_id: int | None = None,
+    ) -> None:
+        """Attribute the request's activity rows to the credential this class verified, and to its
+        user. Call it only after every check of the credential passed.
+
+        ActivityLoggingMiddleware runs before DRF authentication, so it can already hold a user, an
+        impersonation flag and a session credential from a cookie on the same request. Replace all
+        three, so that a row never pairs this credential with the session's user or flag. Pass
+        `user=None` for a credential that has no user. Only write when the middleware owns cleanup:
+        outside a request cycle (e.g. authenticate() called directly) the thread-local would leak.
+        """
+        if not activity_storage.is_request_scoped():
+            return
+        activity_storage.set_user(user)
+        activity_storage.set_was_impersonated(impersonated_by_id is not None)
+        activity_storage.set_credential(
+            ActivityCredential(
+                type=cls.activity_credential_type,
+                id=credential_id[:ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH] if credential_id else None,
+                impersonated_by_id=impersonated_by_id,
+            )
+        )
 
 
 class ActivityLogVisibilityManager:
