@@ -8,6 +8,7 @@ import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons
 import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { humanizeBytes } from 'lib/utils/numbers'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -98,8 +99,8 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
 
     let content = null
-    const pausedState =
-        currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
+    const pausedState = currentPlayerState === SessionPlayerState.PAUSE
+    const isLoadingState = currentPlayerState === SessionPlayerState.READY
     const isInExportContext = !!getCurrentExporterData()
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const showActionsOnOverlay = playerMode === SessionRecordingPlayerMode.Standard && pausedState
@@ -193,6 +194,19 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
             </div>
         )
     }
+    if (isLoadingState) {
+        content = (
+            <div
+                className="flex items-center gap-2 text-white"
+                data-attr="replay-overlay-loading"
+                role="status"
+                aria-live="polite"
+            >
+                <Spinner textColored className="text-3xl" />
+                <div className="text-3xl italic font-medium">Loading recording…</div>
+            </div>
+        )
+    }
     if (currentPlayerState === SessionPlayerState.BUFFER) {
         content = isWaitingForIngestion ? (
             <div className="SessionRecordingPlayer--buffering flex flex-col items-center gap-1 text-center text-white">
@@ -243,7 +257,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 transition-opacity duration-100',
                 pausedState && !isInExportContext ? 'opacity-0 hover:opacity-100' : 'opacity-80 hover:opacity-100'
             )}
-            aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
+            aria-busy={currentPlayerState === SessionPlayerState.BUFFER || isLoadingState}
         >
             {content}
         </div>
