@@ -335,6 +335,18 @@ def _split_markdown_for_slack(text: str, limit: int = SLACK_MESSAGE_TEXT_LIMIT) 
         # Block itself overflows — emit it across multiple fenced chunks, line-aligned.
         flush()
         overhead = len(fence_open) + len(fence_close)
+        # If the fence overhead itself leaves no useful room, fall back to plain text
+        # to avoid amplifying a long language label into thousands of oversized chunks.
+        if overhead >= limit:
+            for line_index, line in enumerate(body.split("\n")):
+                sep = "\n" if line_index > 0 or current else ""
+                if len(current) + len(sep) + len(line) <= limit:
+                    current = current + sep + line
+                elif len(line) <= limit:
+                    append_atom(line, separator="\n")
+                else:
+                    split_long_line(line)
+            continue
         room = max(1, limit - overhead)
         cursor = 0
         while cursor < len(body):

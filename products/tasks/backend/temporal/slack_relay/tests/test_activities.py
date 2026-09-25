@@ -895,6 +895,23 @@ class TestSplitTextForSlack(TestCase):
             assert chunk.count("```") == 2
             assert len(chunk) <= SLACK_MESSAGE_TEXT_LIMIT
 
+    def test_fence_overhead_near_limit_does_not_amplify(self):
+        # A language label long enough to consume most of the chunk budget, combined
+        # with body content, used to cause unbounded chunk amplification (each 1-char
+        # body slice emitted with the full fence overhead, producing thousands of
+        # oversized chunks). The fix falls back to plain text when overhead >= limit.
+        long_label = "x" * (SLACK_MESSAGE_TEXT_LIMIT - 100)
+        body = "y" * 5000
+        text = f"```{long_label}\n{body}\n```"
+        chunks = _split_markdown_for_slack(text)
+        # The bug would produce ~5000 chunks, each exceeding the limit.
+        # With the fix, we get a small number of plain-text chunks.
+        assert len(chunks) < 50
+        for chunk in chunks:
+            assert len(chunk) <= SLACK_MESSAGE_TEXT_LIMIT
+        # Plain text, no fences since overhead >= limit
+        assert all("```" not in chunk for chunk in chunks)
+
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
         suffix = "\n\ntrailing paragraph"
