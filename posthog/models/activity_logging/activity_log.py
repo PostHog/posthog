@@ -1316,7 +1316,9 @@ def log_activity(
             "client": client,
             "ip_address": ip_address,
             "credential_type": credential.type if credential else None,
-            "credential_id": credential.id if credential else None,
+            # Postgres rejects a NUL in text, and a failed insert drops the whole audit row. An ID-JAG
+            # client id is a claim from the organization's identity provider, so it can carry one.
+            "credential_id": credential.id.replace("\x00", "") if credential and credential.id else None,
             "impersonated_by_id": credential.impersonated_by_id if credential else None,
         }
 

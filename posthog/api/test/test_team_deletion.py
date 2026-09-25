@@ -87,6 +87,9 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 "client": None,
                 "created_at": ANY,
                 "ip_address": None,
+                "credential_type": None,
+                "credential_id": None,
+                "impersonated_by_id": None,
             },
             {
                 # The env→project rewrite routes the delete through the project-delete path, which cascades
@@ -114,6 +117,9 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 "was_impersonated": False,
                 "client": None,
                 "ip_address": "127.0.0.1",
+                "credential_type": "session",
+                "credential_id": ANY,
+                "impersonated_by_id": None,
             },
             {
                 "_state": ANY,
@@ -137,6 +143,9 @@ class TestTeamDeletionSideEffects(NonAtomicBaseTest):
                 "was_impersonated": False,
                 "client": None,
                 "ip_address": "127.0.0.1",
+                "credential_type": "session",
+                "credential_id": ANY,
+                "impersonated_by_id": None,
             },
         ]
 
