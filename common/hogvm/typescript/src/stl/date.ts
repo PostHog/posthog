@@ -122,9 +122,9 @@ export function parseDateLike(input: string, zone?: string): DateTime | null {
     return dt.isValid ? dt : null
 }
 
-// NOTE: unparseable input keeps each VM's *existing* failure mode — here an invalid luxon DateTime
-// (so `.year`/`.toSeconds()` are NaN, as before), while Python raises and Rust errors into a null.
-// Converging those three is a separate change; this only converges *what parses*.
+// NOTE: `toUnixTimestamp` keeps each VM's own failure mode for unparseable input. Here it is an
+// invalid luxon DateTime, so `.toSeconds()` is NaN. Python raises, and Rust returns null.
+// `toDate` and `toDateTime` do not use this value. They return null for unparseable input, as Rust does.
 const INVALID = DateTime.invalid('not a date-like string')
 
 export function toDate(input: string | number): HogDate | null {
