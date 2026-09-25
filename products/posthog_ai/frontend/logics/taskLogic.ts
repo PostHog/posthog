@@ -208,5 +208,9 @@ export const taskLogic = kea<taskLogicType>([
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
             }
         },
+        // The title field keeps what the user typed, so without this a rejected rename reads as saved.
+        updateTaskFailure: ({ error, errorObject }) => {
+            lemonToast.error(loadErrorMessage(error, errorObject) || "Couldn't save the task. Try again.")
+        },
     })),
 ])

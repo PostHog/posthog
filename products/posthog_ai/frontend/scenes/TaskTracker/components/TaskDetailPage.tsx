@@ -6,9 +6,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { urls } from 'scenes/urls'
 
+import { nextTaskTitle } from '../../../lib/task-title'
 import { isPiTaskRuntime } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { TaskActionsMenu } from './TaskActionsMenu'
 import { TaskHeaderActionsSkeleton } from './taskDetailSkeletons'
 import { TaskRunLog } from './TaskRunLog'
 import { TaskRunSceneShell } from './TaskRunSceneShell'
@@ -23,7 +25,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
         useValues(sceneLogic)
-    const { runTask, deleteTask, loadTask } = useActions(sceneLogic)
+    const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
 
@@ -40,6 +42,12 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const runButtonText = latestRun ? 'Retry task' : 'Run task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
+    const renameTask = (title: string): void => {
+        const nextTitle = nextTaskTitle(title, task?.title)
+        if (nextTitle) {
+            updateTask({ data: { title: nextTitle } })
+        }
+    }
     const taskActions =
         isHeaderLoading || !task ? (
             isActiveCreation ? undefined : (
@@ -81,6 +89,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
                         {runButtonText}
                     </LemonButton>
                 )}
+                <TaskActionsMenu title={task.title} onRename={renameTask} />
             </div>
         )
 
@@ -101,6 +110,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
                     {titleActions}
                 </div>
             }
+            onRename={task ? renameTask : undefined}
             onArchive={deleteTask}
             taskError={taskError}
             onRetry={loadTask}
