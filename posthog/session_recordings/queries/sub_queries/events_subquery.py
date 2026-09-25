@@ -485,7 +485,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return all(isinstance(prop, EventPropertyFilter) and not is_negative_prop(prop) for prop in properties)
 
     def _property_filter_count(self) -> int:
-        return len(self.event_properties) + sum(1 for entity in self.entities if entity.properties)
+        # Match `_gathered_exprs`: with operand AND it drops negative top-level event
+        # properties (they're handled by the negative-guard query instead), so a filter
+        # that never reaches the emitted query shouldn't count as one that did.
+        skip_negative_properties = self._query.operand == "AND"
+        counted_event_properties = (
+            sum(1 for p in self.event_properties if not is_negative_prop(p))
+            if skip_negative_properties
+            else len(self.event_properties)
+        )
+        return counted_event_properties + sum(1 for entity in self.entities if entity.properties)
 
     def _combined_filters_enabled(self) -> bool:
         return (
