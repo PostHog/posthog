@@ -3,7 +3,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 
 from products.access_control.backend.models.role import Role
-from products.error_tracking.backend.logic.issue_mutations import apply_inferred_severity
+from products.error_tracking.backend.logic.severity_inference import apply_inferred_severity
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 

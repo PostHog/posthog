@@ -20,8 +20,8 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.error_tracking.backend.logic.issue_mutations import apply_inferred_severity
 from products.error_tracking.backend.logic.severity_inference import (
+    apply_inferred_severity,
     build_severity_state,
     infer_severity,
     severity_inference_enabled,

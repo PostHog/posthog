@@ -1,10 +1,16 @@
+from uuid import UUID
+
 from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.ph_client import feature_enabled_or_false
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, sync_issues_to_clickhouse
 from products.ml_inference.backend.facade import api as ml_inference
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
@@ -72,3 +78,58 @@ def infer_severity(team_id: int, state: str) -> ChoiceAnswer | None:
         logger.warning("error_tracking_severity_inference_unexpected_answer", team_id=team_id, answer=repr(answer))
         return None
     return answer
+
+
+@frozen
+class InferredSeverityWrite:
+    inferred_severity: str
+    stored_severity: str | None
+
+    @property
+    def applied(self) -> bool:
+        return self.stored_severity == self.inferred_severity
+
+
+def apply_inferred_severity(
+    team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str
+) -> InferredSeverityWrite:
+    """Set a model-inferred severity unless the severity changed after ingestion set `expected`."""
+    if expected != inferred:
+        with transaction.atomic():
+            # The conditional update keeps a severity that a person or a rule set while the model ran.
+            updated = ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id, severity=expected).update(
+                severity=inferred, state_updated_at=timezone.now()
+            )
+            if updated:
+                _log_inferred_severity(team_id, issue_id, expected=expected, inferred=inferred)
+
+    write = InferredSeverityWrite(
+        inferred_severity=inferred,
+        stored_severity=ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
+        .values_list("severity", flat=True)
+        .first(),
+    )
+    if write.applied:
+        # Sync even when this call wrote nothing: a retry after a failed sync finds the severity
+        # already stored, and the sync is idempotent.
+        sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=team_id)
+    return write
+
+
+def _log_inferred_severity(team_id: int, issue_id: UUID | str, *, expected: str | None, inferred: str) -> None:
+    issue = ErrorTrackingIssue.objects.select_related("team").get(team_id=team_id, id=issue_id)
+    log_activity(
+        organization_id=issue.team.organization_id,
+        team_id=team_id,
+        user=None,
+        was_impersonated=False,
+        item_id=str(issue.id),
+        scope="ErrorTrackingIssue",
+        activity="updated",
+        detail=Detail(
+            name=issue.name,
+            changes=[
+                Change(type="ErrorTrackingIssue", field="severity", before=expected, after=inferred, action="changed")
+            ],
+        ),
+    )
