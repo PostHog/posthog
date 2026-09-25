@@ -33,10 +33,10 @@ import {
   hasActiveInboxFilters,
   useInboxSignalsFilterStore,
 } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import type { ReportCardSelection } from "@posthog/ui/features/inbox/utils/reportSelection";
 import {
   type ComponentType,
   Fragment,
-  type MouseEvent,
   type ReactNode,
   useCallback,
   useMemo,
@@ -45,8 +45,7 @@ import {
 
 interface DismissibleCardProps {
   report: SignalReport;
-  isSelected: boolean;
-  onRowClick: (event: MouseEvent) => void;
+  selection: ReportCardSelection;
   onDismiss: () => void;
   dismissDisabledReason: string | null;
   isDismissPending: boolean;
@@ -131,8 +130,7 @@ export function InboxReportListTab({
   const {
     orderedSelectedIds,
     selectedCount,
-    isReportSelected,
-    handleReportClick,
+    getReportSelection,
     clearSelection,
   } = useInboxReportListSelection(orderedReportIds);
 
@@ -253,10 +251,7 @@ export function InboxReportListTab({
                     <Card
                       key={report.id}
                       report={report}
-                      isSelected={isReportSelected(report.id)}
-                      onRowClick={(event) =>
-                        handleReportClick(report.id, event)
-                      }
+                      selection={getReportSelection(report.id)}
                       onDismiss={() => setDismissReport(report)}
                       dismissDisabledReason={
                         suppressDisabledByReportId.get(report.id) ?? null

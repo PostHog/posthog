@@ -827,6 +827,22 @@ export type InboxReportActionFailureCode =
 
 export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
 
+/**
+ * Affordance that put the first report into a multi-select. Tells us which ones people find, so
+ * the ones nobody uses can go.
+ */
+export type InboxSelectionEntryMethod =
+  | "long_press"
+  | "meta_click"
+  | "shift_click"
+  | "checkbox"
+  | "context_menu";
+
+/** Fired once per selection, when an empty selection gains its first report. */
+export interface InboxSelectionModeEnteredProperties {
+  entry_method: InboxSelectionEntryMethod;
+}
+
 export interface InboxTriageStartedProperties {
   /** Correlates one Desktop triage run across its start, actions, and end. */
   triage_id?: string;
@@ -1785,6 +1801,7 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_SELECTION_MODE_ENTERED: "Inbox selection mode entered",
   INBOX_TRIAGE_STARTED: "Inbox triage started",
   INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
@@ -2007,6 +2024,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_SELECTION_MODE_ENTERED]: InboxSelectionModeEnteredProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
   [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
@@ -2097,6 +2115,7 @@ const INBOX_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK,
   ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE,
+  ANALYTICS_EVENTS.INBOX_SELECTION_MODE_ENTERED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED,
   ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED,
   ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED,

@@ -14,6 +14,7 @@ import type {
 import { ConventionalCommitScopeTag } from "@posthog/ui/features/inbox/components/ConventionalCommitScopeTag";
 import {
   InboxCardActions,
+  InboxCardSelectToggle,
   InboxCardTimestamp,
   InboxCardTopRight,
   inboxCardBodyClassName,
@@ -27,13 +28,17 @@ import { SuggestedReviewerAvatarStack } from "@posthog/ui/features/inbox/compone
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
 import { useInboxReportDetailPrefetch } from "@posthog/ui/features/inbox/hooks/useInboxReportDetailPrefetch";
 import { useInboxReportArtefacts } from "@posthog/ui/features/inbox/hooks/useInboxReports";
+import {
+  type ReportCardSelection,
+  reportCardLinkClickHandler,
+} from "@posthog/ui/features/inbox/utils/reportSelection";
 import { Button as UiButton } from "@posthog/ui/primitives/Button";
 import {
   navigationSourceHref,
   reportNavigationState,
 } from "@posthog/ui/router/reportNavigation";
 import { Link, useNavigate } from "@tanstack/react-router";
-import type { HTMLAttributes, MouseEvent, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 export interface PullRequestCardViewProps {
   report: SignalReport;
@@ -41,6 +46,10 @@ export interface PullRequestCardViewProps {
   /** Resolved artefacts for the reviewer stack; null renders no avatars. */
   artefacts: SignalReportArtefactsResponse | null;
   isSelected?: boolean;
+  /** True once the list has a selection, which pins the checkbox open on every card. */
+  selectionMode?: boolean;
+  /** Draws the gutter checkbox. Omitted where the list offers no multi-select. */
+  onToggleSelected?: () => void;
   onDismiss?: () => void;
   dismissDisabledReason?: string | null;
   isDismissPending?: boolean;
@@ -56,6 +65,8 @@ export function PullRequestCardView({
   repoSlug,
   artefacts,
   isSelected = false,
+  selectionMode = false,
+  onToggleSelected,
   onDismiss,
   dismissDisabledReason = null,
   isDismissPending = false,
@@ -129,7 +140,17 @@ export function PullRequestCardView({
         </InboxCardTopRight>
       )}
 
-      {renderBody(body, inboxCardBodyClassName)}
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        {onToggleSelected && (
+          <InboxCardSelectToggle
+            cardTitle={cardTitle}
+            isSelected={isSelected}
+            selectionMode={selectionMode}
+            onToggle={onToggleSelected}
+          />
+        )}
+        {renderBody(body, inboxCardBodyClassName)}
+      </div>
 
       <InboxCardActions>
         <SuggestedReviewerAvatarStack report={report} artefacts={artefacts} />
@@ -168,8 +189,8 @@ export function PullRequestCardView({
 
 interface PullRequestCardProps {
   report: SignalReport;
-  isSelected?: boolean;
-  onRowClick?: (event: MouseEvent) => void;
+  /** Multi-select wiring from the list. Absent on lists that do not offer it. */
+  selection?: ReportCardSelection;
   onDismiss: () => void;
   dismissDisabledReason?: string | null;
   isDismissPending?: boolean;
@@ -177,8 +198,7 @@ interface PullRequestCardProps {
 
 export function PullRequestCard({
   report,
-  isSelected = false,
-  onRowClick,
+  selection,
   onDismiss,
   dismissDisabledReason = null,
   isDismissPending = false,
@@ -207,7 +227,11 @@ export function PullRequestCard({
       report={report}
       repoSlug={repoSlug}
       artefacts={artefactsResp ?? null}
-      isSelected={isSelected}
+      isSelected={selection?.isSelected ?? false}
+      selectionMode={selection?.selectionMode ?? false}
+      onToggleSelected={
+        selection ? () => selection.toggle("checkbox") : undefined
+      }
       onDismiss={onDismiss}
       dismissDisabledReason={dismissDisabledReason}
       isDismissPending={isDismissPending}
@@ -221,14 +245,8 @@ export function PullRequestCard({
           {...detailRoute}
           state={reportNavigationState}
           preload="intent"
-          onClick={(event) => {
-            onRowClick?.(event);
-            if (event.metaKey || event.ctrlKey || event.shiftKey) {
-              event.preventDefault();
-              return;
-            }
-            prefetch();
-          }}
+          {...selection?.holdHandlers}
+          onClick={reportCardLinkClickHandler(selection, prefetch)}
           className={className}
         >
           {body}
