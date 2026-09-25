@@ -74,6 +74,7 @@ from products.signals.backend.pipeline_identity import pipeline_writer_identity
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import enabled_scout_count, ensure_scout_category
+from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.deprecation import deprecation_metadata_of
 from products.signals.backend.scout_harness.fleet_sync import materialize_scout_fleet
 from products.signals.backend.scout_harness.lazy_seed import (
@@ -2933,8 +2934,7 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     pagination_class = None
 
     def _assert_can_create_scout(self, *, user: User, canonical_team: Team) -> None:
-        access = UserAccessControl(user=user, team=canonical_team)
-        if not access.check_access_level_for_resource("llm_skill", "editor"):
+        if not can_create_scout(user, canonical_team):
             raise exceptions.PermissionDenied("Creating a scout requires editor access to skills.")
 
     @validated_request(
