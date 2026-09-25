@@ -129,6 +129,9 @@ pub struct Config {
     #[envconfig(default = "")]
     pub clickhouse_password: String,
 
+    #[envconfig(default = "")]
+    pub clickhouse_password_file: String,
+
     #[envconfig(default = "default")]
     pub clickhouse_database: String,
 

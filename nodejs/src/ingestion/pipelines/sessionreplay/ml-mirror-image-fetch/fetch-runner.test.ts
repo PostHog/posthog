@@ -841,9 +841,10 @@ describe('FetchRunner', () => {
     it.each([
         ['2023-11', undefined, Date.UTC(2023, 11, 9)],
         ['2024-02', undefined, Date.UTC(2024, 2, 9)],
-        ['2023-11', 'max-age=60', NOW_MS + 60_000],
+        ['2023-11', 'max-age=60', Date.UTC(2023, 11, 9)],
         ['2023-11', 'max-age=99999999', Date.UTC(2023, 11, 9)],
-        ['2023-11', 'no-store', NOW_MS],
+        ['2023-11', 'no-cache', Date.UTC(2023, 11, 9)],
+        ['2023-11', 'no-store', Date.UTC(2023, 11, 9)],
     ])('expires month %s history with cache control %s', async (month, cacheControl, expiresAt) => {
         const harness = build({ cache: { requestTimeMs: NOW_MS, responseTimeMs: NOW_MS, cacheControl } })
         const [attempt] = await harness.runner.run(
@@ -852,6 +853,17 @@ describe('FetchRunner', () => {
         )
         expect(attempt.history?.nextFetchAtMs).toBe(expiresAt)
         expect(attempt.history?.storageExpiresAtMs).toBe(expiresAt)
+    })
+
+    it('keeps no cache metadata for a no-store response to a month-scoped ref', async () => {
+        const harness = build({
+            cache: { requestTimeMs: NOW_MS, responseTimeMs: NOW_MS, etag: '"v1"', cacheControl: 'no-store' },
+        })
+        const [attempt] = await harness.runner.run(
+            [candidate({ originalRef: `imageurl:v2:7:2023-11:${'a'.repeat(22)}` })],
+            new Map()
+        )
+        expect(attempt.history).toMatchObject({ outcome: 'ok', cache: undefined })
     })
 
     it('extends URL history to the end of explicit freshness', async () => {
