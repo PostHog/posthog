@@ -35,7 +35,7 @@ import http.client
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Container, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -257,15 +257,15 @@ class Event:
     event_at: str
 
 
-def racing_wait(reader: CheckReader, event: Event) -> str | None:
-    """The wait check name of the newest event that raced this one and has a live Depot run."""
+def racing_wait(reader: CheckReader, event: Event, followed: Container[str]) -> str | None:
+    """The newest racing wait check whose job took the hand-off or is pending, skipping `followed`."""
     event_at = datetime.strptime(event.event_at, EVENT_TIME)
     for offset in range(RACING_EVENT_SECONDS, -RACING_EVENT_SECONDS - 1, -1):
-        if offset == 0:
-            continue
         name = wait_check_name(event.pr_number, (event_at + timedelta(seconds=offset)).strftime(EVENT_TIME))
+        if name in followed:
+            continue
         wait = newest_live(reader.read(name))
-        if wait is not None and wait.state != "cancelled":
+        if wait is not None and (wait.state == "success" or wait.state in PENDING_STATES):
             return name
     return None
 
@@ -305,8 +305,8 @@ def poll(
     After the grace period, the run of a racing event stands in for an absent or cancelled one.
     """
     start = clock()
-    own_name = wait_check_name(event.pr_number, event.event_at)
-    event_name = own_name
+    event_name = wait_check_name(event.pr_number, event.event_at)
+    followed = {event_name}
     while True:
         wait = newest_live(reader.read(event_name))
         checks = reader.read(check_name) if wait and wait.state == "success" else []
@@ -319,10 +319,11 @@ def poll(
         if current.phase in (Phase.FINISHED, Phase.DECLINED):
             return current
         if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
-            racing = racing_wait(reader, event) if event_name == own_name else None
+            racing = racing_wait(reader, event, followed)
             if racing is None:
                 return current
             sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
+            followed.add(racing)
             event_name = racing
             continue
         if elapsed >= deadline_minutes * 60:
