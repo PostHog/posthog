@@ -113,7 +113,6 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { usePrChecks } from "@posthog/ui/features/pr-review/usePrChecks";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { ArchiveRunningTaskDialog } from "@posthog/ui/features/sidebar/components/ArchiveRunningTaskDialog";
-import { TaskSelectionScope } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import {
@@ -131,7 +130,6 @@ import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { Text } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
 import {
-  type ComponentProps,
   memo,
   type ReactElement,
   type ReactNode,
@@ -1671,15 +1669,7 @@ const FEED_KIND_FILTERS: readonly {
 // Multiplayer — the list is team-visible and polls for teammates' cards and
 // status flips. Synthetic "PostHog agent" system rows (context lifecycle) are
 // interleaved by timestamp, and day separators group the cards.
-export function ChannelFeedView(props: ComponentProps<typeof FeedView>) {
-  return (
-    <TaskSelectionScope>
-      <FeedView {...props} />
-    </TaskSelectionScope>
-  );
-}
-
-function FeedView({
+export function ChannelFeedView({
   channelId,
   tasks,
   pending = NO_PENDING,

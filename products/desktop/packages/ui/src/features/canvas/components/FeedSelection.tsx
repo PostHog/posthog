@@ -8,7 +8,10 @@ import {
 import { useChannelItemSelection } from "@posthog/ui/features/canvas/hooks/useChannelItemSelection";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
 import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
-import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
+import {
+  TaskSelectionScope,
+  useScopedTaskSelectionStore,
+} from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import {
   createContext,
   type MouseEvent,
@@ -28,15 +31,25 @@ const FeedSelectionActionsContext = createContext<FeedSelectionActions | null>(
 );
 const FeedBulkMenuContext = createContext<TaskRowBulkMenu | null>(null);
 
-export function FeedSelection({
-  items,
-  onOpenThread,
-  children,
-}: {
+interface FeedSelectionProps {
   items: readonly ChannelItemModel[];
   onOpenThread: (task: Task) => void;
   children: ReactNode;
-}) {
+}
+
+export function FeedSelection(props: FeedSelectionProps) {
+  return (
+    <TaskSelectionScope>
+      <ScopedFeedSelection {...props} />
+    </TaskSelectionScope>
+  );
+}
+
+function ScopedFeedSelection({
+  items,
+  onOpenThread,
+  children,
+}: FeedSelectionProps) {
   const open = useCallback(
     (item: ChannelItemModel) => {
       if (item.task) onOpenThread(item.task);
