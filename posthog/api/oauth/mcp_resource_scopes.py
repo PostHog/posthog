@@ -47,19 +47,15 @@ def is_trusted_posthog_mcp_resource(resource_url: str) -> bool:
     return False
 
 
-# The MCP server builds its RFC 9728 `scopes_supported` from the same committed
-# artifacts (services/mcp/src/tools/toolDefinitions.ts merges both). Deriving the
-# consent list from them here keeps the authorization server's promise sourced from
-# its own state instead of a runtime fetch to the resource server.
-
-
 def mcp_advertised_scopes() -> list[str]:
     """The scopes an MCP client gets when it omits `scope` on `/oauth/authorize`.
 
     Mirrors the MCP server's `getAdvertisedOAuthScopes()`: every identity scope
     (no `:`) plus the resource scopes some tool actually requires, both drawn from
     the authorization server's own supported set so nothing advertised is later
-    rejected at `/authorize`.
+    rejected at `/authorize`. Both sides read the same committed definition files, so
+    the authorization server's promise stays sourced from its own state instead of a
+    runtime fetch to the resource server.
     """
     required = mcp_tool_required_scopes()
     return [scope for scope in get_oauth_scopes_supported() if ":" not in scope or scope in required]

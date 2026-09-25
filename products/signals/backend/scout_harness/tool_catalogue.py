@@ -45,8 +45,8 @@ class ScoutToolCatalogue:
     grantable_write_scopes: tuple[str, ...]
 
 
-def _preset_scopes(preset: ScoutScopePreset, *, extra_write_scopes: tuple[str, ...] = ()) -> frozenset[str]:
-    return frozenset(resolve_scopes(scout_scope_posture(preset, list(extra_write_scopes))))
+def _preset_scopes(preset: ScoutScopePreset, *, extra_write_scopes: list[str] | None = None) -> frozenset[str]:
+    return frozenset(resolve_scopes(scout_scope_posture(preset, extra_write_scopes or [])))
 
 
 @lru_cache(maxsize=1)
@@ -59,10 +59,7 @@ def get_scout_tool_catalogue() -> ScoutToolCatalogue:
     it, and a picker that offered it would configure a scout for a tool on its way out.
     """
     baseline = _preset_scopes("signals_scout")
-    widest = _preset_scopes(
-        "signals_scout_reports",
-        extra_write_scopes=tuple(sorted(SCOUT_GRANTABLE_WRITE_SCOPES)),
-    )
+    widest = _preset_scopes("signals_scout_reports", extra_write_scopes=sorted(SCOUT_GRANTABLE_WRITE_SCOPES))
 
     tools = []
     for definition in get_mcp_tool_definitions().values():
