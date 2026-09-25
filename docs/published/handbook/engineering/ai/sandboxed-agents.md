@@ -224,6 +224,7 @@ Every other client keeps the self-reported header value.
 
 A row written with a token bound to a sandbox task still records the request IP address.
 The token can leave the sandbox, so the address is what tells a sandbox write apart from a write made elsewhere with the same token.
+The audit log tags these rows "via scout <skill_name>" or "via sandbox", and shows the IP in a tooltip on the IP address column.
 
 ## PostHog MCP server
 
