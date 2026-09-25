@@ -78,10 +78,7 @@ export async function artifactPreviewBlob(
   if (filenameMimeType === "image/svg+xml") {
     return new Blob([blob], { type: "image/svg+xml" });
   }
-  if (isAllowedVideoMimeType(blob.type)) {
-    return new Blob([blob], { type: blob.type.toLowerCase() });
-  }
-  if (isPlayableVideoFile(filename)) {
+  if (!isAllowedVideoMimeType(blob.type) && isPlayableVideoFile(filename)) {
     return new Blob([blob], { type: getVideoMimeType(filename) });
   }
   return blob;

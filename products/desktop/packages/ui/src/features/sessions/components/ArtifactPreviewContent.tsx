@@ -290,30 +290,6 @@ export function ArtifactPreviewContent({
     <ArtifactDocumentCommentAction target={commentTarget} taskId={taskId} />
   );
 
-  if (previewData instanceof Blob && isAllowedVideoMimeType(previewData.type)) {
-    return (
-      <div className="flex h-full flex-col overflow-hidden">
-        <GenericArtifactHeader
-          name={name}
-          versionNav={versionNav}
-          actions={documentActions}
-        />
-        {commentLoadError}
-        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
-          <video
-            className="max-h-full max-w-full"
-            controls
-            muted
-            preload="metadata"
-            aria-label={name}
-            src={previewUrl}
-            onError={onMediaError}
-          />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {editableKind === "plain-text" && artifactResult?.source !== undefined ? (
@@ -335,14 +311,29 @@ export function ArtifactPreviewContent({
         />
       )}
       {commentLoadError}
-      <div className="min-h-0 min-w-0 flex-1">
-        <iframe
-          className="h-full w-full border-0 bg-white"
-          sandbox=""
-          src={previewUrl}
-          title={`Preview of ${name}`}
-        />
-      </div>
+      {previewData instanceof Blob &&
+      isAllowedVideoMimeType(previewData.type) ? (
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
+          <video
+            className="max-h-full max-w-full"
+            controls
+            muted
+            preload="metadata"
+            aria-label={name}
+            src={previewUrl}
+            onError={onMediaError}
+          />
+        </div>
+      ) : (
+        <div className="min-h-0 min-w-0 flex-1">
+          <iframe
+            className="h-full w-full border-0 bg-white"
+            sandbox=""
+            src={previewUrl}
+            title={`Preview of ${name}`}
+          />
+        </div>
+      )}
     </div>
   );
 }
