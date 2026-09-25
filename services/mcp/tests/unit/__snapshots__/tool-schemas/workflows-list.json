@@ -5,13 +5,37 @@
             "description": "Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
             "type": "boolean"
         },
+        "channel": {
+            "description": "Comma-separated channels. Returns workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.",
+            "type": "string"
+        },
         "created_at": {
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
         },
         "created_by": {
-            "description": "Filter to workflows created by the user with this uuid.",
+            "description": "Comma-separated user uuids. Returns workflows created by any of these users.",
+            "type": "string"
+        },
+        "exclude_channel": {
+            "description": "Comma-separated channels. Leaves out workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.",
+            "type": "string"
+        },
+        "exclude_created_by": {
+            "description": "Comma-separated user uuids. Leaves out workflows created by any of these users. Workflows with no creator stay.",
+            "type": "string"
+        },
+        "exclude_status": {
+            "description": "Comma-separated statuses. Leaves out workflows in any of them. One of: draft, active, archived.",
+            "type": "string"
+        },
+        "exclude_trigger_type": {
+            "description": "Comma-separated trigger types. Leaves out workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.",
+            "type": "string"
+        },
+        "exclude_type": {
+            "description": "Comma-separated workflow types. Leaves out workflows of any of them. One of: messaging, automation, loop, broadcast.",
             "type": "string"
         },
         "id": {
@@ -35,12 +59,15 @@
             "type": "string"
         },
         "status": {
-            "description": "* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
-            "enum": ["active", "archived", "draft"],
+            "description": "Comma-separated statuses. Returns workflows in any of them. One of: draft, active, archived.",
             "type": "string"
         },
         "trigger": {
             "description": "Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.",
+            "type": "string"
+        },
+        "trigger_type": {
+            "description": "Comma-separated trigger types. Returns workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.",
             "type": "string"
         },
         "type": {
