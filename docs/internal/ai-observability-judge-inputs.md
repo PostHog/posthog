@@ -42,7 +42,7 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 ## System One judges
 
 System One-compatible models are available under the existing LLM judge option.
-Add a connection under **System One** in provider key settings.
+Add a connection under **System One (Jev)** in provider key settings.
 The default endpoint is TypeSafe's `https://api.typesafe.ai/v1`, with model `jev-1.13.0` and a TypeSafe API key.
 Advanced configuration accepts a different public HTTPS base URL and model ID for compatible services.
 The client appends `/systemone` to the base URL and sends the API key as a bearer token.
@@ -52,9 +52,11 @@ Private network destinations and redirects are blocked by the shared DNS-pinned 
 Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data.
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
-This integration supports boolean and numeric evaluations and uses the same formatted text for generation, trace, and session targets.
+The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
 The client accepts typed Noul, Score, and Choice questions independently of PostHog's evaluation output types.
-Choice support in the client does not enable categorical evaluations in the product.
+The client preserves raw Score values and Choice labels without applying evaluation policy.
+Mapping Score and Choice answers onto numeric and categorical evaluations is separate from this integration.
+Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
 API compatibility does not guarantee equivalent judgments or calibration across models.
 Compare results on representative inputs when changing models.
 
@@ -62,15 +64,7 @@ For boolean evaluations, the prompt becomes a [Noul question](https://docs.types
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
 The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
 
-Numeric evaluations use a [Score question](https://docs.typesafe.ai/primitives/score).
-Configure 2 to 10 ordered score levels and a minimum and maximum.
-The levels are evenly spaced across those bounds.
-The response is a probability-weighted level index, which maps to the configured scale without rounding.
-For example, three levels on a 0–10 scale map an answer of 1.25 to a score of 6.25.
-Scores are stored in `$ai_evaluation_numeric_result`; they are not boolean probabilities.
-The rubric remains part of the prompt when switching to a completion-based judge.
-
-For either output type, evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
+Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
 Uncertainty alone does not produce N/A.
 System One answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 

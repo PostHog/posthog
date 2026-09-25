@@ -563,9 +563,6 @@ export const evaluationsCreateBodyNameMax = 400
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
 
-export const evaluationsCreateBodyOutputConfigScoreLevelsMin = 2
-export const evaluationsCreateBodyOutputConfigScoreLevelsMax = 10
-
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -655,14 +652,6 @@ export const EvaluationsCreateBody = () => zod
                     .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                score_levels: zod
-                    .array(zod.string().min(1))
-                    .min(evaluationsCreateBodyOutputConfigScoreLevelsMin)
-                    .max(evaluationsCreateBodyOutputConfigScoreLevelsMax)
-                    .nullish()
-                    .describe(
-                        'Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.'
-                    ),
                 passing_rule: zod
                     .object({
                         operator: zod
@@ -679,7 +668,7 @@ export const EvaluationsCreateBody = () => zod
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min\/max\/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -776,7 +765,7 @@ export const EvaluationsCreateBody = () => zod
                                 'typesafe',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - System One'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - System One (Jev)'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -820,9 +809,6 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
-
-export const evaluationsPartialUpdateBodyOutputConfigScoreLevelsMin = 2
-export const evaluationsPartialUpdateBodyOutputConfigScoreLevelsMax = 10
 
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
@@ -915,14 +901,6 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                score_levels: zod
-                    .array(zod.string().min(1))
-                    .min(evaluationsPartialUpdateBodyOutputConfigScoreLevelsMin)
-                    .max(evaluationsPartialUpdateBodyOutputConfigScoreLevelsMax)
-                    .nullish()
-                    .describe(
-                        'Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.'
-                    ),
                 passing_rule: zod
                     .object({
                         operator: zod
@@ -939,7 +917,7 @@ export const EvaluationsPartialUpdateBody = () => zod
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min\/max\/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1036,7 +1014,7 @@ export const EvaluationsPartialUpdateBody = () => zod
                                 'typesafe',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - System One'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `typesafe` - System One (Jev)'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1084,9 +1062,6 @@ export const EvaluationsTestHogCreateParams = () => zod.object({
 export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
 export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
 
-export const evaluationsTestHogCreateBodyOutputConfigScoreLevelsMin = 2
-export const evaluationsTestHogCreateBodyOutputConfigScoreLevelsMax = 10
-
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
@@ -1127,14 +1102,6 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
                 .nullish()
                 .describe('Optional positive input increment. Does not round evaluation results.'),
-            score_levels: zod
-                .array(zod.string().min(1))
-                .min(evaluationsTestHogCreateBodyOutputConfigScoreLevelsMin)
-                .max(evaluationsTestHogCreateBodyOutputConfigScoreLevelsMax)
-                .nullish()
-                .describe(
-                    'Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.'
-                ),
             passing_rule: zod
                 .object({
                     operator: zod

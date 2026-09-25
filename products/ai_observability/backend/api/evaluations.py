@@ -195,14 +195,6 @@ class _EvaluationConfigField(serializers.JSONField):
                 "minimum": 0,
                 "description": "Optional positive input increment. Does not round evaluation results.",
             },
-            "score_levels": {
-                "type": "array",
-                "nullable": True,
-                "items": {"type": "string", "minLength": 1},
-                "minItems": 2,
-                "maxItems": 10,
-                "description": "Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.",
-            },
             "passing_rule": {
                 "type": "object",
                 "nullable": True,
@@ -408,7 +400,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
             "{true_is_failure} to declare that a true result means the evaluation found a problem. "
-            "For 'numeric': min/max/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. "
+            "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
             "Do not send true_is_failure for numeric output. For 'sentiment': {}."
         ),
     )
@@ -524,7 +516,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             if isinstance(model_configuration, dict)
             else getattr(model_configuration, "provider", None)
         )
-        if model_provider == LLMProvider.TYPESAFE and output_type not in ("boolean", "numeric"):
+        if model_provider == LLMProvider.TYPESAFE and output_type != "boolean":
             raise serializers.ValidationError(
                 {"model_configuration": "Select a model that supports this evaluation output type."}
             )
@@ -571,13 +563,6 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 )
             except ValueError as e:
                 raise serializers.ValidationError({"config": str(e)})
-
-        if model_provider == LLMProvider.TYPESAFE and output_type == "numeric":
-            numeric_output = data.get("output_config", getattr(self.instance, "output_config", {}))
-            if not numeric_output.get("score_levels"):
-                raise serializers.ValidationError(
-                    {"output_config": "Add 2 to 10 score levels and set both bounds for this System One judge."}
-                )
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
         # message index). An aggregate target emits a single evaluation event for the whole unit,

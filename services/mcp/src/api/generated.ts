@@ -37680,7 +37680,7 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min/max/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
@@ -37704,14 +37704,6 @@ export namespace Schemas {
          * @nullable
          */
       step?: number | null;
-      /**
-         * Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.
-         * @minItems 2
-         * @maxItems 10
-         * @nullable
-         * @items.minLength 1
-         */
-      score_levels?: string[] | null;
       /**
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
@@ -37861,7 +37853,7 @@ export namespace Schemas {
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
      * * `zeabur` - Zeabur AI Hub
-     * * `typesafe` - System One
+     * * `typesafe` - System One (Jev)
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -37935,7 +37927,7 @@ export namespace Schemas {
        * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min/max/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -38301,14 +38293,6 @@ export namespace Schemas {
          * @nullable
          */
       step?: number | null;
-      /**
-         * Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.
-         * @minItems 2
-         * @maxItems 10
-         * @nullable
-         * @items.minLength 1
-         */
-      score_levels?: string[] | null;
       /**
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
@@ -71697,7 +71681,7 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min/max/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
@@ -71721,14 +71705,6 @@ export namespace Schemas {
          * @nullable
          */
       step?: number | null;
-      /**
-         * Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.
-         * @minItems 2
-         * @maxItems 10
-         * @nullable
-         * @items.minLength 1
-         */
-      score_levels?: string[] | null;
       /**
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable
@@ -71805,7 +71781,7 @@ export namespace Schemas {
        * * `numeric` - Numeric
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': min/max/step, allows_na, score_levels, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -98519,14 +98495,6 @@ export namespace Schemas {
          * @nullable
          */
       step?: number | null;
-      /**
-         * Ordered rubric descriptions, spaced evenly from min to max. Required for System One numeric judges. Both bounds must be set.
-         * @minItems 2
-         * @maxItems 10
-         * @nullable
-         * @items.minLength 1
-         */
-      score_levels?: string[] | null;
       /**
          * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
          * @nullable

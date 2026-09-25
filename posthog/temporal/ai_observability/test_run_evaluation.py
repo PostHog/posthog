@@ -158,71 +158,21 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     assert properties["$ai_evaluation_key_type"] == "byok"
 
 
-@pytest.mark.parametrize(
-    "raw_score,probabilities,allows_na,applicability,expected",
-    [
-        (0, [1, 0, 0], False, 1, -10),
-        (1, [0, 1, 0], False, 1, 0),
-        (1.25, [0.1, 0.55, 0.35], True, 1, 2.5),
-        (2, [0, 0, 1], True, 0.1, None),
-    ],
-)
-def test_system_one_numeric_scores_keep_the_rubric_scale(
-    raw_score: float, probabilities: list[float], allows_na: bool, applicability: float, expected: float | None
-) -> None:
-    levels = ["Poor", "Fair", "Good"]
-    evaluation = {
-        "id": "test-evaluation",
-        "name": "Quality",
-        "team_id": 1,
-        "evaluation_config": {"prompt": "Assess response quality"},
-        "output_type": "numeric",
-        "output_config": {"min": -10, "max": 10, "score_levels": levels, "allows_na": allows_na},
-    }
-    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "example-token"})
-    response = MagicMock(status_code=200)
-    response.json.return_value = {
-        "model": "jev-1.13.0",
-        "answers": {
-            "score": {
-                "type": "score",
-                "score": raw_score,
-                "confidence": 0.5,
-                "legend": {str(index): value for index, value in enumerate(levels)},
-                "probabilities": {str(index): value for index, value in enumerate(probabilities)},
-            },
-            "applicable": {"type": "noul", "noul": applicability},
-        },
-        "usage": {"input_tokens": 120, "output_tokens": 10},
-    }
+def test_system_one_numeric_mapping_is_not_enabled() -> None:
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.system_one.pinned_request", return_value=response) as request,
+        patch("products.ai_observability.backend.llm.system_one.pinned_request") as request,
+        pytest.raises(ApplicationError) as error,
     ):
-        spec.return_value.resolve.return_value = MagicMock(
-            provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True
+        spec.return_value.resolve.return_value = MagicMock(provider="typesafe")
+        call_llm_judge(
+            evaluation={"team_id": 1, "output_type": "numeric"},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
         )
-        result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
-    assert request.call_args.kwargs["json"]["questions"]["score"] == {
-        "type": "score",
-        "instructions": "Assess response quality",
-        "criteria": levels,
-    }
-    assert ("applicable" in request.call_args.kwargs["json"]["questions"]) is allows_na
-    assert result.get("score") == expected
-    if expected is None:
-        assert "score" not in result
-        assert result["applicable"] is False
-    assert result["reasoning"] == ""
-    assert result["total_tokens"] == 130
-    assert "verdict" not in result
-    assert "probability" not in result
-    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
-    assert properties["$ai_evaluation_result_type"] == "numeric"
-    assert properties.get("$ai_evaluation_numeric_result") == expected
-    assert "$ai_evaluation_result" not in properties
-    assert "$ai_evaluation_probability" not in properties
-    assert properties["$ai_model"] == "jev-1.13.0"
+    assert error.value.non_retryable
+    request.assert_not_called()
 
 
 @pytest.mark.parametrize("status", [301, 400, 422])

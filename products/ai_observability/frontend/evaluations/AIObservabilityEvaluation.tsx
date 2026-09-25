@@ -180,10 +180,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
           : !hasSelectedJudgeModel
             ? 'Select a judge model before saving'
             : evaluation.output_type === 'numeric'
-              ? (numericOutputConfigError(
-                    evaluation.output_config,
-                    evaluation.model_configuration?.provider === 'typesafe'
-                ) ?? undefined)
+              ? (numericOutputConfigError(evaluation.output_config) ?? undefined)
               : undefined
 
     const focusTriggers = (): void => {
@@ -749,9 +746,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                 <NumericEvaluationConfig
                                                     config={evaluation.output_config}
                                                     onChange={patchOutputConfig}
-                                                    requiresScoreLevels={
-                                                        evaluation.model_configuration?.provider === 'typesafe'
-                                                    }
                                                 />
                                             )}
                                             <LemonField.Pure label="Description (optional)">
@@ -936,10 +930,7 @@ function EvaluationModelPicker(): JSX.Element {
     // Evals always run on the team's own provider key, so only BYOK models are offered.
     const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
     const groups = evaluationProviderModelGroups.filter(
-        (group) =>
-            evaluation?.output_type === 'boolean' ||
-            evaluation?.output_type === 'numeric' ||
-            group.provider !== 'typesafe'
+        (group) => evaluation?.output_type === 'boolean' || group.provider !== 'typesafe'
     )
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -966,13 +957,12 @@ function EvaluationModelPicker(): JSX.Element {
                             data-attr="evaluation-model-selector"
                         />
                         <ByokModelPickerNotice forEvaluation />
-                        {evaluation?.model_configuration?.provider === 'typesafe' &&
-                            evaluation.output_type === 'boolean' && (
-                                <p className="text-sm text-muted mt-2">
-                                    This judge returns a probability without written reasoning. A probability of 50% or
-                                    higher produces a true result.
-                                </p>
-                            )}
+                        {evaluation?.model_configuration?.provider === 'typesafe' && (
+                            <p className="text-sm text-muted mt-2">
+                                This judge returns a probability without written reasoning. A probability of 50% or
+                                higher produces a true result.
+                            </p>
+                        )}
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}

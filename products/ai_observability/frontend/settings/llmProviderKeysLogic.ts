@@ -25,7 +25,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     together_ai: 'Together AI',
     minimax: 'MiniMax',
     zeabur: 'Zeabur AI Hub',
-    typesafe: 'System One',
+    typesafe: 'System One (Jev)',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))

@@ -62,7 +62,7 @@ describe('modelPickerLogic', () => {
                                           {
                                               id: model,
                                               name: model,
-                                              provider: 'System One',
+                                              provider: 'System One (Jev)',
                                               is_recommended: true,
                                           },
                                       ],

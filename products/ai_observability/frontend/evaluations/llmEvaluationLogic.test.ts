@@ -658,27 +658,19 @@ return result`,
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
 
-            it.each(['openai', 'typesafe'] as const)(
-                'validates boolean and numeric fields for %s',
-                async (provider) => {
-                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                    logic.actions.setEvaluationName('Valid Name')
-                    logic.actions.setEvaluationPrompt('Valid prompt')
-                    logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
-                    logic.actions.setModelConfiguration({
-                        provider,
-                        model: provider === 'typesafe' ? 'jev-1.13.0' : 'gpt-5-mini',
-                        provider_key_id: 'key-1',
-                    })
+            it('returns true when all fields valid', async () => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Valid Name')
+                logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 50, properties: [] }])
+                logic.actions.setModelConfiguration({
+                    provider: 'openai',
+                    model: 'gpt-5-mini',
+                    provider_key_id: 'key-1',
+                })
 
-                    await expectLogic(logic).toMatchValues({ formValid: true })
-                    logic.actions.setOutputType('numeric')
-                    logic.actions.patchOutputConfig({ min: 0, max: 10 })
-                    await expectLogic(logic).toMatchValues({ formValid: provider !== 'typesafe' })
-                    logic.actions.patchOutputConfig({ score_levels: ['Poor', 'Good'] })
-                    await expectLogic(logic).toMatchValues({ formValid: true })
-                }
-            )
+                await expectLogic(logic).toMatchValues({ formValid: true })
+            })
 
             // A loaded evaluation whose stored shape doesn't match its type (e.g. an llm_judge
             // record with no prompt) used to crash formValid with a TypeError on render.

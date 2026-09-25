@@ -57,12 +57,6 @@ class TestNumericOutputConfig:
             {"passing_rule": {"operator": "gte", "threshold": True}},
             {"passing_rule": {"operator": "gte", "threshold": float("nan")}},
             {"min": 0, "passing_rule": {"operator": "gte", "threshold": -1}},
-            {"score_levels": ["Poor", "Good"]},
-            {"min": 0, "score_levels": ["Poor", "Good"]},
-            {"min": 0, "max": 0, "score_levels": ["Poor", "Good"]},
-            {"min": 0, "max": 10, "score_levels": ["Only one"]},
-            {"min": 0, "max": 10, "score_levels": ["Level"] * 11},
-            {"min": 0, "max": 10, "score_levels": ["Poor", "  "]},
         ],
     )
     def test_invalid_numeric_configuration(self, output):
@@ -77,12 +71,6 @@ class TestNumericOutputConfig:
             {"min": None, "max": None, "step": None, "passing_rule": None, "allows_na": True},
         )
         assert output == {"allows_na": True}
-
-    @pytest.mark.parametrize("level,expected", [(0, -10), (1.25, 2.5), (2, 10)])
-    def test_score_levels_keep_fractional_values(self, level: float, expected: float) -> None:
-        config = NumericOutputConfig(min=-10, max=10, score_levels=[" Poor ", "Fair", "Good"])
-        assert config.score_levels == ["Poor", "Fair", "Good"]
-        assert config.score_from_level(level) == expected
 
 
 class TestValidateTargetConfig:

@@ -51,8 +51,6 @@ from products.ai_observability.backend.llm.errors import (
 from products.ai_observability.backend.llm.system_one import (
     NoulAnswer,
     NoulQuestion,
-    ScoreAnswer,
-    ScoreQuestion,
     SystemOneClient,
     SystemOneQuestion,
     SystemOneRateLimitError,
@@ -180,11 +178,6 @@ def get_output_type_config(
             instructions += f" The score must be at most {numeric_config.max}."
         if numeric_config.step is not None:
             instructions += f" Suggested score increment: {numeric_config.step}; do not round an otherwise valid score."
-        if numeric_config.score_levels is not None:
-            instructions += " Use these rubric levels, interpolating between them when needed:\n" + "\n".join(
-                f"{numeric_config.score_from_level(index)}: {description}"
-                for index, description in enumerate(numeric_config.score_levels)
-            )
         if allows_na:
             instructions += " Return score=null when the criteria does not apply."
         return OutputTypeConfig(
@@ -454,7 +447,7 @@ def call_llm_judge(
         raise
 
     provider = resolved.provider
-    if provider == "typesafe" and output_type not in ("boolean", "numeric"):
+    if provider == "typesafe" and output_type != "boolean":
         raise ApplicationError("This System One evaluation output type is not supported.", non_retryable=True)
     model = resolved.model
     provider_key = resolved.provider_key
@@ -478,14 +471,7 @@ def call_llm_judge(
             if provider_key is not None and provider_key.provider != provider:
                 raise ProviderMismatchError(provider_key.provider, provider)
             prompt = evaluation["evaluation_config"]["prompt"]
-            numeric_config = NumericOutputConfig.model_validate(output_config) if output_type == "numeric" else None
-            questions: dict[str, SystemOneQuestion]
-            if numeric_config is not None:
-                if numeric_config.score_levels is None:
-                    raise ApplicationError("Add score levels to this numeric evaluation.", non_retryable=True)
-                questions = {"score": ScoreQuestion(instructions=prompt, criteria=list(numeric_config.score_levels))}
-            else:
-                questions = {"verdict": NoulQuestion(instructions=prompt)}
+            questions: dict[str, SystemOneQuestion] = {"verdict": NoulQuestion(instructions=prompt)}
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
@@ -508,28 +494,17 @@ def call_llm_judge(
                 applicability_answer = system_one_result.answers["applicable"]
                 assert isinstance(applicability_answer, NoulAnswer)
                 applicable = applicability_answer.noul >= 0.5
-            parsed: BooleanEvalResult | BooleanWithNAEvalResult | NumericEvalResult | NumericWithNAEvalResult
-            if numeric_config is not None:
-                score_answer = system_one_result.answers["score"]
-                assert isinstance(score_answer, ScoreAnswer)
-                score = numeric_config.score_from_level(score_answer.score)
-                parsed = (
-                    NumericWithNAEvalResult(reasoning="", score=score if applicable else None)
-                    if allows_na
-                    else NumericEvalResult(reasoning="", score=score)
+            verdict_answer = system_one_result.answers["verdict"]
+            assert isinstance(verdict_answer, NoulAnswer)
+            probability = verdict_answer.noul
+            parsed = (
+                BooleanWithNAEvalResult(
+                    reasoning="",
+                    outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
                 )
-            else:
-                verdict_answer = system_one_result.answers["verdict"]
-                assert isinstance(verdict_answer, NoulAnswer)
-                probability = verdict_answer.noul
-                parsed = (
-                    BooleanWithNAEvalResult(
-                        reasoning="",
-                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
-                    )
-                    if allows_na
-                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
-                )
+                if allows_na
+                else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+            )
             model = system_one_result.model
             response = CompletionResponse(
                 content="",
