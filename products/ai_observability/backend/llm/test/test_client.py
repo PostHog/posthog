@@ -88,6 +88,30 @@ class TestProviderRouting(SimpleTestCase):
         assert provider.azure_endpoint == ""
         assert provider.api_version == DEFAULT_API_VERSION
 
+    def test_get_provider_openai_compatible_reads_encrypted_config(self):
+        from products.ai_observability.backend.llm.client import _get_provider
+        from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
+
+        mock_key = MagicMock()
+        mock_key.encrypted_config = {
+            "api_key": "irrelevant",
+            "base_url": "https://api.example.com/v1",
+        }
+
+        provider = _get_provider("openai_compatible", mock_key)
+
+        assert isinstance(provider, OpenAICompatibleAdapter)
+        assert provider.base_url == "https://api.example.com/v1"
+
+    def test_get_provider_openai_compatible_without_provider_key_has_no_base_url(self):
+        from products.ai_observability.backend.llm.client import _get_provider
+        from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
+
+        provider = _get_provider("openai_compatible")
+
+        assert isinstance(provider, OpenAICompatibleAdapter)
+        assert provider.base_url == ""
+
 
 class TestProviderMismatchValidation(SimpleTestCase):
     def test_provider_mismatch_raises_error(self):
