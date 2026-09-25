@@ -6,7 +6,16 @@ import { createRef } from 'react'
 import { initKeaTests } from '~/test/init'
 
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
-import { ComposerAttachments } from './ComposerAttachments'
+import { ComposerAttachments, useComposerAttachmentPaste } from './ComposerAttachments'
+
+function PasteTarget(): JSX.Element {
+    const onPaste = useComposerAttachmentPaste('scene')
+    return <textarea onPaste={onPaste} />
+}
+
+function pasteInto(target: HTMLElement, files: File[], text: string): boolean {
+    return fireEvent.paste(target, { clipboardData: { files, getData: () => text } })
+}
 
 function dropFiles(target: HTMLElement, files: File[]): void {
     fireEvent.drop(target, { dataTransfer: { files, types: ['Files'] } })
@@ -82,6 +91,37 @@ describe('ComposerAttachments', () => {
         fireEvent.change(fileInput, { target: { files: [new File(['a'], 'picked.png')] } })
 
         expect(logic.values.attachments.map((attachment) => attachment.file.name)).toEqual(['picked.png'])
+    })
+
+    describe('paste', () => {
+        it('attaches a pasted file', () => {
+            render(<PasteTarget />)
+
+            pasteInto(document.querySelector('textarea')!, [new File(['a'], 'shot.png')], '')
+
+            expect(logic.values.attachments.map((attachment) => attachment.file.name)).toEqual(['shot.png'])
+        })
+
+        it('lets the text through when the clipboard carries both', () => {
+            render(<PasteTarget />)
+
+            const notPrevented = pasteInto(
+                document.querySelector('textarea')!,
+                [new File(['a'], 'image.png')],
+                'Revenue\t1200'
+            )
+
+            expect(notPrevented).toBe(true)
+            expect(logic.values.attachments.map((attachment) => attachment.file.name)).toEqual(['image.png'])
+        })
+
+        it('takes the paste when there is no text to lose', () => {
+            render(<PasteTarget />)
+
+            const notPrevented = pasteInto(document.querySelector('textarea')!, [new File(['a'], 'image.png')], '')
+
+            expect(notPrevented).toBe(false)
+        })
     })
 
     it('stops listening once unmounted, so a later drop stages nothing', () => {

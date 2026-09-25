@@ -71,14 +71,40 @@ describe('composerAttachmentsLogic', () => {
         expect(logic.values.isAtAttachmentLimit).toBe(true)
     })
 
-    it('clears the list and the uploading flag once a send has taken the files', () => {
-        logic.actions.addFiles([new File(['a'], 'a.md')])
-        logic.actions.setUploading(true)
-        logic.actions.clearAttachments()
+    it('removes only the files a send took, leaving one added since', () => {
+        logic.actions.addFiles([new File(['a'], 'a.md'), new File(['b'], 'b.md')])
+        const sent = logic.values.attachments.map((attachment) => attachment.id)
+        logic.actions.addFiles([new File(['c'], 'c.md')])
 
-        expect(logic.values.attachments).toEqual([])
-        expect(logic.values.uploading).toBe(false)
-        expect(logic.values.hasAttachments).toBe(false)
+        logic.actions.removeAttachments(sent)
+
+        expect(logic.values.attachments.map((attachment) => attachment.file.name)).toEqual(['c.md'])
+    })
+
+    describe('files promised to the queue', () => {
+        beforeEach(() => {
+            logic.actions.addFiles([new File(['a'], 'queued.md')])
+            logic.actions.claimAttachmentsForQueue()
+        })
+
+        it('leaves the composer, so a draft send cannot take them', () => {
+            expect(logic.values.stagedAttachments).toEqual([])
+            expect(logic.values.queuedAttachments.map((attachment) => attachment.file.name)).toEqual(['queued.md'])
+            expect(logic.values.hasAttachments).toBe(false)
+        })
+
+        it('still counts against the per-message limit', () => {
+            logic.actions.addFiles(Array.from({ length: 10 }, (_, index) => new File(['x'], `f-${index}.md`)))
+
+            expect(logic.values.attachments).toHaveLength(MAX_ATTACHMENTS_PER_MESSAGE)
+        })
+
+        it('comes back to the composer when the queue is released', () => {
+            logic.actions.releaseQueuedAttachments()
+
+            expect(logic.values.stagedAttachments.map((attachment) => attachment.file.name)).toEqual(['queued.md'])
+            expect(logic.values.queuedAttachments).toEqual([])
+        })
     })
 
     it('keys the staged files per composer, so one composer never sees another one’s', () => {

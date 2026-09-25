@@ -100,7 +100,7 @@ export function ComposerAttachments({
     disabledReason,
 }: ComposerAttachmentsProps): JSX.Element {
     const logic = composerAttachmentsLogic({ attachmentsKey })
-    const { attachments, uploading, isAtAttachmentLimit } = useValues(logic)
+    const { stagedAttachments, uploading, isAtAttachmentLimit } = useValues(logic)
     const { addFiles, removeAttachment } = useActions(logic)
     const inputRef = useRef<HTMLInputElement>(null)
 
@@ -149,11 +149,11 @@ export function ComposerAttachments({
                 onClick={() => inputRef.current?.click()}
                 data-attr="posthog-ai-attach-file"
             >
-                {attachments.length > 0 ? null : (
+                {stagedAttachments.length > 0 ? null : (
                     <span className="text-secondary">{isOver ? 'Drop to attach' : 'Attach'}</span>
                 )}
             </LemonButton>
-            {attachments.map(({ id, file }) => (
+            {stagedAttachments.map(({ id, file }) => (
                 <Tooltip key={id} title={`${file.name} (${formatFileSize(file.size)})`}>
                     <LemonTag
                         icon={
@@ -179,7 +179,11 @@ export function ComposerAttachments({
     )
 }
 
-/** A paste with no files falls through untouched, so pasting text still behaves as text. */
+/**
+ * A paste carrying files attaches them. Copying from a spreadsheet or a document puts an image on the
+ * clipboard beside the text, so the text is left to the textarea whenever there is any — taking the paste
+ * outright would swallow what the user meant to write.
+ */
 export function useComposerAttachmentPaste(attachmentsKey: string): (event: ClipboardEvent) => void {
     const { addFiles } = useActions(composerAttachmentsLogic({ attachmentsKey }))
     return useCallback(
@@ -188,7 +192,9 @@ export function useComposerAttachmentPaste(attachmentsKey: string): (event: Clip
             if (files.length === 0) {
                 return
             }
-            event.preventDefault()
+            if (!event.clipboardData?.getData('text/plain')) {
+                event.preventDefault()
+            }
             addFiles(files)
         },
         [addFiles]

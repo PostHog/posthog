@@ -272,6 +272,37 @@ describe('runInteractionLogic', () => {
             expect(logic.values.composerForm.draft).toBe('What is wrong here?')
         })
 
+        it('sends the files queued with a message, not the ones attached since', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockResolvedValue(['art-queued'])
+            setThinking(true)
+            logic.actions.setComposerFormValues({ draft: 'first message' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+
+            attachments.actions.addFiles([new File(['b'], 'next-draft.csv')])
+            setThinking(false)
+            await expectLogic(logic, () => stream.actions.markTurnComplete()).toFinishAllListeners()
+
+            expect(uploadRunAttachments).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, [
+                expect.objectContaining({ name: 'rows.csv' }),
+            ])
+            expect(attachments.values.stagedAttachments.map((attachment) => attachment.file.name)).toEqual([
+                'next-draft.csv',
+            ])
+        })
+
+        it('hands the files back when the queued message they belong to is removed', async () => {
+            setThinking(true)
+            logic.actions.setComposerFormValues({ draft: 'first message' })
+            await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
+            expect(attachments.values.stagedAttachments).toEqual([])
+
+            await expectLogic(logic, () =>
+                logic.actions.removeQueuedMessage(logic.values.queuedMessages[0].id)
+            ).toFinishAllListeners()
+
+            expect(attachments.values.stagedAttachments.map((attachment) => attachment.file.name)).toEqual(['rows.csv'])
+        })
+
         it('stages the files on the task when a terminal run starts a new one', async () => {
             ;(uploadStagedTaskAttachments as jest.Mock).mockResolvedValue(['art-2'])
             setStatus('completed')

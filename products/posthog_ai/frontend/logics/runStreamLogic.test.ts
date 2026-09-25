@@ -1402,6 +1402,98 @@ describe('runStreamLogic', () => {
                 expect(items[0].attachments).toEqual([{ name: 'report.csv', previewId: 'preview-1' }])
             })
 
+            it('keeps a name with a broken percent escape instead of aborting the thread', () => {
+                const items = foldReplay([
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'Look here' },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'resource_link', uri: 'file:///tmp/bad%ZZ.png' },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([{ name: 'bad%ZZ.png' }])
+            })
+
+            it('leaves a hidden block out, the same as it is left out of the text', () => {
+                const items = foldReplay([
+                    notification('_posthog/user_message', {
+                        content: [
+                            { type: 'text', text: 'Look here' },
+                            {
+                                type: 'resource_link',
+                                uri: 'file:///internal.md',
+                                name: 'internal.md',
+                                _meta: { ui: { hidden: true } },
+                            },
+                        ],
+                    }),
+                ])
+
+                expect(items[0].attachments).toBeUndefined()
+            })
+
+            it('keeps two files that share a name apart, giving each its own artifact', () => {
+                const items = foldReplay([
+                    notification('_client/human_message', {
+                        content: 'Compare these',
+                        attachments: [
+                            { name: 'image.png', previewId: 'preview-1' },
+                            { name: 'image.png', previewId: 'preview-2' },
+                        ],
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run-7/art-A/image.png',
+                            name: 'image.png',
+                        },
+                    }),
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: {
+                            type: 'resource_link',
+                            uri: 'file:///w/.posthog/attachments/run-7/art-B/image.png',
+                            name: 'image.png',
+                        },
+                    }),
+                ])
+
+                expect(items[0].attachments).toEqual([
+                    {
+                        name: 'image.png',
+                        previewId: 'preview-1',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-A',
+                    },
+                    {
+                        name: 'image.png',
+                        previewId: 'preview-2',
+                        taskId: 'task-3',
+                        runId: 'run-7',
+                        artifactId: 'art-B',
+                    },
+                ])
+            })
+
+            it('lands a file echoed in both wire forms once', () => {
+                const link = {
+                    type: 'resource_link',
+                    uri: 'file:///w/.posthog/attachments/run-7/art-A/report.csv',
+                    name: 'report.csv',
+                }
+                const items = foldReplay([
+                    notification('_posthog/user_message', { content: [{ type: 'text', text: 'Look' }, link] }),
+                    sessionUpdate({ sessionUpdate: 'user_message_chunk', content: link }),
+                ])
+
+                expect(items[0].attachments).toHaveLength(1)
+            })
+
             it('fills the ids onto that optimistic name rather than adding a second chip', () => {
                 const frames: StoredLogEntry[] = [
                     notification('_client/human_message', {

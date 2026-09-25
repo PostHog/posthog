@@ -17,6 +17,8 @@ export interface composerAttachmentsLogicValues {
     attachments: PendingAttachment[]
     hasAttachments: boolean
     isAtAttachmentLimit: boolean
+    queuedAttachments: PendingAttachment[]
+    stagedAttachments: PendingAttachment[]
     uploading: boolean
 }
 
@@ -25,11 +27,17 @@ export interface composerAttachmentsLogicActions {
     addFiles: (files: File[]) => {
         files: File[]
     }
-    clearAttachments: () => {
+    claimAttachmentsForQueue: () => {
+        value: true
+    }
+    releaseQueuedAttachments: () => {
         value: true
     }
     removeAttachment: (id: string) => {
         id: string
+    }
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
     }
     setUploading: (uploading: boolean) => {
         uploading: boolean
@@ -40,8 +48,10 @@ export interface composerAttachmentsLogicActions {
 export interface composerAttachmentsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        attachedFiles: (attachments: PendingAttachment[]) => File[]
-        hasAttachments: (attachments: PendingAttachment[]) => boolean
+        stagedAttachments: (attachments: PendingAttachment[]) => PendingAttachment[]
+        queuedAttachments: (attachments: PendingAttachment[]) => PendingAttachment[]
+        attachedFiles: (stagedAttachments: PendingAttachment[]) => File[]
+        hasAttachments: (stagedAttachments: PendingAttachment[]) => boolean
         isAtAttachmentLimit: (attachments: PendingAttachment[]) => boolean
     }
 }
@@ -54,10 +64,13 @@ export type composerAttachmentsLogicType = MakeLogicType<
 >
 
 /**
- * Files staged in one composer, held as `File` handles until its send uploads them.
+ * Files staged in one composer, held as `File` handles until a send uploads them.
  *
  * Uploading on send rather than on add is what lets the creation composer take files at all: it has no task
- * to upload against until it submits. It also leaves nothing behind on a draft the user abandons.
+ * to upload against until it submits.
+ *
+ * A send owns exactly the files it took, by id. Clearing the whole list would destroy a file attached while
+ * that send was in flight, and let a queue drain carry off the next draft's.
  */
 export const composerAttachmentsLogic = kea<composerAttachmentsLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'composerAttachmentsLogic']),
@@ -67,7 +80,11 @@ export const composerAttachmentsLogic = kea<composerAttachmentsLogicType>([
     actions({
         addFiles: (files: File[]) => ({ files }),
         removeAttachment: (id: string) => ({ id }),
-        clearAttachments: true,
+        removeAttachments: (ids: string[]) => ({ ids }),
+        /** The staged files follow the text into the queue, so they arrive with the message they were typed for. */
+        claimAttachmentsForQueue: true,
+        /** A queue that empties without sending hands its files back rather than dropping them. */
+        releaseQueuedAttachments: true,
         setUploading: (uploading: boolean) => ({ uploading }),
     }),
 
@@ -76,45 +93,71 @@ export const composerAttachmentsLogic = kea<composerAttachmentsLogicType>([
             [] as PendingAttachment[],
             {
                 addFiles: (state, { files }) => {
-                    const accepted = files
-                        .filter((file) => !attachmentRejectionReason(file))
-                        .slice(0, Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - state.length))
+                    const accepted = acceptableFiles(files).slice(0, remainingSlots(state))
                     return accepted.length > 0 ? [...state, ...accepted.map((file) => ({ id: uuid(), file }))] : state
                 },
                 removeAttachment: (state, { id }) => state.filter((attachment) => attachment.id !== id),
-                clearAttachments: () => [],
+                removeAttachments: (state, { ids }) => state.filter((attachment) => !ids.includes(attachment.id)),
+                claimAttachmentsForQueue: (state) => state.map((attachment) => ({ ...attachment, queued: true })),
+                releaseQueuedAttachments: (state) => state.map((attachment) => ({ ...attachment, queued: false })),
             },
         ],
         uploading: [
             false,
             {
                 setUploading: (_, { uploading }) => uploading,
-                clearAttachments: () => false,
             },
         ],
     }),
 
     selectors({
-        attachedFiles: [
+        stagedAttachments: [
             (s) => [s.attachments],
-            (attachments: PendingAttachment[]): File[] => attachments.map((attachment) => attachment.file),
+            (attachments: PendingAttachment[]): PendingAttachment[] =>
+                attachments.filter((attachment) => !attachment.queued),
         ],
-        hasAttachments: [(s) => [s.attachments], (attachments: PendingAttachment[]): boolean => attachments.length > 0],
+        queuedAttachments: [
+            (s) => [s.attachments],
+            (attachments: PendingAttachment[]): PendingAttachment[] =>
+                attachments.filter((attachment) => attachment.queued),
+        ],
+        attachedFiles: [
+            (s) => [s.stagedAttachments],
+            (stagedAttachments: PendingAttachment[]): File[] => stagedAttachments.map((attachment) => attachment.file),
+        ],
+        hasAttachments: [
+            (s) => [s.stagedAttachments],
+            (stagedAttachments: PendingAttachment[]): boolean => stagedAttachments.length > 0,
+        ],
         isAtAttachmentLimit: [
             (s) => [s.attachments],
-            (attachments: PendingAttachment[]): boolean => attachments.length >= MAX_ATTACHMENTS_PER_MESSAGE,
+            (attachments: PendingAttachment[]): boolean => remainingSlots(attachments) === 0,
         ],
     }),
 
-    listeners(() => ({
-        // The reducer has already dropped these; this only explains a file the user watched fail to appear.
-        addFiles: ({ files }) => {
+    listeners(({ selectors }) => ({
+        addFiles: ({ files }, _breakpoint, _action, previousState) => {
             for (const file of files) {
                 const reason = attachmentRejectionReason(file)
                 if (reason) {
                     lemonToast.error(reason)
                 }
             }
+            // The count needs the state from before the add, which the reducer has already replaced.
+            const dropped = acceptableFiles(files).length - remainingSlots(selectors.attachments(previousState))
+            if (dropped > 0) {
+                lemonToast.warning(
+                    `Only ${MAX_ATTACHMENTS_PER_MESSAGE} files fit in one message, so ${dropped} were left off`
+                )
+            }
         },
     })),
 ])
+
+function acceptableFiles(files: File[]): File[] {
+    return files.filter((file) => !attachmentRejectionReason(file))
+}
+
+function remainingSlots(attachments: PendingAttachment[]): number {
+    return Math.max(0, MAX_ATTACHMENTS_PER_MESSAGE - attachments.length)
+}

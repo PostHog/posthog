@@ -19,10 +19,11 @@ import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
-import { uploadStagedTaskAttachments } from '../../utils/artifactUpload'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 jest.mock('../../utils/artifactUpload', () => ({
@@ -54,6 +55,7 @@ describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
     let runBody: Record<string, any> | null
+    let cancelledWarmRuns: string[]
     let toolEvents: ReturnType<typeof toolStreamEventsLogic.build>
 
     const myConfigResponse = (resolved: Record<string, any> | null): Record<string, any> => ({
@@ -70,6 +72,7 @@ describe('taskTrackerSceneLogic', () => {
         localStorage.clear()
         createBody = null
         runBody = null
+        cancelledWarmRuns = []
         useMocks({
             get: {
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
@@ -86,6 +89,10 @@ describe('taskTrackerSceneLogic', () => {
                 '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                     runBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task', latest_run: { id: 'run-1' } }]
+                },
+                '/api/projects/:team/tasks/:taskId/runs/:id/cancel/': ({ params }) => {
+                    cancelledWarmRuns.push(params.id as string)
+                    return [200, {}]
                 },
             },
         })
@@ -145,6 +152,21 @@ describe('taskTrackerSceneLogic', () => {
             expect(runBody).toBeNull()
             expect(attachments.values.attachments).toHaveLength(1)
             expect(attachments.values.uploading).toBe(false)
+        })
+
+        it('hands a leased warm run back when the upload to it fails', async () => {
+            ;(uploadRunAttachments as jest.Mock).mockRejectedValue(new Error('S3 said no'))
+            const warm = taskWarmLogic({ panelId: undefined })
+            warm.mount()
+            warm.actions.setWarmLease({ key: 'k', taskId: 'warm-task', runId: 'warm-run' })
+            router.actions.push('/tasks/new')
+            logic.mount()
+            logic.actions.setNewTaskData({ description: 'Why does this chart look wrong?' })
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(cancelledWarmRuns).toEqual(['warm-run'])
+            warm.unmount()
         })
     })
 

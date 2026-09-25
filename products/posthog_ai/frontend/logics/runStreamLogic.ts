@@ -392,6 +392,15 @@ function uriPathSegments(uri: string): string[] {
     return path.split('/').filter(Boolean)
 }
 
+/** A segment with a broken percent escape stands as it is, rather than throwing through the whole fold. */
+function decodeUriSegment(segment: string): string {
+    try {
+        return decodeURIComponent(segment)
+    } catch {
+        return segment
+    }
+}
+
 /**
  * The run and artifact a sandbox attachment path names, or null for any other path.
  *
@@ -420,11 +429,30 @@ export function userAttachment(content: unknown): ThreadAttachment | null {
     const uri = typeof content.uri === 'string' ? content.uri : ''
     const named = typeof content.name === 'string' && content.name.trim() ? content.name.trim() : null
     const fromUri = uri ? uriPathSegments(uri).at(-1) : undefined
-    const name = named ?? (fromUri ? decodeURIComponent(fromUri) : null)
+    const name = named ?? (fromUri ? decodeUriSegment(fromUri) : null)
     if (!name) {
         return null
     }
     return { name, ...(uri ? (artifactRefFromUri(uri) ?? {}) : {}) }
+}
+
+/**
+ * Identity is the artifact, never the name: two pasted screenshots are both `image.png`. A known artifact
+ * wins, so a file echoed in both wire forms lands once; otherwise it claims the first entry of that name
+ * still waiting for one, which a send uploads in order.
+ */
+function mergeAttachment(existing: ThreadAttachment[], incoming: ThreadAttachment): ThreadAttachment[] {
+    const byArtifact = incoming.artifactId
+        ? existing.findIndex((candidate) => candidate.artifactId === incoming.artifactId)
+        : -1
+    const target =
+        byArtifact !== -1
+            ? byArtifact
+            : existing.findIndex((candidate) => candidate.name === incoming.name && !candidate.artifactId)
+    if (target === -1) {
+        return [...existing, incoming]
+    }
+    return existing.map((candidate, position) => (position === target ? { ...candidate, ...incoming } : candidate))
 }
 
 /** What an optimistic send knows before its files have artifacts to point at. */
@@ -1506,20 +1534,11 @@ export function foldLogToThread(
         for (let index = items.length - 1; index >= 0; index--) {
             if (items[index].type === 'human_message') {
                 const existing = items[index].attachments ?? []
-                const at = existing.findIndex((candidate) => candidate.name === attachment.name)
-                const merged =
-                    at === -1
-                        ? [...existing, attachment]
-                        : existing.map((candidate, position) =>
-                              position === at ? { ...candidate, ...attachment } : candidate
-                          )
-                items[index] = { ...items[index], attachments: merged }
+                items[index] = { ...items[index], attachments: mergeAttachment(existing, attachment) }
                 return
             }
         }
-        if (!bufferedAttachments.some((candidate) => candidate.name === attachment.name)) {
-            bufferedAttachments.push(attachment)
-        }
+        bufferedAttachments = mergeAttachment(bufferedAttachments, attachment)
     }
 
     // Surface the context blocks a send was wrapped with as copyable debug rows (gated downstream by
@@ -1857,6 +1876,9 @@ export function foldLogToThread(
             }
             if (Array.isArray(params.content)) {
                 for (const block of params.content) {
+                    if (isHiddenUserContent(block)) {
+                        continue
+                    }
                     const attachment = userAttachment(block)
                     if (attachment) {
                         noteAttachment(attachment)

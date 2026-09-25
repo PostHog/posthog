@@ -2,6 +2,8 @@
 export interface PendingAttachment {
     id: string
     file: File
+    /** Promised to a message waiting in the queue, so a draft send leaves it alone. */
+    queued?: boolean
 }
 
 /** The artifact API's ceiling: `size` on a prepare request is capped at 31457280. */

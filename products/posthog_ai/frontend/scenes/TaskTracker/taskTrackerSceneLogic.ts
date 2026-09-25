@@ -51,6 +51,7 @@ import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
 import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
+import type { PendingAttachment } from '../../utils/attachments'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -169,7 +170,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
-    attachedFiles: File[] // composerAttachmentsLogic
+    stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
@@ -212,8 +213,8 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
-    clearAttachments: () => {
-        value: true
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
     } // composerAttachmentsLogic
     setUploading: (uploading: boolean) => {
         uploading: boolean
@@ -417,7 +418,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
             composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
-            ['attachedFiles'],
+            ['stagedAttachments'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
         ],
@@ -437,7 +438,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
             composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
-            ['clearAttachments', 'setUploading'],
+            ['removeAttachments', 'setUploading'],
         ],
     })),
 
@@ -694,6 +695,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             cache.submittingTask = disposables
             const projectId = String(values.currentProjectId)
             const warmSubmission: WarmSubmission = { projectId, lease: null }
+            let warmConsumed = false
             actions.prepareSubmit(warmSubmission)
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
@@ -733,16 +735,17 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
             cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
+            const sending = values.stagedAttachments
             stream.actions.startOptimisticRun(
                 description,
-                values.attachedFiles.map((file) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+                sending.map(({ file }) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
             )
 
             try {
                 // Files can only be uploaded against something that already exists. A warm lease names a task
                 // and a run, so they go onto that run and ride its activation. Without one there is nothing
                 // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
-                const attachedFiles = values.attachedFiles
+                const attachedFiles = sending.map(({ file }) => file)
                 const warmLease = warmSubmission.lease
                 const suppressWarmReuse = attachedFiles.length > 0 && !warmLease
                 let pendingUserArtifactIds: string[] = []
@@ -815,6 +818,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     disposables
                 )
                 actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
+                warmConsumed = true
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
@@ -913,8 +917,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (creationIsActive || values.newTaskData.description.trim() === description) {
                     actions.resetNewTaskData()
                 }
-                // A failure leaves them staged instead, since the restored draft is going to be sent again.
-                actions.clearAttachments()
+                // Only what this send took. A failure leaves them staged, since the restored draft is resent.
+                actions.removeAttachments(sending.map(({ id }) => id))
                 cache.submittingTask = null
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
@@ -924,6 +928,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     return
                 }
                 actions.releaseApplyBackTargets(streamKey)
+                // `prepareSubmit` took the lease out of `taskWarmLogic`, so only `consumeWarm` releases it,
+                // and a run that never got a message would hold a warm slot until its idle timeout.
+                if (!warmConsumed) {
+                    actions.consumeWarm(warmSubmission, null)
+                    warmConsumed = true
+                }
                 if (values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
                     const unsent = [
