@@ -554,6 +554,13 @@ The call still succeeds, and `corroboration_collapsed` in the response tells you
 
 A replacement request that cannot bind verified predecessor PRs, or whose report changes during verification, fails without saving the edit. Retry the same edit to resolve the context again.
 
+### When the endpoint does not know a field you sent
+
+This tool definition and the endpoint behind it deploy separately, so a field you can see in the schema can reach an endpoint that does not declare it yet.
+The endpoint applies the rest of the edit and lists the names it ignored in `ignored_fields`. On a normal edit that list is empty.
+A name in the list means the field did nothing: the note still landed, so re-send the edit only when you need what the ignored field would have done.
+An edit whose every instruction is unrecognized is rejected instead, and the error names the fields.
+
 ## Finding "the report I made last time"
 
 There is no scout-specific report search — use the **vanilla inbox tools** the scout already has.

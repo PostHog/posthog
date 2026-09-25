@@ -1630,6 +1630,10 @@ class ReportLinkWriteSerializer(serializers.Serializer):
     )
 
 
+# Not a request field: `validate` stashes the undeclared keys here so the view can hand them back.
+IGNORED_EDIT_FIELDS_KEY = "ignored_fields"
+
+
 class EditReportRequestSerializer(serializers.Serializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
@@ -1768,16 +1772,19 @@ class EditReportRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict) -> dict:
-        """Reject a body field this serializer does not declare.
+        """Report a body field this serializer does not declare, instead of dropping it in silence.
 
         The tool definition the scout reads and this endpoint deploy separately, so a scout can send a
         field a running backend does not know yet. DRF drops an undeclared key without a word, which
         turns a correction the caller asked for into a call that reports success and changes nothing.
-        Failing the whole edit says so, and costs the caller a retry rather than a wrong report.
+        Naming the key in `ignored_fields` says so while the rest of the edit still lands: one
+        unrecognized flag must not destroy the title, summary, note and evidence sent beside it.
+        An edit whose every instruction is unrecognized has nothing left to apply, so that one fails.
         """
         unknown = sorted(set(self.initial_data) - set(self.fields))
-        if unknown:
+        if unknown and not attrs.keys() - {"report_id"}:
             raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
+        attrs[IGNORED_EDIT_FIELDS_KEY] = unknown
         return attrs
 
 
@@ -1855,6 +1862,14 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text=(
             "Whether your note raised the report's corroboration count instead of landing as its own "
             "entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log."
+        ),
+    )
+    ignored_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The body fields this endpoint does not know and therefore ignored. Empty on a normal "
+            "edit. A name in this list means the tool definition you read is ahead of this endpoint. "
+            "The rest of the edit landed, and the named field did nothing."
         ),
     )
 

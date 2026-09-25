@@ -34592,6 +34592,8 @@ export namespace Schemas {
       supersedes_implementation: boolean;
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
+      /** The body fields this endpoint does not know and therefore ignored. Empty on a normal edit. A name in this list means the tool definition you read is ahead of this endpoint. The rest of the edit landed, and the named field did nothing. */
+      ignored_fields: string[];
     }
 
     /**
