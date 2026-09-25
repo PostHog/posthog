@@ -348,8 +348,12 @@ export interface dataNodeLogicActions {
     collectionNodeLoadDataFailure: (id: string) => {
         id: string
     } // dataNodeCollectionLogic
-    collectionNodeLoadDataSuccess: (id: string) => {
+    collectionNodeLoadDataSuccess: (
+        id: string,
+        meta?: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
+    ) => {
         id: string
+        meta: import('~/queries/nodes/DataNode/dataNodeCollectionLogic').CollectionNodeLoadMeta | undefined
     } // dataNodeCollectionLogic
     mountDataNode: (
         id: string,
@@ -2096,6 +2100,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         abortQuery: async ({ queryId }) => {
             try {
                 const { currentTeamId } = values
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
@@ -2111,7 +2116,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
-            actions.collectionNodeLoadDataSuccess(props.key)
+            actions.collectionNodeLoadDataSuccess(props.key, {
+                isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
+            })
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response
             }
@@ -2205,6 +2212,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     })),
     afterMount(({ actions, props, cache }) => {
         cache.localResults = {}
+
+        actions.mountDataNode(props.key, {
+            id: props.key,
+            loadData: actions.loadData,
+            cancelQuery: actions.cancelQuery,
+            kind: props.query?.kind,
+        })
+
         if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again.
             // We need to set them here, as the propsChanged listener will not trigger on mount
@@ -2215,12 +2230,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
             actions.loadData(refreshType)
         }
-
-        actions.mountDataNode(props.key, {
-            id: props.key,
-            loadData: actions.loadData,
-            cancelQuery: actions.cancelQuery,
-        })
     }),
     beforeUnmount(({ actions, props, values }) => {
         if (values.autoLoadRunning) {

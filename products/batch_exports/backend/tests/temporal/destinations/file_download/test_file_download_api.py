@@ -19,11 +19,14 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition
 from posthog.models.event.util import bulk_create_events
 from posthog.models.scoping import team_scope
 from posthog.temporal.tests.utils.events import generate_test_events
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.batch_exports.backend.api.file_download import (
     COUNT_ROWS_TIMEOUT_MESSAGE,
     DEFAULT_MAX_SIZE_MB,
@@ -814,12 +817,16 @@ class TestFileDownloadHogQL:
                 "file": {"format": "Parquet"},
                 "model": "hogql",
                 "hogql_query": hogql_query,
+                "last_modified_by": user.pk + 1,
+                "last_modified_by_id": user.pk + 1,
+                "user_id": user.pk + 1,
                 **bounds,
             },
             content_type="application/json",
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert set(response.json()) == {"id"}
 
         with team_scope(team_id=team.pk, canonical=True):
             run = await BatchExportRun.objects.select_related(
@@ -832,6 +839,7 @@ class TestFileDownloadHogQL:
         on_demand = run.batch_export_on_demand
         assert on_demand is not None
         assert on_demand.model == "hogql"
+        assert on_demand.last_modified_by_id == user.pk
         assert on_demand.source is not None
         assert on_demand.source.hogql_query == hogql_query
         assert on_demand.source.team_id == team.pk
@@ -841,6 +849,7 @@ class TestFileDownloadHogQL:
         batch_export_model = mock_start_file_download_export.call_args.kwargs["batch_export_model"]
         assert batch_export_model.name == "hogql"
         assert batch_export_model.hogql_query == hogql_query
+        assert batch_export_model.user_id == user.pk
         assert mock_start_file_download_export.call_args.kwargs["max_size_mb"] == DEFAULT_MAX_SIZE_MB
         assert mock_start_file_download_export.call_args.kwargs["data_interval_start"] == run.data_interval_start
         assert mock_start_file_download_export.call_args.kwargs["data_interval_end"] == run.data_interval_end
@@ -1025,6 +1034,45 @@ class TestFileDownloadHogQL:
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"count": expected_count}
+
+    @pytest.mark.usefixtures("enable_hogql_flag")
+    @pytest.mark.django_db(transaction=True)
+    async def test_count_rows_masks_properties_in_where(
+        self, async_client: AsyncClient, team, user, hogql_export_test_events
+    ) -> None:
+        await Organization.objects.filter(pk=team.organization_id).aupdate(
+            available_product_features=[
+                {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+        )
+        membership = await OrganizationMembership.objects.aget(user=user, organization_id=team.organization_id)
+        membership.level = OrganizationMembership.Level.MEMBER
+        await membership.asave(update_fields=["level"])
+        property_definition = await PropertyDefinition.objects.acreate(
+            team=team, name="$browser", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        rule = await PropertyAccessControl.objects.acreate(
+            team=team,
+            property_definition=property_definition,
+            organization_member=membership,
+            access_level="read",
+        )
+        await async_client.aforce_login(user)
+
+        for access_level, expected_count in [("read", len(hogql_export_test_events)), ("none", 0)]:
+            rule.access_level = access_level
+            await rule.asave(update_fields=["access_level"])
+            response = await async_client.post(
+                f"/api/projects/{team.pk}/file_download_batch_exports/count_rows",
+                {
+                    "model": "hogql",
+                    "hogql_query": "SELECT event FROM events WHERE properties.$browser = 'Chrome'",
+                },
+                content_type="application/json",
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json() == {"count": expected_count}
 
     @pytest.mark.parametrize(
         "body,expected_error_fragment",

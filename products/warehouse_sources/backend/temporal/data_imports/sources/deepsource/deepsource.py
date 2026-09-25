@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
@@ -10,14 +10,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.queries import (
+    ANALYSIS_RUN_CHECKS_QUERY,
     CONNECTION_QUERIES,
     PER_REPOSITORY_QUERIES,
     REPOSITORIES_QUERY,
     REPOSITORY_NAMES_QUERY,
+    ROOT_CONNECTION_QUERIES,
     VALIDATE_QUERY,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.deepsource.settings import (
     DEEPSOURCE_API_URL,
+    DEEPSOURCE_CHECKS_PER_RUN_PAGE_SIZE,
     DEEPSOURCE_DEFAULT_PAGE_SIZE,
     DEEPSOURCE_ENDPOINTS,
     DEEPSOURCE_MAX_PAGES_PER_CONNECTION,
@@ -145,13 +148,15 @@ def _iter_connection(
     session: requests.Session,
     query: str,
     variables: dict[str, Any],
-    parent_field: str,
+    parent_field: str | None,
     connection_field: str,
     logger: FilteringBoundLogger,
     start_cursor: str | None = None,
     missing_parent_error: str | None = None,
 ) -> Iterator[tuple[dict[str, Any], list[dict[str, Any]], str | None, bool]]:
     """Walk one Relay connection, yielding (parent_object, nodes, end_cursor, has_next_page) pages.
+
+    ``parent_field`` is None for a connection that sits directly on the root query.
 
     When the parent object resolves to null: raise ``missing_parent_error`` if set (a missing
     account is fatal), otherwise stop silently (a repository deleted mid-sync is a benign skip).
@@ -160,7 +165,7 @@ def _iter_connection(
     page_count = 0
     while True:
         payload = _execute(session, query, {**variables, "cursor": cursor}, logger)
-        parent = payload["data"].get(parent_field)
+        parent = payload["data"] if parent_field is None else payload["data"].get(parent_field)
         if parent is None:
             if missing_parent_error:
                 raise Exception(missing_parent_error)
@@ -177,6 +182,11 @@ def _iter_connection(
             # hasNextPage=True with a null endCursor would loop on the same page forever;
             # fail loudly instead of silently returning partial results.
             raise Exception(f"DeepSource: hasNextPage=True but endCursor is empty for {connection_field}")
+
+        if has_next_page and end_cursor == cursor:
+            # An endCursor that doesn't advance re-fetches this page, duplicating its rows
+            # until the page cap truncates the rest.
+            raise Exception(f"DeepSource: endCursor did not advance past '{cursor}' for {connection_field}")
 
         yield parent, nodes, end_cursor, has_next_page
 
@@ -268,6 +278,69 @@ def _with_repository_context(node: dict[str, Any], repository: dict[str, Any]) -
     return {**node, "repositoryId": repository.get("id"), "repositoryName": repository.get("name")}
 
 
+# Turns one node of a repository connection into the rows it contributes to the table.
+# Most endpoints are one row per node; `checks` expands each analysis run into its checks.
+FanOutRowBuilder = Callable[
+    [requests.Session, FilteringBoundLogger, dict[str, Any], dict[str, Any]], list[dict[str, Any]]
+]
+
+
+def _repository_node_rows(
+    _session: requests.Session,
+    _logger: FilteringBoundLogger,
+    node: dict[str, Any],
+    repository: dict[str, Any],
+) -> list[dict[str, Any]]:
+    return [_with_repository_context(node, repository)]
+
+
+def _check_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    analysis_run: dict[str, Any],
+    repository: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """One row per analyzer check of an analysis run, from the checks nested in the run walk."""
+    context = {
+        "analysisRunId": analysis_run.get("id"),
+        "analysisRunUid": analysis_run.get("runUid"),
+        "commitOid": analysis_run.get("commitOid"),
+        "branchName": analysis_run.get("branchName"),
+        "repositoryId": repository.get("id"),
+        "repositoryName": repository.get("name"),
+    }
+    connection = analysis_run.get("checks") or {}
+    rows = [{**edge["node"], **context} for edge in connection.get("edges") or [] if edge and edge.get("node")]
+
+    page_info = connection.get("pageInfo") or {}
+    if not page_info.get("hasNextPage"):
+        return rows
+
+    end_cursor = page_info.get("endCursor")
+    if not end_cursor:
+        raise Exception("DeepSource: hasNextPage=True but endCursor is empty for checks")
+
+    for _parent, nodes, _end_cursor, _has_next_page in _iter_connection(
+        session,
+        ANALYSIS_RUN_CHECKS_QUERY,
+        {"id": analysis_run["id"], "checkPageSize": DEEPSOURCE_CHECKS_PER_RUN_PAGE_SIZE},
+        "node",
+        "checks",
+        logger,
+        start_cursor=end_cursor,
+        # The run was in the page we just read, so a null node here means its remaining
+        # checks are unreachable. Skipping would checkpoint a half-synced run as complete.
+        missing_parent_error=f"DeepSource: analysis run {analysis_run['id']} disappeared while paginating its checks",
+    ):
+        rows.extend({**node, **context} for node in nodes)
+    return rows
+
+
+_FAN_OUT_ROW_BUILDERS: dict[str, FanOutRowBuilder] = {
+    "checks": _check_rows,
+}
+
+
 def _metric_rows(repository: dict[str, Any]) -> list[dict[str, Any]]:
     """Flatten repository.metrics into one row per metric item (metric x language key)."""
     rows: list[dict[str, Any]] = []
@@ -329,10 +402,12 @@ def _fan_out_connection_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[DeepsourceResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Paginated per-repository fan-out (analysis runs, issues, occurrences)."""
+    """Paginated per-repository fan-out (analysis runs, pull requests, issues, occurrences)."""
     query = CONNECTION_QUERIES[endpoint]
-    connection_field = DEEPSOURCE_ENDPOINTS[endpoint].connection_field
+    endpoint_config = DEEPSOURCE_ENDPOINTS[endpoint]
+    connection_field = endpoint_config.connection_field
     assert connection_field is not None
+    build_rows = _FAN_OUT_ROW_BUILDERS.get(endpoint, _repository_node_rows)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     completed = set(resume.completed_repositories) if resume else set()
@@ -353,6 +428,7 @@ def _fan_out_connection_rows(
             **_account_variables(account_login, vcs_provider),
             "name": repository_name,
             "pageSize": DEEPSOURCE_DEFAULT_PAGE_SIZE,
+            **endpoint_config.extra_variables,
         }
         for parent, nodes, end_cursor, has_next_page in _iter_connection(
             session,
@@ -363,8 +439,9 @@ def _fan_out_connection_rows(
             logger,
             start_cursor=start_cursor,
         ):
-            if nodes:
-                yield [_with_repository_context(node, parent) for node in nodes]
+            rows = [row for node in nodes for row in build_rows(session, logger, node, parent)]
+            if rows:
+                yield rows
             if has_next_page:
                 resumable_source_manager.save_state(
                     DeepsourceResumeConfig(
@@ -376,6 +453,34 @@ def _fan_out_connection_rows(
 
         completed.add(repository_name)
         resumable_source_manager.save_state(DeepsourceResumeConfig(completed_repositories=sorted(completed)))
+
+
+def _root_connection_rows(
+    session: requests.Session,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[DeepsourceResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a Relay connection on the root query — no account or repository to fan out over."""
+    connection_field = DEEPSOURCE_ENDPOINTS[endpoint].root_connection_field
+    assert connection_field is not None
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    start_cursor = resume.cursor if resume else None
+
+    for _parent, nodes, end_cursor, has_next_page in _iter_connection(
+        session,
+        ROOT_CONNECTION_QUERIES[endpoint],
+        {"pageSize": DEEPSOURCE_DEFAULT_PAGE_SIZE},
+        None,
+        connection_field,
+        logger,
+        start_cursor=start_cursor,
+    ):
+        if nodes:
+            yield nodes
+        if has_next_page:
+            resumable_source_manager.save_state(DeepsourceResumeConfig(cursor=end_cursor))
 
 
 def _per_repository_object_rows(
@@ -428,6 +533,8 @@ def deepsource_source(
         try:
             if endpoint == "repositories":
                 yield from _repositories_rows(session, account_login, vcs_provider, logger, resumable_source_manager)
+            elif endpoint_config.root_connection_field:
+                yield from _root_connection_rows(session, endpoint, logger, resumable_source_manager)
             elif endpoint_config.per_repository_object:
                 yield from _per_repository_object_rows(
                     session, account_login, vcs_provider, endpoint, logger, resumable_source_manager

@@ -94,6 +94,7 @@ class TestSetupResourcesPreflight:
             "cdc_management_mode": "posthog",
             "cdc_slot_name": "posthog_019ef4e83bfd",
             "cdc_publication_name": "posthog_pub_019ef4e83bfd",
+            "cdc_ingest_mode": "buffered",
         }
         mock_create_slot.assert_not_called()
         mock_create_publication.assert_not_called()
@@ -186,6 +187,15 @@ class TestSlotSetupErrorMessage:
         error = _slot_setup_error_message(Exception("ERROR: must be superuser or replication role"))
         assert "Incremental sync" in error
 
+    def test_table_ownership_error_points_at_ownership_not_replication(self) -> None:
+        # A role with REPLICATION and SELECT but no ownership gets this from CREATE PUBLICATION.
+        # The generic permission message asks for replication access, which does not fix it.
+        error = _slot_setup_error_message(psycopg.errors.InsufficientPrivilege("must be owner of table orders"))
+        assert "must be owner of table orders" in error
+        assert "owner" in error
+        assert "replication" not in error.lower()
+        assert "Incremental sync" in error
+
     def test_read_only_transaction_error_points_at_primary(self) -> None:
         error = _slot_setup_error_message(Exception("cannot execute CREATE PUBLICATION in a read-only transaction"))
         assert "primary database" in error
@@ -214,7 +224,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users", "orders"])
 
-        assert fields == {"cdc_consistent_point": "0/AA"}
+        assert fields == {"cdc_consistent_point": "0/AA", "cdc_ingest_mode": "buffered"}
         mock_drop.assert_called_once()
         assert mock_drop.call_args.args[1] == "posthog_slot"
         mock_create.assert_called_once()
@@ -249,7 +259,7 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
 
-        assert fields == {"cdc_consistent_point": "0/BB"}
+        assert fields == {"cdc_consistent_point": "0/BB", "cdc_ingest_mode": "buffered"}
         mock_create_slot_and_pub.assert_called_once()
         assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
         assert mock_create_slot_and_pub.call_args.kwargs["tables"] == expected_pairs
@@ -304,7 +314,37 @@ class TestRecreateSlot:
 
         fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
 
-        assert fields == {"cdc_consistent_point": "0/CC"}
+        assert fields == {"cdc_consistent_point": "0/CC", "cdc_ingest_mode": "buffered"}
+        assert mock_create_slot.call_count == 2
+        assert mock_drop.call_count == 2
+
+    @patch(f"{_POSTGRES}.time.sleep")
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_retries_recreation_after_transient_connect_timeout(
+        self, _conn, mock_drop, _pub_exists, mock_create_slot, _sleep
+    ) -> None:
+        # classify_postgres_cdc_error now treats ConnectionTimeout as non-retryable, on the
+        # assumption every in-process reconnect already timed out (mirroring the main streaming
+        # path's _connect_with_dropped_retry). Recreation must retry a connect timeout the same
+        # way it retries a mid-stream drop, or a single transient timeout here would abort
+        # recovery instead of reaching that exhausted state.
+        mock_create_slot.side_effect = [
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            "0/DD",
+        ]
+        source = _source(
+            cdc_enabled=True,
+            cdc_management_mode="posthog",
+            cdc_slot_name="posthog_slot",
+            cdc_publication_name="posthog_pub",
+        )
+
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+
+        assert fields == {"cdc_consistent_point": "0/DD", "cdc_ingest_mode": "buffered"}
         assert mock_create_slot.call_count == 2
         assert mock_drop.call_count == 2
 

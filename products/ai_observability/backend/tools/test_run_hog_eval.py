@@ -53,6 +53,20 @@ def test_run_hog_eval_args_reject_unknown_target():
 
 
 class TestRunHogEvalTestTool(BaseTest):
+    @patch("products.ai_observability.backend.tools.run_hog_eval.query_ai_events")
+    def test_numeric_preview_preserves_zero_and_enforces_bounds(self, mock_query):
+        mock_query.return_value = MagicMock(results=[_make_event()])
+        tool = self._make_tool()
+        result, _ = _run_tool(tool, source="return 0;", output_type="numeric", output_config={"min": 0, "max": 10})
+        self.assertIn("Result: 0.0", result)
+        result, _ = _run_tool(tool, source="return 11;", output_type="numeric", output_config={"min": 0, "max": 10})
+        self.assertIn("Result: ERROR", result)
+        for allows_na, expected in [(False, "ERROR"), (True, "N/A")]:
+            result, _ = _run_tool(
+                tool, source="return null;", output_type="numeric", output_config={"allows_na": allows_na}
+            )
+            self.assertIn(f"Result: {expected}", result)
+
     def _make_tool(self):
         return RunHogEvalTestTool(team=self.team, user=self.user)
 

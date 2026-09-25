@@ -434,6 +434,7 @@
       'lgamma',
       'make_interval',
       'mapAdd',
+      'mapExists',
       'mapSubtract',
       'multiFuzzyMatchAllIndices',
       'multiFuzzyMatchAny',

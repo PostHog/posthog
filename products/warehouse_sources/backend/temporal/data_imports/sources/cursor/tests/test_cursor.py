@@ -302,6 +302,26 @@ class TestCursorTransport:
             }
         ]
 
+    def test_team_models_expands_the_per_model_map_into_rows(self):
+        # The team endpoint returns the same per-model map, but arrives as a plain list rather
+        # than the per-user object, so it takes the other branch of the row extractor.
+        data = {"data": [{"date": "2025-01-15", "model_breakdown": {"gpt-4o": {"messages": 450, "users": 15}}}]}
+
+        rows = _extract_rows(CURSOR_ENDPOINTS["models"], data)
+
+        assert rows == [{"date": "2025-01-15", "model": "gpt-4o", "messages": 450, "users": 15}]
+
+    def test_every_windowed_endpoint_has_a_normalizer(self):
+        # A windowed endpoint with no normalizer raises only once a sync reaches it, so an
+        # endpoint added without one ships broken.
+        missing = [
+            name
+            for name, config in CURSOR_ENDPOINTS.items()
+            if config.windowed and name not in cursor._WINDOWED_NORMALIZERS
+        ]
+
+        assert missing == []
+
     def test_by_user_pagination_walks_past_a_page_where_nobody_was_active(self):
         # Pages are sized in users, so a page of users who did nothing in the window yields no
         # rows. Treating that as the end of the data would drop every later user.
@@ -351,8 +371,10 @@ class TestCursorTransport:
     @parameterized.expand(
         [
             ("agent_edits", {"data": []}, False),
+            ("dau", {"data": []}, False),
             ("by_user_agent_edits", {"data": {}, "pagination": {"hasNextPage": False}}, True),
             ("ai_code_commits", {"items": [], "totalCount": 0}, True),
+            ("ai_code_changes", {"items": [], "totalCount": 0}, True),
         ]
     )
     def test_analytics_endpoints_send_calendar_dates_as_query_params(self, endpoint, payload, paginated):

@@ -302,11 +302,15 @@ _WINDOWED_NORMALIZERS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "daily_usage": _normalize_daily_usage,
     "agent_edits": _make_iso_normalizer("event_date"),
     "tabs": _make_iso_normalizer("event_date"),
+    "dau": _make_iso_normalizer("date"),
+    "models": _make_iso_normalizer("date"),
+    "top_file_extensions": _make_iso_normalizer("event_date"),
     "by_user_agent_edits": _make_iso_normalizer("event_date"),
     "by_user_tabs": _make_iso_normalizer("event_date"),
     "by_user_top_file_extensions": _make_iso_normalizer("event_date"),
     "by_user_models": _make_iso_normalizer("date"),
     "ai_code_commits": _make_iso_normalizer("commitTs", "createdAt"),
+    "ai_code_changes": _make_iso_normalizer("createdAt"),
 }
 
 
@@ -327,13 +331,16 @@ def _expand_model_breakdown(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 _ROW_EXPANDERS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
     "by_user_models": _expand_model_breakdown,
+    "models": _expand_model_breakdown,
 }
 
 
 def _extract_rows(config: CursorEndpointConfig, data: dict[str, Any]) -> list[dict[str, Any]]:
     payload = data.get(config.data_key)
+    expand = _ROW_EXPANDERS.get(config.name)
     if not config.by_user:
-        return payload or []
+        rows = payload or []
+        return [expanded for row in rows for expanded in expand(row)] if expand else rows
     if not isinstance(payload, dict):
         return []
 
@@ -344,7 +351,6 @@ def _extract_rows(config: CursorEndpointConfig, data: dict[str, Any]) -> list[di
         for mapping in ((data.get("params") or {}).get("userMappings") or [])
         if isinstance(mapping, dict) and mapping.get("email")
     }
-    expand = _ROW_EXPANDERS.get(config.name)
     rows = [
         {**row, "userEmail": email, "userId": ids_by_email.get(email)}
         for email, user_rows in payload.items()

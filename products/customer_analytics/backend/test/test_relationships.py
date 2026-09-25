@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+from typing import Any
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -15,14 +17,19 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.facade.enums import AccountRelationshipSource
-from products.customer_analytics.backend.logic import relationships
+from products.customer_analytics.backend.logic import ownership, relationships
 from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
 )
-from products.customer_analytics.backend.test.factories import create_account, enroll_account
+from products.customer_analytics.backend.test.factories import (
+    create_account,
+    create_account_relationship,
+    create_account_relationship_definition,
+    enroll_account,
+)
 
 
 class TestRelationshipLogic(BaseTest):
@@ -373,25 +380,44 @@ class TestExternalRelationshipAssignments(BaseTest):
 class TestControlledRelationshipPolicy(BaseTest):
     def setUp(self):
         super().setUp()
+        # Without an external_id a person's edit does not enroll the account, so each test decides
+        # when enrollment happens.
         self.account = create_account(team_id=self.team.pk, name="Acme")
         self.other_user = self._create_user("other@posthog.com")
-        self.ae_definition = AccountRelationshipDefinition.objects.for_team(self.team.id).create(
+        self.ae_definition = create_account_relationship_definition(
             team_id=self.team.id, name="Account executive", is_controlled=True
         )
         self.human = relationships.Actor.human(self.user)
+
+    def _linked_account(self) -> Account:
+        return create_account(team_id=self.team.pk, name="Linked", external_id="org-linked")
 
     def _manage_ae(self) -> datetime:
         controlled_at = timezone.now() - timedelta(days=1)
         enroll_account(self.account, self.ae_definition, controlled_at=controlled_at)
         return controlled_at
 
-    def _fence(self, definition: AccountRelationshipDefinition | None = None) -> datetime | None:
+    def _fence(
+        self, definition: AccountRelationshipDefinition | None = None, account: Account | None = None
+    ) -> datetime | None:
         return (
             AccountRelationshipControl.objects.for_team(self.team.id)
-            .filter(account=self.account, definition=definition or self.ae_definition)
+            .filter(account=account or self.account, definition=definition or self.ae_definition)
             .values_list("controlled_at", flat=True)
             .first()
         )
+
+    def _enrolled_definition_ids(self, account: Account) -> set[UUID]:
+        return set(
+            AccountRelationshipControl.objects.for_team(self.team.id)
+            .filter(account=account)
+            .values_list("definition_id", flat=True)
+        )
+
+    @staticmethod
+    def _context(row: ActivityLog) -> dict[str, Any]:
+        assert row.detail is not None
+        return row.detail["context"]
 
     def _assign(self, user: User, actor: relationships.Actor) -> AccountRelationship:
         return relationships.assign(
@@ -426,21 +452,154 @@ class TestControlledRelationshipPolicy(BaseTest):
         assert holder.user_id == self.other_user.id
         assert self._fence() == fence
 
-    def test_autonomous_writer_may_fill_an_unmanaged_controlled_relationship_without_taking_authority(self):
-        rel = self._assign(
-            self.user, relationships.Actor(source=AccountRelationshipSource.WORKFLOW, workflow_id="wf-1")
+    @parameterized.expand([source for source in AccountRelationshipSource if source != AccountRelationshipSource.HUMAN])
+    def test_autonomous_writer_may_fill_an_unmanaged_controlled_relationship_without_taking_authority(self, source):
+        account = self._linked_account()
+        create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
+
+        rel = relationships.assign(
+            team_id=self.team.id,
+            account=account,
+            definition=self.ae_definition,
+            user=self.user,
+            actor=relationships.Actor(source=source, workflow_id="wf-1"),
         )
 
-        assert rel.source == AccountRelationshipSource.WORKFLOW
-        assert self._fence() is None
+        assert rel.source == source
+        assert self._enrolled_definition_ids(account) == set()
         (row,) = self._activity_rows()
         assert row.activity == "relationship_assigned"
         assert row.is_system is True
-        assert row.detail is not None
-        assert row.detail["context"]["source"] == "workflow"
-        assert row.detail["context"]["workflow_id"] == "wf-1"
-        assert row.detail["context"]["definition_id"] == str(self.ae_definition.id)
-        assert row.detail["context"]["controlled_at"] is None
+        context = self._context(row)
+        assert context["source"] == source
+        assert context["workflow_id"] == "wf-1"
+        assert context["definition_id"] == str(self.ae_definition.id)
+        assert context["controlled_at"] is None
+
+    @parameterized.expand(["assign", "end_active", "end_relationship"])
+    def test_human_edit_enrolls_a_linked_account_under_every_controlled_definition(self, operation):
+        account = self._linked_account()
+        csm_definition = create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
+        create_account_relationship_definition(
+            team_id=self.team.id, name="Technical account manager", is_controlled=True
+        )
+        ae_row = create_account_relationship(
+            team_id=self.team.id, account=account, definition=self.ae_definition, user=self.other_user
+        )
+        create_account_relationship(team_id=self.team.id, account=account, definition=csm_definition, user=self.user)
+
+        if operation == "assign":
+            relationships.assign(
+                team_id=self.team.id, account=account, definition=self.ae_definition, user=self.user, actor=self.human
+            )
+        elif operation == "end_active":
+            relationships.end_active(
+                team_id=self.team.id, account=account, definition=self.ae_definition, actor=self.human
+            )
+        else:
+            relationships.end_relationship(
+                team_id=self.team.id, account_id=account.id, relationship_id=str(ae_row.id), actor=self.human
+            )
+
+        roles = {
+            role.definition_name: (role.state, role.holder.user_id if role.holder else None)
+            for role in ownership.ownership_for_account(account).roles
+        }
+        assert roles == {
+            "Account executive": ("assigned", self.user.id) if operation == "assign" else ("cleared", None),
+            "CSM": ("assigned", self.user.id),
+            "Technical account manager": ("cleared", None),
+        }
+        rows = self._activity_rows()
+        change = "relationship_assigned" if operation == "assign" else "relationship_ended"
+        assert [row.activity for row in rows] == ["role_enrolled", "role_enrolled", "role_enrolled", change]
+        assert {row.user_id for row in rows} == {self.user.id}
+        enrolled_at = {self._context(row)["definition_name"]: self._context(row)["controlled_at"] for row in rows[:3]}
+        fence = self._fence(account=account)
+        assert fence is not None and fence > datetime.fromisoformat(enrolled_at["Account executive"])
+
+    @parameterized.expand(["uncontrolled_relationship", "unlinked_account"])
+    def test_human_edit_of_an_uncontrolled_relationship_or_an_unlinked_account_enrolls_nothing(self, case):
+        create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
+        if case == "uncontrolled_relationship":
+            account = self._linked_account()
+            definition = create_account_relationship_definition(team_id=self.team.id, name="Buddy")
+        else:
+            account, definition = self.account, self.ae_definition
+
+        relationships.assign(
+            team_id=self.team.id, account=account, definition=definition, user=self.user, actor=self.human
+        )
+
+        assert self._enrolled_definition_ids(account) == set()
+
+    def test_human_edit_on_a_partly_enrolled_account_enrolls_only_the_missing_definitions(self):
+        account = self._linked_account()
+        csm_definition = create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
+        enroll_account(account, self.ae_definition, controlled_at=timezone.now() - timedelta(days=1))
+
+        relationships.assign(
+            team_id=self.team.id, account=account, definition=self.ae_definition, user=self.user, actor=self.human
+        )
+
+        assert self._enrolled_definition_ids(account) == {self.ae_definition.id, csm_definition.id}
+        assert [(row.activity, self._context(row)["definition_name"]) for row in self._activity_rows()] == [
+            ("role_enrolled", "CSM"),
+            ("relationship_assigned", "Account executive"),
+        ]
+
+    def test_human_reassigning_the_current_holder_still_enrolls_a_linked_account(self):
+        account = self._linked_account()
+        create_account_relationship(
+            team_id=self.team.id, account=account, definition=self.ae_definition, user=self.user
+        )
+
+        relationships.assign(
+            team_id=self.team.id, account=account, definition=self.ae_definition, user=self.user, actor=self.human
+        )
+
+        assert self._enrolled_definition_ids(account) == {self.ae_definition.id}
+        assert [row.activity for row in self._activity_rows()] == ["role_enrolled"]
+
+    def test_human_edit_that_fails_rolls_back_its_enrollment(self):
+        account = self._linked_account()
+        create_account_relationship(
+            team_id=self.team.id, account=account, definition=self.ae_definition, user=self.other_user
+        )
+
+        with self.assertRaises(relationships.RelationshipOccupiedError):
+            relationships.assign(
+                team_id=self.team.id,
+                account=account,
+                definition=self.ae_definition,
+                user=self.user,
+                actor=self.human,
+                replace_active=False,
+            )
+
+        assert self._enrolled_definition_ids(account) == set()
+        assert self._activity_rows() == []
+
+    @parameterized.expand(["edited", "sibling"])
+    def test_definition_uncontrolled_after_the_unlocked_read_is_not_enrolled(self, uncontrolled):
+        account = self._linked_account()
+        csm_definition = create_account_relationship_definition(team_id=self.team.id, name="CSM", is_controlled=True)
+        both_definitions = AccountRelationshipDefinition.objects.for_team(self.team.id).filter(
+            id__in=[self.ae_definition.id, csm_definition.id]
+        )
+        stopped = self.ae_definition if uncontrolled == "edited" else csm_definition
+        ownership.set_controlled(self.team.id, stopped.id, False)
+
+        # The unlocked read still sees both definitions as controlled, as it would when a concurrent
+        # --uncontrol commits between that read and the definition locks.
+        with patch.object(ownership, "controlled_definitions", return_value=both_definitions):
+            relationships.assign(
+                team_id=self.team.id, account=account, definition=self.ae_definition, user=self.user, actor=self.human
+            )
+
+        assert self._enrolled_definition_ids(account) == (
+            set() if uncontrolled == "edited" else {self.ae_definition.id}
+        )
 
     @parameterized.expand(["assign", "end_active", "confirm_empty", "end_relationship"])
     def test_human_decision_on_a_managed_relationship_advances_the_fence(self, operation):

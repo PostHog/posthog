@@ -70,7 +70,8 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         read_only=True,
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
-            "row. 'manager' is required to change enabled, review_mode, or trigger_label."
+            "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
+            "review_mode or trigger_label."
         ),
     )
 
@@ -227,17 +228,27 @@ class StamphogDiscoveredInstallationSerializer(serializers.Serializer):
 
 
 class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
-    """Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped."""
+    """Result of syncing an installation: the team's rows bound to it, and what the team can add now."""
 
     synced = StamphogRepoConfigSerializer(
         many=True,
         read_only=True,
-        help_text="Repo configs now bound to this team for the installation (created this call or already present).",
+        help_text=(
+            "Repo configs this team already had for the installation's repositories, now bound to it. "
+            "A sync creates no repo config: use add_repository to turn reviews on for a repository."
+        ),
     )
     skipped = serializers.ListField(
         child=serializers.CharField(),
         read_only=True,
         help_text="Repository full names skipped because another team already owns them under this installation.",
+    )
+    available_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many repositories this team can add after the sync, across all its connected installations. "
+            "List them with available_repositories."
+        ),
     )
     app_not_installed = serializers.BooleanField(
         read_only=True,
@@ -255,6 +266,62 @@ class StamphogSyncInstallationResponseSerializer(serializers.Serializer):
             "this App: nothing was bound, and the user must pick which installation to connect. The "
             "frontend re-runs the authorize flow and calls back with the chosen installation_id, which the "
             "explicit path verifies. Empty whenever a bind happened (or nothing was found)."
+        ),
+    )
+
+
+class StamphogAvailableRepositoriesQuerySerializer(serializers.Serializer):
+    """Query parameters for listing the repositories a team can add."""
+
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Case-insensitive substring to match against the repository full name, e.g. 'posthog'.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=50,
+        min_value=1,
+        max_value=200,
+        help_text="Maximum number of repositories to return. Defaults to 50, at most 200.",
+    )
+
+
+class StamphogAvailableRepositoriesSerializer(serializers.Serializer):
+    """Repositories from the team's connected GitHub installations that are not added to stamphog yet."""
+
+    repositories = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Repository full names the team can add, sorted by name and capped by limit. Only repositories "
+            "a project member proved access to on GitHub are listed, and never one another project already "
+            "holds under the same installation."
+        ),
+    )
+    total_count = serializers.IntegerField(
+        read_only=True,
+        help_text="How many repositories match the search in total, before limit applies.",
+    )
+    has_installation = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether a project member connected a GitHub installation yet. False means GitHub must be "
+            "connected before any repository can be added. True with a total_count of 0 and no search "
+            "means no repository is left to add."
+        ),
+    )
+
+
+class StamphogAddRepositorySerializer(serializers.Serializer):
+    """Request body for turning reviews on for a repository from a connected installation."""
+
+    repository = serializers.CharField(
+        help_text=(
+            "Repository full name, e.g. 'PostHog/posthog'. It must be in one of the project's connected "
+            "GitHub installations, as available_repositories lists them. A repository the project already "
+            "has is turned back on."
         ),
     )
 
@@ -454,12 +521,7 @@ class ReviewRunSerializer(DataclassSerializer):
     def get_output(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:
         # Explicit allowlist: never echo reviewer_raw / pr / files / policy_files out of the API.
         raw = obj.output or {}
-        summary: dict[str, object] = {}
-        if "stamphog_version" in raw:
-            summary["stamphog_version"] = raw["stamphog_version"]
-        if "reviewer_exit_code" in raw:
-            summary["reviewer_exit_code"] = raw["reviewer_exit_code"]
-        return summary
+        return {key: raw[key] for key in contracts.REVIEW_RUN_OUTPUT_SUMMARY_KEYS if key in raw}
 
     @extend_schema_field(_GateResultSummarySerializer)
     def get_gate_result(self, obj: contracts.ReviewRunDTO) -> dict[str, object]:

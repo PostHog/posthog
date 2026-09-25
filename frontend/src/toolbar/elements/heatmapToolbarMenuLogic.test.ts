@@ -94,7 +94,7 @@ describe('heatmapToolbarMenuLogic', () => {
                 [
                     {
                         key: '$current_url',
-                        value: '^https\\:\\/\\/example\\.com\\/page\\/.*$',
+                        value: '^https\\:\\/\\/example\\.com\\/page\\/.+$',
                         operator: 'regex',
                         type: 'event',
                     },

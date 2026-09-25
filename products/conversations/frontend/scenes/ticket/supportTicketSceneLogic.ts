@@ -1130,7 +1130,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             id: message.id,
                             content: message.content || '',
                             richContent: message.rich_content,
-                            authorType: authorType === 'support' ? 'human' : authorType,
+                            authorType: authorType === 'support' || authorType === 'workflow' ? 'human' : authorType,
                             authorName: displayName,
                             createdBy: message.created_by,
                             createdAt: message.created_at,
@@ -1472,6 +1472,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             let alreadySent = false
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
                     content,
                     rich_content: richContent,

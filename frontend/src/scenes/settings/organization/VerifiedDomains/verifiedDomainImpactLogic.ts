@@ -209,6 +209,7 @@ export const verifiedDomainImpactLogic = kea<verifiedDomainImpactLogicType>([
             null as EnforcementRemovalResult | null,
             {
                 confirmEnforceVerifiedDomains: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use removeBlockedMembersAndEnforceVerifiedDomainsCreate() from 'products/platform_features/frontend/generated/api' instead.
                     return await api.create<EnforcementRemovalResult>(
                         `api/organizations/${values.currentOrganization?.id}/remove_blocked_members_and_enforce_verified_domains`
                     )

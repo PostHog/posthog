@@ -22,6 +22,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { FacetRail } from './components/FacetRail/FacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
+import { TracingSqlEditor } from './components/TracingSqlEditor/TracingSqlEditor'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TRACING_DISPLAY_TIMEZONE } from './dateFormats'
 import { tracingEmptyState } from './emptyState/tracingEmptyState'
@@ -139,7 +140,7 @@ function TracingSceneContents(): JSX.Element {
         selectSceneTab,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
-    const { facetRailCollapsed } = useValues(tracingConfigLogic)
+    const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
@@ -299,6 +300,7 @@ function TracingSceneContents(): JSX.Element {
                         ) : (
                             <VirtualizedSpanList
                                 dataSource={listRows}
+                                spanColumns={spanColumns}
                                 loading={spansLoading}
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}
@@ -327,6 +329,7 @@ function TracingSceneContents(): JSX.Element {
                     </div>
                 </div>
             </div>
+            {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
             <TraceDrawer
                 isOpen={isTraceOpen}
                 traceId={selectedTraceId}

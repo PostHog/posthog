@@ -174,6 +174,13 @@ class AnnotationScope(StrEnum):
     ORGANIZATION = "organization"
 
 
+class AppleSearchAdsDefaultSources(StrEnum):
+    APPLE = "apple"
+    APPLE_SEARCH_ADS = "apple_search_ads"
+    APPLE_ADS = "apple_ads"
+    ASA = "asa"
+
+
 class ApprovalDecisionStatus(StrEnum):
     PENDING = "pending"
     APPROVED = "approved"
@@ -2085,6 +2092,7 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
 
 
 class NodeKind(StrEnum):
@@ -2377,6 +2385,7 @@ class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
     AI_ENGINEERING = "AI engineering"
     BEHAVIOR = "Behavior"
+    MESSAGING = "Messaging"
     APP_MONITORING = "App monitoring"
     FEATURES = "Features"
     TOOLS = "Tools"

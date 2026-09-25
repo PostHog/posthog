@@ -355,10 +355,23 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
 
 
-def test_bigquery_build_pipeline_swallows_transient_cleanup_refresh_error():
-    """A transient token-refresh failure (e.g. a 502 from Google's OAuth endpoint) while deleting
-    the run's own destination table must not turn an otherwise-successful sync into a failure —
-    retrying the whole sync just to retry this delete is wasteful."""
+@pytest.mark.parametrize(
+    "exception",
+    [
+        # A transient token-refresh failure (e.g. a 502 from Google's OAuth endpoint).
+        RefreshError("<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"),
+        # The customer's whole GCP project was deleted after the sync started — there's no
+        # readable copy left to protect, unlike a live-project "Access Denied:" permission denial.
+        Forbidden(
+            "DELETE https://bigquery.googleapis.com/bigquery/v2/projects/proj/datasets/ds/tables/tbl"
+            "?prettyPrint=false: Project #123456789 has been deleted."
+        ),
+    ],
+)
+def test_bigquery_build_pipeline_swallows_transient_cleanup_errors(exception):
+    """A transient failure while deleting the run's own destination table must not turn an
+    otherwise-successful sync into a failure — retrying the whole sync just to retry this delete
+    is wasteful."""
     config = _make_config()
     logger = mock.MagicMock()
     inputs = _make_inputs(logger=logger)
@@ -371,9 +384,7 @@ def test_bigquery_build_pipeline_swallows_transient_cleanup_refresh_error():
         mock.patch.object(BigQueryImplementation, "_build_source_response", return_value=build_result),
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.delete_table",
-            side_effect=RefreshError(
-                "<!DOCTYPE html><html><head><title>Error 502 (Server Error)</title></head></html>"
-            ),
+            side_effect=exception,
         ),
     ):
         result = BigQuerySource().source_for_pipeline(config, inputs)
@@ -884,6 +895,28 @@ def test_bigquery_missing_selected_fields_is_non_retryable(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Missing selected-fields error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Raw wording from a customer's own deprecation guard on a legacy table/view.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/some-project/queries/"
+        "6c2ee15f-f034-40fa-8af0-49cc721e8367?maxResults=0&location=EU&prettyPrint=false: "
+        "Deprecated legacy table/view. Please migrate to respective new views in `some-project`.",
+        # Different project and job id — the match must not rely on either.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/other-project/queries/"
+        "1a2b3c4d-0000-4fcc-a51c-09b2f4237894?maxResults=0&location=US&prettyPrint=false: "
+        "Deprecated legacy table/view. Please migrate to respective new views.",
+    ],
+)
+def test_bigquery_deprecated_legacy_table_is_non_retryable(observed_error):
+    """A table/view guarded by the customer's own deprecation check fails identically on every
+    retry until the source is pointed at the replacement table/view."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Deprecated legacy table/view error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
@@ -1432,6 +1465,30 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
 def test_non_retryable_errors_match_permission_denied(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # `bq_client.get_table(...)` in `_build_source_response` hitting a deleted GCP project.
+        str(
+            Forbidden(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/some-project/datasets/some_dataset/"
+                "tables/some_table?prettyPrint=false: Project #123456789 has been deleted."
+            )
+        ),
+        # Same condition surfacing from a different call site with a different HTTP verb/path.
+        str(Forbidden("POST https://bigquery.googleapis.com/bigquery/v2/jobs: Project #987654321 has been deleted.")),
+    ],
+)
+def test_non_retryable_errors_match_deleted_gcp_project(observed_error):
+    """A GCP project deleted after the source was set up can't be recovered by retrying — the
+    numeric project id (not the friendly one shown in the source config) means this is distinct
+    from the "Make sure it references valid GCP project" 404 key."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Deleted GCP project error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
 
 
 @pytest.mark.parametrize(
@@ -2418,6 +2475,9 @@ _COMPLETE_KEY_FILE = {
         # The credential the user did not pick must not satisfy the one they did.
         ({"selection": "service_account", "key_file": _COMPLETE_KEY_FILE}, False),
         ({"selection": "key_file", "google_cloud_service_account_integration_id": 7}, False),
+        ({"selection": "service_account", "google_cloud_service_account_integration_id": 7, "key_file": {}}, True),
+        ({"selection": "key_file", "key_file": {"type": "authorized_user"}}, False),
+        ({"selection": "key_file", "key_file": {"project_id": "my-project"}}, False),
     ],
 )
 def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_type(auth_type, expected_valid):
@@ -2427,5 +2487,26 @@ def test_bigquery_validate_config_requires_the_credential_for_the_selected_auth_
     is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", "auth_type": auth_type})
 
     assert is_valid is expected_valid
+    assert not any("Required field" in error for error in errors)
+    if not expected_valid:
+        assert any("Google Cloud service account" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "job_inputs,expected_valid",
+    [
+        ({"auth_type": "service_account", "google_cloud_service_account_integration_id": 7}, True),
+        ({"auth_type": "key_file", "key_file": _COMPLETE_KEY_FILE}, True),
+        ({"auth_type": "service_account"}, False),
+        ({"auth_type": "key_file"}, False),
+        ({"auth_type": "key_file", "key_file": {"project_id": "my-project"}}, False),
+        ({"auth_type": "key_file", "key_file": {**_COMPLETE_KEY_FILE, "private_key": ""}}, False),
+    ],
+)
+def test_bigquery_validate_config_reads_a_bare_selection_from_the_flat_payload(job_inputs, expected_valid):
+    is_valid, errors = BigQuerySource().validate_config({"dataset_id": "d", **job_inputs})
+
+    assert is_valid is expected_valid
+    assert not any("Required field" in error for error in errors)
     if not expected_valid:
         assert any("Google Cloud service account" in error for error in errors)

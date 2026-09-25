@@ -16,13 +16,15 @@ import {
 } from '../types'
 import { HogFunctionType } from '../types'
 import { getConfiguredSensitiveValues, logEntry, sanitizeLogMessage } from '../utils'
+import { currentRuntimeContractHash } from './filter-runtime'
+import { bytecodeContractOf, classifyHogError } from './hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
 
 /** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
 const hogFunctionInputsErrors = new Counter({
     name: 'cdp_hog_function_inputs_error',
     help: 'Building the inputs for an invocation threw, so no invocation was created',
-    labelNames: ['type'],
+    labelNames: ['type', 'class'],
 })
 
 export function createInvocation(
@@ -120,7 +122,13 @@ export async function buildHogFunctionInvocations(
                 ),
             })
 
-            hogFunctionInputsErrors.inc({ type: hogFunction.type })
+            hogFunctionInputsErrors.inc({
+                type: hogFunction.type,
+                class: classifyHogError(error, {
+                    bytecodeContract: bytecodeContractOf(error),
+                    runtimeContract: currentRuntimeContractHash(),
+                }),
+            })
 
             metrics.push({
                 team_id: hogFunction.team_id,

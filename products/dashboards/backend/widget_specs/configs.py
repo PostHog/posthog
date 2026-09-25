@@ -36,6 +36,25 @@ EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
 SURVEY_RESULTS_WIDGET_TYPE = "survey_results"
 LOGS_LIST_WIDGET_TYPE = "logs_list"
 CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE = "conversations_recent_tickets"
+NOTEBOOK_WIDGET_TYPE = "notebook_widget"
+
+
+class NotebookWidgetConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notebookShortId: str | None = Field(
+        default=None, min_length=1, max_length=128, description="Source notebook short ID."
+    )
+    snapshotId: UUID | None = Field(
+        default=None, description="Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+    )
+
+    @model_validator(mode="after")
+    def validate_reference(self) -> Self:
+        if bool(self.notebookShortId) != bool(self.snapshotId):
+            raise ValueError("Provide both the notebook and its widget snapshot.")
+        return self
+
 
 ActivityEventsPropertyKey = Annotated[
     str,

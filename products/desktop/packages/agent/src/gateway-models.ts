@@ -6,7 +6,6 @@ import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-propert
 
 export {
   adapterForModelId,
-  BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
   buildProviderModelGroups,
   type CloudTaskConfigOption,
@@ -22,12 +21,12 @@ export {
   getProviderName,
   isAnthropicModel,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
   isModalModel,
   isModalModelId,
+  isOfferedModel,
   isOpenAIModel,
   pickAllowedModel,
 } from "@posthog/shared";
