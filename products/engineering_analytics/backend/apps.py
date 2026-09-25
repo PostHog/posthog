@@ -1,5 +1,7 @@
 """Django app configuration for engineering_analytics."""
 
+# Throwaway: exercises Backend CI on Depot. Do not merge.
+
 from typing import TYPE_CHECKING
 
 from django.apps import AppConfig
