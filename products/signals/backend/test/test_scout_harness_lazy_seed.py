@@ -284,6 +284,42 @@ class TestDiscoverCanonicalSkills:
         skills = discover_canonical_skills(tmp_path)
         assert skills[0].config_tags == ("ai-observability", "on-call")
 
+    def test_parses_scout_write_scopes(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                scout-write-scopes:
+                  - hog_flow_proposal:write
+                  - hog_flow_proposal:write
+                ---
+            """,
+            body="# Bar\n",
+        )
+        assert discover_canonical_skills(tmp_path)[0].config_write_scopes == ("hog_flow_proposal:write",)
+
+    @pytest.mark.parametrize(
+        "write_scopes_yaml,expected_error",
+        [
+            ("scout-write-scopes: hog_flow_proposal:write", "must be a list of strings"),
+            ("scout-write-scopes:\n  - hog_flow:write", "no scout may hold"),
+        ],
+    )
+    def test_rejects_scout_write_scopes_outside_the_allowlist(
+        self, tmp_path: Path, write_scopes_yaml: str, expected_error: str
+    ) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"---\nname: signals-scout-bar\ndescription: bar skill\n{write_scopes_yaml}\n---\n",
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match=expected_error):
+            discover_canonical_skills(tmp_path)
+
     def test_defaults_to_no_scout_tags(self, tmp_path: Path) -> None:
         _write_canonical_skill(
             tmp_path,
@@ -1385,6 +1421,15 @@ class TestSeedCanonicalSkillsAlias(BaseTest):
         assert operational.auto_pause_exempt is True
         specialist = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
         assert specialist.auto_pause_exempt is False
+
+    def test_real_fleet_scout_write_scopes_land_on_the_seeded_config(self) -> None:
+        seed_canonical_skills(self.team)
+        register_missing_configs(self.team.id)
+
+        granted = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-workflows")
+        assert granted.write_scopes == ["hog_flow_proposal:write"]
+        ungranted = SignalScoutConfig.all_teams.get(team=self.team, skill_name="signals-scout-general")
+        assert ungranted.write_scopes == []
 
     def test_real_fleet_scout_tags_land_on_the_seeded_config(self) -> None:
         # The whole path a product surface depends on: `scout-tags` in the in-repo SKILL.md →

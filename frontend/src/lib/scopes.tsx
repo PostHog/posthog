@@ -275,6 +275,8 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    // A per-scout grant: the workflows scout holds it through its config, so a person never pastes it.
+    hog_flow_proposal: 'Scout grant: held by the workflows scout through its config, not by a key.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',

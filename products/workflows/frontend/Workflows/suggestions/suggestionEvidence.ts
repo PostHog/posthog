@@ -29,3 +29,53 @@ export function formatValue(value: unknown, unit: EvidenceUnit | null): string |
     }
     return unit === 'rate' ? `${(value * 100).toFixed(1)}%` : String(value)
 }
+
+export interface MeasuredReading {
+    metric: string
+    value: number | null
+    n: number
+    below_minimum_sample: boolean
+}
+
+/** PostHog's own read of the step at `base_version`, stored by the server when the suggestion was filed. */
+export interface MeasuredEvidence {
+    version: number
+    window: string
+    target: MeasuredReading
+    click_through: MeasuredReading
+    guardrails: MeasuredReading[]
+}
+
+export function readMeasured(evidence: Record<string, unknown>): MeasuredEvidence | null {
+    const measured = evidence.measured
+    if (!measured || typeof measured !== 'object' || !('target' in measured)) {
+        return null
+    }
+    return measured as MeasuredEvidence
+}
+
+export function describeWindow(window: string): string {
+    const match = /^-(\d+)([dh])$/.exec(window)
+    if (!match) {
+        return window
+    }
+    const unit = match[2] === 'd' ? 'day' : 'hour'
+    return `the last ${match[1]} ${unit}${match[1] === '1' ? '' : 's'}`
+}
+
+// Half a point: the producer reads the same series moments earlier.
+const RATE_TOLERANCE = 0.005
+
+export function evidenceDisagrees(evidence: Record<string, unknown>, measured: MeasuredEvidence): boolean {
+    if (
+        readUnit(evidence.unit) !== 'rate' ||
+        typeof evidence.current_value !== 'number' ||
+        measured.target.value === null
+    ) {
+        return false
+    }
+    if (typeof evidence.n === 'number' && evidence.n !== measured.target.n) {
+        return true
+    }
+    return Math.abs(evidence.current_value - measured.target.value) > RATE_TOLERANCE
+}

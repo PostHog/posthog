@@ -65,6 +65,9 @@ APIScopeObject = Literal[
     "health_issue",
     "heatmap",
     "hog_flow",
+    # Suggesting a change to a workflow, and nothing else. Separate from `hog_flow` so the scout can
+    # propose without holding the scope that publishes, updates or test-sends a workflow. INTERNAL.
+    "hog_flow_proposal",
     "hog_function",
     "ingestion_warning",
     "insight",
@@ -165,6 +168,10 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # Grants Context Wiki writes only to write-enabled sandbox runs. Kept
         # separate from internal_run because read-only runs carry that marker.
         "context_layer_internal",
+        # Files a suggestion on a workflow, and nothing else. Programmatic-only so no personal key,
+        # OAuth app or logged-in session can queue one: PostHog's own scout is the only producer, and
+        # a person resolves suggestions rather than writing them.
+        "hog_flow_proposal",
         # Narrows `internal_run`: the run behind this token was started by a person
         # pressing a button, not by one of PostHog's own schedulers. Both markers are
         # minted server-side, so neither can be self-granted; the LLM gateway meters

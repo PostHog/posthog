@@ -1029,6 +1029,12 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
         ),
     kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
     name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    version: zod
+        .number()
+        .optional()
+        .describe(
+            "Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it."
+        ),
 })
 
 /**
@@ -1090,9 +1096,9 @@ export const HogFlowsProposalsCreateBody = () => zod.object({
         .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
     base_version: zod
         .number()
-        .optional()
+        .min(1)
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
         ),
     step_id: zod
         .string()

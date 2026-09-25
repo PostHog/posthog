@@ -2418,13 +2418,13 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
     .describe('Cancel in-flight invocations of a workflow. Provide exactly one selector.')
 
 /**
- * Whether PostHog may look at this workflow and suggest changes to it.
+ * Whether PostHog may suggest changes to this workflow.
  *
- * Turning it off stops a producer reading the workflow. Suggestions already made are left
- * alone: someone still has them to resolve.
+ * Turning it off stops new suggestions. Suggestions already made are left alone: someone
+ * still has them to resolve.
  */
 export const HogFlowsOptimisationCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
+    enabled: zod.boolean().describe('Whether PostHog may suggest changes to this workflow.'),
 })
 
 /**
@@ -2453,9 +2453,9 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .describe('The metric numbers behind the proposal, so a human can judge it without re-deriving them.'),
     base_version: zod
         .number()
-        .optional()
+        .min(1)
         .describe(
-            'Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise.'
+            'Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.'
         ),
     step_id: zod
         .string()

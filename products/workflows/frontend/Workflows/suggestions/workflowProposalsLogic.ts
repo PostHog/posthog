@@ -41,6 +41,9 @@ export interface workflowProposalsLogicValues {
     appliedResponse: PaginatedWorkflowProposalListApi | null
     appliedResponseLoading: boolean
     approveDisabledReason: string | undefined
+    approvedProposals: WorkflowProposalApi[]
+    approvedResponse: PaginatedWorkflowProposalListApi | null
+    approvedResponseLoading: boolean
     lastSeenDraftStamp: string | null
     lastSeenVersion: number | null
     optimisation: HogFlowOptimisationApi | null
@@ -83,6 +86,21 @@ export interface workflowProposalsLogicActions {
         payload?: any
     ) => {
         appliedResponse: PaginatedWorkflowProposalListApi
+        payload?: any
+    }
+    loadApproved: () => any
+    loadApprovedFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadApprovedSuccess: (
+        approvedResponse: PaginatedWorkflowProposalListApi,
+        payload?: any
+    ) => {
+        approvedResponse: PaginatedWorkflowProposalListApi
         payload?: any
     }
     loadOptimisation: () => any
@@ -175,6 +193,7 @@ export interface workflowProposalsLogicActions {
 export interface workflowProposalsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        approvedProposals: (approvedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         optimisationEnabled: (optimisation: HogFlowOptimisationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
@@ -281,6 +300,23 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         ],
     }),
     loaders(({ actions, props, values }) => ({
+        approvedResponse: [
+            null as PaginatedWorkflowProposalListApi | null,
+            {
+                loadApproved: async () => {
+                    try {
+                        return await hogFlowsProposalsList(String(values.currentTeamIdStrict), props.id, {
+                            status: 'approved',
+                        })
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 404) {
+                            return { count: 0, results: [] }
+                        }
+                        throw error
+                    }
+                },
+            },
+        ],
         appliedResponse: [
             null as PaginatedWorkflowProposalListApi | null,
             {
@@ -340,6 +376,10 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         ],
     })),
     selectors({
+        approvedProposals: [
+            (s) => [s.approvedResponse],
+            (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
+        ],
         appliedProposals: [
             (s) => [s.appliedResponse],
             (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
@@ -411,6 +451,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 actions.removeResolvedProposal(proposalId)
                 workflowLogic({ id: props.id }).actions.loadWorkflow()
                 actions.loadProposals()
+                actions.loadApproved()
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
                     if (error.code === 'proposal_already_resolved') {
@@ -502,12 +543,14 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             }
             actions.setLastSeen(version, draftStamp)
             actions.loadProposals()
+            actions.loadApproved()
             actions.loadApplied()
         },
     })),
     afterMount(({ actions, values }) => {
         actions.setLastSeen(values.originalWorkflow?.version ?? null, values.originalWorkflow?.draft_updated_at ?? null)
         actions.loadProposals()
+        actions.loadApproved()
         actions.loadApplied()
         actions.loadOptimisation()
     }),
