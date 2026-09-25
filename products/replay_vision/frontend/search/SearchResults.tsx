@@ -179,7 +179,7 @@ function TopMatchTag(): JSX.Element {
     )
 }
 
-export function MomentCard({
+function MomentCard({
     result,
     searchedQuery,
     returnParams,
@@ -221,7 +221,7 @@ export function MomentCard({
     )
 }
 
-export function MomentRow({ result, searchedQuery, returnParams, expired }: ResultProps): JSX.Element {
+function MomentRow({ result, searchedQuery, returnParams, expired }: ResultProps): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
