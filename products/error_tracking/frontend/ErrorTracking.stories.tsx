@@ -474,6 +474,7 @@ const meta: Meta = {
                         logs_session_id_attribute_keys: ['sessionId'],
                     },
                 ],
+                '/api/event/values/': [200, { results: [{ name: 'billing' }, { name: 'ingestion' }, { name: 'web' }] }],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
