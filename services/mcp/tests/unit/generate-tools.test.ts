@@ -2345,3 +2345,68 @@ describe('composeToolSchema param aliases', () => {
         )
     })
 })
+
+describe('pagination shaping', () => {
+    const offsetParam = { in: 'query' as const, name: 'offset', required: false, schema: { type: 'integer' } }
+    const cursorParam = { in: 'query' as const, name: 'cursor', required: false, schema: { type: 'string' } }
+    const envelope = 'Schemas.PaginatedThingList'
+
+    it.each([
+        {
+            name: 'shapes a response_type override that is itself a bare envelope',
+            responseType: envelope,
+            param: offsetParam,
+            shaped: true,
+        },
+        {
+            name: 'shapes an envelope resolved from the OpenAPI response',
+            responseType: undefined,
+            param: offsetParam,
+            shaped: true,
+        },
+        {
+            name: 'skips a response_type override that wraps the envelope',
+            responseType: `Omit<${envelope}, 'results'> & { results: unknown[] }`,
+            param: offsetParam,
+            shaped: false,
+        },
+        {
+            name: 'skips an endpoint that pages by cursor',
+            responseType: envelope,
+            param: cursorParam,
+            shaped: false,
+        },
+    ])('$name', ({ responseType, param, shaped }) => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            ...(responseType && { response_type: responseType }),
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [param],
+                responses: {
+                    '200': {
+                        content: {
+                            'application/json': { schema: { $ref: '#/components/schemas/PaginatedThingList' } },
+                        },
+                    },
+                },
+            },
+        })
+
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set(['PaginatedThingList']),
+            stubGetQuerySchema
+        )
+
+        expect(result.code.includes('withPageOffsets(')).toBe(shaped)
+        expect(result.code.includes('WithPageOffsets<')).toBe(shaped)
+    })
+})

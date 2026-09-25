@@ -969,6 +969,28 @@ function buildResponseFilter(config: ToolConfig): {
 }
 
 /**
+ * DRF paginated envelopes carry `next`/`previous` links an agent cannot follow — see
+ * `withPageOffsets`. The envelope type is the same for every pagination class, so the swap is
+ * gated on the endpoint declaring an `offset` param too: a cursor- or page-paginated endpoint
+ * keeps its links, because the token for the next call lives inside them and no offset replaces it.
+ *
+ * A `response_type` override is read in place of the OpenAPI response, so a wrapper such as
+ * `Omit<>` hides the envelope and opts the tool out. A bare `Schemas.Paginated*` override still
+ * describes the envelope the endpoint returns, so it is shaped like any other.
+ */
+function buildPageOffsets(
+    responseType: string | undefined,
+    operation: OpenApiOperation,
+    resultVar: string
+): { code: string; resultVar: string; applied: boolean } {
+    const pagesByOffset = (operation.parameters ?? []).some((p) => p.in === 'query' && p.name === 'offset')
+    if (!responseType?.startsWith('Schemas.Paginated') || !pagesByOffset) {
+        return { code: '', resultVar, applied: false }
+    }
+    return { code: `        const paged = withPageOffsets(${resultVar})\n`, resultVar: 'paged', applied: true }
+}
+
+/**
  * When `response.selectable` is set, emit a `.extend({ fields: ... })` clause adding an optional
  * `fields` request param constrained (via `z.enum`) to the `include` allowlist. Returns '' when the
  * tool doesn't opt in, so the schema expression is left untouched. Throws when `selectable` is set
@@ -1077,6 +1099,7 @@ function generateToolCode(
     schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
+    needsWithPageOffsets: boolean
     hasEnrichment: boolean
     needsWithAgentNote: boolean
     hasAgentNote: boolean
@@ -1244,25 +1267,29 @@ function generateToolCode(
     }
     handlerBody += responseFilter.code
 
+    // Pagination — swap the unusable next/previous links for offsets
+    const pageOffsets = buildPageOffsets(responseType, resolved.operation, responseFilter.code ? 'filtered' : 'result')
+    handlerBody += pageOffsets.code
+
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
-    const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
-    handlerBody += buildEnrichment(config, category, enrichmentVar)
+    handlerBody += buildEnrichment(config, category, pageOffsets.resultVar)
 
     // Compute the result type for the ToolBase generic parameter
+    const shapedResponseType = pageOffsets.applied ? `WithPageOffsets<${responseType}>` : responseType
     let resultType: string
     let needsWithPostHogUrl = false
     const hasEnrichment = !!(config.list || config.enrich_url)
     if (config.list && config.enrich_url) {
-        needsWithPostHogUrl = !!responseType
-        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
+        needsWithPostHogUrl = !!shapedResponseType
+        resultType = shapedResponseType ? `WithPostHogUrl<${shapedResponseType}>` : 'unknown'
     } else if (config.enrich_url) {
-        needsWithPostHogUrl = !!responseType
-        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
+        needsWithPostHogUrl = !!shapedResponseType
+        resultType = shapedResponseType ? `WithPostHogUrl<${shapedResponseType}>` : 'unknown'
     } else if (config.list) {
-        needsWithPostHogUrl = !!responseType
-        resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
+        needsWithPostHogUrl = !!shapedResponseType
+        resultType = shapedResponseType ? `WithPostHogUrl<${shapedResponseType}>` : 'unknown'
     } else {
-        resultType = responseType ?? 'unknown'
+        resultType = shapedResponseType ?? 'unknown'
     }
 
     // agent_note wraps whatever the enrichment produced (or the bare result).
@@ -1314,6 +1341,7 @@ function generateToolCode(
             schemaRefBlocks: composition.schemaRefBlocks,
             responseType,
             needsWithPostHogUrl,
+            needsWithPageOffsets: pageOffsets.applied,
             hasEnrichment,
             needsWithAgentNote,
             hasAgentNote,
@@ -1321,6 +1349,7 @@ function generateToolCode(
             toolUtilsValueImports: new Set(
                 [
                     ...responseFilter.helperImports,
+                    pageOffsets.applied && 'withPageOffsets',
                     config.response?.informational_wrapper && 'withInformationalResponse',
                     config.response?.text_include?.length && 'withTextProjection',
                 ].filter((value): value is string => !!value)
@@ -1351,6 +1380,7 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
         schemaRefBlocks: composition.schemaRefBlocks,
         responseType,
         needsWithPostHogUrl,
+        needsWithPageOffsets: pageOffsets.applied,
         hasEnrichment,
         needsWithAgentNote,
         hasAgentNote,
@@ -1358,6 +1388,7 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
         toolUtilsValueImports: new Set(
             [
                 ...responseFilter.helperImports,
+                pageOffsets.applied && 'withPageOffsets',
                 config.response?.informational_wrapper && 'withInformationalResponse',
                 config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
@@ -1558,6 +1589,7 @@ function generateCustomSchemaToolCode(
     schemaRefBlocks: string[]
     responseType: string | undefined
     needsWithPostHogUrl: boolean
+    needsWithPageOffsets: boolean
     hasEnrichment: boolean
     needsWithAgentNote: boolean
     hasAgentNote: boolean
@@ -1613,8 +1645,9 @@ function generateCustomSchemaToolCode(
     const responseFilter = buildResponseFilter(config)
     handlerBody += responseFilter.code
 
-    const enrichmentVar = responseFilter.code ? 'filtered' : 'result'
-    handlerBody += buildEnrichment(config, category, enrichmentVar)
+    const pageOffsets = buildPageOffsets(responseType, resolved.operation, responseFilter.code ? 'filtered' : 'result')
+    handlerBody += pageOffsets.code
+    handlerBody += buildEnrichment(config, category, pageOffsets.resultVar)
 
     let baseSchemaExpr = config.input_schema as string
     const toolInputsImports: string[] = config.input_schema ? [config.input_schema] : []
@@ -1633,7 +1666,10 @@ function generateCustomSchemaToolCode(
 
     const hasAgentNote = !!config.agent_note
     const needsWithAgentNote = hasAgentNote && !!responseType
-    let customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+    const shapedResponseType = pageOffsets.applied ? `WithPageOffsets<${responseType}>` : responseType
+    let customResultType = needsWithAgentNote
+        ? `WithAgentNote<${shapedResponseType}>`
+        : (shapedResponseType ?? 'unknown')
     const needsWithInformationalResponse = !!config.response?.informational_wrapper
     if (needsWithInformationalResponse) {
         customResultType = `WithInformationalResponse<${customResultType}>`
@@ -1658,6 +1694,7 @@ ${handlerBody}    },
         schemaRefBlocks: [],
         responseType,
         needsWithPostHogUrl: false,
+        needsWithPageOffsets: pageOffsets.applied,
         hasEnrichment: false,
         needsWithAgentNote,
         hasAgentNote,
@@ -1665,6 +1702,7 @@ ${handlerBody}    },
         toolUtilsValueImports: new Set(
             [
                 ...responseFilter.helperImports,
+                pageOffsets.applied && 'withPageOffsets',
                 config.response?.informational_wrapper && 'withInformationalResponse',
                 config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
@@ -1746,6 +1784,7 @@ function generateCategoryFile(
     const toolCodes: string[] = []
     let hasResponseType = false
     let hasWithPostHogUrl = false
+    let hasWithPageOffsets = false
 
     let hasEnrichment = false
 
@@ -1782,6 +1821,9 @@ function generateCategoryFile(
         }
         if (result.needsWithPostHogUrl) {
             hasWithPostHogUrl = true
+        }
+        if (result.needsWithPageOffsets) {
+            hasWithPageOffsets = true
         }
         if (result.hasEnrichment) {
             hasEnrichment = true
@@ -1929,6 +1971,9 @@ function generateCategoryFile(
     const toolUtilsValueImports: string[] = []
     if (hasWithPostHogUrl) {
         toolUtilsTypeImports.push('WithPostHogUrl')
+    }
+    if (hasWithPageOffsets) {
+        toolUtilsTypeImports.push('WithPageOffsets')
     }
     if (hasWithAgentNote) {
         toolUtilsTypeImports.push('WithAgentNote')

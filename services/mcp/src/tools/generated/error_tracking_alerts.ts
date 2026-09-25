@@ -3,7 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/error_tracking_alerts/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingAlertsCreateSchema = () => {
@@ -105,7 +111,7 @@ const ErrorTrackingAlertsListSchema = () => {
 
 const errorTrackingAlertsList = (): ToolBase<
     ReturnType<typeof ErrorTrackingAlertsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedHogFunctionMinimalList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedHogFunctionMinimalList>>
 > => ({
     name: 'error-tracking-alerts-list',
     schema: ErrorTrackingAlertsListSchema(),
@@ -144,7 +150,8 @@ const errorTrackingAlertsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/error_tracking')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/error_tracking')
     },
 })
 

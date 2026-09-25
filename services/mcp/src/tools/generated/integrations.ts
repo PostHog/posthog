@@ -3,7 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/integrations/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const IntegrationDeleteSchema = () => {
@@ -157,7 +163,7 @@ const IntegrationsListSchema = () => {
 
 const integrationsList = (): ToolBase<
     ReturnType<typeof IntegrationsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedIntegrationConfigList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedIntegrationConfigList>>
 > => ({
     name: 'integrations-list',
     schema: IntegrationsListSchema(),
@@ -178,7 +184,8 @@ const integrationsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'kind', 'display_name', 'errors', 'created_at', 'created_by'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/settings/environment-integrations')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/settings/environment-integrations')
     },
 })
 

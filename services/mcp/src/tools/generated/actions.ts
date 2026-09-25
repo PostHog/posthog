@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/actions/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActionCreateSchema = () => {
@@ -144,7 +144,7 @@ const ActionsGetAllSchema = () => {
 
 const actionsGetAll = (): ToolBase<
     ReturnType<typeof ActionsGetAllSchema>,
-    WithPostHogUrl<Schemas.PaginatedActionList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedActionList>>
 > =>
     withUiApp('action-list', {
         name: 'actions-get-all',
@@ -163,12 +163,13 @@ const actionsGetAll = (): ToolBase<
                     tags: params.tags,
                 },
             })
+            const paged = withPageOffsets(result)
             return await withPostHogUrl(
                 context,
                 {
-                    ...result,
+                    ...paged,
                     results: await Promise.all(
-                        (result.results ?? []).map((item) =>
+                        (paged.results ?? []).map((item) =>
                             withPostHogUrl(context, item, `/data-management/actions/${item.id}`)
                         )
                     ),

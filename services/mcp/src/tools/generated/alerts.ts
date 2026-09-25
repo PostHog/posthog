@@ -3,7 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/alerts/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const AlertCreateSchema = () => {
@@ -304,7 +310,10 @@ const AlertsListSchema = () => {
     return AlertsListQueryParams
 }
 
-const alertsList = (): ToolBase<ReturnType<typeof AlertsListSchema>, WithPostHogUrl<Schemas.PaginatedAlertList>> => ({
+const alertsList = (): ToolBase<
+    ReturnType<typeof AlertsListSchema>,
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedAlertList>>
+> => ({
     name: 'alerts-list',
     schema: AlertsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof AlertsListSchema>>) => {
@@ -322,12 +331,13 @@ const alertsList = (): ToolBase<ReturnType<typeof AlertsListSchema>, WithPostHog
                 search: params.search,
             },
         })
+        const paged = withPageOffsets(result)
         return await withPostHogUrl(
             context,
             {
-                ...result,
+                ...paged,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) =>
+                    (paged.results ?? []).map((item) =>
                         withPostHogUrl(context, item, `/alerts?alert_type=insights&alert_id=${item.id}`)
                     )
                 ),

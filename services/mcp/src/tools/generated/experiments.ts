@@ -10,8 +10,10 @@ import {
     withPostHogUrl,
     omitResponseFields,
     pickResponseFields,
+    withPageOffsets,
     withInformationalResponse,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithInformationalResponse,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -618,7 +620,7 @@ const ExperimentHoldoutsListSchema = () => {
 
 const experimentHoldoutsList = (): ToolBase<
     ReturnType<typeof ExperimentHoldoutsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedExperimentHoldoutList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedExperimentHoldoutList>>
 > => ({
     name: 'experiment-holdouts-list',
     schema: ExperimentHoldoutsListSchema(),
@@ -638,7 +640,8 @@ const experimentHoldoutsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'name', 'description', 'filters', 'created_at', 'updated_at'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/experiments')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/experiments')
     },
 })
 
@@ -760,7 +763,7 @@ const ExperimentListSchema = () => {
 
 const experimentList = (): ToolBase<
     ReturnType<typeof ExperimentListSchema>,
-    WithPostHogUrl<Schemas.PaginatedExperimentBasicList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedExperimentBasicList>>
 > =>
     withUiApp('experiment-list', {
         name: 'experiment-list',
@@ -805,12 +808,13 @@ const experimentList = (): ToolBase<
                     ])
                 ),
             } as typeof result
+            const paged = withPageOffsets(filtered)
             return await withPostHogUrl(
                 context,
                 {
-                    ...filtered,
+                    ...paged,
                     results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
+                        (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/experiments/${item.id}`))
                     ),
                 },
                 '/experiments'
@@ -1120,7 +1124,7 @@ const ExperimentSavedMetricsListSchema = () => {
 
 const experimentSavedMetricsList = (): ToolBase<
     ReturnType<typeof ExperimentSavedMetricsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedExperimentSavedMetricList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedExperimentSavedMetricList>>
 > => ({
     name: 'experiment-saved-metrics-list',
     schema: ExperimentSavedMetricsListSchema(),
@@ -1142,7 +1146,8 @@ const experimentSavedMetricsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'name', 'description', 'query', 'created_at', 'updated_at', 'tags'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/experiments')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/experiments')
     },
 })
 

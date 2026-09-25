@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/mcp_analytics/api'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const McpAnalyticsIntentClustersRecomputeSchema = () => z.object({})
@@ -86,7 +86,7 @@ const McpAnalyticsSessionsListSchema = () => {
 
 const mcpAnalyticsSessionsList = (): ToolBase<
     ReturnType<typeof McpAnalyticsSessionsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedMCPSessionList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedMCPSessionList>>
 > => ({
     name: 'mcp-analytics-sessions-list',
     schema: McpAnalyticsSessionsListSchema(),
@@ -106,7 +106,8 @@ const mcpAnalyticsSessionsList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/mcp-analytics')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/mcp-analytics')
     },
 })
 
@@ -120,7 +121,7 @@ const McpAnalyticsSessionsToolCallsSchema = () => {
 
 const mcpAnalyticsSessionsToolCalls = (): ToolBase<
     ReturnType<typeof McpAnalyticsSessionsToolCallsSchema>,
-    WithPostHogUrl<Schemas.PaginatedMCPToolCallList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedMCPToolCallList>>
 > => ({
     name: 'mcp-analytics-sessions-tool-calls',
     schema: McpAnalyticsSessionsToolCallsSchema(),
@@ -137,7 +138,8 @@ const mcpAnalyticsSessionsToolCalls = (): ToolBase<
                 properties: params.properties,
             },
         })
-        return await withPostHogUrl(context, result, '/mcp-analytics')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/mcp-analytics')
     },
 })
 

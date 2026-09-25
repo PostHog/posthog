@@ -5,7 +5,14 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/cohorts/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    omitResponseFields,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CohortsAddPersonsToStaticCohortPartialUpdateSchema = () => {
@@ -95,7 +102,10 @@ const CohortsListSchema = () => {
     })
 }
 
-const cohortsList = (): ToolBase<ReturnType<typeof CohortsListSchema>, WithPostHogUrl<Schemas.PaginatedCohortList>> =>
+const cohortsList = (): ToolBase<
+    ReturnType<typeof CohortsListSchema>,
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedCohortList>>
+> =>
     withUiApp('cohort-list', {
         name: 'cohorts-list',
         schema: CohortsListSchema(),
@@ -118,12 +128,13 @@ const cohortsList = (): ToolBase<ReturnType<typeof CohortsListSchema>, WithPostH
                     pickResponseFields(item, ['id', 'name', 'description', 'count', 'is_static', 'created_at'])
                 ),
             } as typeof result
+            const paged = withPageOffsets(filtered)
             return await withPostHogUrl(
                 context,
                 {
-                    ...filtered,
+                    ...paged,
                     results: await Promise.all(
-                        (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
+                        (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/cohorts/${item.id}`))
                     ),
                 },
                 '/cohorts'

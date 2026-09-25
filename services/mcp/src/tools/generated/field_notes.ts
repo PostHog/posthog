@@ -3,7 +3,13 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/field_notes/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const FieldNotesGetSchema = () => {
@@ -31,7 +37,7 @@ const FieldNotesListSchema = () => {
 
 const fieldNotesList = (): ToolBase<
     ReturnType<typeof FieldNotesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedFieldNoteList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedFieldNoteList>>
 > => ({
     name: 'field-notes-list',
     schema: FieldNotesListSchema(),
@@ -66,7 +72,8 @@ const fieldNotesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/')
     },
 })
 

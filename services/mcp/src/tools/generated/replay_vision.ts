@@ -8,8 +8,10 @@ import { castBooleanToString } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
     withAgentNote,
+    withPageOffsets,
     withTextProjection,
     type WithPostHogUrl,
+    type WithPageOffsets,
     type WithAgentNote,
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -74,7 +76,7 @@ const VisionObservationsListSchema = () => {
 
 const visionObservationsList = (): ToolBase<
     ReturnType<typeof VisionObservationsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedReplayObservationList>>
+    WithAgentNote<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedReplayObservationList>>>
 > =>
     withUiApp('vision-observation-list', {
         name: 'vision-observations-list',
@@ -91,14 +93,15 @@ const visionObservationsList = (): ToolBase<
                     session_id: params.session_id,
                 },
             })
+            const paged = withPageOffsets(result)
             return withTextProjection(
                 withAgentNote(
                     await withPostHogUrl(
                         context,
                         {
-                            ...result,
+                            ...paged,
                             results: await Promise.all(
-                                (result.results ?? []).map((item) =>
+                                (paged.results ?? []).map((item) =>
                                     withPostHogUrl(context, item, `/replay/${item.session_id}`)
                                 )
                             ),
@@ -473,7 +476,7 @@ const VisionScannersListSchema = () => {
 
 const visionScannersList = (): ToolBase<
     ReturnType<typeof VisionScannersListSchema>,
-    WithPostHogUrl<Schemas.PaginatedReplayScannerList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedReplayScannerList>>
 > => ({
     name: 'vision-scanners-list',
     schema: VisionScannersListSchema(),
@@ -495,7 +498,8 @@ const visionScannersList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/replay-vision')
     },
 })
 
@@ -551,7 +555,7 @@ const VisionScannersObservationsListSchema = () => {
 
 const visionScannersObservationsList = (): ToolBase<
     ReturnType<typeof VisionScannersObservationsListSchema>,
-    WithAgentNote<WithPostHogUrl<Schemas.PaginatedReplayObservationList>>
+    WithAgentNote<WithPostHogUrl<WithPageOffsets<Schemas.PaginatedReplayObservationList>>>
 > =>
     withUiApp('vision-observation-list', {
         name: 'vision-scanners-observations-list',
@@ -579,14 +583,15 @@ const visionScannersObservationsList = (): ToolBase<
                     verdict: params.verdict,
                 },
             })
+            const paged = withPageOffsets(result)
             return withTextProjection(
                 withAgentNote(
                     await withPostHogUrl(
                         context,
                         {
-                            ...result,
+                            ...paged,
                             results: await Promise.all(
-                                (result.results ?? []).map((item) =>
+                                (paged.results ?? []).map((item) =>
                                     withPostHogUrl(context, item, `/replay/${item.session_id}`)
                                 )
                             ),
