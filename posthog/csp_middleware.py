@@ -354,6 +354,12 @@ class CSPMiddleware:
                 # without this origin a staff logout is cancelled with nothing shown to the user.
                 "form-action 'self' https://accounts.google.com",
             ]
+            if is_embeddable_document(request.path):
+                # Customers frame these documents on their own sites, and no list of ancestors can
+                # name every such site. In a report-only policy the directive only sends a report for
+                # each embed. Chrome cuts the document URL of that report to the origin, so it looks
+                # the same as a report from an app page that the browser blocks in a frame.
+                csp_parts.remove(frame_ancestors)
 
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
             # runs and the dev environment keep the wildcards. A load from a PostHog host that is not
