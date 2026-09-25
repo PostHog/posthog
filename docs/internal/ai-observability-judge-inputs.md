@@ -61,7 +61,9 @@ Saving a connection validates it with a short synthetic input and a Noul questio
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
-The integration reuses the typed Noul client, rate limiter, and request telemetry in `posthog/egress/typesafe`.
+The integration reuses the System One types and parser in `posthog/llm/system_one.py` and the explicit-connection client in `posthog/llm/system_one_client.py`.
+Requests use the rate limiter and telemetry in `posthog/egress/typesafe`.
+The selected connection supplies its own endpoint and credential; it never falls back to instance gateway settings.
 Numeric and categorical support is separate from this integration.
 Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
 API compatibility does not guarantee equivalent judgments or calibration across models.
@@ -69,7 +71,8 @@ Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
-The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
+The raw probability is stored in `$ai_evaluation_probability`, with available token usage and the resolved model version.
+Missing or invalid token counts remain unknown and do not discard a valid answer.
 Ingestion estimates cost from the reported model and token usage using the existing pricing catalog, including Jev 1.13.0.
 Models without a catalog match retain their usage with cost left unknown.
 A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.

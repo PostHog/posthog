@@ -12,7 +12,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
-from posthog.egress.typesafe.client import NoulAnswer, NoulQuestion, Question
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, Question
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -474,6 +474,7 @@ def call_llm_judge(
     )
 
     probability: float | None = None
+    system_one_result = None
     try:
         if provider == "typesafe":
             if provider_key is not None and provider_key.provider != provider:
@@ -776,5 +777,8 @@ def call_llm_judge(
 
     if probability is not None:
         result_dict["probability"] = probability
+    if system_one_result is not None:
+        result_dict["input_tokens"] = system_one_result.input_tokens
+        result_dict["output_tokens"] = system_one_result.output_tokens
 
     return result_dict

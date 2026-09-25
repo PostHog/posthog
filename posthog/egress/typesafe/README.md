@@ -3,6 +3,11 @@
 TypeSafe serves Jev, a System One model that answers typed questions (`noul`, `choice`, `score`) about a `state`.
 It returns probabilities, not free text.
 
+The request and answer types live in `posthog/llm/system_one.py`, because the Go ai-gateway serves the same API with models PostHog hosts.
+Internal callers build a client with `build_system_one_client` from `posthog/llm/system_one_client.py`.
+It reaches the ai-gateway where `AI_GATEWAY_URL` is set.
+It falls back to this domain only when the caller passes a `TypeSafeFallback`, and every caller that does so meets the usage policy below.
+
 ## Usage policy
 
 TypeSafe is approved for experiments only.
@@ -69,7 +74,9 @@ The counter is `typesafe_api_requests_total`, labeled `account, method, endpoint
 `system_one` uses `TYPESAFE_API_KEY` when no credential is passed.
 An explicit `api_key` selects a caller-owned bearer token; an empty string selects no authentication for a compatible endpoint.
 The official endpoint always requires a key and raises `TypeSafeNotConfigured` without one.
-Custom URLs supplied by users require a DNS-pinned session; AI observability validates them as public HTTPS URLs and supplies that session.
+Customer connections use `TypeSafeSystemOneClient` with an explicit `api_key` and `base_url`.
+That client pins DNS for explicit credentials, including an empty token for a custom endpoint, and never selects the instance gateway.
+AI observability additionally validates customer URLs as public HTTPS URLs.
 Redirects are disabled for every request.
 
 ## Typed client

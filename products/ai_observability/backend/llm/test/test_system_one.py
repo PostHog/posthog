@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
-from posthog.egress.typesafe.client import NoulAnswer, NoulQuestion
+from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.models import Team
 
 from products.ai_observability.backend.llm.client import Client
@@ -117,22 +117,32 @@ def test_typesafe_rate_limits_are_retryable(status: int) -> None:
 
 
 @pytest.mark.parametrize(
-    "usage", [{}, {"input_tokens": -1, "output_tokens": 0}, {"input_tokens": 1, "output_tokens": True}]
+    "usage,expected_input,expected_output",
+    [
+        ({}, None, None),
+        ({"input_tokens": -1, "output_tokens": 0}, None, 0),
+        ({"input_tokens": 1, "output_tokens": True}, 1, None),
+    ],
 )
-def test_invalid_usage_does_not_become_a_billable_evaluation(usage: dict[str, object]) -> None:
+def test_unavailable_usage_does_not_discard_a_valid_answer(
+    usage: dict[str, object], expected_input: int | None, expected_output: int | None
+) -> None:
     response = Mock(status_code=200)
     response.json.return_value = {
         "model": "jev-1.13.0",
         "answers": {"verdict": {"type": "noul", "noul": 0.9}},
         "usage": usage,
     }
-    with patch("requests.Session.request", return_value=response), pytest.raises(StructuredOutputParseError):
-        SystemOneClient.evaluate(
+    with patch("requests.Session.request", return_value=response):
+        result = SystemOneClient.evaluate(
             api_key="example-token",
             model="jev-1.13.0",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Polite?")},
         )
+
+    assert result.input_tokens == expected_input
+    assert result.output_tokens == expected_output
 
 
 @override_settings(TYPESAFE_API_KEY="example-instance-key")
@@ -195,13 +205,18 @@ def test_typesafe_preserves_error_categories(status: int, message: str, error_ty
         )
 
 
+@override_settings(
+    AI_GATEWAY_URL="https://gateway.example.com/v1",
+    AI_GATEWAY_API_KEY="example-gateway-key",
+    TYPESAFE_API_KEY="example-instance-key",
+)
 @pytest.mark.parametrize("api_key", ["example-token", ""])
 def test_custom_endpoint_and_model(api_key: str) -> None:
     response = Mock(status_code=200)
     response.json.return_value = {
         "model": "custom-model-revision",
-        "answers": {"verdict": {"type": "noul", "noul": 0.7}, "applicable": {"type": "noul", "noul": 1.0}},
-        "usage": {"input_tokens": 15, "output_tokens": 0},
+        "answers": {"verdict": {"noul": 0.7}, "applicable": {"noul": 1.0}},
+        "usage": {"input_tokens": 15},
         "latency_ms": 42,
     }
     with patch("requests.Session.request", return_value=response) as request:
@@ -220,7 +235,8 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
     assert request.call_args.kwargs["allow_redirects"] is False
     assert request.call_args.kwargs["json"]["model"] == "custom-model"
     assert result.model == "custom-model-revision"
-    assert result.output_tokens == 0
+    assert result.input_tokens == 15
+    assert result.output_tokens is None
     assert isinstance(result.answers["verdict"], NoulAnswer)
     assert result.answers["verdict"].probability == 0.7
 

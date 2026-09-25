@@ -9,20 +9,13 @@ from django.conf import settings
 import requests
 
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe.client import (
-    TYPESAFE_API_BASE,
-    JsonValue,
-    NoulQuestion,
-    Question,
-    SystemOneResult,
-    TypeSafeNotConfigured,
-    TypeSafeRequestFailed,
-    system_one,
-)
+from posthog.egress.typesafe.client import TYPESAFE_API_BASE, TypeSafeNotConfigured, TypeSafeRequestFailed
 from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted
+from posthog.llm.system_one import JsonValue, NoulQuestion, Question, SystemOneResult
+from posthog.llm.system_one_client import TypeSafeSystemOneClient
 from posthog.models import Team
 from posthog.ph_client import get_feature_flag_or_none
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import has_authority_bypass_chars
 
 from products.ai_observability.backend.llm.errors import (
@@ -111,24 +104,15 @@ class SystemOneClient:
         priority: Priority = Priority.BATCH,
     ) -> SystemOneResult:
         base_url = SystemOneClient.normalize_base_url(base_url)
-        if not api_key and base_url == SystemOneClient.BASE_URL:
-            raise AuthenticationError("A TypeSafe API key is required.")
         try:
-            with pinned_session(f"{base_url}/systemone") as session:
-                result = system_one(
-                    api_key=api_key,
-                    base_url=base_url,
-                    model=model,
-                    state=state,
-                    questions=questions,
-                    source="llma_evaluations",
-                    priority=priority,
-                    timeout=60,
-                    session=session,
-                )
-            if result.input_tokens is None or result.output_tokens is None:
-                raise StructuredOutputParseError("The endpoint returned invalid token usage. Check compatibility.")
-            return result
+            return TypeSafeSystemOneClient(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                source="llma_evaluations",
+                priority=priority,
+                timeout=60,
+            ).decide(state=state, questions=questions)
         except TypeSafeNotConfigured as error:
             raise AuthenticationError("A TypeSafe API key is required.") from error
         except TypeSafeEgressBudgetExhausted as error:

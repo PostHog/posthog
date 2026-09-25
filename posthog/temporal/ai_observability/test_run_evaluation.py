@@ -95,14 +95,21 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
 
 
 @pytest.mark.parametrize(
-    "connection_config,base_url,model",
+    "connection_config,base_url,model,usage",
     [
-        ({"api_key": "test-typesafe-key"}, "https://api.typesafe.ai/v1", "jev-1.13.0"),
+        (
+            {"api_key": "test-typesafe-key"},
+            "https://api.typesafe.ai/v1",
+            "jev-1.13.0",
+            {"input_tokens": 120, "output_tokens": 10},
+        ),
         (
             {"api_key": "", "base_url": "https://decisions.example.com/v1"},
             "https://decisions.example.com/v1",
             "custom-model",
+            {"input_tokens": 120},
         ),
+        ({"api_key": "example-token"}, "https://api.typesafe.ai/v1", "jev-1.13.0", {}),
     ],
 )
 @pytest.mark.parametrize(
@@ -117,6 +124,7 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     connection_config: dict[str, str],
     base_url: str,
     model: str,
+    usage: dict[str, int],
 ) -> None:
     key = MagicMock(provider="typesafe", encrypted_config=connection_config)
     resolved = MagicMock(provider="typesafe", model=model, provider_key=key, is_byok=True)
@@ -127,7 +135,7 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
             "verdict": {"type": "noul", "noul": probability},
             "applicable": {"type": "noul", "noul": applicability},
         },
-        "usage": {"input_tokens": 120, "output_tokens": 10},
+        "usage": usage,
     }
     evaluation = {
         "id": "test-evaluation",
@@ -157,10 +165,12 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
     assert result["probability"] == probability
-    assert result["total_tokens"] == 130
+    assert result["total_tokens"] == sum(usage.values())
     if allows_na:
         assert result["applicable"] is (applicability >= 0.5)
     properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
+    assert properties["$ai_input_tokens"] == usage.get("input_tokens")
+    assert properties["$ai_output_tokens"] == usage.get("output_tokens")
     assert properties["$ai_evaluation_probability"] == probability
     assert properties["$ai_model"] == "jev-1.13.0"
     assert properties["$ai_evaluation_key_type"] == "byok"
