@@ -1605,9 +1605,10 @@ impl GlobalRateLimiterImpl {
             }
 
             // estimated_count from Redis already includes the events this node
-            // wrote. Reset local_pending to avoid double-counting. Events counted
-            // after this tick took its write batch drop out of the local estimate
-            // until the next read, and still reach Redis on a later tick.
+            // wrote. Reset local_pending to avoid double-counting. Events whose
+            // write has not landed yet drop out of the local estimate. They appear
+            // in a later read once the write lands, unless their epoch ages out
+            // first and the tick purges them.
             cache.insert(
                 key.clone(),
                 CacheEntry {
