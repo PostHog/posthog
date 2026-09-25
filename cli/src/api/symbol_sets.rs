@@ -843,7 +843,9 @@ mod tests {
     use std::{
         cell::Cell,
         fmt::Debug,
-        sync::{Arc, Mutex, MutexGuard},
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{mpsc, Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
     use tracing_subscriber::{layer::Context, prelude::*, registry::Registry, Layer};
@@ -1103,6 +1105,118 @@ mod tests {
             fallback,
             Some(UploadTarget::Put("https://put-fallback.example.com/key"))
         ));
+    }
+
+    /// Serves exactly one HTTP request from a loopback port, answers 200, and hands the request
+    /// head and body back. Object storage is the only thing that ever sees an upload request, so
+    /// this stands in for it to assert what actually goes on the wire.
+    fn serve_one_request() -> (String, mpsc::Receiver<(String, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback port");
+        let address = listener.local_addr().expect("read bound address");
+        let (sender, receiver) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept upload connection");
+            let mut buffer = Vec::new();
+            let mut chunk = [0u8; 8192];
+
+            let head_end = loop {
+                if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                    break position + 4;
+                }
+                let read = stream.read(&mut chunk).expect("read request head");
+                assert_ne!(read, 0, "connection closed before the request head ended");
+                buffer.extend_from_slice(&chunk[..read]);
+            };
+
+            let head = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+            let body_len: usize = head
+                .lines()
+                .find_map(|line| {
+                    let (name, value) = line.split_once(':')?;
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse().expect("numeric content-length"))
+                })
+                .expect("an upload request always declares its length");
+
+            while buffer.len() < head_end + body_len {
+                let read = stream.read(&mut chunk).expect("read request body");
+                assert_ne!(read, 0, "connection closed before the body ended");
+                buffer.extend_from_slice(&chunk[..read]);
+            }
+
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .expect("write response");
+            sender
+                .send((head, buffer[head_end..head_end + body_len].to_vec()))
+                .expect("hand the request back to the test");
+        });
+
+        (format!("http://{address}"), receiver)
+    }
+
+    fn test_transport() -> UploadTransport {
+        UploadTransport {
+            client: Client::new(),
+            accelerated_unreachable: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn upload_to_s3_puts_the_raw_bytes_under_the_declared_length() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let data = b"symbol set bytes".to_vec();
+        let (base_url, requests) = serve_one_request();
+        let url = format!("{base_url}/symbolsets/chunk");
+
+        upload_to_s3(&test_transport(), UploadTarget::Put(&url), None, &data).unwrap();
+
+        let (head, body) = requests
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the upload reached the server");
+        assert!(head.starts_with("PUT /symbolsets/chunk "), "{head}");
+        // The signature covers content-length, so a body of another size is refused outright.
+        assert!(
+            head.to_lowercase()
+                .contains(&format!("content-length: {}", data.len())),
+            "{head}"
+        );
+        assert_eq!(body, data);
+    }
+
+    #[test]
+    fn upload_to_s3_posts_the_multipart_form_against_an_older_server() {
+        let _retry_tracing_lock = lock_retry_tracing();
+        let data = b"symbol set bytes".to_vec();
+        let (base_url, requests) = serve_one_request();
+        let presigned = PresignedUrl {
+            url: format!("{base_url}/"),
+            fields: HashMap::from([("key".to_string(), "symbolsets/chunk".to_string())]),
+        };
+
+        upload_to_s3(
+            &test_transport(),
+            UploadTarget::Post(&presigned),
+            None,
+            &data,
+        )
+        .unwrap();
+
+        let (head, body) = requests
+            .recv_timeout(Duration::from_secs(10))
+            .expect("the upload reached the server");
+        assert!(head.starts_with("POST / "), "{head}");
+        assert!(
+            head.to_lowercase()
+                .contains("content-type: multipart/form-data"),
+            "{head}"
+        );
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("name=\"key\""), "{body}");
+        // Go-based S3 implementations only treat a part as a file when it carries a filename.
+        assert!(body.contains("filename=\"file\""), "{body}");
+        assert!(body.contains("symbol set bytes"), "{body}");
     }
 
     #[test]
