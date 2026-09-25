@@ -240,14 +240,15 @@ function usesDirectBedrock(value: string | undefined): boolean {
 
 /**
  * A Bedrock model reference in any form the CLI takes: a full inference-profile
- * ARN, a bare id (`anthropic.claude-…`), or an id behind a cross-region prefix
+ * ARN in any AWS partition, a bare id (`anthropic.claude-…`), or an id behind a cross-region prefix
  * (`us.`, `eu.`, `apac.`, `au.`, `jp.`, `global.`, and whatever AWS adds next).
  * The CLI accepts these only on the direct-Bedrock path: the gateway's Anthropic
  * route serves public Anthropic model names, so one of these reaches the real
  * Anthropic API and fails with not_found_error. A public name starts with
  * `claude-`, so it never matches.
  */
-const BEDROCK_MODEL_ID = /^(?:arn:aws:bedrock:|(?:[a-z0-9-]+\.)?anthropic\.)/;
+const BEDROCK_MODEL_ID =
+  /^(?:arn:aws(?:-[a-z0-9-]+)?:bedrock:|(?:[a-z0-9-]+\.)?anthropic\.)/;
 
 /**
  * Model names the CLI reads from the environment. A box provisioned for direct
