@@ -208,20 +208,25 @@ function equalsFn([a, b]: any[]): boolean {
     return a === b
 }
 
+// A null on either side is no match, the same as the comparison operators.
+function isNullish(value: any): boolean {
+    return value === null || value === undefined
+}
+
 function greaterFn([a, b]: any[]): boolean {
-    return a > b
+    return !isNullish(a) && !isNullish(b) && a > b
 }
 
 function greaterOrEqualsFn([a, b]: any[]): boolean {
-    return a >= b
+    return !isNullish(a) && !isNullish(b) && a >= b
 }
 
 function lessFn([a, b]: any[]): boolean {
-    return a < b
+    return !isNullish(a) && !isNullish(b) && a < b
 }
 
 function lessOrEqualsFn([a, b]: any[]): boolean {
-    return a <= b
+    return !isNullish(a) && !isNullish(b) && a <= b
 }
 
 function notEqualsFn([a, b]: any[]): boolean {
@@ -629,6 +634,9 @@ export const STL: Record<string, STLFunction> = {
     },
     length: {
         fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].length
         },
         description: 'Returns the length of a string or array',
@@ -691,6 +699,9 @@ export const STL: Record<string, STLFunction> = {
     },
     upper: {
         fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].toUpperCase()
         },
         description: 'Converts a string to uppercase',
@@ -700,6 +711,9 @@ export const STL: Record<string, STLFunction> = {
     },
     reverse: {
         fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].split('').reverse().join('')
         },
         description: 'Reverses a string',
@@ -970,6 +984,9 @@ export const STL: Record<string, STLFunction> = {
     },
     replaceOne: {
         fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].replace(args[1], args[2])
         },
         description: 'Replaces first occurrence of a substring',
@@ -979,6 +996,9 @@ export const STL: Record<string, STLFunction> = {
     },
     replaceAll: {
         fn: (args) => {
+            if (args[0] === null || args[0] === undefined) {
+                return null
+            }
             return args[0].replaceAll(args[1], args[2])
         },
         description: 'Replaces all occurrences of a substring',
@@ -1012,6 +1032,9 @@ export const STL: Record<string, STLFunction> = {
     },
     trim: {
         fn: ([str, char]) => {
+            if (str === null || str === undefined) {
+                return null
+            }
             if (char === null || char === undefined) {
                 char = ' '
             }
@@ -1038,6 +1061,9 @@ export const STL: Record<string, STLFunction> = {
     },
     trimLeft: {
         fn: ([str, char]) => {
+            if (str === null || str === undefined) {
+                return null
+            }
             if (char === null || char === undefined) {
                 char = ' '
             }
@@ -1057,6 +1083,9 @@ export const STL: Record<string, STLFunction> = {
     },
     trimRight: {
         fn: ([str, char]) => {
+            if (str === null || str === undefined) {
+                return null
+            }
             if (char === null || char === undefined) {
                 char = ' '
             }
@@ -1076,6 +1105,9 @@ export const STL: Record<string, STLFunction> = {
     },
     splitByString: {
         fn: ([separator, str, maxSplits = undefined]) => {
+            if (str === null || str === undefined) {
+                return null
+            }
             if (maxSplits === undefined || maxSplits === null) {
                 return str.split(separator)
             }
@@ -1185,7 +1217,7 @@ export const STL: Record<string, STLFunction> = {
     },
     keys: {
         fn: ([obj]) => {
-            if (typeof obj === 'object') {
+            if (obj !== null && typeof obj === 'object') {
                 if (Array.isArray(obj)) {
                     return Array.from(obj.keys())
                 } else if (obj instanceof Map) {
@@ -1202,7 +1234,7 @@ export const STL: Record<string, STLFunction> = {
     },
     values: {
         fn: ([obj]) => {
-            if (typeof obj === 'object') {
+            if (obj !== null && typeof obj === 'object') {
                 if (Array.isArray(obj)) {
                     return [...obj]
                 } else if (obj instanceof Map) {
