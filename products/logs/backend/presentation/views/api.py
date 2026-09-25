@@ -2,10 +2,13 @@ import re
 import json
 import base64
 import datetime as dt
+from typing import NoReturn
 
 from django.db import models
 from django.utils import timezone
 
+import structlog
+from clickhouse_driver.errors import NetworkError, SocketTimeoutError
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
@@ -28,6 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
@@ -83,8 +87,25 @@ __all__ = [
     "LogsViewViewSet",
 ]
 
+logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+
+# Logs run on their own ClickHouse workload, which can refuse a connection while the main one is
+# healthy. The driver raises these before the query is sent, so wrap_clickhouse_query_error passes
+# them through unchanged and DRF answers with its generic 500 detail. CH_TRANSIENT_ERRORS reads
+# them as transient capacity, so the viewer must show them as capacity too.
+LOGS_WORKLOAD_UNREACHABLE = (NetworkError, SocketTimeoutError)
+
+
+def raise_logs_workload_at_capacity(error: Exception) -> NoReturn:
+    """Answer a refused logs-cluster connection with a 503 the viewer can explain.
+
+    A 503 is an APIException, so error tracking no longer sees it. Log it to keep the operational
+    signal the generic 500 used to carry.
+    """
+    logger.warning("logs_workload_unreachable", error=str(error))
+    raise ClickHouseAtCapacity() from error
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -1442,9 +1463,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         analytics_props=analytics_props,
                     )
                 )
-        except QueryError as e:
+        except (QueryError, ExposedCHQueryError) as e:
             # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except LOGS_WORKLOAD_UNREACHABLE as e:
+            raise_logs_workload_at_capacity(e)
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
@@ -1511,10 +1534,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = SparklineQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except (QueryError, ExposedCHQueryError) as e:
+            # A user query error (HogQL or ClickHouse) becomes a clean 400 the viewer can show.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except LOGS_WORKLOAD_UNREACHABLE as e:
+            raise_logs_workload_at_capacity(e)
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
 
         report_user_action(
