@@ -62,7 +62,14 @@ class TestGetRows:
         """Drive ``get_rows`` with ``_fetch_page`` faked to serve responses by requested page."""
         sent_params: list[dict[str, Any]] = []
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], params: dict[str, Any], logger: Any) -> dict:
+        def fake_fetch(
+            session: Any,
+            url: str,
+            headers: dict[str, str],
+            params: dict[str, Any],
+            logger: Any,
+            empty_on_404: bool = False,
+        ) -> dict:
             sent_params.append(dict(params))
             page = params.get("page", 1)
             return pages_by_page_number[page]
@@ -144,7 +151,14 @@ class TestGetRows:
     def test_single_object_endpoint_yields_one_row_without_pagination(self, monkeypatch: Any) -> None:
         captured: list[dict[str, Any]] = []
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], params: dict[str, Any], logger: Any) -> dict:
+        def fake_fetch(
+            session: Any,
+            url: str,
+            headers: dict[str, str],
+            params: dict[str, Any],
+            logger: Any,
+            empty_on_404: bool = False,
+        ) -> dict:
             captured.append(dict(params))
             return {"account": {"account_id": "acc_1", "email_address": "a@b.com"}}
 
@@ -164,6 +178,61 @@ class TestGetRows:
         assert captured == [{}]
 
 
+class TestEndpointSettings:
+    def test_only_single_object_endpoints_treat_404_as_empty(self) -> None:
+        # A 404 part way through pagination would end the walk and publish a truncated table, so
+        # only an endpoint that fetches one object may read a 404 as an empty result.
+        paginated = [c.name for c in DROPBOX_SIGN_ENDPOINTS.values() if c.empty_on_404 and not c.is_single_object]
+        assert paginated == []
+
+
+class TestTeamEndpoints:
+    @staticmethod
+    def _run(endpoint: str, monkeypatch: Any, bodies: dict[str, Any]) -> tuple[list[dict], list[str]]:
+        urls: list[str] = []
+
+        def fake_fetch(
+            session: Any,
+            url: str,
+            headers: dict[str, str],
+            params: dict[str, Any],
+            logger: Any,
+            empty_on_404: bool = False,
+        ) -> dict | None:
+            urls.append(url)
+            return bodies[url]
+
+        monkeypatch.setattr(dropbox_sign, "_fetch_page", fake_fetch)
+
+        rows: list[dict] = []
+        for table in get_rows(
+            api_key="key",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+        return rows, urls
+
+    def test_team_members_path_takes_the_resolved_team_id(self, monkeypatch: Any) -> None:
+        bodies = {
+            f"{DROPBOX_SIGN_BASE_URL}/team/info": {"team": {"team_id": "T1", "name": "Acme"}},
+            f"{DROPBOX_SIGN_BASE_URL}/team/members/T1": _page_body(
+                "team_members", [{"account_id": "a1", "role": "Admin"}], page=1, num_pages=1
+            ),
+        }
+        rows, urls = self._run("team_members", monkeypatch, bodies)
+        assert rows == [{"account_id": "a1", "role": "Admin"}]
+        assert urls == [f"{DROPBOX_SIGN_BASE_URL}/team/info", f"{DROPBOX_SIGN_BASE_URL}/team/members/T1"]
+
+    @pytest.mark.parametrize("endpoint", ["team", "team_members"])
+    def test_no_team_yields_no_rows(self, monkeypatch: Any, endpoint: str) -> None:
+        # `_fetch_page` returns None for the 404 Dropbox Sign sends when the account has no team.
+        rows, urls = self._run(endpoint, monkeypatch, {f"{DROPBOX_SIGN_BASE_URL}/team/info": None})
+        assert rows == []
+        assert urls == [f"{DROPBOX_SIGN_BASE_URL}/team/info"]
+
+
 class TestResumeStateSaving:
     """The resume page is saved AFTER a batch is yielded, and only while a later page remains."""
 
@@ -179,7 +248,14 @@ class TestResumeStateSaving:
 
         monkeypatch.setattr(dropbox_sign, "Batcher", small_batcher)
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], params: dict[str, Any], logger: Any) -> dict:
+        def fake_fetch(
+            session: Any,
+            url: str,
+            headers: dict[str, str],
+            params: dict[str, Any],
+            logger: Any,
+            empty_on_404: bool = False,
+        ) -> dict:
             page = params.get("page", 1)
             items = [{"signature_request_id": f"p{page}-{i}"} for i in range(items_per_page)]
             return _page_body("signature_requests", items, page=page, num_pages=num_pages)
@@ -243,8 +319,12 @@ class TestSourceResponse:
         [
             ("signature_requests", True),
             ("api_apps", True),
+            ("bulk_send_jobs", True),
+            ("faxes", True),
             ("templates", False),
             ("account", False),
+            ("team", False),
+            ("team_members", False),
         ]
     )
     def test_partitioning_only_when_endpoint_has_partition_key(self, endpoint: str, partitioned: bool) -> None:
@@ -279,6 +359,31 @@ class TestRetryClassification:
             # Call the undecorated function body once via the public wrapper with a single attempt
             # would still retry; instead assert the classification directly.
             cast(Any, dropbox_sign._fetch_page).__wrapped__(session, "http://x", {}, {}, MagicMock())
+
+    @staticmethod
+    def _session_returning_404() -> Any:
+        response = MagicMock()
+        response.status_code = 404
+        response.ok = False
+        response.raise_for_status.side_effect = requests.HTTPError("404", response=cast(requests.Response, response))
+        session = MagicMock()
+        session.get.return_value = response
+        return session
+
+    def test_404_is_empty_for_an_endpoint_that_opts_in(self) -> None:
+        logger = MagicMock()
+        result = cast(Any, dropbox_sign._fetch_page).__wrapped__(
+            self._session_returning_404(), "http://x", {}, {}, logger, empty_on_404=True
+        )
+        assert result is None
+        # An expected 404 must not reach the error log.
+        logger.error.assert_not_called()
+
+    def test_404_raises_for_an_endpoint_that_does_not_opt_in(self) -> None:
+        with pytest.raises(requests.HTTPError):
+            cast(Any, dropbox_sign._fetch_page).__wrapped__(
+                self._session_returning_404(), "http://x", {}, {}, MagicMock()
+            )
 
     def test_client_error_raises_http_error(self) -> None:
         response = MagicMock()
