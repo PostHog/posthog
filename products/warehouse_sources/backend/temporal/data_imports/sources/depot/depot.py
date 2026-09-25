@@ -21,7 +21,10 @@ JSONObject = dict[str, Any]
 
 DEPOT_CI_SERVICE_URL = "https://api.depot.dev/depot.ci.v1.CIService"
 REQUEST_TIMEOUT_SECONDS = 60
-LIST_RUNS_PAGE_SIZE = 200
+# ListRuns pages on the run's creation second: when a page ends inside a second, the next page skips
+# the rest of that second's runs. A second walk with a page size that shares no factor with the first
+# ends its pages at other runs, so it returns the runs the first walk dropped. Depot caps pages at 100.
+LIST_RUNS_PAGE_SIZES = (100, 57)
 IN_FLIGHT_STATUSES = ["queued", "running"]
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
 # Depot can leave a run in `queued` or `running` and never finish it. An in-flight run older than its
@@ -60,8 +63,8 @@ def _parse_timestamp(value: dt.datetime | str) -> dt.datetime:
     return parsed
 
 
-def _list_runs(session: Session, repository: str, statuses: list[str]) -> Iterator[JSONObject]:
-    body: JSONObject = {"repo": repository, "status": statuses, "pageSize": LIST_RUNS_PAGE_SIZE}
+def _walk_runs(session: Session, repository: str, statuses: list[str], page_size: int) -> Iterator[JSONObject]:
+    body: JSONObject = {"repo": repository, "status": statuses, "pageSize": page_size}
     while True:
         page = _call(session, "ListRuns", body)
         yield from page.get("runs", [])
@@ -69,6 +72,22 @@ def _list_runs(session: Session, repository: str, statuses: list[str]) -> Iterat
         if not next_page_token:
             return
         body = {**body, "pageToken": next_page_token}
+
+
+def _list_runs(
+    session: Session, repository: str, statuses: list[str], created_after: dt.datetime | None = None
+) -> list[JSONObject]:
+    """The runs in ``statuses``, newest first, down to the first run created before ``created_after``.
+
+    ListRuns has no time filter but returns runs newest first, so each walk stops at that run.
+    """
+    runs: dict[str, JSONObject] = {}
+    for page_size in LIST_RUNS_PAGE_SIZES:
+        for run in _walk_runs(session, repository, statuses, page_size):
+            if created_after is not None and _parse_timestamp(run["createdAt"]) < created_after:
+                break
+            runs.setdefault(run["runId"], run)
+    return sorted(runs.values(), key=lambda run: (_parse_timestamp(run["createdAt"]), run["runId"]), reverse=True)
 
 
 # The sync only takes runs created before every recent in-flight run, so the watermark never passes
@@ -87,16 +106,11 @@ def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> d
 def _runs_to_sync(
     session: Session, repository: str, created_after: dt.datetime | None, created_before: dt.datetime
 ) -> list[JSONObject]:
-    runs: list[JSONObject] = []
-    # ListRuns has no time filter but returns terminal runs newest first, so the walk stops at the
-    # first run at or before the lower bound, and reversing the walk yields the runs oldest first.
-    for run in _list_runs(session, repository, TERMINAL_STATUSES):
-        created_at = _parse_timestamp(run["createdAt"])
-        if created_after is not None and created_at <= created_after:
-            break
-        if created_at < created_before:
-            runs.append(run)
-    return runs[::-1]
+    # Runs created in the lower bound's own second are read again. Depot stamps runs in whole seconds,
+    # and a sync that stopped partway through a second saved that second as the watermark, so its other
+    # runs would otherwise never be read. The merge on attempt_id drops the rows read twice.
+    runs = _list_runs(session, repository, TERMINAL_STATUSES, created_after)
+    return [run for run in reversed(runs) if _parse_timestamp(run["createdAt"]) < created_before]
 
 
 def _attempt_rows(run: JSONObject, workflow: JSONObject, run_workflow_count: int) -> list[JSONObject]:
@@ -191,6 +205,9 @@ def depot_source(
         partition_format="week",
         partition_keys=[RUN_CREATED_AT],
         sort_mode="asc",
+        # The pipeline saves the watermark after each chunk. The default chunk holds a whole first
+        # sync of a busy repository, so a restart during that sync would start it over.
+        chunk_size=5_000,
     )
 
 

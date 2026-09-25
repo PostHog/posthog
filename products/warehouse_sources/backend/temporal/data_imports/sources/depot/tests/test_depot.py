@@ -54,6 +54,7 @@ def _fake_session(
     terminal_pages: list[list[dict[str, Any]]],
     in_flight_runs: list[dict[str, Any]] | None = None,
     workflows_by_run: dict[str, list[dict[str, Any]]] | None = None,
+    dropped_by_page_size: dict[int, set[str]] | None = None,
 ) -> mock.MagicMock:
     workflows = workflows_by_run or {
         run["runId"]: [_single_attempt_workflow(run)] for page in terminal_pages for run in page
@@ -67,7 +68,9 @@ def _fake_session(
         if method == "ListRuns":
             page_index = int(json.get("pageToken", "0"))
             next_page_token = str(page_index + 1) if page_index + 1 < len(terminal_pages) else ""
-            return _response(200, {"runs": terminal_pages[page_index], "nextPageToken": next_page_token}, method)
+            dropped = (dropped_by_page_size or {}).get(json["pageSize"], set())
+            runs = [run for run in terminal_pages[page_index] if run["runId"] not in dropped]
+            return _response(200, {"runs": runs, "nextPageToken": next_page_token}, method)
         if method == "GetRunStatus":
             run_workflows = workflows.get(json["runId"], [])
             return _response(200, {"workflows": [{"workflowId": w["workflowId"]} for w in run_workflows]}, method)
@@ -135,19 +138,35 @@ class TestDepotSource:
         assert [row["run_id"] for row in rows] == expected_run_ids
 
     @pytest.mark.parametrize(
-        "created_after, expected_run_ids, expected_terminal_pages",
+        "created_after, dropped_by_page_size, expected_run_ids, expected_terminal_pages",
         [
-            (WATERMARK, ["r3", "r4", "r5", "r6"], 3),
-            (_iso(WATERMARK), ["r3", "r4", "r5", "r6"], 3),
-            (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 4),
+            (WATERMARK, None, ["r3", "r4", "r5", "r6"], 6),
+            # A watermark in a run's own second reads that run again, because a sync that stopped
+            # partway through the second may not have read it.
+            (_iso(WATERMARK), None, ["r2", "r3", "r4", "r5", "r6"], 6),
+            (None, None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 8),
+            # ListRuns drops the runs that share a second with the end of a page. The other walk,
+            # with a different page size, still returns them.
+            (WATERMARK, {100: {"r4"}}, ["r3", "r4", "r5", "r6"], 6),
+            (WATERMARK, {57: {"r5"}}, ["r3", "r4", "r5", "r6"], 6),
         ],
         # The bounds derive from the wall clock, so fixed ids keep every xdist worker collecting the same tests.
-        ids=["datetime_watermark", "string_watermark", "no_watermark"],
+        ids=[
+            "datetime_watermark",
+            "watermark_in_a_runs_second",
+            "no_watermark",
+            "dropped_by_first_walk",
+            "dropped_by_second_walk",
+        ],
     )
     def test_walks_terminal_runs_down_to_the_lower_bound_and_yields_them_oldest_first(
-        self, created_after: dt.datetime | str | None, expected_run_ids: list[str], expected_terminal_pages: int
+        self,
+        created_after: dt.datetime | str | None,
+        dropped_by_page_size: dict[int, set[str]] | None,
+        expected_run_ids: list[str],
+        expected_terminal_pages: int,
     ) -> None:
-        session = _fake_session(TERMINAL_PAGES)
+        session = _fake_session(TERMINAL_PAGES, dropped_by_page_size=dropped_by_page_size)
 
         rows = _synced_rows(session, created_after)
 
@@ -167,12 +186,15 @@ class TestDepotSource:
         assert API_TOKEN in make_session.call_args.kwargs["redact_values"]
         # Every Depot RPC is a POST, which the shared retry leaves out, so a 429 must still retry.
         assert make_session.call_args.kwargs["retry"].is_retry("POST", 429)
-        assert _requests(session)[:3] == [
-            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 200}),
-            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 200}),
-            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 200, "pageToken": "1"}),
+        assert _requests(session)[:6] == [
+            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 100}),
+            ("ListRuns", {"repo": REPOSITORY, "status": IN_FLIGHT, "pageSize": 57}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 100}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 100, "pageToken": "1"}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 57}),
+            ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 57, "pageToken": "1"}),
         ]
-        assert _requests(session)[3:5] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
+        assert _requests(session)[6:8] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
 
     def test_flattens_one_row_per_attempt_of_every_workflow_in_the_run(self) -> None:
         run = _run("run-1", dt.timedelta(hours=1))
