@@ -14,6 +14,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
@@ -35,6 +36,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     InsightModel,
+    SidePanelTab,
 } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -1130,6 +1132,26 @@ describe('insightLogic', () => {
             await expectLogic(router, () => {
                 logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
             }).toDispatchActions([router.actionCreators.push(urls.insightEdit(Insight12))])
+        })
+
+        it.each([
+            ['mobile', 800, false],
+            ['desktop', 1200, true],
+        ])('on %s closes the sidebar only when it covers the new insight', async (_, width, staysOpen) => {
+            const originalWidth = window.innerWidth
+            window.innerWidth = width
+            try {
+                sidePanelStateLogic.mount()
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Info)
+
+                await expectLogic(logic, () => {
+                    logic.actions.duplicateInsight(logic.values.insight as InsightModel, true)
+                }).toFinishAllListeners()
+
+                expect(sidePanelStateLogic.values.sidePanelOpen).toBe(staysOpen)
+            } finally {
+                window.innerWidth = originalWidth
+            }
         })
 
         it('with redirectToInsight=false does not navigate', async () => {
