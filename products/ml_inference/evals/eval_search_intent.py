@@ -19,7 +19,8 @@ baseline to step when the prompt, the options or the model change.
 
 Public rather than private: the value is the comparison across runs, and every case is synthetic.
 
-To run:
+No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_API_KEY set for the
+decision model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_search_intent
     hogli evals eval_search_intent --eval email_in_events_tab
 """
@@ -29,6 +30,8 @@ from __future__ import annotations
 import time
 import asyncio
 import dataclasses
+
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 
 from products.ml_inference.backend.facade.contracts import DEFAULT_DECISION_MODEL, SearchIntentRequest
 from products.ml_inference.backend.logic.search_intent import classify_search_intent
@@ -294,6 +297,10 @@ CONTEXT_CASES = [
 
 
 async def eval_search_intent(ctx: EvalContext) -> None:
+    # Without a gateway every case errors and scores 0, which reads as a model regression instead of a setup gap.
+    if resolve_ai_gateway_config() is None:
+        raise RuntimeError("eval_search_intent needs AI_GATEWAY_URL and AI_GATEWAY_API_KEY to reach the decision model")
+
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         if task_ctx.demo_data is None:
             raise RuntimeError("one-shot suites run against the master Hedgebox team")
