@@ -124,6 +124,7 @@ export class FetchRunner implements FetchPass {
     private readonly candidateWork: ConcurrencyController
     private readonly pool?: FetchCandidatePool<PooledBatch>
     private poolWorkers?: Promise<void>[]
+    private readonly activePooledBatches = new Set<Promise<FetchAttempt[]>>()
 
     constructor(
         private readonly fetcher: ImageFetcher,
@@ -173,14 +174,24 @@ export class FetchRunner implements FetchPass {
         admission?: FetchCandidatePoolAdmission
     ): Promise<FetchAttempt[]> {
         if (this.pool) {
-            return await this.runPooled(this.pool, candidates, stored, republishBatch, admission)
+            const pooledBatch = this.runPooled(this.pool, candidates, stored, republishBatch, admission)
+            this.activePooledBatches.add(pooledBatch)
+            try {
+                return await pooledBatch
+            } finally {
+                this.activePooledBatches.delete(pooledBatch)
+            }
         }
         admission?.admitted()
         return await this.runPass(candidates, stored, republishBatch)
     }
 
-    /** Call only after every batch settles, because the pool's workers stop taking queued candidates at once. */
+    /**
+     * Waits for every pooled batch before it stops the workers. The Kafka consumer drain on shutdown
+     * has a timeout, and a batch that outlives it still needs the workers to take its queued candidates.
+     */
     public async close(): Promise<void> {
+        await Promise.allSettled(this.activePooledBatches)
         this.pool?.close()
         await Promise.all(this.poolWorkers ?? [])
     }

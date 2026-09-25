@@ -429,6 +429,41 @@ describe('FetchRunner', () => {
         await Promise.all([firstRun, secondRun])
     })
 
+    it('finishes a pooled batch with queued candidates before close stops the pool', async () => {
+        const harness = build({}, {}, 'queued', { ...POOL_OPTIONS, maxInFlightRequests: 1 })
+        let releaseFirst: () => void = () => undefined
+        harness.fetch.mockImplementationOnce(
+            (url: string) =>
+                new Promise<ImageFetchResult>((resolve) => {
+                    releaseFirst = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+                })
+        )
+        const queued = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://cdn.other.net/b.png',
+            host: 'cdn.other.net',
+            origin: 'https://cdn.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        const run = harness.runner.run([candidate(), queued], new Map())
+        await jest.advanceTimersByTimeAsync(0)
+        let closed = false
+        const close = harness.runner.close().then(() => {
+            closed = true
+        })
+        await jest.advanceTimersByTimeAsync(0)
+        expect(closed).toBe(false)
+        releaseFirst()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect((await run).map((attempt) => attempt.candidate.currentUrl)).toEqual([
+            candidate().currentUrl,
+            queued.currentUrl,
+        ])
+        await close
+    })
+
     it('shares one registrable domain limit between batches in the pod candidate pool', async () => {
         const harness = build({}, {}, 'queued', POOL_OPTIONS)
         const releases: Array<() => void> = []
