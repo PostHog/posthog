@@ -1,10 +1,12 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
+import { LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -18,7 +20,7 @@ import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { atColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import { llmPromptsEmptyState } from '../emptyState/llmPromptsEmptyState'
 import { PROMPTS_PER_PAGE, llmPromptsLogic } from './llmPromptsLogic'
@@ -40,6 +42,7 @@ export function LLMPromptsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const promptUrl = (name: string): string =>
         combineUrl(urls.aiObservabilityPrompt(name), stripPromptSceneSearchParams(searchParams)).url
+    const activeTab = searchParams?.tab === 'history' ? 'history' : 'overview'
 
     const columns: LemonTableColumns<LLMPrompt> = [
         {
@@ -182,48 +185,74 @@ export function LLMPromptsScene(): JSX.Element {
                 }
             />
 
-            <div className="space-y-4">
-                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search prompts..."
-                        value={filters.search}
-                        data-attr="prompts-search-input"
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                    />
-                    <div className="text-muted-alt">{promptCountLabel}</div>
-                    <div className="flex-1" />
-                    <span>
-                        <b>Created by</b>
-                    </span>
-                    <MemberSelect
-                        defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
-                        size="xsmall"
-                        onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
-                    />
-                </div>
-
-                <LemonTable
-                    loading={promptsLoading}
-                    columns={columns}
-                    dataSource={prompts.results}
-                    pagination={pagination}
-                    noSortingCancellation
-                    sorting={sorting}
-                    onSort={(newSorting) =>
-                        setFilters({
-                            order_by: newSorting
-                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                                : undefined,
-                        })
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(tab) => {
+                    if (tab === 'history') {
+                        posthog.capture('llma prompts history tab viewed')
                     }
-                    rowKey="id"
-                    loadingSkeletonRows={PROMPTS_PER_PAGE}
-                    nouns={['prompt', 'prompts']}
-                />
-            </div>
+                    router.actions.replace(urls.aiObservabilityPrompts(), {
+                        ...searchParams,
+                        tab: tab === 'overview' ? undefined : tab,
+                    })
+                }}
+                sceneInset
+                tabs={[
+                    {
+                        key: 'overview',
+                        label: 'Overview',
+                        content: (
+                            <div className="space-y-4">
+                                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
+                                    <LemonInput
+                                        type="search"
+                                        placeholder="Search prompts..."
+                                        value={filters.search}
+                                        data-attr="prompts-search-input"
+                                        onChange={(value) => setFilters({ search: value })}
+                                        className="max-w-md"
+                                    />
+                                    <div className="text-muted-alt">{promptCountLabel}</div>
+                                    <div className="flex-1" />
+                                    <span>
+                                        <b>Created by</b>
+                                    </span>
+                                    <MemberSelect
+                                        defaultLabel="Any user"
+                                        value={filters.created_by_id ?? null}
+                                        size="xsmall"
+                                        onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+                                    />
+                                </div>
+
+                                <LemonTable
+                                    loading={promptsLoading}
+                                    columns={columns}
+                                    dataSource={prompts.results}
+                                    pagination={pagination}
+                                    noSortingCancellation
+                                    sorting={sorting}
+                                    onSort={(newSorting) =>
+                                        setFilters({
+                                            order_by: newSorting
+                                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                                : undefined,
+                                        })
+                                    }
+                                    rowKey="id"
+                                    loadingSkeletonRows={PROMPTS_PER_PAGE}
+                                    nouns={['prompt', 'prompts']}
+                                />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'history',
+                        label: 'History',
+                        content: <ActivityLog scope={[ActivityScope.LLM_PROMPT, ActivityScope.LLM_PROMPT_LABEL]} />,
+                    },
+                ]}
+            />
         </SceneContent>
     )
 }
