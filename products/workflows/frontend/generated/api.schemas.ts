@@ -1734,14 +1734,14 @@ export interface EmailStepSummaryApi {
     name: string
     /** Subject line as written, Liquid tags included. Empty when the step has no subject. */
     subject: string
-    /** Every address the step can send from: the override address when set, otherwise the address of each sender integration in rotation order. Integrations that no longer exist are skipped. */
+    /** Every address the step can send from: the override address when set, otherwise the address of each sender integration a send can pick. Integrations that no longer exist are skipped. */
     from_addresses: string[]
     /**
      * Display name of the sender: the override name, else the first resolved sender integration's name.
      * @nullable
      */
     from_name: string | null
-    /** Sender integration ids the step names, primary first, then the rotation, without duplicates. */
+    /** Sender integration ids a send can pick: the `integrationIds` rotation when it is set, otherwise the single `integrationId`. */
     from_integration_ids: number[]
     /**
      * Id of the email template this step was based on, or null when it has no link.

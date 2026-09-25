@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from copy import deepcopy
-from typing import Any
+from typing import Any, Protocol, cast
 
 from django.db import models, transaction
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
@@ -288,9 +288,15 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+class _SummaryTemplate(Protocol):
+    # Annotated by MessageTemplatesViewSet.summaries.
+    email_subject: str | None
+    email_from: Any
+
+
 class MessageTemplateListRowListSerializer(EmailSenderPrefetchListSerializer):
     def sender_from_values(self, row: MessageTemplate) -> Iterable[Any]:
-        return [row.email_from]
+        return [cast(_SummaryTemplate, row).email_from]
 
 
 class MessageTemplateListRowSerializer(serializers.ModelSerializer):
@@ -333,11 +339,12 @@ class MessageTemplateListRowSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_subject(self, instance: MessageTemplate) -> str:
-        return instance.email_subject or ""
+        return cast(_SummaryTemplate, instance).email_subject or ""
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_from_addresses(self, instance: MessageTemplate) -> list[str]:
-        return list(resolve_email_sender(instance.email_from, email_senders_from_context(self.context)).addresses)
+        from_value = cast(_SummaryTemplate, instance).email_from
+        return list(resolve_email_sender(from_value, email_senders_from_context(self.context)).addresses)
 
 
 class MessageTemplatesViewSet(

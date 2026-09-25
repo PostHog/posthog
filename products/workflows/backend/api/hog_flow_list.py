@@ -2,7 +2,7 @@ import uuid
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import timedelta
-from typing import Any, Final, Optional
+from typing import Any, Final, Optional, Protocol, cast
 
 from django.db import models
 from django.db.models import Case, F, Func, Q, QuerySet, When
@@ -438,6 +438,11 @@ class HogFlowSummaryListSerializer(EmailSenderPrefetchListSerializer):
         return [_email_value(action).get("from") for action in _email_actions(row.actions)]
 
 
+class _ListedHogFlow(Protocol):
+    # Annotated by HogFlowViewSet.safely_get_queryset for the list actions.
+    has_draft: bool
+
+
 class HogFlowSummaryFieldsMixin(serializers.Serializer):
     """The derived fields a workflow listing shows, shared by the slim summaries and the MCP list."""
 
@@ -479,8 +484,8 @@ class HogFlowSummaryFieldsMixin(serializers.Serializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_draft(self, instance: HogFlow) -> bool:
-        # The list querysets annotate `has_draft` so the draft JSON is never loaded for a listing.
-        return bool(instance.has_draft)
+        # Read from the annotation so a listing never loads the draft JSON.
+        return bool(cast(_ListedHogFlow, instance).has_draft)
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=HogFlowChannel.choices)))
     def get_channels(self, instance: HogFlow) -> list[str]:
