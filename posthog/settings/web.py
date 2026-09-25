@@ -613,6 +613,8 @@ SPECTACULAR_SETTINGS = {
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
+            # replay_vision alert destinations: the create body and the alert's listed destinations share this set.
+            "VisionAlertDestinationTypeEnum": ["slack", "webhook"],
             # visual_review facade enums are framework-free StrEnums, so no Choices class derives a name.
             "ShiftBandKindEnum": ["inserted", "deleted"],
             "ExperimentStatusEnum": ["draft", "running", "paused", "exposure_frozen", "stopped"],
