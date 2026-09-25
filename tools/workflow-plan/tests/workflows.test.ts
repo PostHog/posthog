@@ -228,6 +228,23 @@ const EXPECTATIONS: Expectation[] = [
         }
     ),
     backend(
+        { name: 'routing record unreadable', steps: { changes: { route: { outcome: 'failure' } } } },
+        {
+            runs: ['django_tests'],
+            results: { changes: 'failure' },
+            skipped: [
+                'hand-off-to-depot',
+                'django',
+                'turbo-tests',
+                'check-migrations',
+                'handle-snapshots',
+                'report-test-timings',
+                'calculate-running-time',
+                'backend-coverage-report',
+            ],
+        }
+    ),
+    backend(
         { name: 'merge queue', github: mergeQueue() },
         {
             runs: ['turbo-tests', 'django', 'django_tests'],

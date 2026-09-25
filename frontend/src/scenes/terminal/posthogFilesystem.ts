@@ -117,7 +117,7 @@ open [path] opens a project file or folder in PostHog. With no path, it opens th
 current folder. JSON files open their PostHog item, including files in /posthog/api.
 Folders open in the Files tab when the simple side panel is enabled.
 
-Optional tools download on first use: nvim, node, pi, nyancat, and doom.
+Optional tools download on first use: node, pi, nyancat, and doom.
 In Doom, W/S move, A/D strafe, left/right arrows turn, Space fires, E opens doors,
 and Shift runs. Use Capture mouse to turn with the mouse; left-click fires.
 
@@ -173,8 +173,6 @@ Files are limited to 4 MiB. Use Ctrl+C to interrupt, Tab to complete, and the
 mouse wheel for scrollback. Run busybox to see the installed Unix utilities.
 jq 1.8.2 is installed for JSON queries and formatting.
 nano 8.4 edits text with syntax highlighting. Ctrl+S saves; Ctrl+X exits.
-nvim installs Neovim on first use. Run nvim file to edit, press i to insert text,
-then Escape to return to normal mode. :w saves; :q quits.
 mc opens Midnight Commander. Tab switches panels; F3 views, F4 edits, F10 quits.
 Use Escape then a digit if your browser or keyboard captures function keys.
 mcview, mcedit, and mcdiff also run directly from the shell.

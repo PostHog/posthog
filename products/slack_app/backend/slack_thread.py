@@ -18,6 +18,7 @@ from products.slack_app.backend.services.slack_messages import (
     fork_menu_actions_block,
     fork_menu_element,
     load_run_footer,
+    mentions_slack_user,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -491,9 +492,10 @@ class SlackThreadHandler:
         if final_markdown:
             for piece in _markdown_text_pieces(final_markdown):
                 final_chunks.append({"type": "markdown_text", "text": piece})
-        if self.context.mentioning_slack_user_id:
+        recipient = self.context.mentioning_slack_user_id
+        if recipient and not (final_markdown and mentions_slack_user(final_markdown, recipient)):
             # Newlines keep the mention off the tail of the last streamed prose chunk.
-            final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
+            final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{recipient}>"})
         footer = self._footer_block()
         if footer:
             final_chunks.append({"type": "blocks", "blocks": [footer]})
