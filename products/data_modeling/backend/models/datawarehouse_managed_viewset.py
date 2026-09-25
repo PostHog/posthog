@@ -12,6 +12,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     DecimalDatabaseField,
     FieldOrTable,
+    FloatArrayDatabaseField,
     FloatDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -370,6 +371,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             type = "Boolean"
         elif isinstance(field, DateDatabaseField):
             type = "Date"
+        elif isinstance(field, FloatArrayDatabaseField):
+            type = "Array(Float64)"
         else:
             type = "String"
 
