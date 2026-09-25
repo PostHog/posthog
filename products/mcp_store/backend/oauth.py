@@ -60,16 +60,22 @@ class DCRRegistrationRejectedError(Exception):
         self.status_code = status_code
 
 
+# The 4xx codes that ask for the same request again instead of refusing it. RFC 9110 lets a
+# client repeat a 408 unchanged, and gives a 429 a Retry-After.
+_RETRYABLE_DCR_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.TOO_MANY_REQUESTS})
+
+
 def dcr_status_is_refusal(status_code: int | None) -> bool:
     """Whether a registration status proves the provider will not register our client.
 
     A 4xx is the provider's decision about this client, so the same request gets the same
-    answer tomorrow. A 429 is a throttle and a 5xx is a fault, and both are worth a retry.
-    No status at all means the request never got an answer, which proves nothing.
+    answer tomorrow. A 408 and a 429 are the exceptions that invite a retry, and a 5xx is a
+    fault, so none of the three is a decision about us. No status at all means the request
+    never got an answer, which proves nothing.
     """
     if status_code is None:
         return False
-    return 400 <= status_code < 500 and status_code != HTTPStatus.TOO_MANY_REQUESTS
+    return 400 <= status_code < 500 and status_code not in _RETRYABLE_DCR_STATUSES
 
 
 def _validate_url(url: str) -> None:

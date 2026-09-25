@@ -302,6 +302,15 @@ class TestProbeMCPServer(SimpleTestCase):
             ),
             ("registration_http_500", lambda: _mock_response(500, text="boom", content_type="text/plain"), False),
             ("registration_throttled", lambda: _mock_response(429, text="slow down", content_type="text/plain"), False),
+            # A 408 is the server asking for the same request again, so it reads as a
+            # refusal on status range alone. Deactivating on it retires a working entry.
+            (
+                "registration_request_timeout",
+                lambda: _mock_response(408, text="took too long", content_type="text/plain"),
+                False,
+            ),
+            # The transport gave up before any status came back, which is a different path
+            # from the 408 above.
             ("registration_timed_out", lambda: requests.Timeout("registration timed out"), False),
             ("registration_missing_client_id", lambda: _mock_response(201, json_body={"scope": "read"}), False),
         ]

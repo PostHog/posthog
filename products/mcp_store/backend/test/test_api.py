@@ -4376,15 +4376,23 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 None,
                 "Try again",
             ),
-            # A throttled registration endpoint answers 4xx without refusing our client.
-            # Telling the user to ask the vendor for an allowlist would send them after the
-            # wrong problem and hide that a retry works.
+            # A throttled or timed-out registration endpoint answers 4xx without refusing our
+            # client. Telling the user to ask the vendor for an allowlist would send them
+            # after the wrong problem and hide that a retry works.
             (
                 "throttled",
                 DCRRegistrationRejectedError("rate limited", 429),
                 status.HTTP_502_BAD_GATEWAY,
                 "dcr_provider_error",
                 429,
+                "Try again",
+            ),
+            (
+                "request_timeout",
+                DCRRegistrationRejectedError("request timed out", 408),
+                status.HTTP_502_BAD_GATEWAY,
+                "dcr_provider_error",
+                408,
                 "Try again",
             ),
         ]
