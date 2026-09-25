@@ -123,6 +123,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.report_actions import SafetyOverrideNotAllowed, override_safety_judgment
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_claims import (
@@ -155,6 +156,7 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.scout_authorship import resolve_report_scout_skill
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -776,6 +778,24 @@ class SignalReportMergeRequestSerializer(serializers.Serializer):
     )
 
 
+# The steer a person types when they overrule the safety judge is the same textarea the Create PR
+# popover already offers, so it is capped the same way as the other report notes.
+SIGNAL_REPORT_SAFETY_OVERRIDE_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
+
+
+class SignalReportSafetyOverrideRequestSerializer(serializers.Serializer):
+    note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SIGNAL_REPORT_SAFETY_OVERRIDE_NOTE_MAX_LENGTH,
+        help_text=(
+            "Optional instructions the person gave the run when they overruled the judgment. "
+            "Recorded on the override so the work log says what they asked for, and passed to the "
+            "agent separately as the task's prompt. Capped at 4000 characters."
+        ),
+    )
+
+
 class SignalReportMergeSourceResultSerializer(serializers.Serializer):
     id = serializers.UUIDField(source="report_id", help_text="The source report that was folded into the survivor.")
     artefacts_moved = serializers.IntegerField(
@@ -1163,7 +1183,10 @@ class SignalReportViewSet(
     # can reach suppressed reports too. `refund` is included so an already-archived but
     # billed report can still be refunded, and `feedback` because the detail view the
     # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
-    # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
+    # note for the report it is displayed on. `safety_override` is the second mutating entry, for
+    # the same reason as `state`: a report the safety judge suppressed at birth is exactly the one a
+    # person needs to be able to overrule, so it has to be reachable by id. Mutating-by-ID actions
+    # that are not a reader's decision about a report in front of them (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
     # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
@@ -1181,6 +1204,7 @@ class SignalReportViewSet(
             "pr_checks",
             "pr_comments",
             "claim",
+            "safety_override",
         }
     )
 
@@ -2531,6 +2555,63 @@ class SignalReportViewSet(
                 context=self._enriched_report_context(survivor),
             ).data
         )
+
+    @extend_schema(
+        summary="Override the safety judgment blocking a report",
+        description=(
+            "Record that a person decided to implement a report PostHog would not implement on its "
+            "own, and move it to `ready` so the resulting pull request can resolve it. Allowed from "
+            "`potential`, `candidate`, `failed` and `suppressed` — the statuses a report holds when "
+            "the safety judge rejected it or the pipeline never researched it. Any other status "
+            "returns 409: a `ready` or `pending_input` report already offers Create PR, and a "
+            "resolved or in-flight one holds no verdict to overrule. The override is appended to the "
+            "report as a `safety_judgment` artefact with `choice: true`, naming the caller and their "
+            "note, which makes the human verdict the report's canonical safety status and leaves an "
+            "audit row in its work log. Call this before creating the implementation task."
+        ),
+        request=SignalReportSafetyOverrideRequestSerializer,
+        responses={
+            200: SignalReportSerializer,
+            409: OpenApiResponse(description="The report's status holds no safety judgment to override."),
+        },
+        operation_id="signals_reports_safety_override_create",
+    )
+    @action(detail=True, methods=["post"], url_path="safety_override", required_scopes=["task:write"])
+    def safety_override(self, request, pk=None, **kwargs):
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportSafetyOverrideRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        note = serializer.validated_data.get("note") or None
+
+        user = cast(User, request.user)
+        try:
+            override = override_safety_judgment(report=report, user_id=user.id, note=note)
+        except SafetyOverrideNotAllowed as e:
+            return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
+
+        # `previous_status` and `judge_verdict` are what make overrides measurable: which blocked
+        # status people rescue reports from, and whether they were overruling a rejection the judge
+        # explained or a report nothing had looked at. `scout_name` splits that per scout, so a
+        # scout whose reports are routinely overridden becomes visible as one.
+        report_user_action(
+            user,
+            "signals_report_safety_overridden",
+            properties={
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+                "report_id": str(report.id),
+                "previous_status": override.previous_status,
+                "judge_verdict": "rejected" if override.judge_explanation else "no_rejection",
+                "scout_name": resolve_report_scout_skill(self.team.id, str(report.id)),
+                "has_note": note is not None,
+            },
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
+
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(
         summary="Leave feedback on a report",

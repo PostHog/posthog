@@ -45,6 +45,7 @@ import {
     WarmTaskRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { openSafetyOverrideDialog } from './components/shell/SafetyOverrideDialog'
 import { InboxReportActionType, captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
@@ -54,7 +55,9 @@ import {
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
+import { requiresSafetyOverride } from './utils/reportActions'
 import { reportPullRequests } from './utils/reportPullRequests'
+import { latestUnsafeSafetyExplanation, safetyOverrideReason } from './utils/safetyOverride'
 
 export const REPORT_AI_PANEL = 'inbox-report'
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
@@ -238,6 +241,33 @@ async function cancelWarmRun(projectId: string, lease: ReportWarmLease): Promise
     } catch (error) {
         posthog.captureException(error)
     }
+}
+
+/**
+ * Show the override confirmation for a blocked report and return the steer the person confirmed
+ * with, or null if they backed out.
+ *
+ * The judge's reason lives in the report's newest `safety_judgment` artefact, which the list row
+ * has not loaded, so it is fetched here rather than threaded through every surface. A failed fetch
+ * still confirms: the person loses the quoted verdict, not the choice, and `safetyOverrideReason`
+ * falls back to what the report's status says.
+ */
+async function confirmSafetyOverride(report: SignalReport, feedback?: string): Promise<string | null> {
+    let judgeExplanation: string | null = null
+    try {
+        // The log is served newest-first and the safety verdict is written when the report is
+        // authored, so it sits at the far end of a report with any history. Matches the limit the
+        // detail pane's own artefact load uses.
+        const artefacts = await api.signalReports.artefacts(report.id, { limit: 1000 })
+        judgeExplanation = latestUnsafeSafetyExplanation(artefacts.results)
+    } catch {
+        judgeExplanation = null
+    }
+    return await openSafetyOverrideDialog({
+        reportTitle: report.title,
+        reason: safetyOverrideReason(report, judgeExplanation),
+        initialNote: feedback ?? '',
+    })
 }
 
 async function createReportTask(
@@ -759,6 +789,37 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.createPrFailure()
                 return
             }
+            // A report PostHog declined to implement takes the override path: state the reason,
+            // collect the steer, and record the person's verdict server-side before the run exists.
+            // Every Create PR surface routes through this action, so the confirmation and the audit
+            // row cannot be skipped by whichever button was pressed. It settles before the
+            // optimistic run below, which the person would otherwise watch start and then vanish
+            // when they backed out of the confirmation.
+            let note = feedback
+            if (requiresSafetyOverride(report)) {
+                const confirmedNote = await confirmSafetyOverride(report, feedback)
+                if (confirmedNote === null) {
+                    captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'cancelled' })
+                    actions.createPrFailure()
+                    return
+                }
+                note = confirmedNote || undefined
+                try {
+                    await api.signalReports.overrideSafetyJudgment(report.id, note)
+                } catch (error: any) {
+                    // The 409 this can return (the report moved on since the row was rendered)
+                    // carries its reason under `error`, which is the only part worth reading back.
+                    lemonToast.error(
+                        error?.data?.error ||
+                            error?.detail ||
+                            "Couldn't record your decision on this report, so the run didn't start. Try again."
+                    )
+                    captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
+                    actions.createPrFailure()
+                    return
+                }
+            }
+
             actions.openReportDiscussion(
                 report,
                 `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
@@ -778,7 +839,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     disposables,
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
-                    buildCreatePrReportPrompt(report, feedback),
+                    buildCreatePrReportPrompt(report, note),
                     'Implement report fix',
                     await launchSelection(values)
                 )

@@ -41,7 +41,12 @@ import {
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
-import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
+import {
+    canCreateImplementationPr,
+    canResolveReport,
+    hasOpenImplementationPr,
+    requiresSafetyOverride,
+} from '../../utils/reportActions'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
@@ -135,6 +140,22 @@ function ReportContextMenuItems({
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)
+
+    const onCreatePr = (): void => {
+        captureInboxReportAction({
+            report,
+            actionType: 'create_pr',
+            surface: 'context_menu',
+            extra: { has_feedback: false },
+        })
+        if (requiresSafetyOverride(report)) {
+            // The kickoff listener confirms the override in a dialog, so the menu's close must skip
+            // its focus restore the same way the dismiss and resolve dialogs make it skip.
+            onOpenDialog()
+        }
+        // Self-guards on AI consent (toast) and navigates to the created run.
+        createPrFromReport(report)
+    }
 
     // The row's own selection gestures (hold, Shift-click) are easy to miss, so the menu names
     // the feature outright.
@@ -255,22 +276,26 @@ function ReportContextMenuItems({
         </>
     )
 
-    const onCreatePr = (): void => {
-        captureInboxReportAction({
-            report,
-            actionType: 'create_pr',
-            surface: 'context_menu',
-            extra: { has_feedback: false },
-        })
-        // Self-guards on AI consent (toast) and navigates to the created run.
-        createPrFromReport(report)
-    }
+    const createPrItem = canCreateImplementationPr(report) ? (
+        <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
+            <ButtonPrimitive
+                menuItem
+                onClick={onCreatePr}
+                disabledReasons={createPrDisabledReason ? { [createPrDisabledReason]: true } : undefined}
+                data-attr="inbox-report-context-menu-create-pr"
+            >
+                <IconPullRequest />
+                Create PR
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    ) : null
 
     if (isDismissed) {
         return (
             <>
                 <ContextMenuGroup>
                     {selectItem}
+                    {createPrItem}
                     <ContextMenuItem asChild>
                         <ButtonPrimitive
                             menuItem
@@ -291,21 +316,9 @@ function ReportContextMenuItems({
         <>
             <ContextMenuGroup>
                 {selectItem}
-                {canCreateImplementationPr(report) && (
+                {createPrItem && (
                     <>
-                        <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={onCreatePr}
-                                disabledReasons={
-                                    createPrDisabledReason ? { [createPrDisabledReason]: true } : undefined
-                                }
-                                data-attr="inbox-report-context-menu-create-pr"
-                            >
-                                <IconPullRequest />
-                                Create PR
-                            </ButtonPrimitive>
-                        </ContextMenuItem>
+                        {createPrItem}
                         {/* Create PR acts on its own; the divider separates it from the verdict submenus. */}
                         <ContextMenuSeparator />
                     </>

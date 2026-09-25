@@ -1255,6 +1255,14 @@ export interface SignalReportRefundResponseApi {
     readonly already_refunded: boolean
 }
 
+export interface SignalReportSafetyOverrideRequestApi {
+    /**
+     * Optional instructions the person gave the run when they overruled the judgment. Recorded on the override so the work log says what they asked for, and passed to the agent separately as the task's prompt. Capped at 4000 characters.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
 /**
  * * `reingestion_started` - reingestion_started
  * * `already_running` - already_running
