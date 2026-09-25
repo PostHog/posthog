@@ -48,13 +48,15 @@ describe("CanvasSidePanel", () => {
         channelName="General"
         name="Launch canvas"
         displayedVersionId="version-2"
+        liveVersionId="version-2"
+        onAskAgent={vi.fn()}
         commentVersionLabel={(versionId) => versionId}
         onCommentOpen={vi.fn()}
       />,
     );
 
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Comments"));
+    fireEvent.click(screen.getByLabelText("Comments"));
     expect(screen.getByTestId("task-comments")).toHaveTextContent(
       "task-1:canvas-1",
     );
@@ -71,6 +73,8 @@ describe("CanvasSidePanel", () => {
       channelName: "General",
       name: "Launch canvas",
       displayedVersionId: "version-2",
+      liveVersionId: "version-2",
+      onAskAgent: vi.fn(),
       commentVersionLabel: (versionId: string) => versionId,
       onCommentOpen: vi.fn(),
     };
@@ -78,7 +82,7 @@ describe("CanvasSidePanel", () => {
       <CanvasSidePanel {...props} chatTaskId="task-1" />,
     );
 
-    fireEvent.click(screen.getByText("Chat"));
+    fireEvent.click(screen.getByLabelText("Chat"));
     expect(screen.getByTestId("task-chat")).toBeInTheDocument();
 
     rerender(<CanvasSidePanel {...props} chatTaskId={null} />);
@@ -104,6 +108,8 @@ describe("CanvasSidePanel", () => {
         channelName="General"
         name="Launch canvas"
         displayedVersionId="version-2"
+        liveVersionId="version-2"
+        onAskAgent={vi.fn()}
         commentVersionLabel={(versionId) => versionId}
         onCommentOpen={vi.fn()}
       />,

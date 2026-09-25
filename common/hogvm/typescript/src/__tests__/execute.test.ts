@@ -3,7 +3,7 @@ import RE2 from 're2'
 import { exec, execAsync, execSync } from '../execute'
 import { Operation as op } from '../operation'
 import { BytecodeEntry } from '../types'
-import { UncaughtHogVMException } from '../utils'
+import { HogVMException, UncaughtHogVMException } from '../utils'
 
 export function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -18,6 +18,71 @@ const tuple = (array: any[]): any[] => {
 }
 
 describe('hogvm execute', () => {
+    describe('error kinds', () => {
+        // The CDP decides what to do with a failed filter from this field, so each throw site has
+        // to say whether the bytecode did not fit the runtime, the data did not fit the code, or a
+        // limit was hit. Message text is not part of the contract.
+        const kindOf = (bytecode: any[], options = {}): string => {
+            try {
+                execSync(bytecode, options)
+            } catch (error) {
+                expect(error).toBeInstanceOf(HogVMException)
+                return error.kind
+            }
+            throw new Error('expected the program to throw')
+        }
+
+        test('contract: the bytecode asks for something the runtime does not have', () => {
+            // A filter reading a query-only field, saved before the compiler checked globals.
+            expect(kindOf(['_H', 1, op.STRING, '$virt_is_bot', op.GET_GLOBAL, 1])).toBe('contract')
+            // A ClickHouse aggregate that never existed in Hog.
+            expect(kindOf(['_H', 1, op.INTEGER, 1, op.CALL_GLOBAL, 'countDistinctIf', 1])).toBe('contract')
+            // Two-argument dateAdd, valid HogQL, three arguments in the VM.
+            expect(kindOf(['_H', 1, op.INTEGER, 1, op.INTEGER, 1, op.CALL_GLOBAL, 'dateAdd', 2])).toBe('contract')
+            // An opcode this VM does not know.
+            expect(kindOf(['_H', 1, 999])).toBe('contract')
+            // A host that gave the VM no regex engine. The same program fails on every event, unlike a
+            // pattern the engine rejects.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.STRING, 'b', op.CALL_GLOBAL, 'match', 2])).toBe('contract')
+            // A host that gave the VM no crypto module: the same, a capability the runtime lacks.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.CALL_GLOBAL, 'sha256Hex', 1])).toBe('contract')
+        })
+
+        test('data: the code ran and the value did not fit it', () => {
+            // A standard-library function refusing its argument.
+            expect(
+                kindOf(['_H', 1, op.STRING, 'bogus', op.INTEGER, 1, op.INTEGER, 1, op.CALL_GLOBAL, 'dateDiff', 3])
+            ).toBe('data')
+            // `throw Error('boom')` in user code.
+            expect(kindOf(['_H', 1, op.STRING, 'boom', op.CALL_GLOBAL, 'Error', 1, op.THROW])).toBe('data')
+            // A number where the library expects a string: the engine's TypeError depends on the event.
+            expect(kindOf(['_H', 1, op.STRING, ',', op.INTEGER, 42, op.CALL_GLOBAL, 'splitByString', 2])).toBe('data')
+            // `'admin' in properties.roles` on an event without roles: `in` meets null.
+            expect(kindOf(['_H', 1, op.NULL, op.STRING, 'admin', op.IN])).toBe('data')
+            // An index of 0 that came from a value, so the compiler could not refuse it.
+            expect(kindOf(['_H', 1, op.STRING, 'a', op.ARRAY, 1, op.INTEGER, 0, op.GET_PROPERTY])).toBe('data')
+        })
+
+        test('limit: the program hit a resource ceiling', () => {
+            expect(kindOf(['_H', 1, op.STRING, 'a string that is longer than the limit'], { memoryLimit: 8 })).toBe(
+                'limit'
+            )
+        })
+
+        test('a raw JavaScript error from the standard library is a data error with its cause attached', () => {
+            // dateDiff throws a plain Error for its unit; the VM wraps it so the caller sees a Hog error.
+            let thrown: any
+            try {
+                execSync(['_H', 1, op.STRING, 'bogus', op.INTEGER, 1, op.INTEGER, 1, op.CALL_GLOBAL, 'dateDiff', 3])
+            } catch (error) {
+                thrown = error
+            }
+            expect(thrown).toBeInstanceOf(HogVMException)
+            expect(thrown.message).toContain('Unsupported unit for dateDiff')
+            expect(thrown.cause).toBeInstanceOf(Error)
+        })
+    })
+
     test('execution results', async () => {
         const globals = { properties: { foo: 'bar', nullValue: null } }
         const options = {

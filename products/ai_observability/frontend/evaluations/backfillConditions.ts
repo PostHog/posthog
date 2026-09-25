@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
+import { clamp } from 'lib/utils/numbers'
 
-import type { EvaluationBackfillConditionApi } from '../generated/api.schemas'
+import type { EvaluationBackfillApi, EvaluationBackfillConditionApi } from '../generated/api.schemas'
 
 export function backfillSamplingLabel(condition: EvaluationBackfillConditionApi): string {
     const percent = condition.rollout_percentage ?? 100
@@ -17,4 +18,15 @@ export function backfillSamplingLabel(condition: EvaluationBackfillConditionApi)
 export function backfillRangeDateFormat(start: string, end: string, now: dayjs.Dayjs): string {
     const sameYear = dayjs(start).isSame(now, 'year') && dayjs(end).isSame(now, 'year')
     return sameYear ? 'MMM D' : 'MMM D, YYYY'
+}
+
+export function backfillCoveredCount(backfill: EvaluationBackfillApi): number {
+    // A finished run knows what the window still owed. Until then, coverage is what the walk itself
+    // handled. The total is the estimate taken at creation while the remainder is counted later, so
+    // an event arriving in between can leave more owed than the total ever held.
+    const covered =
+        backfill.status === 'completed' && backfill.remaining_count !== null
+            ? backfill.total_count - backfill.remaining_count
+            : backfill.dispatched_count + backfill.skipped_count
+    return clamp(covered, 0, backfill.total_count)
 }

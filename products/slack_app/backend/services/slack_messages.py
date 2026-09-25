@@ -197,6 +197,11 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
 
 
+def mentions_slack_user(text: str, slack_user_id: str) -> bool:
+    """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
+    return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
+
+
 def flatten_block_text(node: Any) -> list[str]:
     """Best-effort plain-text extraction from a Slack block-kit subtree.
 
