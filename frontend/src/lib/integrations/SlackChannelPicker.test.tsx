@@ -404,6 +404,59 @@ describe('SlackChannelPicker', () => {
         }
     })
 
+    it('does not look up a channel id that is already selected', async () => {
+        // Callers store the bare channel id, and LemonInputSelect puts the selected value back in
+        // the input, so the picker is handed its own id as if it were a fresh paste. Treating it as
+        // one re-arms the resolution effect, which writes state and calls back into the caller.
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value={OFF_PAGE_CHANNEL.id} onChange={onChange} />
+            </Provider>
+        )
+        // Mount resolves the saved id to a name through one by-id lookup.
+        await waitFor(() => expect(channelIdLookups).toEqual([OFF_PAGE_CHANNEL.id]))
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.paste(OFF_PAGE_CHANNEL.id)
+
+        await waitFor(() => expect(channelsRequestSearchQueries).toEqual(['']))
+        expect(channelIdLookups).toEqual([OFF_PAGE_CHANNEL.id])
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
+    it('keeps the selection when a held lookup lands after the input echoes the selected id', async () => {
+        // Entering the selected id abandons the paste before it resolves. The pending lookup is
+        // then the only thing left that can select a channel the user has already moved away from.
+        let releaseChannelIdLookup: () => void = () => {}
+        holdChannelIdLookup = new Promise<void>((resolve) => {
+            releaseChannelIdLookup = resolve
+        })
+        const onChange = jest.fn()
+        const selectedId = CHANNELS[1].id
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value={selectedId} onChange={onChange} />
+            </Provider>
+        )
+        await waitFor(() => expect(channelsRequestSearchQueries).toEqual(['']))
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.paste(OFF_PAGE_CHANNEL.id)
+        await waitFor(() => expect(channelIdLookups).toContain(OFF_PAGE_CHANNEL.id))
+
+        await userEvent.clear(input)
+        await userEvent.paste(selectedId)
+        await userEvent.clear(input)
+        releaseChannelIdLookup()
+
+        // The pasted channel reaching the option list proves its lookup landed.
+        expect(await screen.findByText(`#${OFF_PAGE_CHANNEL.name}`, undefined, { timeout: 3000 })).toBeInTheDocument()
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     it('drops the reported search when the caller swaps the workspace', async () => {
         // Some callers swap the integration without unmounting, so an error raised against the old
         // workspace would otherwise sit over a picker now listing a different workspace's channels.
