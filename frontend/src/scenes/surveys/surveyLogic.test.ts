@@ -4,6 +4,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import {
+    getFailedQuestionIds,
     mergeResponsesByQuestion,
     processOpenEndedResults,
     processResultsForSurveyQuestions,
@@ -29,6 +30,7 @@ import {
     SurveyEventProperties,
     SurveyEventStats,
     SurveyPosition,
+    SurveyQuestion,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveyRates,
@@ -2335,6 +2337,112 @@ describe('surveyLogic archived response refresh', () => {
         ])
 
         expect(api.surveys.archiveResponse).toHaveBeenCalledWith('test-survey', 'response-1')
+    })
+})
+
+describe('surveyLogic consolidated results failures', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    const SURVEY_WITH_TWO_QUESTIONS: Survey = {
+        ...MULTIPLE_CHOICE_SURVEY,
+        id: 'test-survey',
+        questions: [
+            {
+                id: 'rating-q',
+                type: SurveyQuestionType.Rating,
+                question: 'How likely are you to recommend us?',
+                description: '',
+                display: 'number',
+                scale: 10,
+                lowerBoundLabel: 'Unlikely',
+                upperBoundLabel: 'Very likely',
+            },
+            {
+                id: 'open-q',
+                type: SurveyQuestionType.Open,
+                question: 'What do you think?',
+                description: '',
+            },
+        ],
+    }
+
+    const mountWithFailingQuery = async (failingTagName: string): Promise<void> => {
+        jest.spyOn(api, 'queryHogQL').mockImplementation(async (_query, tags) => {
+            if (tags?.name === failingTagName) {
+                throw new Error('Service Unavailable')
+            }
+            if (tags?.name === 'survey_results_open_ended') {
+                return { results: [['Loving it', 'user-1', '2024-01-15T10:00:00Z', 'session-1']] } as any
+            }
+            return { results: [] } as any
+        })
+
+        logic = surveyLogic({ id: 'test-survey' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    }
+
+    beforeEach(() => {
+        initKeaTests()
+
+        useMocks({
+            get: {
+                '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
+                '/api/projects/:team/surveys/test-survey/': () => [200, SURVEY_WITH_TWO_QUESTIONS],
+                '/api/projects/:team/surveys/test-survey/archived-response-uuids/': () => [200, []],
+            },
+        })
+    })
+
+    it('keeps the questions the surviving query answers and flags the rest for retry', async () => {
+        await mountWithFailingQuery('survey_results_aggregate')
+
+        const results = logic.values.consolidatedSurveyResults
+
+        expect(Object.keys(results.responsesByQuestion)).toEqual(['open-q'])
+        expect(results.failedQuestionIds).toEqual(['rating-q'])
+    })
+
+    it('still loads the per-question results when the base stats query fails', async () => {
+        await mountWithFailingQuery('survey_base_stats')
+
+        expect(logic.values.consolidatedSurveyResults).not.toBeNull()
+        expect(Object.keys(logic.values.consolidatedSurveyResults.responsesByQuestion)).toEqual(['open-q'])
+    })
+})
+
+describe('getFailedQuestionIds', () => {
+    const QUESTIONS: SurveyQuestion[] = [
+        {
+            id: 'rating-q',
+            type: SurveyQuestionType.Rating,
+            question: 'How likely are you to recommend us?',
+            description: '',
+            display: 'number',
+            scale: 10,
+            lowerBoundLabel: 'Unlikely',
+            upperBoundLabel: 'Very likely',
+        },
+        {
+            id: 'open-q',
+            type: SurveyQuestionType.Open,
+            question: 'What do you think?',
+            description: '',
+        },
+    ]
+
+    it('reports no failure for a question that simply collected nothing', () => {
+        expect(getFailedQuestionIds(QUESTIONS, {}, { aggregateFailed: false, openEndedFailed: false })).toEqual([])
+    })
+
+    it('reports the questions a failed query left without data', () => {
+        const responsesByQuestion: ResponsesByQuestion = {
+            'open-q': { type: SurveyQuestionType.Open, data: [], totalResponses: 3 },
+        }
+
+        expect(
+            getFailedQuestionIds(QUESTIONS, responsesByQuestion, { aggregateFailed: true, openEndedFailed: false })
+        ).toEqual(['rating-q'])
     })
 })
 

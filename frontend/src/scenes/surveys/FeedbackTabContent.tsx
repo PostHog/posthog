@@ -1,11 +1,12 @@
 import { BindLogic, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumn, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { SurveyResponsesCount } from 'scenes/surveys/components/SurveyResponsesCount'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { QuickSurveyContext } from 'scenes/surveys/quick-create/types'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -31,7 +32,7 @@ export function FeedbackTabContent({
     emptyStateBannerMessage,
     multipleSurveysBannerMessage,
 }: FeedbackTabContentProps): JSX.Element {
-    const { surveysResponsesCountLoading, surveysResponsesCount } = useValues(surveysLogic)
+    const { surveysResponsesCount } = useValues(surveysLogic)
 
     if (surveys.length === 0) {
         return (
@@ -90,15 +91,7 @@ export function FeedbackTabContent({
                         title: 'Responses',
                         dataIndex: 'id',
                         render: function RenderResponses(_, survey) {
-                            return (
-                                <>
-                                    {surveysResponsesCountLoading ? (
-                                        <Spinner />
-                                    ) : (
-                                        <div>{surveysResponsesCount[survey.id] ?? 0}</div>
-                                    )}
-                                </>
-                            )
+                            return <SurveyResponsesCount surveyId={survey.id} />
                         },
                         sorter: (surveyA, surveyB) => {
                             const countA = surveysResponsesCount[surveyA.id] ?? 0
