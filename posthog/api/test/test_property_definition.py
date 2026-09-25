@@ -692,6 +692,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert activity_log.item_id == str(property_definition.id)
         assert detail["name"] == "test_property"
         assert activity_log.activity == "deleted"
+        # The row is a hard delete, so the entry is the only copy of what the definition held.
+        changes = {change["field"]: change for change in detail["changes"]}
+        assert changes["name"]["before"] == "test_property"
+        assert changes["property_type"]["before"] == "String"
+        assert changes["name"]["action"] == "deleted"
 
     def test_event_name_filter_json_contains_int(self):
         event_name_json = json.dumps([1])

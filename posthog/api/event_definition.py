@@ -58,6 +58,8 @@ from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.event_definitions.backend.activity_logging import event_definition_state
+
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
 EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
@@ -833,6 +835,8 @@ class EventDefinitionViewSet(
         event_definition = serializer.save(**save_kwargs)
 
         # Log activity for audit trail
+        changes = dict_changes_between("EventDefinition", {}, event_definition_state(event_definition), True)
+
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
@@ -841,7 +845,7 @@ class EventDefinitionViewSet(
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="created",
-            detail=Detail(name=event_definition.name, changes=None),
+            detail=Detail(name=event_definition.name, changes=changes),
         )
 
     def perform_update(self, serializer):
@@ -881,6 +885,8 @@ class EventDefinitionViewSet(
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
+        # The row and its tags go away with the delete, so read them before it runs.
+        changes = dict_changes_between("EventDefinition", event_definition_state(instance), {}, True)
         self.perform_destroy(instance)
         report_user_action(
             request.user,
@@ -898,7 +904,7 @@ class EventDefinitionViewSet(
             item_id=instance_id,
             scope="EventDefinition",
             activity="deleted",
-            detail=Detail(name=cast(str, instance.name), changes=None),
+            detail=Detail(name=cast(str, instance.name), changes=changes),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -25,7 +25,7 @@ from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventProperty, PropertyDefinition, User
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
@@ -41,6 +41,7 @@ from posthog.taxonomy.taxonomy import (
     QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
 
+from products.event_definitions.backend.activity_logging import property_definition_state
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
@@ -951,6 +952,8 @@ class PropertyDefinitionViewSet(
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()
         instance_id = str(instance.id)
+        # The row and its tags go away with the delete, so read them before it runs.
+        changes = dict_changes_between("PropertyDefinition", property_definition_state(instance), {}, True)
         self.perform_destroy(instance)
         report_user_action(
             request.user,
@@ -971,7 +974,7 @@ class PropertyDefinitionViewSet(
             detail=Detail(
                 name=cast(str, instance.name),
                 type=PropertyDefinition.Type(instance.type).label,
-                changes=None,
+                changes=changes,
             ),
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)

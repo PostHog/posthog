@@ -226,6 +226,8 @@ class TestEventDefinitionAPI(APIBaseTest):
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
         event_definition: EventDefinition = EventDefinition.objects.create(team=self.demo_team, name="test_event")
+        tag = Tag.objects.create(name="pii", team_id=self.demo_team.id)
+        event_definition.tagged_items.create(tag_id=tag.id)
         response = self.client.delete(f"/api/projects/@current/event_definitions/{event_definition.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert EventDefinition.objects.filter(id=event_definition.id).count() == 0
@@ -264,6 +266,11 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.scope == "EventDefinition"
         assert activity_log.detail is not None
         assert activity_log.detail["name"] == str(event_definition.name)
+        # The row is a hard delete, so the entry is the only copy of what the definition held.
+        changes = {change["field"]: change for change in activity_log.detail["changes"]}
+        assert changes["name"]["before"] == "test_event"
+        assert changes["tags"]["before"] == ["pii"]
+        assert changes["name"]["action"] == "deleted"
 
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(
@@ -469,6 +476,9 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.detail is not None
         detail = cast(dict[str, Any], activity_log.detail)
         assert detail["name"] == "my_custom_event"
+        changes = {change["field"]: change for change in detail["changes"]}
+        assert changes["name"]["after"] == "my_custom_event"
+        assert changes["name"]["action"] == "created"
 
     @patch("posthog.api.event_definition.EE_AVAILABLE", False)
     def test_create_event_definition_rejects_enterprise_metadata_without_ee(self):

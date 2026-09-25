@@ -204,6 +204,34 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert sorted([r["name"] for r in response.json()["results"]]) == expected_names
 
+    def test_delete_event_definition_records_the_metadata_it_removes(self):
+        # The row is a hard Postgres delete, so the activity entry is the only record of what the
+        # definition held. Guards the before-state capture in EventDefinitionViewSet.destroy.
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team,
+            name="enterprise event",
+            owner=self.user,
+            description="What this event means.",
+            verified=True,
+        )
+        tag = Tag.objects.create(name="official", team_id=self.demo_team.id)
+        event.tagged_items.create(tag_id=tag.id)
+
+        response = self.client.delete(f"/api/projects/@current/event_definitions/{event.id}/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+        activity_log = ActivityLog.objects.get(scope="EventDefinition", activity="deleted", item_id=str(event.id))
+        assert activity_log.detail is not None
+        changes = {change["field"]: change["before"] for change in activity_log.detail["changes"]}
+        assert changes["name"] == "enterprise event"
+        assert changes["description"] == "What this event means."
+        assert changes["tags"] == ["official"]
+        assert changes["verified"] is True
+        assert changes["owner"]["email"] == self.user.email
+
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7)
