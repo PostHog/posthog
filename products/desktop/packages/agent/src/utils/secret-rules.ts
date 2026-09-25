@@ -37,6 +37,12 @@ export const TOKEN_RULES: TokenRule[] = [
     prefix: "phx_",
     body: URL_SAFE_BODY,
   },
+  {
+    // A ChatGPT access token is a JWT; "eyJ" is base64 for the opening of its JSON header.
+    label: "jwt",
+    prefix: "eyJ",
+    body: /[A-Za-z0-9_.-]/,
+  },
 ];
 
 export const SECRET_HEADERS: string[] = [

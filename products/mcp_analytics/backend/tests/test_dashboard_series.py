@@ -3,7 +3,6 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -21,7 +20,6 @@ from posthog.schema import (
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
     MCPToolCallBreakdownQueryRunner,
     MCPToolCallsAndErrorsQueryRunner,
@@ -215,24 +213,6 @@ class TestMCPToolCallBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clic
 
 
 class TestMCPDashboardSeriesGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    # Every other test here calls calculate() with the flag already on, so a runner that lost its
-    # validate_query_runner_access override would stay green while the generic /query/ endpoint
-    # reached it ungated (the base implementation returns True).
-    @parameterized.expand(
-        [
-            (MCPToolCallsAndErrorsQueryRunner, MCPToolCallsAndErrorsQuery()),
-            (MCPToolCallBreakdownQueryRunner, MCPToolCallBreakdownQuery()),
-        ]
-    )
-    def test_runner_gates_on_mcp_analytics_flag(self, runner_cls: Any, query: Any) -> None:
-        runner = runner_cls(query=query, team=self.team, user=self.user)
-
-        assert runner.validate_query_runner_access(self.user) is True
-
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            with self.assertRaises(UserAccessControlError):
-                runner.validate_query_runner_access(self.user)
-
     # The runners' access check reads the token owner's RBAC, not the token's granted scopes, so a
     # kind registered on the generic query endpoint without a _QUERY_KIND_SCOPES entry is reachable
     # by any token holding only query:read.

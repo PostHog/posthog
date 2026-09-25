@@ -235,6 +235,7 @@ async def create_worker(
     use_pydantic_converter: bool = False,
     target_memory_usage: float | None = None,
     target_cpu_usage: float | None = None,
+    activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
 ) -> ManagedWorker:
@@ -265,6 +266,8 @@ async def create_worker(
             If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
         target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
+        activity_ramp_throttle: Minimum interval between two activity slot issues.
+            Defaults to the SDK value of 50 ms. Only takes effect if target_memory_usage is set.
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
@@ -444,7 +447,8 @@ async def create_worker(
                     maximum_slots=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS
                 ),
                 activity_config=ResourceBasedSlotConfig(
-                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS
+                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
+                    ramp_throttle=activity_ramp_throttle,
                 ),
             ),
             # Worker will flush heartbeats every

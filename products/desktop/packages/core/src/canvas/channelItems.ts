@@ -34,7 +34,7 @@ export interface ChannelItemModel {
    * names one.
    */
   environment: ChannelItemEnvironment | null;
-  /** The product that filed it (`origin_product`), or null if it started here. */
+  /** The product that filed it (`origin_product`), or Desktop for a canvas. */
   source: string | null;
   /** The agent is blocked on an answer from you. */
   needsInput: boolean;
@@ -134,16 +134,8 @@ function environmentOf(
   return mode === "cloud" ? "cloud" : "local";
 }
 
-/**
- * `origin_product` for a session someone started here rather than one filed by
- * another product. It is the default the backend stamps on, so it is an absence
- * of a source, not one of the sources to choose between.
- */
-const SELF_ORIGIN = "user_created";
-
 function sourceOf(task: Task): string | null {
-  const origin = task.origin_product;
-  return origin && origin !== SELF_ORIGIN ? origin : null;
+  return task.origin_product || null;
 }
 
 export function buildChannelItems({
@@ -171,7 +163,7 @@ export function buildChannelItems({
     pinned: d.pinnedAt != null,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: d.createdByUser ?? null,
@@ -239,6 +231,7 @@ export type ChannelItemSort = "recent" | "created" | "alpha";
 export type KindFilter = "any" | "task" | "canvas";
 
 export const ANY_SOURCE = "any";
+export const DESKTOP_SOURCE = "user_created";
 
 export interface ChannelItemFilters {
   kind: KindFilter;
@@ -285,14 +278,15 @@ export const DEFAULT_CHANNEL_ITEM_GROUPING: ChannelItemGrouping = "date";
  */
 export function hasActiveChannelItemFilters(
   filters: ChannelItemFilters,
+  defaults: ChannelItemFilters = DEFAULT_CHANNEL_ITEM_FILTERS,
 ): boolean {
   return (
-    filters.kind !== "any" ||
-    filters.createdBy !== "anyone" ||
-    filters.attention !== "any" ||
-    filters.pinned !== "any" ||
-    filters.environment !== "any" ||
-    filters.source !== ANY_SOURCE
+    filters.kind !== defaults.kind ||
+    filters.createdBy !== defaults.createdBy ||
+    filters.attention !== defaults.attention ||
+    filters.pinned !== defaults.pinned ||
+    filters.environment !== defaults.environment ||
+    filters.source !== defaults.source
   );
 }
 
