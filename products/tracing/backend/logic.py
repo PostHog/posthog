@@ -281,8 +281,9 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
     @property
     def _trace_id_b64(self) -> str:
+        """The trace id in the table's base64 storage form. Callers pass it as hex or as base64."""
         assert self.query.traceId
-        return base64.b64encode(bytes.fromhex(self.query.traceId)).decode("ascii")
+        return _normalise_to_base64(self.query.traceId)
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []

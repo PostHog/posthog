@@ -2,6 +2,8 @@ import datetime as dt
 
 from parameterized import parameterized
 
+from posthog.schema import TraceSpansQuery
+
 from posthog.clickhouse.client import sync_execute
 
 from products.tracing.backend.presentation.views import TRACE_SPANS_PAGE_SIZE
@@ -77,3 +79,16 @@ class TestTracePagination(_TraceSpansTestBase):
         second = {span["span_id"] for span in self._fetch_page(date_range, offset=TRACE_SPANS_PAGE_SIZE)["results"]}
         self.assertEqual(first & second, set())
         self.assertEqual(len(first | second), SPAN_COUNT)
+
+    # The query API passes traceId through unvalidated, so it can arrive in the stored base64 form too.
+    @parameterized.expand([("hex", (1).to_bytes(16, "big").hex()), ("base64", _b64((1).to_bytes(16, "big")))])
+    def test_undated_lookup_accepts_hex_or_base64_trace_id(self, _name: str, trace_id: str):
+        query = TraceSpansQuery(
+            traceId=trace_id,
+            orderBy="timestamp",
+            orderDirection="ASC",
+            limit=1,
+            prefetchSpans=SPAN_COUNT,
+            rootSpans=False,
+        )
+        self.assertEqual(len(self._execute(query)), SPAN_COUNT)
