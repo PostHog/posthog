@@ -1,7 +1,7 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { within, waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions, useMountedLogic } from 'kea'
 
@@ -10,6 +10,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
 import { NavExperimentTab, panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../ProjectTree/defaultTree'
@@ -107,6 +109,7 @@ const meta: Meta<typeof SidebarStory> = {
             ),
             FEATURE_FLAGS.PRODUCT_AUTONOMY,
             FEATURE_FLAGS.SIMPLE_SIDEPANEL,
+            FEATURE_FLAGS.ML_INFERENCE_DECISIONS,
         ],
     },
     decorators: [
@@ -138,6 +141,30 @@ const meta: Meta<typeof SidebarStory> = {
                 '/api/environments/:team_id/file_system_shortcut/': [200, { results: starred }],
             },
             post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': async ({ request }) => {
+                    const { questions } = (await request.json()) as DecideRequestApi
+                    return [
+                        200,
+                        {
+                            model: 'storybook',
+                            input_tokens: 1,
+                            latency_ms: 1,
+                            answers: Object.fromEntries(
+                                Object.entries(questions).map(([key, question]) => [
+                                    key,
+                                    {
+                                        type: 'noul',
+                                        probability: question.instructions.includes('App: Web analytics.')
+                                            ? 0.98
+                                            : question.instructions.includes('App: Product analytics.')
+                                              ? 0.8
+                                              : 0.1,
+                                    },
+                                ])
+                            ),
+                        },
+                    ]
+                },
                 '/api/projects/:team_id/file_system/home_folder/': [
                     200,
                     { id: 'home-folder', path: 'Users/Alex Example' },
@@ -164,6 +191,38 @@ export const ConfigureStarred: Story = {
         await userEvent.click(await canvas.findByLabelText('Starred options'))
         await userEvent.click(await body.findByText('Configure starred', { exact: true }))
     },
+}
+export const ConfigureStarredRanked: Story = {
+    play: async (context) => {
+        await ConfigureStarred.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await userEvent.click(body.getByText('Track website visitors', { exact: true }))
+        await waitFor(() => {
+            if (navAppsTabLogic.values.rankedConfigurableApps[0]?.path !== 'Web analytics') {
+                throw new Error('Waiting for app rankings')
+            }
+        })
+    },
+}
+export const ConfigureStarredUnavailable: Story = {
+    decorators: [
+        mswDecorator({
+            post: { '/api/projects/:team_id/ml_inference/decisions/decide/': [503, { detail: 'Unavailable' }] },
+        }),
+    ],
+    play: async (context) => {
+        await ConfigureStarred.play!(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await userEvent.click(body.getByText('Query databases', { exact: true }))
+        await body.findByText(
+            'Jev could not suggest apps. Edit your description to try again, or choose from all apps below.'
+        )
+    },
+}
+export const ConfigureStarredDark: Story = { ...ConfigureStarredRanked, globals: { theme: 'dark' } }
+export const ConfigureStarredNarrow: Story = {
+    ...ConfigureStarredRanked,
+    parameters: { testOptions: { viewport: { width: 600, height: 900 } } },
 }
 export const Files: Story = { args: { tab: 'files' } }
 export const FilesOptions: Story = {

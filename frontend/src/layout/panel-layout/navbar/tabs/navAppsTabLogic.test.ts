@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -7,6 +8,8 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
+
+import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
 import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
@@ -90,8 +93,8 @@ describe('navAppsTabLogic', () => {
         const create = jest.fn(() => [201, app])
         const remove = jest.fn(() => [204])
         useMocks({
-            post: { '/api/environments/:team_id/file_system_shortcut/': create },
-            delete: { '/api/environments/:team_id/file_system_shortcut/app-star/': remove },
+            post: { '/api/projects/:team_id/file_system_shortcut/': create },
+            delete: { '/api/projects/:team_id/file_system_shortcut/app-star/': remove },
         })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         const existing = [
@@ -106,7 +109,7 @@ describe('navAppsTabLogic', () => {
         await expectLogic(navAppsTabLogic, () => {
             navAppsTabLogic.actions.setAppStarred('Feature flags', true)
             navAppsTabLogic.actions.setAppStarred('Feature flags', true)
-        }).toDispatchActions([projectTreeDataLogic.actionTypes.addShortcutItemSuccess])
+        }).toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
         expect(create).toHaveBeenCalledTimes(1)
         expect(projectTreeDataLogic.values.shortcutData).toEqual([...existing, app])
         expect(navAppsTabLogic.values.starredAppIds['Feature flags']).toBe('app-star')
@@ -114,7 +117,7 @@ describe('navAppsTabLogic', () => {
         await expectLogic(navAppsTabLogic, () => {
             navAppsTabLogic.actions.setAppStarred('Feature flags', false)
             navAppsTabLogic.actions.setAppStarred('Feature flags', false)
-        }).toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutSuccess])
+        }).toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
         expect(remove).toHaveBeenCalledTimes(1)
         expect(projectTreeDataLogic.values.shortcutData).toEqual(existing)
     })
@@ -124,18 +127,22 @@ describe('navAppsTabLogic', () => {
             .fn()
             .mockReturnValueOnce([500, { detail: 'Try again' }])
             .mockReturnValueOnce([204])
-        useMocks({ delete: { '/api/environments/:team_id/file_system_shortcut/app-star/': remove } })
+        useMocks({ delete: { '/api/projects/:team_id/file_system_shortcut/app-star/': remove } })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
         ])
 
         await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
-            .toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutFailure])
-            .toMatchValues({ starredAppIds: { 'Feature flags': 'app-star' }, shortcutDataLoading: false })
+            .toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
+            .toMatchValues({
+                starredAppIds: { 'Feature flags': 'app-star' },
+                starSaveResultLoading: false,
+                starSaveError: expect.any(String),
+            })
         await expectLogic(navAppsTabLogic, () => navAppsTabLogic.actions.setAppStarred('Feature flags', false))
-            .toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutSuccess])
-            .toMatchValues({ starredAppIds: {}, shortcutDataLoading: false })
+            .toDispatchActions([navAppsTabLogic.actionTypes.saveAppStarsSuccess])
+            .toMatchValues({ starredAppIds: {}, starSaveResultLoading: false, starSaveError: null })
     })
     it.each([
         ['apps', ['Product analytics']],
@@ -154,5 +161,122 @@ describe('navAppsTabLogic', () => {
         expect(tree.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(
             shortcutScope === 'files' ? [] : ['Product analytics']
         )
+    })
+    it('keeps edits responsive while saving, preserves the latest intent, and finishes after the modal closes', async () => {
+        let releaseCreate!: () => void
+        const held = new Promise<void>((resolve) => {
+            releaseCreate = resolve
+        })
+        const create = jest.fn(async () => {
+            await held
+            return [201, { id: 'new-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }]
+        })
+        const remove = jest.fn(() => [204])
+        useMocks({
+            post: { '/api/projects/:team_id/file_system_shortcut/': create },
+            delete: { '/api/projects/:team_id/file_system_shortcut/:id/': remove },
+        })
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+        ])
+        navAppsTabLogic.actions.setAppStarred('Feature flags', true)
+        await expectLogic(navAppsTabLogic).toDispatchActions(['saveAppStars'])
+        expect(navAppsTabLogic.values.selectedAppStars['Feature flags']).toBe(true)
+        navAppsTabLogic.actions.setAppStarred('Product analytics', false)
+        navAppsTabLogic.actions.setAppStarred('Feature flags', false)
+        expect(navAppsTabLogic.values.selectedAppStars).toMatchObject({
+            'Feature flags': false,
+            'Product analytics': false,
+        })
+        navAppsTabLogic.actions.setConfigureStarredOpen(false)
+        releaseCreate()
+        await expectLogic(navAppsTabLogic).toDispatchActions(['saveAppStarsSuccess'])
+        expect(create).toHaveBeenCalledTimes(1)
+        expect(remove).toHaveBeenCalledTimes(2)
+    })
+
+    it('ranks the complete catalog with descriptions and examples, and clears back to alphabetical order', async () => {
+        const requests: DecideRequestApi[] = []
+        const decide = jest.fn(async ({ request }) => {
+            const body: DecideRequestApi = await request.json()
+            requests.push(body)
+            return [
+                200,
+                {
+                    model: 'test',
+                    input_tokens: 1,
+                    latency_ms: 1,
+                    answers: Object.fromEntries(
+                        Object.entries(body.questions).map(([key, question]: [string, { instructions: string }]) => [
+                            key,
+                            {
+                                type: 'noul',
+                                probability: question.instructions.includes('App: Web analytics.') ? 0.99 : 0,
+                            },
+                        ])
+                    ),
+                },
+            ]
+        })
+        useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        const allApps = navAppsTabLogic.values.configurableApps
+        await expectLogic(navAppsTabLogic, () =>
+            navAppsTabLogic.actions.setAppRecommendationQuery('Track website visitors')
+        ).toDispatchActions(['rankAppsSuccess'])
+        expect(navAppsTabLogic.values.appRankingError).toBeNull()
+        expect(navAppsTabLogic.values.rankedConfigurableApps[0].path).toBe('Web analytics')
+        expect(new Set(navAppsTabLogic.values.rankedConfigurableApps)).toEqual(new Set(allApps))
+        expect(decide.mock.calls.length).toBe(Math.ceil(allApps.length / 32))
+        const questions = requests.flatMap(({ questions }) => Object.values(questions))
+        expect(questions).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    instructions: expect.stringContaining('Find which referral sources bring visitors who sign up.'),
+                }),
+            ])
+        )
+        navAppsTabLogic.actions.setAppRecommendationQuery('')
+        expect(navAppsTabLogic.values.rankedConfigurableApps).toEqual(allApps)
+    })
+
+    it('leaves every app available when ranking fails and does not call Jev without enrollment', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: false })
+        const decide = jest.fn(() => [503, { detail: 'Unavailable' }])
+        useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+        await expectLogic(navAppsTabLogic, () =>
+            navAppsTabLogic.actions.setAppRecommendationQuery('Debug errors')
+        ).toDispatchActions(['rankAppsSuccess'])
+        expect(decide).not.toHaveBeenCalled()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        await expectLogic(navAppsTabLogic, () =>
+            navAppsTabLogic.actions.setAppRecommendationQuery('Debug errors')
+        ).toDispatchActions(['rankAppsSuccess'])
+        expect(decide).toHaveBeenCalled()
+        expect(navAppsTabLogic.values.appRankingError).toEqual(expect.any(String))
+        expect(navAppsTabLogic.values.rankedConfigurableApps).toEqual(navAppsTabLogic.values.configurableApps)
+    })
+
+    it('discards ranking responses after the query is cleared', async () => {
+        let release!: () => void
+        const held = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const decide = jest.fn(async () => {
+            await held
+            return [200, { model: 'test', answers: { app_0: { type: 'noul', probability: 1 } }, input_tokens: 1 }]
+        })
+        useMocks({ post: { '/api/projects/:team_id/ml_inference/decisions/decide/': decide } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        navAppsTabLogic.actions.setAppRecommendationQuery('Watch user sessions')
+        await waitFor(() => expect(decide).toHaveBeenCalled())
+        await expectLogic(navAppsTabLogic, () =>
+            navAppsTabLogic.actions.setAppRecommendationQuery('')
+        ).toDispatchActions(['rankAppsSuccess'])
+        release()
+        await expectLogic(navAppsTabLogic).toFinishAllListeners()
+        expect(navAppsTabLogic.values.appRankings).toBeNull()
+        expect(navAppsTabLogic.values.appRankingError).toBeNull()
     })
 })

@@ -17,12 +17,12 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.gateway_client import GatewayNotConfiguredError
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from ..facade import api, contracts
 from ..facade.contracts import DecisionGatewayError, DecisionGatewayUnreachableError, DecisionsDisabledError
 from ..facade.enums import DecisionQuestionType
 from .serializers import DecideRequestSerializer, DecideResponseSerializer
+from .throttles import DecisionBurstThrottle, DecisionSustainedThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -42,7 +42,7 @@ class DecisionGatewayRefused(APIException):
 class DecisionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = DecideRequestSerializer
-    throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
+    throttle_classes = [DecisionBurstThrottle, DecisionSustainedThrottle]
 
     @validated_request(
         request_serializer=DecideRequestSerializer,

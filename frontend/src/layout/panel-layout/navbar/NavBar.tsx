@@ -2,7 +2,7 @@ import './NavBar.scss'
 
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { Suspense, useEffect, useRef } from 'react'
@@ -38,6 +38,7 @@ import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
+import { navAppsTabLogic } from './tabs/navAppsTabLogic'
 import { NavTabApps } from './tabs/NavTabApps'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 import { NavTabFiles } from './tabs/NavTabFiles'
@@ -113,6 +114,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
 ]
 
 export function NavBar(): JSX.Element {
+    useMountedLogic(navAppsTabLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
         toggleLayoutNavCollapsed,
