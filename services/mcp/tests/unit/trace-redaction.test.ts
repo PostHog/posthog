@@ -119,26 +119,20 @@ describe('trace redaction', () => {
         expect(properties.$ai_is_error).toBe(true)
     })
 
-    it('scrubs a structured error, where the credential sits under a key', () => {
+    it('scrubs an error property the taxonomy gains later, which no name list would name', () => {
+        // The allowlist is generated, so a new `$ai_error_*` property is
+        // retained the moment the taxonomy describes it.
         const trace = {
             id: 't1',
             events: [
-                {
-                    id: 'e1',
-                    properties: {
-                        $ai_error: {
-                            message: 'authentication failed',
-                            request: { headers: { authorization: `Bearer ${SECRETS.credential}` } },
-                        },
-                    },
-                },
+                { id: 'e1', properties: { $ai_error_type: `AuthenticationError: sk-pr****${SECRETS.maskedKeyTail}` } },
             ],
         }
 
-        const error = (redactTrace(trace) as any).events[0].properties.$ai_error
+        const properties = (redactTrace(trace) as any).events[0].properties
 
-        expect(secretsIn(error)).toEqual([])
-        expect(error.message).toBe('authentication failed')
+        expect(secretsIn(properties)).toEqual([])
+        expect(properties.$ai_error_type).toContain('AuthenticationError:')
     })
 
     it('withholds every person property, including names the event allowlist keeps', () => {

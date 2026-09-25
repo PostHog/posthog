@@ -14,8 +14,19 @@
  * needs a pass of its own. Matching on credential shapes needs no access to the
  * live secrets, which this boundary does not have.
  *
+ * The prompts and the outputs are out of scope, although an application can paste
+ * a key into one. They are the payload these tools exist to return, and the rules
+ * below would rewrite any legitimate `password:` or `token` text in a
+ * conversation, which spends the common case to defend a rare one. An error value
+ * is also short, where a prompt body is the payload `trace-compaction.ts` exists
+ * to bound.
+ *
  * This is a client-boundary safeguard, like the allowlist beside it. The stored
  * event and the PostHog UI keep the complete error text.
+ *
+ * Other trees hold their own credential prefix lists, in another language or
+ * another package, and none of them is importable here. No list is the canonical
+ * one.
  */
 
 import { assignKey, isRecord } from '@/lib/plain-object'
@@ -23,12 +34,14 @@ import { assignKey, isRecord } from '@/lib/plain-object'
 const REDACTED = '[redacted]'
 
 /**
- * Characters a credential body can hold. The mask characters belong in the body
- * as much as the alphanumerics do, because `sk-ab****cd` is one token rather than
- * a token beside punctuation, and a rule that stops at the first asterisk returns
- * the readable half of the key.
+ * Characters a provider uses to mask the middle of a key. They belong in a
+ * credential body as much as the alphanumerics do, because `sk-ab****cd` is one
+ * token rather than a token beside punctuation, and a rule that stops at the
+ * first asterisk returns the readable half of the key.
  */
-const BODY = '[A-Za-z0-9_*•·#-]'
+const MASK = '*•·#'
+
+const BODY = `[A-Za-z0-9_${MASK}-]`
 
 /**
  * A credential body. The dots of an elided middle (`sk-ab...cd`) count as body
@@ -49,7 +62,11 @@ const CREDENTIAL_PREFIX =
 const PREFIXED_CREDENTIAL = new RegExp(`\\b${CREDENTIAL_PREFIX}${CREDENTIAL_BODY}`, 'g')
 
 /** An `Authorization` header value, whose token carries no prefix of its own. */
-const AUTH_SCHEME_CREDENTIAL = /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=*•·#-]{8,}/gi
+const AUTH_SCHEME_CREDENTIAL = new RegExp(`\\b(?:bearer|basic)\\s+[A-Za-z0-9._~+/=${MASK}-]{8,}`, 'gi')
+
+/** The words that name a credential, in a message and as a key of a payload. */
+const SECRET_WORD =
+    '(?:(?:api|access|secret|client|subscription)[-_ ]?(?:key|secret|token)|(?:access|refresh|auth|session)[-_]?token|authorization|credentials?|secret|password|passwd)'
 
 /**
  * A credential behind its label, for the providers that issue an unprefixed key.
@@ -57,8 +74,10 @@ const AUTH_SCHEME_CREDENTIAL = /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=*•·#-]{8
  * provider rejected. A label can arrive quoted, because a framework that wraps a
  * failure often serializes the request to JSON first.
  */
-const LABELED_CREDENTIAL =
-    /((?:x-)?(?:api[-_ ]?key|api[-_]?secret|access[-_]?key|secret[-_]?key|client[-_]?secret|subscription[-_]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|session[-_]?token|authorization|credentials?|secret|password|passwd|token)["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s,;)}\]]+)/gi
+const LABELED_CREDENTIAL = new RegExp(
+    `((?:x-)?(?:${SECRET_WORD}|token)["']?\\s*[:=]\\s*)(?:"[^"\\n]*"|'[^'\\n]*'|[^\\s,;)}\\]]+)`,
+    'gi'
+)
 
 const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g
 
@@ -68,8 +87,7 @@ const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END
  * matches it. `cookie` is here because a forwarded session cookie authenticates
  * the caller as much as a token does.
  */
-const SENSITIVE_KEY_PATTERN =
-    /authorization|api[-_]?key|api[-_]?secret|access[-_]?key|secret|credential|password|passwd|private[-_]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|session[-_]?token|cookie|(^|[-_])(token|key|keys)$/i
+const SENSITIVE_KEY_PATTERN = new RegExp(`${SECRET_WORD}|private[-_]?key|cookie|(^|[-_])(token|keys?)$`, 'i')
 
 /**
  * Replace every credential-shaped substring of an error message with

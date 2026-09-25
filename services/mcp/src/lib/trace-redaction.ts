@@ -49,15 +49,6 @@ const RETAINED_NAVIGATION_PROPERTIES = new Set(['$session_id', '$lib', '$lib_ver
 const SANITIZED_URL_PROPERTIES = new Set(['$ai_base_url', '$ai_request_url'])
 
 /**
- * Retained properties whose value is scrubbed of credential-shaped text. Both
- * hold an error message a provider or a framework wrote, and such a message
- * quotes the rejected key back or carries the request headers with it. Masking
- * by the provider is not enough, because the prefix and the last characters of
- * the key survive it. See `credential-redaction.ts`.
- */
-const CREDENTIAL_SCRUBBED_PROPERTIES = new Set(['$ai_error', '$ai_error_normalized', '$ai_error_type'])
-
-/**
  * Names of the properties withheld from a bag, reported in place of their
  * values. It sits beside `properties` rather than inside it, so it cannot
  * collide with a captured property of the same name.
@@ -87,6 +78,17 @@ function sanitizeUrl(value: unknown): string | undefined {
     return `${url.origin}${url.pathname}`
 }
 
+/**
+ * Whether a property holds an error message, whose value goes through the
+ * credential scrub in `credential-redaction.ts`. This is a prefix rule rather
+ * than a list of the three names the taxonomy describes today, because the
+ * allowlist above is generated: a taxonomy that gains another `$ai_error_*`
+ * property would otherwise return it unscrubbed, and nothing would report that.
+ */
+function isErrorProperty(key: string): boolean {
+    return key.startsWith('$ai_error')
+}
+
 function isRetained(key: string): boolean {
     return (
         RETAINED_AI_PROPERTIES.has(key) ||
@@ -105,6 +107,11 @@ function emptiedBag(owner: Record<string, unknown>): Record<string, unknown> {
     return { ...owner, properties: {}, [REDACTED_KEYS_FIELD]: ['properties'] }
 }
 
+/** Whether a key's value reaches the client as something other than itself. */
+function needsRewrite(key: string): boolean {
+    return !isRetained(key) || SANITIZED_URL_PROPERTIES.has(key) || isErrorProperty(key)
+}
+
 /**
  * Filter an event property bag. Returns the event unchanged when the bag holds
  * nothing to withhold or sanitize, which is the common shape of an SDK trace.
@@ -118,11 +125,7 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
         return emptiedBag(event)
     }
     const keys = Object.keys(properties)
-    if (
-        keys.every(
-            (key) => isRetained(key) && !SANITIZED_URL_PROPERTIES.has(key) && !CREDENTIAL_SCRUBBED_PROPERTIES.has(key)
-        )
-    ) {
+    if (!keys.some(needsRewrite)) {
         return event
     }
     const retained: Record<string, unknown> = {}
@@ -135,12 +138,12 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
             } else {
                 assignKey(retained, key, sanitized)
             }
-        } else if (CREDENTIAL_SCRUBBED_PROPERTIES.has(key)) {
-            assignKey(retained, key, redactCredentials(properties[key]))
-        } else if (isRetained(key)) {
-            assignKey(retained, key, properties[key])
-        } else {
+        } else if (!isRetained(key)) {
             withheld.push(key)
+        } else if (isErrorProperty(key)) {
+            assignKey(retained, key, redactCredentials(properties[key]))
+        } else {
+            assignKey(retained, key, properties[key])
         }
     }
     return {
