@@ -25,7 +25,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.request import Request
 
-from posthog.event_usage import EventSource
 from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSerializer
@@ -40,6 +39,7 @@ from posthog.auth import (
 )
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
