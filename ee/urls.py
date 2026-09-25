@@ -91,11 +91,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.code_based_verification_bypass_admin import (
-        CodeBasedVerificationBypassViewSet,
-        CodeBasedVerificationGlobalDisableViewSet,
-        code_based_verification_bypass_view,
-    )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
@@ -134,26 +129,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/api/radar-bypass/<str:email>/",
             RadarBypassViewSet.as_view({"delete": "destroy"}),
             name="radar-bypass-api-detail",
-        ),
-        path(
-            "admin/code-based-verification-bypass/",
-            admin.site.admin_view(code_based_verification_bypass_view),
-            name="code-based-verification-bypass",
-        ),
-        path(
-            "admin/api/code-based-verification-bypass/",
-            CodeBasedVerificationBypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="code-based-verification-bypass-api-list",
-        ),
-        path(
-            "admin/api/code-based-verification-bypass/<str:email>/",
-            CodeBasedVerificationBypassViewSet.as_view({"delete": "destroy"}),
-            name="code-based-verification-bypass-api-detail",
-        ),
-        path(
-            "admin/api/code-based-verification-global-disable/",
-            CodeBasedVerificationGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
-            name="code-based-verification-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",

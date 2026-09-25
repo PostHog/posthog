@@ -1,5 +1,4 @@
 import re
-import json
 import time
 import datetime
 import unicodedata
@@ -29,77 +28,6 @@ from posthog.redis import get_client
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
 from products.security.backend.facade.api import is_email_code_exempt
-
-CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY = "code_based_verification_bypass_emails"
-
-
-def is_code_based_verification_bypass(email: str) -> bool:
-    return bool(get_client().sismember(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower()))
-
-
-def add_code_based_verification_bypass(email: str) -> None:
-    get_client().sadd(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
-
-
-def remove_code_based_verification_bypass(email: str) -> None:
-    get_client().srem(CODE_BASED_VERIFICATION_BYPASS_REDIS_KEY, email.lower())
-
-
-# Global kill-switch: when this Redis key is present, code-based verification is skipped for every
-# user (e.g. while transactional email delivery is down and the login code can't be delivered).
-# The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
-# Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
-CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY = "code_based_verification_global_disable"
-MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
-
-
-def is_code_based_verification_globally_disabled() -> bool:
-    # Fail closed: if Redis is unreachable, keep code-based verification enforced (the secure default) rather than
-    # silently dropping the second factor — and never let a Redis hiccup break the login flow.
-    try:
-        return bool(get_client().exists(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY))
-    except Exception:
-        mfa_logger.exception(
-            "Failed to read code-based verification global disable flag; keeping code-based verification enforced"
-        )
-        return False
-
-
-def get_code_based_verification_global_disable() -> Optional[dict]:
-    try:
-        client = get_client()
-        raw = client.get(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
-        if not raw:
-            return None
-        data = json.loads(raw)
-        ttl = client.ttl(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
-        data["expires_in_seconds"] = ttl if isinstance(ttl, int) and ttl > 0 else None
-        return data
-    except Exception:
-        mfa_logger.exception("Failed to read code-based verification global disable state")
-        return None
-
-
-def set_code_based_verification_global_disable(reason: str, ttl_seconds: int, disabled_by: str) -> None:
-    reason = (reason or "").strip()
-    if not reason:
-        raise ValueError("A reason is required to disable code-based verification.")
-    if not 0 < ttl_seconds <= MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS:
-        raise ValueError(
-            f"TTL must be between 1 second and {MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS} seconds (7 days)."
-        )
-    payload = json.dumps(
-        {
-            "reason": reason,
-            "disabled_by": disabled_by,
-            "disabled_at": datetime.datetime.now(datetime.UTC).isoformat(),
-        }
-    )
-    get_client().set(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY, payload, ex=ttl_seconds)
-
-
-def clear_code_based_verification_global_disable() -> None:
-    get_client().delete(CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY)
 
 
 def has_passkeys(user: User) -> bool:
@@ -389,9 +317,6 @@ class CodeBasedVerifier:
             )
 
     def should_send_code_based_verification(self, user: User) -> CodeBasedVerificationCheckResult:
-        if is_code_based_verification_globally_disabled():
-            return CodeBasedVerificationCheckResult(should_send=False)
-
         if is_dev_mode() and not settings.TEST:
             return CodeBasedVerificationCheckResult(should_send=False)
 
@@ -411,10 +336,7 @@ class CodeBasedVerifier:
                 suppression_cached=False,
             )
 
-        if is_code_based_verification_bypass(user.email):
-            mfa_logger.info("Code-based verification bypassed via admin bypass list", user_id=user.pk)
-            return CodeBasedVerificationCheckResult(should_send=False)
-
+        # An exempting rule drops only the emailed code. TOTP and passkey 2FA are gated earlier in the login flow.
         if is_email_code_exempt(user.email):
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)

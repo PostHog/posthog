@@ -12,13 +12,14 @@ This product pulls them, decides them in-process, and answers the hub's question
 - `facade.api.decide(subject, surface)` returns allow, block or exempt with the deciding rule.
   A posthog.com account is never blocked.
 - Phase 1 enforces only `email_code` exemptions. Signup, login, sessions and the AI gateway call `shadow_check`, which logs `security_access_would_block` and counts `posthog_security_access_would_block_total`, and blocks nobody.
+- To drop the emailed login code for every account during an email outage, add an `everyone` rule with scope `email_code` at the hub. It applies on the next pull, so allow up to 5 minutes.
 
 ## Hub endpoints
 
-`/api/security/{resolve,count-accounts,org-member-count,posthog-membership,sync-now,mfa-bypass-export}/`.
+`/api/security/{resolve,count-accounts,org-member-count,posthog-membership,sync-now}/`.
 They are public because the hub runs outside the cluster.
 A scoped HS256 token (`posthog:security_hub:internal`) pinned to this region and one operation is the only gate.
-All six routes share one limit of 100 requests per minute.
+All five routes share one limit of 100 requests per minute.
 
 ## Settings
 

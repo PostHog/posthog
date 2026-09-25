@@ -26,7 +26,6 @@ from ..facade.hub import (
     INTERNAL_PURPOSE,
     count_accounts,
     count_org_members,
-    mfa_bypasses,
     posthog_account_exists,
     record_call,
     resolve,
@@ -36,7 +35,6 @@ from ..facade.temporal import start_sync_now
 from .serializers import (
     CountAccountsRequestSerializer,
     CountResponseSerializer,
-    MfaExportResponseSerializer,
     OrgMemberCountRequestSerializer,
     OrgMemberCountResponseSerializer,
     PosthogMembershipRequestSerializer,
@@ -157,20 +155,10 @@ class SyncNowView(_HubView):
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
-class MfaBypassExportView(_HubView):
-    op = "mfa_bypass:export"
-
-    @extend_schema(exclude=True)
-    def post(self, request: Request) -> Response:
-        exported = mfa_bypasses()
-        return Response(MfaExportResponseSerializer(exported).data)
-
-
 urlpatterns = [
     path("resolve/", csrf_exempt(ResolveView.as_view())),
     path("count-accounts/", csrf_exempt(CountAccountsView.as_view())),
     path("org-member-count/", csrf_exempt(OrgMemberCountView.as_view())),
     path("posthog-membership/", csrf_exempt(PosthogMembershipView.as_view())),
     path("sync-now/", csrf_exempt(SyncNowView.as_view())),
-    path("mfa-bypass-export/", csrf_exempt(MfaBypassExportView.as_view())),
 ]
