@@ -187,6 +187,15 @@ class TestSlotSetupErrorMessage:
         error = _slot_setup_error_message(Exception("ERROR: must be superuser or replication role"))
         assert "Incremental sync" in error
 
+    def test_table_ownership_error_points_at_ownership_not_replication(self) -> None:
+        # A role with REPLICATION and SELECT but no ownership gets this from CREATE PUBLICATION.
+        # The generic permission message asks for replication access, which does not fix it.
+        error = _slot_setup_error_message(psycopg.errors.InsufficientPrivilege("must be owner of table orders"))
+        assert "must be owner of table orders" in error
+        assert "owner" in error
+        assert "replication" not in error.lower()
+        assert "Incremental sync" in error
+
     def test_read_only_transaction_error_points_at_primary(self) -> None:
         error = _slot_setup_error_message(Exception("cannot execute CREATE PUBLICATION in a read-only transaction"))
         assert "primary database" in error

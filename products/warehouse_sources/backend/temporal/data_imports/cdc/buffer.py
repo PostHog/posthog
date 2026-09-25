@@ -49,13 +49,13 @@ from django.conf import settings
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
-import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import team_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     ensure_bucket,
     strip_s3_protocol,
@@ -84,30 +84,7 @@ def is_shadow_write_enabled(team_id: int, logger: FilteringBoundLogger) -> bool:
     Never raises: a flag-service failure leaves the lane off, which costs a gap in
     validation data — the legacy path is unaffected either way.
     """
-    from posthog.models.team import Team
-
-    try:
-        team = Team.objects.get(pk=team_id)
-        return bool(
-            posthoganalytics.feature_enabled(
-                SHADOW_WRITE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                # team_id drives the release conditions (the warehouse convention for
-                # per-team rollouts); the group context is passed for consistency with
-                # the other warehouse flags and for org-wide kill switches.
-                person_properties={"team_id": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("cdc_shadow_flag_check_failed", team_id=team_id, exc_info=True)
-        return False
+    return team_flag_enabled(SHADOW_WRITE_FLAG, team_id, logger)
 
 
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:
@@ -331,11 +308,11 @@ class CDCBufferWriter:
 def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
     """Remove a schema's entire buffer prefix.
 
-    Called on schema reset (TRUNCATE / lost-slot re-snapshot) and again right before the
-    snapshot→streaming flip: the table is wiped and re-seeded through the snapshot lane the
-    buffer never sees, so every existing buffer file predates a discontinuity no consumer
-    could order across. Best-effort by default; `strict` propagates failures (except a
-    missing prefix) for callers where a survived stale file would corrupt the table.
+    Called when a table is emptied for a new snapshot (TRUNCATE, lost slot, repair), and at the
+    snapshot→streaming flip when the snapshot's changes went to legacy deferred runs: there every
+    buffer file predates a gap no consumer could order across. Best-effort by default; `strict`
+    propagates failures (except a missing prefix) for callers where a survived stale file would
+    corrupt the table.
     """
     prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
     try:

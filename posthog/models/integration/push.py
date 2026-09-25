@@ -113,6 +113,11 @@ def preserved_push_config(
         if isinstance(existing_keys, list) and existing_keys:
             result[CONFIG_PUSH_IDENTITY_PUBLIC_KEYS] = existing_keys
 
+    # Verification checks tokens against a registered public key only, so `required` with no key would
+    # stop every device from registering. `optional` never rejects, and existing channels use it keyless.
+    if result.get(CONFIG_PUSH_IDENTITY_VERIFICATION) == "required" and not result.get(CONFIG_PUSH_IDENTITY_PUBLIC_KEYS):
+        raise ValidationError("Add a public key to turn on identity verification.")
+
     return result
 
 

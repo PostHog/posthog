@@ -15,15 +15,15 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-pixelhog = false
-modal = false
-posthoganalytics = false
+deltalite = false
 django = false
 google-ads = false
-deltalite = false
 hogql-parser = false
-posthog-hogland = false
 hogql-parser-rs = false
+modal = false
+pixelhog = false
+posthog-hogland = false
+posthoganalytics = false
 
 [manifest]
 members = [
@@ -5272,7 +5272,7 @@ wheels = [
 
 [[package]]
 name = "owners-yaml"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "packages/owners-yaml" }
 dependencies = [
     { name = "click" },
@@ -6022,7 +6022,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.59.2" },
+    { name = "posthoganalytics", specifier = "==7.60.0" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6127,7 +6127,7 @@ dev = [
     { name = "pytest-icdiff", specifier = "~=0.9" },
     { name = "pytest-mock", specifier = "~=3.15.1" },
     { name = "pytest-rerunfailures", specifier = "~=16.1" },
-    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.6" },
+    { name = "pytest-split", git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.7" },
     { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
@@ -6183,7 +6183,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.59.2"
+version = "7.60.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6191,9 +6191,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/20/d4/50ce30b585203bc7d783eee094ac3ed652291d2829fbedc8436d55317888/posthoganalytics-7.59.2.tar.gz", hash = "sha256:1238402ceae587ca5c5c64395e655c9e17377b9c456b692bd887b2b9dafd7246", size = 687344, upload-time = "2026-09-23T15:18:51.061Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f3/d4/af2bd39a81cda6325598a6ba615dd9e4b89677aca4b4e76b246575491f08/posthoganalytics-7.60.0.tar.gz", hash = "sha256:c39be68c3f477d2a33856883c348773c1d3553d2a62adf01d5150d0b294a7c1b", size = 689263, upload-time = "2026-09-23T16:35:37.808Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b4/1a/c8ffbc659bb8b9e53ef55177b9470fb4dca38ad6012f8a0178c63d85d09e/posthoganalytics-7.59.2-py3-none-any.whl", hash = "sha256:7f8e51fa32d8bed6453929ab7ab16010173e25a13c846021cc8fdf4e2263589a", size = 808784, upload-time = "2026-09-23T15:18:48.772Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/27/f380ebb988e7115e2c2753b21c86f9158494f51e537fc5f8dc13c035b667/posthoganalytics-7.60.0-py3-none-any.whl", hash = "sha256:2ed85f1ed78ea1864259b28f8a6c99dc9129d1c4fd92f64ad024a3dd371fcd56", size = 810831, upload-time = "2026-09-23T16:35:35.909Z" },
 ]
 
 [[package]]
@@ -6946,7 +6946,7 @@ wheels = [
 [[package]]
 name = "pytest-split"
 version = "0.11.0"
-source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.6#8fc59b2e1ca13b9421f6e7828105d8635437c912" }
+source = { git = "https://github.com/PostHog/pytest-split?tag=v0.11.0-posthog.7#17ee53be4aaa2f27012da31b69656b4b45881cd5" }
 dependencies = [
     { name = "pytest" },
 ]

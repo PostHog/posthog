@@ -4,37 +4,52 @@ import { ImageFetchBatchJoiner } from '../ingestion/pipelines/sessionreplay/ml-m
 import {
     buildImageFetchConsumerConfigs,
     buildImageFetchConsumerOverrides,
+    imageFetchBatchesPerPass,
     shutdownImageFetchConsumers,
 } from './ingestion-session-replay-ml-image-fetch-server'
 import { buildMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
 
 describe('image fetch consumer wiring', () => {
     it.each([
-        ['the default', {}, 2, 102_400],
-        ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 164_096],
-        ['eight consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 328_192],
-        ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 656_384],
-    ])('creates %s number of Kafka group members', (_name, overrides, expectedConsumers, expectedQueueBudget) => {
-        const serverConfig = buildMlMirrorServerConfig(overrides)
-        const consumerConfigs = buildImageFetchConsumerConfigs(serverConfig)
-        const consumerOverrides = buildImageFetchConsumerOverrides(serverConfig, consumerConfigs.length)
+        ['the default', {}, 2, 2, 102_400],
+        ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 4, 164_096],
+        ['eight consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8 }, 8, 8, 328_192],
+        [
+            'eight unjoined consumers',
+            {
+                SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 8,
+                SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES: false,
+            },
+            8,
+            1,
+            328_192,
+        ],
+        ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 16, 656_384],
+    ])(
+        'creates %s number of Kafka group members',
+        (_name, overrides, expectedConsumers, expectedBatchesPerPass, expectedQueueBudget) => {
+            const serverConfig = buildMlMirrorServerConfig(overrides)
+            const consumerConfigs = buildImageFetchConsumerConfigs(serverConfig)
+            const consumerOverrides = buildImageFetchConsumerOverrides(serverConfig, consumerConfigs.length)
 
-        expect(consumerConfigs).toHaveLength(expectedConsumers)
-        expect(consumerConfigs.every((config) => config.maxBackgroundTasks === 2)).toBe(true)
-        expect(consumerConfigs.every((config) => config.backgroundTaskTimeoutMs === 240_000)).toBe(true)
-        expect(consumerConfigs.map((config) => config.groupId)).toEqual(
-            Array(expectedConsumers).fill(serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID)
-        )
-        expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeLessThanOrEqual(
-            expectedQueueBudget
-        )
-        expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeGreaterThanOrEqual(
-            expectedQueueBudget - expectedConsumers
-        )
-        expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(
-            serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
-        )
-    })
+            expect(consumerConfigs).toHaveLength(expectedConsumers)
+            expect(imageFetchBatchesPerPass(serverConfig, consumerConfigs.length)).toBe(expectedBatchesPerPass)
+            expect(consumerConfigs.every((config) => config.maxBackgroundTasks === 2)).toBe(true)
+            expect(consumerConfigs.every((config) => config.backgroundTaskTimeoutMs === 240_000)).toBe(true)
+            expect(consumerConfigs.map((config) => config.groupId)).toEqual(
+                Array(expectedConsumers).fill(serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID)
+            )
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeLessThanOrEqual(
+                expectedQueueBudget
+            )
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * expectedConsumers).toBeGreaterThanOrEqual(
+                expectedQueueBudget - expectedConsumers
+            )
+            expect(Number(consumerOverrides['queued.max.messages.kbytes']) * 1024).toBeGreaterThanOrEqual(
+                serverConfig.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES * 2 + 64 * 1024
+            )
+        }
+    )
 
     it.each([false, true])('waits for joined work before disconnecting and cleaning up (failure=%s)', async (fails) => {
         jest.useFakeTimers()

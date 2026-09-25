@@ -105,6 +105,18 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     (
         SELECT _part_offset
         ORDER BY trace_id
+    ),
+
+    PROJECTION projection_index_team_span_id
+    (
+        SELECT team_id, _part_offset
+        ORDER BY span_id
+    ),
+
+    PROJECTION projection_index_team_trace_id
+    (
+        SELECT team_id, _part_offset
+        ORDER BY trace_id
     )
 )
 ENGINE = {MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}

@@ -368,6 +368,16 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExport was last updated.",
     )
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The user who last saved this batch export's configuration.",
+    )
     last_paused_at = models.DateTimeField(
         null=True,
         default=None,
@@ -731,6 +741,16 @@ class BatchExportOnDemand(TeamScopedRootMixin, ModelActivityMixin, UUIDTModel):
     last_updated_at = models.DateTimeField(
         auto_now=True,
         help_text="The timestamp at which this was last updated.",
+    )
+    last_modified_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+        help_text="The user who last saved this batch export's configuration.",
     )
     model = models.CharField(
         max_length=64,

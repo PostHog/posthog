@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -97,6 +98,54 @@ describe('projectTreeDataLogic', () => {
             )
         }
     )
+
+    it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadShortcutsSuccess([
+            { id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+            { id: 'star-child', path: 'Notes', type: 'folder', ref: 'Users/Alex/Notes' },
+            { id: 'star-other', path: 'Alexandra', type: 'folder', ref: 'Users/Alexandra' },
+            { id: 'star-custom', path: 'Pinned work', type: 'folder', ref: 'Users/Alex' },
+            { id: 'star-sibling', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+        ])
+        const updatedShortcuts = [
+            { id: 'star-home', path: 'My work', type: 'folder', ref: 'Users/My work' },
+            { id: 'star-child', path: 'Notes', type: 'folder', ref: 'Users/My work/Notes' },
+            { id: 'star-other', path: 'Alexandra', type: 'folder', ref: 'Users/Alexandra' },
+            { id: 'star-custom', path: 'Pinned work', type: 'folder', ref: 'Users/My work' },
+            { id: 'star-sibling', path: 'Alex', type: 'folder', ref: 'Users/Alex' },
+        ]
+        jest.mocked(api.fileSystemShortcuts.list).mockResolvedValue({ count: 5, results: updatedShortcuts })
+        await expectLogic(logic, () => {
+            logic.actions.movedItem({ id: 'home', path: 'Users/Alex', type: 'folder' }, 'Users/Alex', 'Users/My work')
+        }).toFinishAllListeners()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalled()
+        expect(logic.values.shortcutData).toEqual(updatedShortcuts)
+    })
+
+    it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {
+        const projectTree = projectTreeLogic({ key: 'navbar-files', root: 'project://' })
+        projectTree.mount()
+        await expectLogic(projectTree).toFinishAllListeners()
+        logic.actions.createSavedItem({ id: 'note', type: 'notebook', ref: 'note1', path: 'Research/Notes' })
+        logic.actions.setStarredNavigationRef({ type: 'notebook', ref: 'note1' }, '/notebooks/note1')
+        router.actions.push('/project/997/notebooks/note1')
+
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'notebook', ref: 'note1' }, explicit)
+        }).toFinishAllListeners()
+        expect(projectTree.values.scrollTargetId).toBe(explicit ? 'project/note' : '')
+        expect(projectTree.values.expandedFolders.includes('project://Research')).toBe(explicit)
+
+        router.actions.push('/project/997/notebooks/note2')
+        expect(logic.values.starredNavigationRef).toBeNull()
+        router.actions.push('/project/997/notebooks/note1')
+        await expectLogic(projectTree, () => {
+            projectTree.actions.assureVisibility({ type: 'notebook', ref: 'note1' }, false)
+        }).toFinishAllListeners()
+        expect(projectTree.values.scrollTargetId).toBe('project/note')
+        projectTree.unmount()
+    })
 
     it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([

@@ -136,6 +136,9 @@ SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 # which both mirror).
 SANDBOX_SLIM_NODE_MAJOR = 24
 SANDBOX_SLIM_UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.13"
+# Set as image ENV, so the build step that warms the cache and every `uv run` inside the sandbox
+# use the same directory whatever HOME the sandbox process gets.
+SANDBOX_STAMPHOG_UV_CACHE_DIR = "/opt/uv-cache"
 READINESS_PROBE_INTERVAL_MS = 250
 READINESS_PROBE_TIMEOUT_SECONDS = 45
 POST_MOUNT_PROBE_TIMEOUT_SECONDS = 45
@@ -354,7 +357,7 @@ LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_pac
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 # The base image builds the agent-shadow observer from source in its first stage.
-LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
+LOCAL_MODAL_AGENT_SHADOW_DIR = Path("packages/agent/agent-shadow")
 
 
 # One entry per registry-backed template, so a worker serving every template evicts nothing.
@@ -617,6 +620,37 @@ def _build_canvas_template_image() -> modal.Image:
     )
 
 
+def _pep723_script_header(script: Path) -> str:
+    """The ``# /// script`` metadata block of a PEP 723 script, including its delimiters."""
+    lines = script.read_text().splitlines()
+    try:
+        start = lines.index("# /// script")
+        end = lines.index("# ///", start + 1)
+    except ValueError:
+        raise ValueError(f"{script} has no PEP 723 '# /// script' block") from None
+    return "\n".join(lines[start : end + 1]) + "\n"
+
+
+def _build_stamphog_review_template_image() -> modal.Image:
+    # Only the header is baked, not the whole engine script, so the layer rebuilds when the
+    # pins change and not on every engine edit. uv keys its package cache by requirement, so a
+    # header-only script fills the same cache entries the real engine resolves against. PyPI
+    # stays on the review egress allowlist, so a pin that drifted past this image still installs.
+    header = _pep723_script_header(Path(settings.STAMPHOG_REVIEW_ENGINE_SCRIPT))
+    # Modal turns each command into one Dockerfile RUN line, so the multi-line header travels as
+    # base64 on a single line.
+    encoded_header = base64.b64encode(header.encode()).decode()
+    warm_script = "/opt/stamphog-review-deps.py"
+    return (
+        _build_slim_template_image()
+        .env({"UV_CACHE_DIR": SANDBOX_STAMPHOG_UV_CACHE_DIR})
+        .run_commands(
+            f"echo {encoded_header} | base64 -d > {warm_script}",
+            f"uv sync --no-config --script {warm_script}",
+        )
+    )
+
+
 # One entry per template, so a worker serving every template evicts nothing.
 _template_image_cache: TTLCache = TTLCache(maxsize=8, ttl=300)
 _template_image_lock = threading.Lock()
@@ -631,6 +665,8 @@ def get_template_base_image(template: SandboxTemplate) -> modal.Image:
         return _build_slim_template_image()
     if template == SandboxTemplate.CANVAS_BUILD:
         return _build_canvas_template_image()
+    if template == SandboxTemplate.STAMPHOG_REVIEW:
+        return _build_stamphog_review_template_image()
 
     registry_image = {
         SandboxTemplate.DEFAULT_BASE: SANDBOX_BASE_IMAGE,
@@ -1786,6 +1822,22 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
+
+    def exit_reason(self) -> str | None:
+        returncode = self._sandbox.returncode
+        if returncode is None:
+            try:
+                returncode = self._sandbox.poll()
+            except Exception as e:
+                logger.warning(f"Failed to poll sandbox {self.id} for its exit code: {e}")
+                return None
+        if returncode is None:
+            return None
+        if returncode == 137:
+            return "killed with exit code 137, usually because it ran out of memory"
+        if returncode == 124:
+            return "timed out"
+        return f"exited with code {returncode}"
 
     @property
     def name(self) -> str:

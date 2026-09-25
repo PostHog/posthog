@@ -34,9 +34,9 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -195,6 +195,11 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     broadcast/subteam refs (`<!…>`), and URL links (`<https://…|label>`) keep their labels.
     """
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
+
+
+def mentions_slack_user(text: str, slack_user_id: str) -> bool:
+    """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
+    return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
 
 
 def flatten_block_text(node: Any) -> list[str]:
