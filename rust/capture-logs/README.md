@@ -121,15 +121,12 @@ Requirements:
 
 ## Amazon Data Firehose (CloudWatch Logs)
 
-`POST /i/v1/logs/aws/firehose` and `POST /i/v1/logs/aws/firehose/<source_id>` implement the [Firehose HTTP endpoint destination contract](https://docs.aws.amazon.com/firehose/latest/dev/httpdeliveryrequestresponse.html).
+`POST /i/v1/logs/aws/firehose` implements the [Firehose HTTP endpoint destination contract](https://docs.aws.amazon.com/firehose/latest/dev/httpdeliveryrequestresponse.html).
 A customer creates a Firehose stream with this URL as its HTTP endpoint and the project API key as the stream's access key, then subscribes CloudWatch log groups to the stream.
 
 - Auth: the project API key in `X-Amz-Firehose-Access-Key`, or a Bearer `Authorization` header for manual testing.
   A pasted `Bearer` prefix in the access key field is tolerated.
   The same shape check as every other route applies.
-- `<source_id>` is optional.
-  When present it must be a UUID; it is forwarded as the `source_id` Kafka header and the `posthog.source_id` attribute so PostHog can attribute delivery health to a configured log source and drop traffic for a disabled one.
-  Without it the route behaves like the Datadog intake.
 - Each Firehose record is one CloudWatch subscription batch (base64, usually gzip).
   Every `logEvents` entry becomes a log row.
   `CONTROL_MESSAGE` records are acknowledged and skipped.
@@ -143,7 +140,7 @@ A customer creates a Firehose stream with this URL as its HTTP endpoint and the 
   Delivery is at-least-once: a Kafka failure returns 500, Firehose redelivers the whole request with the same request id, and the batches already produced are duplicated.
 - Size limits: the request body is capped by `FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES` (default 8 MiB, above the 2 MiB used by the other routes because Firehose buffers whole MiB and base64 adds a third), and the decoded records of one request are capped at eight times that.
   Either limit answers 413, which Firehose treats as permanent, so the failed batch lands in the customer's S3 backup bucket.
-- Every response carries the contract body: `{"requestId", "timestamp"}` on 200, plus `"errorMessage"` on 400 (unparseable body, non-UUID source id, no decodable record), 401 (missing or invalid access key), 413 and 500 (Kafka).
+- Every response carries the contract body: `{"requestId", "timestamp"}` on 200, plus `"errorMessage"` on 400 (unparseable body, no decodable record), 401 (missing or invalid access key), 413 and 500 (Kafka).
   Rejections raised by the body-size and decompression layers are re-shaped into the same body.
 - Recommended stream settings: buffer 1 MB / 60 s, GZIP content encoding, retry 300 s, S3 backup for failed data only.
 
@@ -157,7 +154,7 @@ Request outcomes are on the shared `http_requests_total{path,status}` and reject
 - `POST /v1/logs` - Accept OTLP logs (JSON, JSONL, or Protobuf)
 - `POST /i/v1/logs` - Alternative endpoint for OTLP logs
 - `POST /i/v1/logs/datadog[/<token>]` - Datadog agent intake
-- `POST /i/v1/logs/aws/firehose[/<source_id>]` - Amazon Data Firehose HTTP endpoint destination
+- `POST /i/v1/logs/aws/firehose` - Amazon Data Firehose HTTP endpoint destination
 - `OPTIONS /v1/logs` - CORS preflight support
 - `OPTIONS /i/v1/logs` - CORS preflight support
 

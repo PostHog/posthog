@@ -361,7 +361,6 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
-        source_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -400,15 +399,6 @@ impl KafkaSink {
                         value: Some(&records_bytes.to_string()),
                     });
                 }
-                // Which configured log source produced the batch, so the consumer can attribute
-                // health metrics and drop traffic for a disabled source. Absent for intakes that
-                // have no source concept.
-                if let Some(source_id) = source_id {
-                    headers = headers.insert(Header {
-                        key: "source_id",
-                        value: Some(source_id),
-                    });
-                }
                 headers
                     .insert(Header {
                         key: "bytes_compressed",
@@ -441,14 +431,12 @@ impl KafkaSink {
         Ok(())
     }
 
-    /// `source_id` names the configured log source that delivered the batch, when the intake knows it.
     pub async fn write(
         &self,
         token: &str,
         rows: Vec<KafkaLogRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
-        source_id: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -476,7 +464,6 @@ impl KafkaSink {
             uncompressed_bytes,
             Some(records_uncompressed_bytes),
             timestamps_overridden,
-            source_id,
         )
         .await?;
 
@@ -507,7 +494,6 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
-            None,
         )
         .await?;
 
@@ -538,7 +524,6 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
-            None,
         )
         .await?;
 

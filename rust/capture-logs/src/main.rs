@@ -220,10 +220,6 @@ async fn main() {
             "/i/v1/logs/aws/firehose",
             post(aws_firehose::export_aws_firehose_logs_http).options(options_handler),
         )
-        .route(
-            "/i/v1/logs/aws/firehose/:source_id",
-            post(aws_firehose::export_aws_firehose_logs_http).options(options_handler),
-        )
         .with_state(logs_service)
         .layer(DefaultBodyLimit::max(
             config.firehose_max_request_body_size_bytes,

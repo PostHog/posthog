@@ -14,7 +14,7 @@ use crate::log_record::{
 };
 use crate::service::{gunzip_if_magic, Service};
 use axum::{
-    extract::{Path, Request, State},
+    extract::{Request, State},
     http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Json, Response},
@@ -91,7 +91,6 @@ pub struct CloudWatchLogEvent {
 
 #[derive(Debug, Default)]
 pub struct FirehoseContext {
-    pub source_id: Option<String>,
     pub region: Option<String>,
     pub common_attributes: HashMap<String, Value>,
 }
@@ -271,10 +270,6 @@ impl FirehoseContext {
         }
 
         let mut attributes = HashMap::new();
-        if let Some(source_id) = &self.source_id {
-            put(&mut attributes, "posthog.source_id", source_id);
-        }
-
         if let Some(env) = envelope {
             if !env.owner.is_empty() {
                 put(&mut resource_attributes, "cloud.account.id", &env.owner);
@@ -492,34 +487,24 @@ fn spawn_write(
     writes: &mut JoinSet<anyhow::Result<()>>,
     service: &Service,
     token: &str,
-    ctx: &FirehoseContext,
     batch: Batch,
 ) {
     let sink = service.sink.clone();
     let token = token.to_string();
-    let source_id = ctx.source_id.clone();
     writes.spawn(async move {
-        sink.write(
-            &token,
-            batch.rows,
-            batch.bytes,
-            batch.timestamps_overridden,
-            source_id.as_deref(),
-        )
-        .await
+        sink.write(&token, batch.rows, batch.bytes, batch.timestamps_overridden)
+            .await
     });
 }
 
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
-    source_id = tracing::field::Empty,
     firehose_request_id = %header_str(&headers, REQUEST_ID_HEADER).unwrap_or(""),
     content_length = %header_str(&headers, "content-length").unwrap_or(""),
     content_encoding = %header_str(&headers, "content-encoding").unwrap_or("")))
 ]
 pub async fn export_aws_firehose_logs_http(
     State(service): State<Service>,
-    path_source_id: Option<Path<String>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<Value>, Rejection> {
@@ -535,24 +520,6 @@ pub async fn export_aws_firehose_logs_http(
         .map_err(|rej| into_firehose_rejection(rej, &header_request_id))?
         .to_string();
     tracing::Span::current().record("token", token.as_str());
-
-    let source_id = match path_source_id {
-        Some(Path(raw)) if !raw.is_empty() => Some(
-            Uuid::parse_str(&raw)
-                .map_err(|_| {
-                    rejection(
-                        StatusCode::BAD_REQUEST,
-                        &header_request_id,
-                        "source id in the URL path is not a UUID",
-                    )
-                })?
-                .to_string(),
-        ),
-        _ => None,
-    };
-    if let Some(id) = &source_id {
-        tracing::Span::current().record("source_id", id.as_str());
-    }
 
     let body_cap = service.firehose_max_request_body_size_bytes;
     let body = match gunzip_if_magic(&body, body_cap) {
@@ -577,7 +544,6 @@ pub async fn export_aws_firehose_logs_http(
     drop(body);
 
     let ctx = FirehoseContext {
-        source_id,
         region: header_str(&headers, SOURCE_ARN_HEADER).and_then(region_from_source_arn),
         common_attributes: parse_common_attributes(header_str(&headers, COMMON_ATTRIBUTES_HEADER)),
     };
@@ -630,12 +596,12 @@ pub async fn export_aws_firehose_logs_http(
         total_events += decoded_rows.len() as u64;
         for (row, overridden) in decoded_rows {
             if let Some(batch) = batches.push(row, overridden) {
-                spawn_write(&mut writes, &service, &token, &ctx, batch);
+                spawn_write(&mut writes, &service, &token, batch);
             }
         }
     }
     if let Some(batch) = batches.finish() {
-        spawn_write(&mut writes, &service, &token, &ctx, batch);
+        spawn_write(&mut writes, &service, &token, batch);
     }
 
     if invalid_records > 0 && invalid_records == record_count {
@@ -702,7 +668,6 @@ mod tests {
 
     fn context() -> FirehoseContext {
         FirehoseContext {
-            source_id: Some("6f1a2b3c-0000-4000-8000-000000000001".to_string()),
             region: Some("us-east-1".to_string()),
             common_attributes: HashMap::from([("env".to_string(), json!("prod"))]),
         }
@@ -856,10 +821,6 @@ mod tests {
         assert_eq!(row.resource_attributes["env"], "\"prod\"");
         assert_eq!(row.attributes["aws.log.event.id"], "\"1\"");
         assert_eq!(row.attributes["aws.subscription_filters"], "\"posthog\"");
-        assert_eq!(
-            row.attributes["posthog.source_id"],
-            "\"6f1a2b3c-0000-4000-8000-000000000001\""
-        );
         assert!(row.bytes_uncompressed.is_some());
         assert_eq!(decoded[1].0.severity_text, "warn");
         let old = &decoded[2].0;
@@ -899,7 +860,6 @@ mod tests {
         let decoded = raw_record_to_rows("a\n\nb\n", &FirehoseContext::default());
         assert_eq!(decoded.len(), 2);
         assert_eq!(decoded[0].0.service_name, "aws-firehose");
-        assert!(!decoded[0].0.attributes.contains_key("posthog.source_id"));
     }
 
     #[test]

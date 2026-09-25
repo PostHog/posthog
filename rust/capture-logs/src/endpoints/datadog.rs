@@ -339,7 +339,7 @@ pub async fn export_datadog_logs_http(
     let rows: Vec<KafkaLogRow> = results.into_iter().map(|(row, _)| row).collect();
     if let Err(e) = service
         .sink
-        .write(&token, rows, body.len() as u64, timestamps_overridden, None)
+        .write(&token, rows, body.len() as u64, timestamps_overridden)
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
