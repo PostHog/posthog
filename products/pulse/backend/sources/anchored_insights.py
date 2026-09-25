@@ -38,5 +38,5 @@ class AnchoredInsightsSource:
         if not insight_short_ids:
             return Insight.objects.none()
         return user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team=team, deleted=False, short_id__in=insight_short_ids).distinct()
+            Insight.objects.filter(team=team, deleted=False, short_id__in=insight_short_ids)
         )

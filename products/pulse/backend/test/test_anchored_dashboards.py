@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -31,13 +33,19 @@ class TestAnchoredDashboardsGather(BaseTest):
     def _source(self) -> AnchoredDashboardsSource:
         return AnchoredDashboardsSource(MovementScoringStrategy())
 
+    @parameterized.expand([("one anchored dashboard", 1), ("three anchored dashboards", 3)])
     @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
-    def test_dashboard_anchored_gather(self, mock_calculate: MagicMock) -> None:
+    def test_dashboard_anchored_gather(self, _name: str, dashboard_count: int, mock_calculate: MagicMock) -> None:
+        # One insight tiled on several anchored dashboards must score once. A duplicate eats the
+        # `max_anchor_insights` budget and crowds the other anchors out of the brief.
         insight = self._insight()
-        dashboard = Dashboard.objects.create(team=self.team, name="Anchor")
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_ids = []
+        for index in range(dashboard_count):
+            dashboard = Dashboard.objects.create(team=self.team, name=f"Anchor {index}")
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            dashboard_ids.append(dashboard.id)
         with team_scope(self.team.pk, canonical=True):
-            config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [dashboard.id]})
+            config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": dashboard_ids})
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 
         items = self._source().gather(self.team, config, 7, self._access())

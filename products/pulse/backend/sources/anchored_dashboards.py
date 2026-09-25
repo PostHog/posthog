@@ -57,6 +57,9 @@ class AnchoredDashboardsSource:
             ).order_by("-last_accessed_at")[: settings.fallback_dashboard_count]
         else:
             return Insight.objects.none()
+        # The tile join fans out over an insight on several anchored dashboards. A subquery lets
+        # Postgres answer with a semi-join, instead of sorting every wide insight column to dedupe.
+        insight_ids = Insight.objects.filter(dashboards__in=dashboards).values("pk")
         return user_access_control.filter_queryset_by_access_level(
-            Insight.objects.filter(team=team, deleted=False, dashboards__in=dashboards).distinct()
+            Insight.objects.filter(team=team, deleted=False, pk__in=insight_ids)
         )
