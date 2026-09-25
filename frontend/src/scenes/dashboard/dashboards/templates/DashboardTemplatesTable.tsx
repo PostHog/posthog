@@ -194,6 +194,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             title: 'Name',
             dataIndex: 'template_name',
+            className: 'min-w-[220px]',
             sorter: true,
             render: (_, { template_name }) => {
                 return <>{template_name}</>
@@ -210,7 +211,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             title: 'Tags',
             key: 'tags',
-            className: 'min-w-48',
+            className: 'min-w-28',
             render: (_, { tags }) => {
                 const sortedTags = tags?.length ? [...tags].sort() : []
                 if (sortedTags.length === 0) {

@@ -9,6 +9,7 @@ import {
     IconDocument,
     IconEndpoints,
     IconFolder,
+    IconGraph,
     IconPlug,
     IconPlus,
     IconRefresh,
@@ -18,6 +19,7 @@ import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isAccessDeniedError } from 'lib/api-error'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -48,6 +50,9 @@ import {
     QueryTabState,
 } from '~/types'
 
+import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
+import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
@@ -266,6 +271,7 @@ export type SearchTreeMatches = {
     relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
     relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
     relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+    relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
 }
 
 export type TreeDataContext = {
@@ -277,6 +283,7 @@ export type TreeDataContext = {
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     managedViews: DatabaseSchemaManagedViewTable[]
     latestEndpointTables: DatabaseSchemaEndpointTable[]
+    hogqlMetrics: DataCatalogMetricApi[]
     allTablesMap: Record<string, DatabaseSchemaTable>
 }
 
@@ -694,11 +701,11 @@ const createFieldsErrorNode = (nodeId: string): TreeDataItem => {
 }
 
 // A failed schema load must not look like an empty project: say it failed and offer the retry.
-const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] => [
+const createLoadErrorNodes = (prefix: string, message: string, onRetry: () => void): TreeDataItem[] => [
     {
         id: `${prefix}-error/`,
-        name: "Couldn't load your schema",
-        displayName: <span className="text-danger">Couldn't load your schema</span>,
+        name: message,
+        displayName: <span className="text-danger">{message}</span>,
         icon: <IconWarning className="text-danger" />,
         disableSelect: true,
         type: 'node',
@@ -717,6 +724,9 @@ const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataIt
         },
     },
 ]
+
+const createSchemaErrorNodes = (prefix: string, onRetry: () => void): TreeDataItem[] =>
+    createLoadErrorNodes(prefix, "Couldn't load your schema", onRetry)
 
 const createDirectConnectionEmptyNodes = (connectionId: string): TreeDataItem[] => [
     {
@@ -1304,6 +1314,24 @@ const createDraftNode = (
     }
 }
 
+const createMetricNode = (
+    metric: DataCatalogMetricApi,
+    matches: FuseSearchMatch[] | null = null,
+    isSearch = false
+): TreeDataItem => {
+    return {
+        id: `${isSearch ? 'search-' : ''}metric-${metric.id}`,
+        name: metric.name,
+        type: 'node',
+        icon: <IconGraph />,
+        record: {
+            type: 'metric',
+            metric,
+            ...(matches && { searchMatches: matches }),
+        },
+    }
+}
+
 const createViewFolderNode = (
     folder: DataWarehouseSavedQueryFolder,
     children: TreeDataItem[],
@@ -1556,7 +1584,7 @@ const createSourceFolderNode = (
 }
 
 const createTopLevelFolderNode = (
-    type: 'sources' | 'views' | 'managed-views' | 'drafts',
+    type: 'sources' | 'views' | 'managed-views' | 'drafts' | 'metrics',
     children: TreeDataItem[],
     isSearch = false,
     icon?: JSX.Element
@@ -1612,7 +1640,9 @@ const createTopLevelFolderNode = (
                   ? 'Views'
                   : type === 'drafts'
                     ? 'Drafts'
-                    : 'Managed Views',
+                    : type === 'metrics'
+                      ? 'Metrics'
+                      : 'Managed Views',
         type: 'node',
         icon: icon,
         record: {
@@ -1910,6 +1940,7 @@ export interface queryDatabaseLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     joins: DataWarehouseViewLink[] // joinsDataLogic
     joinsLoading: boolean // joinsDataLogic
+    allMetrics: DataCatalogMetricApi[] // metricsLogic
     currentProjectId: number | string // teamLogic
     user: UserType | null // userLogic
     activeDraggedViewId: string | null
@@ -1926,7 +1957,9 @@ export interface queryDatabaseLogicValues {
     hasNonPosthogSources: boolean
     highlightViewsSectionDrop: boolean
     highlightedDropFolderId: string | null
+    hogqlMetrics: DataCatalogMetricApi[]
     joinsByFieldName: Record<string, DataWarehouseViewLink>
+    metricsLoadFailed: boolean
     pendingViewFolderOverrides: Record<string, string | null>
     propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>
     queryTabState: QueryTabState | null
@@ -1935,6 +1968,7 @@ export interface queryDatabaseLogicValues {
     relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][]
     relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
     relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][]
+    relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
     relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][]
     relevantSavedQueries: [DataWarehouseSavedQuerySummary, FuseSearchMatch[] | null][]
     relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][]
@@ -2009,6 +2043,21 @@ export interface queryDatabaseLogicActions {
     deleteJoin: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // joinsDataLogic
+    loadMetrics: () => any // metricsLogic
+    loadMetricsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // metricsLogic
+    loadMetricsSuccess: (
+        allMetrics: DataCatalogMetricApi[],
+        payload?: any
+    ) => {
+        allMetrics: DataCatalogMetricApi[]
+        payload?: any
+    } // metricsLogic
     toggleEditJoinModal: (join: DataWarehouseViewLink) => {
         join: DataWarehouseViewLink
     } // viewLinkLogic
@@ -2252,6 +2301,11 @@ export interface queryDatabaseLogicMeta {
             latestEndpointTables: DatabaseSchemaEndpointTable[],
             searchTerm: string
         ) => [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+        hogqlMetrics: (allMetrics: DataCatalogMetricApi[]) => DataCatalogMetricApi[]
+        relevantMetrics: (
+            hogqlMetrics: DataCatalogMetricApi[],
+            searchTerm: string
+        ) => [DataCatalogMetricApi, FuseSearchMatch[] | null][]
         selectedDirectSource: (
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             connectionId: string | null
@@ -2273,7 +2327,8 @@ export interface queryDatabaseLogicMeta {
             relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
             relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
             relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-            relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+            relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+            relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
         ) => SearchTreeMatches
         searchTreeData: (
             searchTreeSourceContext: SearchTreeSourceContext,
@@ -2293,6 +2348,7 @@ export interface queryDatabaseLogicMeta {
             dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
             managedViews: DatabaseSchemaManagedViewTable[],
             latestEndpointTables: DatabaseSchemaEndpointTable[],
+            hogqlMetrics: DataCatalogMetricApi[],
             allTablesMap: Record<string, DatabaseSchemaTable>
         ) => TreeDataContext
         treeData: (
@@ -2309,7 +2365,8 @@ export interface queryDatabaseLogicMeta {
             materializingViewIds: string[],
             propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
             databaseFieldsComplete: boolean,
-            tableFieldsStatus: TableFieldsStatus
+            tableFieldsStatus: TableFieldsStatus,
+            metricsLoadFailed: boolean
         ) => TreeDataItem[]
         displayedTreeData: (
             searchTerm: string,
@@ -2437,6 +2494,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'databaseFieldsComplete',
                 'tableFieldsStatus',
             ],
+            metricsLogic,
+            ['allMetrics'],
             dataWarehouseViewsLogic,
             [
                 'dataWarehouseSavedQueries',
@@ -2472,9 +2531,19 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['loadDrafts', 'renameDraft', 'loadMoreDrafts'],
             databaseTableListLogic,
             ['refreshDatabaseSchema', 'hydrateTableFields', 'ensureAllTableFields'],
+            metricsLogic,
+            ['loadMetrics', 'loadMetricsSuccess', 'loadMetricsFailure'],
         ],
     })),
     reducers({
+        metricsLoadFailed: [
+            false,
+            {
+                loadMetrics: () => false,
+                loadMetricsSuccess: () => false,
+                loadMetricsFailure: (_, { errorObject }) => !isAccessDeniedError(errorObject ?? {}),
+            },
+        ],
         editingDraftId: [
             null as string | null,
             {
@@ -2975,6 +3044,27 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return latestEndpointTables.map((table) => [table, null])
             },
         ],
+        hogqlMetrics: [
+            (s) => [s.allMetrics],
+            (allMetrics: DataCatalogMetricApi[]): DataCatalogMetricApi[] =>
+                allMetrics
+                    .filter((metric) => metric.definition_kind === HOGQL_METRIC_DEFINITION_KIND)
+                    .sort((a, b) => a.name.localeCompare(b.name)),
+        ],
+        relevantMetrics: [
+            (s) => [s.hogqlMetrics, s.searchTerm],
+            (
+                hogqlMetrics: DataCatalogMetricApi[],
+                searchTerm: string
+            ): [DataCatalogMetricApi, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return createFuse<DataCatalogMetricApi>(hogqlMetrics, FUSE_OPTIONS)
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return hogqlMetrics.map((metric) => [metric, null])
+            },
+        ],
         selectedDirectSource: [
             (s) => [s.connectionOptions, s.connectionId],
             (
@@ -3022,6 +3112,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.relevantManagedViews,
                 s.relevantDrafts,
                 s.relevantEndpointTables,
+                s.relevantMetrics,
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
@@ -3031,7 +3122,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantSavedQueryFolders: [DataWarehouseSavedQueryFolder, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
                 relevantDrafts: [DataWarehouseSavedQueryDraft, FuseSearchMatch[] | null][],
-                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][]
+                relevantEndpointTables: [DatabaseSchemaEndpointTable, FuseSearchMatch[] | null][],
+                relevantMetrics: [DataCatalogMetricApi, FuseSearchMatch[] | null][]
             ): SearchTreeMatches => ({
                 relevantPosthogTables,
                 relevantSystemTables,
@@ -3041,6 +3133,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 relevantManagedViews,
                 relevantDrafts,
                 relevantEndpointTables,
+                relevantMetrics,
             }),
         ],
         searchTreeData: [
@@ -3084,6 +3177,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     relevantManagedViews,
                     relevantDrafts,
                     relevantEndpointTables,
+                    relevantMetrics,
                 } = searchTreeMatches
 
                 const tableLookup = createTableLookup({
@@ -3226,6 +3320,14 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('views', viewsChildren, true))
                 }
 
+                const metricsChildren = relevantMetrics.map(([metric, matches]) =>
+                    createMetricNode(metric, matches, true)
+                )
+                if (metricsChildren.length > 0) {
+                    expandedIds.push('search-metrics')
+                    searchResults.push(createTopLevelFolderNode('metrics', metricsChildren, true))
+                }
+
                 if (managedViewsChildren.length > 0 && !featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]) {
                     expandedIds.push('search-managed-views')
                     searchResults.push(createTopLevelFolderNode('managed-views', managedViewsChildren, true))
@@ -3265,6 +3367,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.dataWarehouseSavedQueryFolders,
                 s.managedViews,
                 s.latestEndpointTables,
+                s.hogqlMetrics,
                 s.allTablesMap,
             ],
             (
@@ -3276,6 +3379,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[],
                 managedViews: DatabaseSchemaManagedViewTable[],
                 latestEndpointTables: DatabaseSchemaEndpointTable[],
+                hogqlMetrics: DataCatalogMetricApi[],
                 allTablesMap: Record<string, DatabaseSchemaTable>
             ): TreeDataContext => ({
                 allPosthogTables,
@@ -3286,6 +3390,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 dataWarehouseSavedQueryFolders,
                 managedViews,
                 latestEndpointTables,
+                hogqlMetrics,
                 allTablesMap,
             }),
         ],
@@ -3305,6 +3410,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.propertyDefinitionLists,
                 s.databaseFieldsComplete,
                 s.tableFieldsStatus,
+                s.metricsLoadFailed,
             ],
             (
                 treeDataContext: TreeDataContext,
@@ -3320,7 +3426,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 materializingViewIds: string[],
                 propertyDefinitionLists: Record<string, SidebarPropertyDefinitionList>,
                 databaseFieldsComplete: boolean,
-                tableFieldsStatus: TableFieldsStatus
+                tableFieldsStatus: TableFieldsStatus,
+                metricsLoadFailed: boolean
             ): TreeDataItem[] => {
                 const {
                     allPosthogTables,
@@ -3331,6 +3438,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     dataWarehouseSavedQueryFolders,
                     managedViews,
                     latestEndpointTables,
+                    hogqlMetrics,
                     allTablesMap,
                 } = treeDataContext
                 const sourcesChildren: TreeDataItem[] = []
@@ -3511,6 +3619,10 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     }
                 }
 
+                const metricsChildren = metricsLoadFailed
+                    ? createLoadErrorNodes('metrics', "Couldn't load metrics", () => actions.loadMetrics())
+                    : hogqlMetrics.map((metric) => createMetricNode(metric))
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
@@ -3571,6 +3683,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                           ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
+                    ...(metricsChildren.length > 0 ? [createTopLevelFolderNode('metrics', metricsChildren)] : []),
                     ...(featureFlags[FEATURE_FLAGS.MANAGED_VIEWSETS]
                         ? []
                         : [createTopLevelFolderNode('managed-views', managedViewsChildren)]),

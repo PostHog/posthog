@@ -1754,6 +1754,84 @@ class TestPagedReadFallback:
             )
 
 
+class TestIncrementalResumeAgainstServer:
+    @pytest.fixture
+    def make_table(self) -> Iterator[Callable[[str], str]]:
+        admin = clickhouse_connect.get_client(
+            host=settings.CLICKHOUSE_HOST,
+            port=8123,
+            username=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+        )
+        admin.command(f"CREATE DATABASE IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}")
+        created: list[str] = []
+
+        def make(ts_type: str) -> str:
+            name = f"cursor_resume_{uuid.uuid4().hex}"
+            qualified = f"{settings.CLICKHOUSE_DATABASE}.{name}"
+            created.append(qualified)
+            admin.command(f"CREATE TABLE {qualified} (id UInt64, ts {ts_type}) ENGINE = MergeTree ORDER BY id")
+            admin.command(f"""
+                INSERT INTO {qualified}
+                SELECT number, fromUnixTimestamp64Nano(toInt64(1767225600000000000 + intDiv(number, 3) * 500), 'UTC')
+                FROM numbers(30)
+            """)
+            return name
+
+        yield make
+        for qualified in created:
+            admin.command(f"DROP TABLE IF EXISTS {qualified}")
+        admin.close()
+
+    @pytest.mark.parametrize(
+        "ts_type, last_value, expected_ids",
+        [
+            pytest.param(
+                "DateTime64(9, 'UTC')", datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC), [27, 28, 29], id="sub_second"
+            ),
+            pytest.param(
+                "DateTime64(9, 'America/New_York')",
+                datetime(2026, 1, 1, 0, 0, 0, 4, tzinfo=UTC),
+                [27, 28, 29],
+                id="column_timezone",
+            ),
+            pytest.param("DateTime64(9)", datetime(2026, 1, 1, 0, 0, 0, 4), [27, 28, 29], id="naive_cursor"),
+            pytest.param(
+                "DateTime('America/New_York')",
+                datetime(2025, 12, 31, 23, 59, 59, tzinfo=UTC),
+                list(range(30)),
+                id="datetime_column_timezone",
+            ),
+            pytest.param("DateTime64(9, 'UTC')", 1767225600, list(range(3, 30)), id="epoch_seconds_cursor"),
+        ],
+    )
+    def test_incremental_resume_reads_only_rows_after_the_cursor(self, make_table, ts_type, last_value, expected_ids):
+        @contextmanager
+        def tunnel():
+            yield (settings.CLICKHOUSE_HOST, 8123)
+
+        response = ch_module.clickhouse_source(
+            tunnel=tunnel,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            database=settings.CLICKHOUSE_DATABASE,
+            secure=False,
+            verify=False,
+            table_names=[make_table(ts_type)],
+            should_use_incremental_field=True,
+            incremental_field="ts",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value=last_value,
+            logger=MagicMock(),
+        )
+        items = response.items()
+        assert not isinstance(items, AsyncIterable)
+        rows = pa.concat_tables(list(items))
+
+        assert rows.sort_by("id").column("id").to_pylist() == expected_ids
+        assert response.rows_to_sync == len(expected_ids)
+
+
 class TestClickHouseReconcileSchemaMetadata(BaseTest):
     """The ClickHouse-specific override that routes through the shared reconcile helper."""
 
