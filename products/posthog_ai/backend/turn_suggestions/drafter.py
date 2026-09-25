@@ -122,7 +122,7 @@ def _complete(
         response = client.chat.completions.create(
             model=DRAFT_MODEL,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            max_tokens=DRAFT_MAX_TOKENS,
+            max_completion_tokens=DRAFT_MAX_TOKENS,
             response_format=_response_format(schema_name, reply_type),
         )
     except Exception:

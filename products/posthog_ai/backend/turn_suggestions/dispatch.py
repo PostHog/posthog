@@ -11,12 +11,14 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# The proxy callback, the event ingest and the sandbox relay can each report the same turn, within
-# moments of each other. A person cannot finish two turns this close together.
-ENQUEUE_DEDUP_SECONDS = 5
 # The proxy callback reports over its own channel and can beat the ingest writes of the turn's last
 # frames, so the read waits for them instead of judging a turn whose answer has not landed.
 TURN_SETTLE_SECONDS = 2
+# The proxy callback, the event ingest and the sandbox relay can each report the same turn, within
+# moments of each other. A report that lands while a job waits is covered by that job, which reads
+# the conversation's latest turn when it runs. Past the wait, a report can be a later turn, so it
+# queues its own job.
+ENQUEUE_DEDUP_SECONDS = TURN_SETTLE_SECONDS
 
 
 def _enqueue_dedup_key(run_id: str) -> str:
@@ -32,6 +34,13 @@ def _first_report_of_turn(run_id: str) -> bool:
         return True
 
 
+def _release_report(run_id: str) -> None:
+    try:
+        get_client().delete(_enqueue_dedup_key(run_id))
+    except Exception:
+        logger.warning("posthog_ai_turn_suggestion_dedup_release_failed", run_id=run_id, exc_info=True)
+
+
 def enqueue_turn_suggestion(task_run: "TaskRun") -> bool:
     """Queue the end-of-turn suggestion for a PostHog AI run. Never raises: the turn completion that
     calls this must not fail because a nudge could not be scheduled."""
@@ -45,9 +54,14 @@ def enqueue_turn_suggestion(task_run: "TaskRun") -> bool:
             generate_turn_suggestion_task,  # noqa: PLC0415 — keeps the judge and drafter clients off the Django startup path
         )
 
-        generate_turn_suggestion_task.apply_async(
-            kwargs={"run_id": run_id, "team_id": task_run.team_id}, countdown=TURN_SETTLE_SECONDS
-        )
+        try:
+            generate_turn_suggestion_task.apply_async(
+                kwargs={"run_id": run_id, "team_id": task_run.team_id}, countdown=TURN_SETTLE_SECONDS
+            )
+        except Exception:
+            # Another report of the turn can still queue it.
+            _release_report(run_id)
+            raise
     except Exception:
         logger.warning("posthog_ai_turn_suggestion_enqueue_failed", run_id=str(task_run.id), exc_info=True)
         return False
