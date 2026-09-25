@@ -1,7 +1,11 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -124,6 +128,29 @@ describe('IntegrationChoice', () => {
             expect(onChangeFirst).toHaveBeenCalledWith(42)
         })
         expect(onChangeSecond).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        // An OAuth connect can land on an account that is already connected. That is an overwrite,
+        // which the backend rejects for members after the whole provider flow.
+        { kind: 'google-ads', kindName: 'Google Ads', connectLabel: 'Connect to Google Ads', disabled: true },
+        // A setup-modal kind like S3 creates a new named integration, which members are allowed to do.
+        { kind: 'aws-s3', kindName: 'AWS S3', connectLabel: 'Configure new AWS S3 connection', disabled: false },
+    ])('for a member, connecting $kind is disabled: $disabled', async ({ kind, kindName, connectLabel, disabled }) => {
+        initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+
+        render(
+            <Provider>
+                <IntegrationChoice integration={kind} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        fireEvent.click(await screen.findByText(`Choose ${kindName} connection`))
+        const connect = await screen.findByText(connectLabel)
+        expect(connect.closest('[aria-disabled="true"]') !== null).toBe(disabled)
     })
 
     it('still warns when the stored id matches no integration', async () => {

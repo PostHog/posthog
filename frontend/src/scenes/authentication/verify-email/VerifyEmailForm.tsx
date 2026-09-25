@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as jackDawsonPng from '@posthog/brand/hoggies/png/jack-dawson'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -18,8 +18,9 @@ import { urls } from 'scenes/urls'
 
 import { type VerifyEmailReason, verifyEmailLogic } from './verifyEmailLogic'
 
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 const HedgehogExplorer = pngHoggie(explorerPng)
+const HedgehogJackDawson = pngHoggie(jackDawsonPng)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 const NOTES: Record<string, string[]> = {
     pending: ['// one email away', '// we just hit send'],
@@ -62,7 +63,7 @@ function NotSeeingIt(): JSX.Element {
                 Not seeing it?
             </button>
             {open && (
-                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
                     <p className="m-0 mb-2.5 font-semibold text-primary">Before we resend, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (
@@ -268,7 +269,7 @@ export function VerifyEmailForm(): JSX.Element {
                     }
                 >
                     <div className="flex flex-col items-center text-center">
-                        <SleepingHog className="block w-auto mx-auto h-28" />
+                        <HedgehogJackDawson className="block w-auto mx-auto h-28" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                             We don't know who to verify
                         </h1>

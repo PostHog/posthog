@@ -83,6 +83,7 @@ const businessKnowledgeSourcesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
             query: {
+                added_by: params.added_by,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

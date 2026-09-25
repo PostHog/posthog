@@ -72,7 +72,12 @@ Private notes, customer messages, deleted replies, and AI replies are not used.
 Each reply is checked for reusable information, personal data, secrets, and overlap with existing Business knowledge.
 Accepted answers are added as their own learned sources, named after the topic.
 You can open, edit, or delete a learned source.
-PostHog does not overwrite a source that already exists, even if it analyzes the same ticket again.
+PostHog does not change a source that already exists when it analyzes the same ticket again.
+
+If a later reply contradicts an earlier learned source, PostHog keeps the newer answer and disables the older learned source so it stops being used in replies.
+The older source and its content are kept, and the change is recorded in the activity log.
+PostHog only replaces a learned source that holds one document, so a crawled site with many pages stays as it is.
+A source you wrote is never disabled this way. PostHog keeps it and skips the newer answer instead.
 
 A project can have up to 200 learned sources.
 After that, new answers are not added until you delete some.

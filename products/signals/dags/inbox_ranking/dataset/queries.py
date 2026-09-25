@@ -43,6 +43,9 @@ def labels_team() -> Team:
         )
 
 
+REGION_APP_HOSTS = {"US": "us.posthog.com", "EU": "eu.posthog.com"}
+
+
 def region_app_host() -> str:
     """The app host this deployment serves the inbox on.
 
@@ -51,8 +54,13 @@ def region_app_host() -> str:
     the scoring pool (`training/unseen.py`) builds it from this region's Postgres, so a report
     another region served can never hold a score. `$host` is the only property on those events
     that says which app rendered the page.
+
+    The region is the source, not `SITE_URL`: a Dagster deployment sets `CLOUD_DEPLOYMENT` and
+    leaves `SITE_URL` at its localhost default, which no impression event carries. Off cloud
+    there is no region, so `SITE_URL` is the host, for local and self-hosted runs.
     """
-    return urlparse(settings.SITE_URL).netloc
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return REGION_APP_HOSTS.get(region) or urlparse(settings.SITE_URL).netloc
 
 
 def etl_workload() -> Workload:

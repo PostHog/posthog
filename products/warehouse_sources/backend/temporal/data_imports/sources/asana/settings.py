@@ -70,10 +70,13 @@ ASANA_ENDPOINTS: dict[str, AsanaEndpointConfig] = {
         path="/workspaces",
         opt_fields=["name", "email_domains", "is_organization", "resource_type"],
     ),
+    # Asana rejects an unscoped /users when the token's user belongs to more than one workspace, so
+    # the walk is scoped per workspace. A user in several workspaces comes back once per workspace;
+    # the `gid` primary key collapses those repeats into one row.
     "users": AsanaEndpointConfig(
         name="users",
-        fan_out="none",
-        path="/users",
+        fan_out="workspace",
+        path="/users?workspace={workspace_gid}",
         opt_fields=["name", "email", "photo", "workspaces", "resource_type"],
     ),
     "projects": AsanaEndpointConfig(

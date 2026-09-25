@@ -10,6 +10,8 @@ EXPECTED_TASK_NAMES = {
     "products.conversations.backend.tasks.process_supporthog_interactivity",
     "products.conversations.backend.tasks.process_supporthog_interactivity_receipt",
     "products.conversations.backend.tasks.sweep_inbound_events",
+    "products.conversations.backend.tasks.process_slack_delivery_part",
+    "products.conversations.backend.tasks.sweep_delivery_parts",
     "products.conversations.backend.tasks.post_reply_to_slack",
     "products.conversations.backend.tasks.send_email_reply",
     "products.conversations.backend.tasks.flush_pending_email_replies",

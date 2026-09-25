@@ -1,6 +1,7 @@
 import { AgentSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
 import type { ContextWikiEnv } from "@posthog/harness/extensions/context-wiki";
 import type { Adapter } from "@posthog/shared";
+import { withTurnTraceId } from "../acp-extensions";
 import type { ModelInfo } from "../gateway-models";
 import type { SessionLogWriter } from "../session-log-writer";
 import type { PostHogAPIConfig, ProcessSpawnedCallback } from "../types";
@@ -23,6 +24,8 @@ export type AcpConnectionConfig = {
   logWriter?: SessionLogWriter;
   /** Receives every parsed ACP wire message with the event id the session log stored it under. */
   onWireMessage?: (message: Record<string, unknown>, eventId: string) => void;
+  /** Gateway trace id the run's headers stamped, for a turn that reports none. */
+  stampedRunTraceId?: string | null;
   /** Shared id source so wire events and server-born events stay on one sequence. */
   eventIdSource?: NextEventId;
   taskRunId?: string;
@@ -124,8 +127,11 @@ function installWireTaps(
       return;
     }
     const eventId = nextEventId();
-    logWriter.appendNotification(taskRunId, message, eventId);
-    config.onWireMessage?.(message, eventId);
+    // Named before the log stores the event, because a reload of the thread
+    // reads the stored copy rather than the broadcast one.
+    const stamped = withTurnTraceId(message, config.stampedRunTraceId);
+    logWriter.appendNotification(taskRunId, stamped, eventId);
+    config.onWireMessage?.(stamped, eventId);
   };
 
   return {
@@ -241,6 +247,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
         apiKey: codexOptions.apiKey,
         codexHome: codexOptions.codexHome,
         useMachineAuth: codexOptions.useMachineAuth,
+        useChatgptAuthTokens: Boolean(codexOptions.chatgptAuthTokens),
         developerInstructions: codexOptions.developerInstructions,
         httpHeaders: codexOptions.httpHeaders,
         configOverrides: codexOptions.configOverrides,
@@ -252,6 +259,8 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
       gatewayModels: config.codexModels,
       processCallbacks: config.processCallbacks,
       onStructuredOutput: config.onStructuredOutput,
+      chatgptAuthTokens: codexOptions.chatgptAuthTokens,
+      refreshChatgptAuthTokens: codexOptions.refreshChatgptAuthTokens,
       logger: config.logger?.child("CodexAppServerAgent"),
     });
     return agent;

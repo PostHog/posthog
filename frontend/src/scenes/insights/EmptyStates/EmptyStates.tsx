@@ -7,7 +7,8 @@ import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as doctorPng from '@posthog/brand/hoggies/png/doctor-1'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
+import * as errorPng from '@posthog/brand/hoggies/png/error'
+import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
 import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh, IconWarning } from '@posthog/icons'
@@ -28,9 +29,10 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -40,15 +42,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode } from '~/queries/utils'
+import { EventsNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
+import { isFunnelsDataWarehouseNode, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardPlacement,
-    FilterType,
     InsightLogicProps,
     SavedInsightsTabs,
     SidePanelTab,
@@ -56,7 +55,6 @@ import {
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 
-import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/types'
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
@@ -64,7 +62,8 @@ import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogDoctor = pngHoggie(doctorPng)
-const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogError = pngHoggie(errorPng)
+const HedgehogReaper = pngHoggie(reaperPng)
 const HedgehogStampDenied = pngHoggie(stampDeniedPng)
 const HedgehogTrafficController = pngHoggie(trafficControllerPng)
 
@@ -720,8 +719,8 @@ type InsightErrorKind =
 
 const ERROR_HOGGIES: Record<InsightErrorKind, React.ComponentType<{ className?: string }>> = {
     rate_limit: HedgehogTrafficController,
-    memory_limit: HedgehogMagnifyingGlass,
-    invalid_query: HedgehogMagnifyingGlass,
+    memory_limit: HedgehogReaper,
+    invalid_query: HedgehogError,
     permission: HedgehogStampDenied,
     transient: HedgehogConstruction2,
     server: HedgehogDoctor,
@@ -931,20 +930,18 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { insightProps } = useValues(insightLogic)
     const { series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
+    const { reportInsightFilterAdded } = useActions(eventUsageLogic)
 
-    const filters = series ? seriesToActionsAndEvents(series) : {}
-    const setFilters = (payload: Partial<FilterType>): void => {
-        updateQuerySource({
-            series: actionsAndEventsToSeries(
-                payload as any,
-                true,
-                MathAvailability.None,
-                NodeKind.FunnelsDataWarehouseNode
-            ),
-        } as Partial<FunnelsQuery>)
+    const addFunnelStep = (): void => {
+        const defaultStep: EventsNode = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsNode,
+            event: getDefaultEventName(),
+            name: getDefaultEventLabel(),
+        })
+        const nextSeries = [...(series ?? []), defaultStep]
+        updateQuerySource({ series: nextSeries })
+        reportInsightFilterAdded(nextSeries.length, GraphSeriesAddedSource.Default)
     }
-
-    const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
         <div
@@ -968,7 +965,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={addFilter}
+                        onClick={addFunnelStep}
                         data-attr="add-action-event-button-empty-state"
                         icon={<IconPlusSmall />}
                     >

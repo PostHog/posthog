@@ -1,0 +1,363 @@
+import { DateTime } from 'luxon'
+
+import { logger } from '~/common/utils/logger'
+import {
+    PRE_SERIALIZED_FLAG_ACTIVE,
+    PRE_SERIALIZED_FLAG_CLICK,
+    PRE_SERIALIZED_FLAG_FULL_SNAPSHOT,
+    PRE_SERIALIZED_FLAG_KEYPRESS,
+    PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY,
+    ParsedMessageData,
+} from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import {
+    SnapshotMode,
+    hrefFrom,
+    isClick,
+    isKeypress,
+    isMouseActivity,
+    snapshotModeFrom,
+} from '~/ingestion/pipelines/sessionreplay/rrweb-types'
+import {
+    SegmentationEvent,
+    activeMillisecondsFromSegmentationEvents,
+    toSegmentationEvent,
+} from '~/ingestion/pipelines/sessionreplay/segmentation'
+import { ReplayIndexEntry } from '~/ingestion/pipelines/sessionreplay/shared/metadata/replay-index-entry'
+
+import { BlockCompression, DEFAULT_BLOCK_COMPRESSION, compressBlock } from './block-compression'
+import { SessionBatchMetrics } from './metrics'
+
+const MAX_SNAPSHOT_FIELD_LENGTH = 1000
+const MAX_URL_LENGTH = 4 * 1024 // 4KB
+const MAX_URLS_COUNT = 25
+const MAX_REPLAY_INDEX_BYTES = 128 * 1024
+
+export interface EndResult {
+    /** The complete compressed session block */
+    buffer: Buffer
+    /** Number of events in the session block */
+    eventCount: number
+    /** Timestamp of the first event in the session block */
+    startDateTime: DateTime
+    /** Timestamp of the last event in the session block */
+    endDateTime: DateTime
+    /** First URL of the session */
+    firstUrl: string | null
+    /** All URLs visited in the session */
+    urls: string[]
+    /** Number of clicks in the session */
+    clickCount: number
+    /** Number of keypresses in the session */
+    keypressCount: number
+    /** Number of mouse activity events in the session */
+    mouseActivityCount: number
+    /** Active time in milliseconds */
+    activeMilliseconds: number
+    /** Size of the session data in bytes */
+    size: number
+    /** Number of messages in the session */
+    messageCount: number
+    /** Source of the snapshot (Web/Mobile) */
+    snapshotSource: string | null
+    /** Library used for the snapshot */
+    snapshotLibrary: string | null
+    /** Only applies when snapshotSource is 'mobile'; null until a visual snapshot identifies the mode. */
+    snapshotMode: SnapshotMode | null
+    /** ID of the batch this session belongs to */
+    batchId: string
+    replayIndexEntries?: ReplayIndexEntry[]
+    replayIndexTruncated?: boolean
+}
+
+/**
+ * Records events for a single session recording
+ *
+ * Buffers events and provides them as a compressed session recording block that can be stored in a session batch
+ * file. The session recording block can be read as an independent unit.
+ *
+ * ```
+ * Session Batch File
+ * ├── Compressed Session Recording Block 1 <── One SessionBlockRecorder corresponds to one block
+ * │   └── JSONL Session Recording Block
+ * │       ├── [windowId, event1]
+ * │       ├── [windowId, event2]
+ * │       └── ...
+ * ├── Snappy Session Recording Block 2
+ * │   └── JSONL Session Recording Block
+ * │       ├── [windowId, event1]
+ * │       └── ...
+ * └── ...
+ * ```
+ *
+ * The session block format (after decompression) is a sequence of newline-delimited JSON records.
+ * Each record is an array of [windowId, event].
+ */
+export class SessionBlockRecorder {
+    private readonly uncompressedChunks: Buffer[] = []
+    private eventCount: number = 0
+    private size: number = 0
+    private ended = false
+    private building?: Promise<EndResult>
+    private startDateTime: DateTime | null = null
+    private endDateTime: DateTime | null = null
+    private _distinctId: string | null = null
+    private urls: Set<string> = new Set()
+    private firstUrl: string | null = null
+    private clickCount: number = 0
+    private keypressCount: number = 0
+    private mouseActivityCount: number = 0
+    private messageCount: number = 0
+    private snapshotSource: string | null = null
+    private snapshotLibrary: string | null = null
+    private snapshotMode: SnapshotMode | null = null
+    private segmentationEvents: SegmentationEvent[] = []
+    private droppedUrlsCount: number = 0
+    private replayIndexEntries: ReplayIndexEntry[] = []
+    private replayIndexBytes = 0
+    private replayIndexTruncated = false
+
+    constructor(
+        public readonly sessionId: string,
+        public readonly teamId: number,
+        public readonly batchId: string,
+        private readonly compression: BlockCompression = DEFAULT_BLOCK_COMPRESSION
+    ) {}
+
+    /**
+     * Records a message containing events for this session
+     * Events are buffered until end() is called
+     *
+     * @param message - Message containing events for one or more windows
+     * @returns Number of raw bytes written (before compression)
+     * @throws If called after end()
+     */
+    public recordMessage(message: ParsedMessageData): number {
+        if (this.ended) {
+            throw new Error('Cannot record message after end() has been called')
+        }
+
+        if (!this._distinctId) {
+            this._distinctId = message.distinct_id
+        }
+
+        if (!this.snapshotSource) {
+            this.snapshotSource = (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
+        }
+        if (!this.snapshotLibrary) {
+            this.snapshotLibrary = message.snapshot_library
+                ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
+                : null
+        }
+
+        let rawBytesWritten = 0
+
+        // Note: We don't need to check for zero timestamps here because:
+        // 1. The parse step filters out events with zero timestamps
+        // 2. The parse step drops messages with no valid events
+        // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
+        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
+            this.startDateTime = message.eventsRange.start
+        }
+        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
+            this.endDateTime = message.eventsRange.end
+        }
+
+        if (message.preSerialized) {
+            return this.recordPreSerialized(message)
+        }
+
+        for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
+            for (const event of events) {
+                if (this.snapshotMode === null && message.snapshot_source === 'mobile') {
+                    this.snapshotMode = snapshotModeFrom(event)
+                }
+                const serializedLine = JSON.stringify([windowId, event]) + '\n'
+                const chunk = Buffer.from(serializedLine)
+                this.uncompressedChunks.push(chunk)
+
+                // Store segmentation event for later use in active time calculation
+                this.segmentationEvents.push(toSegmentationEvent(event))
+
+                const eventUrl = hrefFrom(event)
+                if (eventUrl) {
+                    this.addUrl(eventUrl)
+                }
+
+                if (isClick(event)) {
+                    this.clickCount += 1
+                }
+
+                if (isKeypress(event)) {
+                    this.keypressCount += 1
+                }
+
+                if (isMouseActivity(event)) {
+                    this.mouseActivityCount += 1
+                }
+
+                this.eventCount++
+                this.size += chunk.length
+                rawBytesWritten += chunk.length
+            }
+        }
+
+        this.messageCount += 1
+        return rawBytesWritten
+    }
+
+    /**
+     * Fast path for messages the native anonymizer already serialized: the JSONL block lines are
+     * appended as one chunk, and the counts/segmentation/urls come from the per-event metadata
+     * instead of walking parsed events.
+     */
+    private recordPreSerialized(message: ParsedMessageData): number {
+        const { lines, events, windowId } = message.preSerialized!
+
+        this.uncompressedChunks.push(lines)
+        for (const event of events) {
+            if (
+                windowId !== undefined &&
+                (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT || event.jsonLd || event.href)
+            ) {
+                const common = { windowId, eventTimestamp: event.ts, eventIndex: this.eventCount }
+                if (event.flags & PRE_SERIALIZED_FLAG_FULL_SNAPSHOT) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'full_snapshot' })
+                }
+                if (event.jsonLd) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'json_ld', ...event.jsonLd })
+                }
+                if (event.href) {
+                    this.appendReplayIndexEntry({ ...common, kind: 'page', url: event.href.slice(0, MAX_URL_LENGTH) })
+                }
+            }
+            this.segmentationEvents.push({
+                timestamp: event.ts,
+                isActive: (event.flags & PRE_SERIALIZED_FLAG_ACTIVE) !== 0,
+            })
+            if (event.href) {
+                this.addUrl(event.href)
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_CLICK) {
+                this.clickCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_KEYPRESS) {
+                this.keypressCount += 1
+            }
+            if (event.flags & PRE_SERIALIZED_FLAG_MOUSE_ACTIVITY) {
+                this.mouseActivityCount += 1
+            }
+            this.eventCount++
+        }
+        this.size += lines.length
+        this.messageCount += 1
+        return lines.length
+    }
+
+    private appendReplayIndexEntry(entry: ReplayIndexEntry): void {
+        if (this.replayIndexTruncated) {
+            return
+        }
+        const bytes = Buffer.byteLength(JSON.stringify(entry)) + 1
+        if (this.replayIndexBytes + bytes > MAX_REPLAY_INDEX_BYTES) {
+            this.replayIndexTruncated = true
+            return
+        }
+        this.replayIndexEntries.push(entry)
+        this.replayIndexBytes += bytes
+    }
+
+    private addUrl(url: string): void {
+        if (!url) {
+            return
+        }
+
+        const truncatedUrl = url.length > MAX_URL_LENGTH ? url.slice(0, MAX_URL_LENGTH) : url
+        if (url.length > MAX_URL_LENGTH) {
+            logger.warn(
+                '🔗',
+                `Truncating URL from ${url.length} to ${MAX_URL_LENGTH} characters for session ${this.sessionId}`
+            )
+        }
+
+        if (!this.firstUrl) {
+            this.firstUrl = truncatedUrl
+        }
+        if (this.urls.size < MAX_URLS_COUNT) {
+            this.urls.add(truncatedUrl)
+        } else {
+            this.droppedUrlsCount++
+            logger.warn(
+                '🔗',
+                `Dropping URL (count limit reached) for session ${this.sessionId} team ${this.teamId}, dropped ${this.droppedUrlsCount} URLs`
+            )
+        }
+    }
+
+    /**
+     * The distinct_id associated with this session recording
+     */
+    public get distinctId(): string {
+        if (!this._distinctId) {
+            throw new Error('No distinct_id set. No messages recorded yet.')
+        }
+        return this._distinctId
+    }
+
+    /**
+     * Finalizes the session recording and returns the compressed buffer with metadata
+     *
+     * Idempotent. A flush writes every block before it finishes the batch file, so a throw in that loop abandons the
+     * file and the retry must emit the blocks it already built. A failed build is discarded, so the retry rebuilds it.
+     *
+     * @returns The compressed session recording block with metadata
+     */
+    public end(): Promise<EndResult> {
+        if (!this.building) {
+            this.ended = true
+            this.building = this.buildBlock().catch((error: unknown) => {
+                this.building = undefined
+                throw error
+            })
+        }
+        return this.building
+    }
+
+    private async buildBlock(): Promise<EndResult> {
+        // Buffer.concat typings are missing the signature with Buffer[]
+        const uncompressedBuffer = Buffer.concat(this.uncompressedChunks as any)
+        const startedAt = performance.now()
+        const buffer = await compressBlock(uncompressedBuffer, this.compression)
+        // A built block answers every later end(), so the raw chunks are dead. A flush holds every block, so free them.
+        this.uncompressedChunks.length = 0
+        SessionBatchMetrics.observeBlockCompression(
+            this.compression.codec,
+            uncompressedBuffer.length,
+            buffer.length,
+            (performance.now() - startedAt) / 1000
+        )
+
+        // Calculate active time using segmentation events
+        const activeTime = activeMillisecondsFromSegmentationEvents(this.segmentationEvents)
+
+        return {
+            buffer,
+            eventCount: this.eventCount,
+            startDateTime: this.startDateTime ?? DateTime.fromMillis(0),
+            endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
+            firstUrl: this.firstUrl,
+            urls: Array.from(this.urls),
+            clickCount: this.clickCount,
+            keypressCount: this.keypressCount,
+            mouseActivityCount: this.mouseActivityCount,
+            activeMilliseconds: activeTime,
+            size: this.size,
+            messageCount: this.messageCount,
+            snapshotSource: this.snapshotSource,
+            snapshotLibrary: this.snapshotLibrary,
+            snapshotMode: this.snapshotMode,
+            batchId: this.batchId,
+            ...(this.replayIndexEntries.length ? { replayIndexEntries: this.replayIndexEntries } : {}),
+            ...(this.replayIndexTruncated ? { replayIndexTruncated: true } : {}),
+        }
+    }
+}

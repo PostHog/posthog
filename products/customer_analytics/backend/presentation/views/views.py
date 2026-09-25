@@ -912,12 +912,12 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         responses={
             200: OpenApiResponse(
                 response=UserCustomerAnalyticsConfigSerializer,
-                description="The requesting user's account sidebar configuration.",
+                description="The requesting user's account sidebar and notification configuration.",
             )
         },
         summary="Get account sidebar configuration",
         description=(
-            "Get the requesting user's account sidebar configuration for this project. "
+            "Get the requesting user's account sidebar and task digest configuration for this project. "
             "The first read creates an empty configuration row."
         ),
     )
@@ -939,26 +939,42 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         },
         summary="Update account sidebar configuration",
         description=(
-            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
-            "Omitting pinned_properties leaves the configuration unchanged. "
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
+            "and change the task digest email preferences when task_digest is provided. "
+            "Anything omitted keeps its current value. "
             "At most 50 account custom properties and relationships can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        if "pinned_properties" not in request.validated_data:
-            return self.retrieve(request, *args, **kwargs)
-        pinned_properties = [
-            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
-            for reference in request.validated_data["pinned_properties"]
-        ]
-        try:
-            config = api.update_user_customer_analytics_config(
+        user_id = cast(User, request.user).id
+        config: contracts.UserCustomerAnalyticsConfig | None = None
+
+        if "pinned_properties" in request.validated_data:
+            pinned_properties = [
+                contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                for reference in request.validated_data["pinned_properties"]
+            ]
+            try:
+                config = api.update_user_customer_analytics_config(
+                    team_id=self.team_id,
+                    user_id=user_id,
+                    pinned_properties=pinned_properties,
+                )
+            except api.InvalidPinnedAccountProperties as error:
+                raise ValidationError({"pinned_properties": error.errors})
+
+        if "task_digest" in request.validated_data:
+            task_digest = request.validated_data["task_digest"]
+            config = api.update_user_task_digest_preferences(
                 team_id=self.team_id,
-                user_id=cast(User, request.user).id,
-                pinned_properties=pinned_properties,
+                user_id=user_id,
+                enabled=task_digest.get("enabled"),
+                send_time=task_digest.get("send_time"),
+                cadence=task_digest.get("cadence"),
             )
-        except api.InvalidPinnedAccountProperties as error:
-            raise ValidationError({"pinned_properties": error.errors})
+
+        if config is None:
+            return self.retrieve(request, *args, **kwargs)
         return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
 
 

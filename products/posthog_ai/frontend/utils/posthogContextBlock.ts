@@ -102,15 +102,16 @@ export function extractContextBlockLines(block: string): string[] {
  * open/close variant of the three tag names (including the legacy `posthog_context`, which the
  * deprecated backend `context_wrapper.py` path still emits).
  *
- * Newlines are escaped for the same reason one level down: an item renders as exactly one line, so a
- * value carrying `\n- ` can't forge extra item lines in the block the model reads, and can't split
+ * Line breaks are escaped for the same reason one level down: an item renders as exactly one line, so
+ * a value carrying `\n- ` can't forge extra item lines in the block the model reads, and can't split
  * one item's identity into several entries that `extractContextBlockLines` would then record
- * separately from what `contextItemLine` re-renders at dedupe time.
+ * separately from what `contextItemLine` re-renders at dedupe time. A lone `\r` is a line break too,
+ * so it is escaped along with `\r\n` and `\n`.
  */
 function defang(text: string | number): string {
     return String(text)
         .replace(/<(\/?)(posthog_(?:(?:un)?trusted_)?context)/g, '<\\$1$2')
-        .replace(/\r?\n/g, '\\n')
+        .replace(/\r\n|[\r\n]/g, '\\n')
 }
 
 function formatItem(item: AttachedContextItem): string {

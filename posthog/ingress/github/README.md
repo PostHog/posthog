@@ -44,8 +44,13 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{tasks,conversations,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{tasks,conversations,error_tracking,review_hog,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
+
+The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
+It scans descriptions for direct issue links and fingerprint permalinks on the configured PostHog site, then queues team-scoped tasks.
+Repeated links and deliveries reuse an existing reference.
+Removing a link from a later description does not remove the reference.
 
 The [Endpoints table](../README.md#endpoints) lists the consumer names per event type.
 PR analytics shared by those consumers live in `posthog/github/`, see its README.

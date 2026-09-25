@@ -6,15 +6,32 @@ team. Shared by the personal "unlinked installations" check, the org installatio
 orphan-installation adoption.
 """
 
+from dataclasses import field
 from typing import Any
 
 import requests
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
 _OBSERVABILITY_SOURCE = "integration"
+
+
+@frozen
+class PersonalGitHubCredential:
+    token: str = field(repr=False)
+    integration: UserIntegration = field(repr=False)
+
+
+@frozen(frozen=False)
+class PersonalGitHubDiscovery:
+    audit: GitHubAudit
+    discovery_id: str
+    login: str | None = None
+    status: str = "not_connected"
 
 
 def _newest_personal_github_integration(user: User) -> UserIntegration | None:
@@ -39,7 +56,7 @@ def personal_github_login(user: User) -> str | None:
     return UserGitHubIntegration(integration).github_login
 
 
-def usable_personal_github_token(user: User) -> str | None:
+def usable_personal_github_credential(user: User) -> PersonalGitHubCredential | None:
     """Return a usable user-to-server GitHub token for ``user``, refreshing it if needed.
 
     Tries every personal GitHub link newest-first, since the newest row can hold stale credentials
@@ -56,11 +73,18 @@ def usable_personal_github_token(user: User) -> str | None:
         except Exception:
             continue
         if token:
-            return token
+            return PersonalGitHubCredential(token=token, integration=integration)
     return None
 
 
-def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | None:
+def usable_personal_github_token(user: User) -> str | None:
+    credential = usable_personal_github_credential(user)
+    return credential.token if credential else None
+
+
+def list_user_github_app_installations(
+    user: User, discovery: PersonalGitHubDiscovery | None = None
+) -> list[dict[str, Any]] | None:
     """List the GitHub App installations visible to ``user``'s personal OAuth token.
 
     Returns installation dicts as GitHub reports them from ``GET /user/installations`` (``id``,
@@ -68,9 +92,20 @@ def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | Non
     personal GitHub link, a token refresh failure, a network error, or a non-200 response. Callers
     must treat None as "unknown" and degrade gracefully rather than fail the request.
     """
-    token = usable_personal_github_token(user)
-    if token is None:
+    credential = usable_personal_github_credential(user)
+    connected = user_has_personal_github_integration(user)
+    if discovery:
+        discovery.status = "unavailable" if connected else "not_connected"
+    if credential is None:
         return None
+    token = credential.token
+    if discovery:
+        discovery.login = UserGitHubIntegration(credential.integration).github_login
+        discovery.audit.record(
+            "discovery_credential_selected",
+            discovery_id=discovery.discovery_id,
+            **(GitHubAudit.personal(credential.integration).personal_metadata or {}),
+        )
 
     try:
         # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
@@ -83,8 +118,19 @@ def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | Non
             timeout=10,
         )
     except (requests.RequestException, GitHubEgressBudgetExhausted):
+        if discovery:
+            discovery.audit.record(
+                "discovery_failed", discovery_id=discovery.discovery_id, reason="github_request_failed"
+            )
         return None
 
+    if discovery:
+        discovery.audit.record(
+            "discovery_github_response",
+            discovery_id=discovery.discovery_id,
+            github_status=response.status_code,
+            github_request_id=response.headers.get("X-GitHub-Request-Id"),
+        )
     if response.status_code != 200:
         return None
 
@@ -95,6 +141,23 @@ def list_user_github_app_installations(user: User) -> list[dict[str, Any]] | Non
 
     if not isinstance(installations, list):
         return None
+
+    if discovery:
+        discovery.status = "ok"
+        discovery.audit.record(
+            "discovery_candidates",
+            discovery_id=discovery.discovery_id,
+            source="personal",
+            candidates=[
+                {
+                    "installation_id": str(item["id"]),
+                    "account_name": (item.get("account") or {}).get("login"),
+                    "account_type": (item.get("account") or {}).get("type"),
+                }
+                for item in installations
+                if isinstance(item, dict) and item.get("id") is not None
+            ],
+        )
 
     return [
         installation

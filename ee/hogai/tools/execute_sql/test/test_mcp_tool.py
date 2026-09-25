@@ -2,6 +2,7 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 
 from posthog.schema import HogQLNotice, HogQLQuery
 
@@ -12,6 +13,7 @@ from products.product_analytics.backend.facade.models import Insight, InsightVar
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES, NESTABLE_BINARY_FUNCTIONS
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
     ExecuteSQLMCPToolArgs,
@@ -79,6 +81,64 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
         self.assertIn("validation failed", str(ctx.exception).lower())
+
+    @parameterized.expand(
+        [
+            ("trailing_tokens", "SELECT 1 FROM events LIMIT 1 blah", "blah"),
+            ("reserved_keyword", "SELECT count() FROM events WHERE GROUP BY", "BY"),
+            ("bad_operator", "SELECT * FROM events WHERE 1 === 2", "="),
+        ]
+    )
+    async def test_syntax_error_locates_the_offending_fragment(
+        self, _name: str, query: str, expected_fragment: str
+    ) -> None:
+        # A bare "this query isn't valid HogQL" tells the caller nothing about which construct to
+        # rewrite, so it retries the same query. The parser knows the offset and the token; keep both.
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+
+        message = str(ctx.exception)
+        self.assertIn("Parser detail:", message)
+        self.assertIn("The query failed at character", message)
+        self.assertIn(expected_fragment, message)
+
+    @parameterized.expand(
+        [
+            ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(x1, greatest(x2, x3))"),
+            ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(x1, least(x2, x3))"),
+            ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
+            ("width_suffixed_cast", "SELECT CAST(1 AS Float64) FROM events", "CAST(x AS Float)"),
+        ]
+    )
+    async def test_compatibility_rejection_carries_an_accepted_rewrite(
+        self, _name: str, query: str, expected_rewrite: str
+    ) -> None:
+        # Each shape is valid ClickHouse that HogQL rejects. The rejection must name the rewrite,
+        # not just the rule, or the caller has to guess what HogQL accepts instead.
+        with self.assertRaises(MaxToolRetryableError) as ctx:
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+
+        message = str(ctx.exception)
+        self.assertIn("<hogql_compatibility_hint>", message)
+        self.assertIn(expected_rewrite, message)
+
+    @parameterized.expand([(name,) for name in NESTABLE_BINARY_FUNCTIONS])
+    async def test_nesting_rewrite_is_actually_accepted(self, name: str) -> None:
+        # Pins the advice against the validator: if the arity cap is ever lifted, the flat call
+        # starts passing and this test says the nesting hint has gone stale.
+        with self.assertRaises(MaxToolRetryableError):
+            await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, 2, 3) FROM events"))
+
+        result = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, {name}(2, 3)) AS x FROM events")
+        )
+        self.assertIsNotNone(result.content)
+
+    @parameterized.expand([(name,) for name in ACCEPTED_CAST_TYPES])
+    async def test_suggested_cast_types_are_actually_accepted(self, type_name: str) -> None:
+        # The hint lists these as the accepted spellings, so each one has to survive validation.
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT CAST(1 AS {type_name}) AS x"))
+        self.assertIsNotNone(result.content)
 
     async def test_validation_error_for_empty_query(self):
         with self.assertRaises(MaxToolRetryableError):
@@ -229,6 +289,42 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             result.structured_content,
             {"query": captured["query"].model_dump(mode="json", exclude_none=True)},
         )
+
+    async def test_deferred_execution_error_gains_the_compatibility_hint(self):
+        # A connection query skips local validation, so a compatibility rejection arrives from the
+        # runner. It has to gain the same rewrite the validation path attaches.
+        async def fake_execute_and_format(self, *args, **kwargs):
+            raise MaxToolRetryableError("Function 'greatest' expects 2 arguments, found 3")
+
+        with patch(
+            "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+            new=fake_execute_and_format,
+        ):
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await self.tool.execute(
+                    ExecuteSQLMCPToolArgs(query="SELECT greatest(1, 2, 3) FROM t", connectionId="conn_abc"),
+                )
+
+        message = str(ctx.exception)
+        self.assertIn("Function 'greatest' expects 2 arguments, found 3", message)
+        self.assertIn("greatest(x1, greatest(x2, x3))", message)
+
+    async def test_deferred_execution_error_without_a_rule_is_left_alone(self):
+        # Most runner failures match no rule. Those must reach the caller unchanged rather than
+        # gaining an empty or misleading block.
+        async def fake_execute_and_format(self, *args, **kwargs):
+            raise MaxToolRetryableError("Connection refused by the upstream source")
+
+        with patch(
+            "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+            new=fake_execute_and_format,
+        ):
+            with self.assertRaises(MaxToolRetryableError) as ctx:
+                await self.tool.execute(
+                    ExecuteSQLMCPToolArgs(query="SELECT 1 FROM t", connectionId="conn_abc"),
+                )
+
+        self.assertEqual(str(ctx.exception), "Connection refused by the upstream source")
 
     async def test_send_raw_query_without_a_connection_raises(self):
         # There is nothing to send it to, and silently compiling it as HogQL instead would run

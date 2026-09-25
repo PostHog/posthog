@@ -236,6 +236,10 @@ class LLMSkillSearchMatchSerializer(serializers.Serializer):
 class LLMSkillSearchResultSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Unique skill name.")
     description = serializers.CharField(help_text="What this skill does and when to use it.")
+    score = serializers.IntegerField(
+        min_value=1,
+        help_text="Relevance score used to rank this result. Higher scores are more relevant.",
+    )
     matches = LLMSkillSearchMatchSerializer(
         many=True,
         help_text="Up to two locations that matched the search query, ordered by field relevance.",

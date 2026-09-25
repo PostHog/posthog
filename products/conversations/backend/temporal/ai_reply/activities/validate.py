@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json as json_module
 from dataclasses import replace
+from typing import Literal
 
 import structlog
+from pydantic import BaseModel, Field
 from temporalio import activity
 
 from posthog.llm.gateway_client import get_async_anthropic_gateway_client
@@ -21,15 +23,24 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     VALIDATOR_MODEL,
 )
 from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_output_config,
     anthropic_text,
     create_message,
     llm_attempts,
     strip_json_fence,
     tracing_kwargs,
 )
-from products.conversations.backend.temporal.ai_reply.schemas import ValidateInput, ValidateOutput
+from products.conversations.backend.temporal.ai_reply.schemas import ValidateInput, ValidateOutput, coerce_unit_interval
 
 logger = structlog.get_logger(__name__)
+
+
+class ValidateResult(BaseModel):
+    grounded: bool
+    coverage: float = Field(description="Fraction of the customer's question the reply addresses, from 0 to 1")
+    confidence: float = Field(description="Confidence the reply is correct and complete, from 0 to 1")
+    missing: list[str] = Field(description="Topics the customer asked about that the reply or chunks do not cover")
+    blocker: Literal["none", "customer_info", "knowledge", "contradiction"]
 
 
 @activity.defn
@@ -89,6 +100,7 @@ CITED CHUNKS:
         max_tokens=1024,
         system=system,
         messages=[{"role": "user", "content": user_content}],
+        **anthropic_output_config(ValidateResult),
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)
@@ -100,8 +112,8 @@ CITED CHUNKS:
             blocker = "knowledge"
         return ValidateOutput(
             grounded=bool(parsed.get("grounded", False)),
-            coverage=float(parsed.get("coverage", 0.0)),
-            confidence=float(parsed.get("confidence", 0.0)),
+            coverage=coerce_unit_interval(parsed.get("coverage", 0.0)),
+            confidence=coerce_unit_interval(parsed.get("confidence", 0.0)),
             missing=list(parsed.get("missing", [])),
             blocker=blocker,
         )

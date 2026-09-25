@@ -5,18 +5,20 @@ they must agree on what a check row means, so the cap, the metric-query copy, an
 live here rather than three times over. `report_checks.py` still owns the shapes and the bounds;
 this module owns the write.
 
-A check written after the fix shipped names the date to look on. A check written *before* it cannot:
-the research turn authors its check in the same pass that writes the report, and many fixes never
-get a merged pull request to date a soak window from. Such a check is stored `pending` with a soak
-duration and armed by the report's transition to `resolved`, whatever caused it. That makes the
-resolve the clock for every kind of fix.
+The report's own state decides when a check first runs. A check on a resolved report names the date
+to look on. A check on a report that is still open cannot: the fix it re-measures has not shipped,
+and many fixes never get a merged pull request to date a soak window from. Such a check is stored
+`pending` with a soak duration and armed by the report's transition to `resolved`, whatever caused
+it. That makes the resolve the clock for every kind of fix.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from functools import partial
+from typing import Literal
 
 from django.db import transaction
 from django.utils import timezone
@@ -25,12 +27,15 @@ import structlog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_checks import (
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
+    MAX_CHECK_SOAK_HOURS,
+    MIN_CHECK_SOAK_HOURS,
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
@@ -60,12 +65,18 @@ def create_check(
 ) -> SignalReportCheck:
     """Write one check on a report, armed or pending.
 
-    Pass `next_run_at` and `expires_at` for a check that already knows when to look. Pass
-    `soak_minutes` instead for one that waits on the report resolving; the row is stored `pending`
-    and its dates are provisional until `arm_pending_checks` rewrites them.
+    Pass `next_run_at` and `expires_at` for a check that names when to look. Pass `soak_minutes`
+    instead for one that names how long to wait after the report resolves.
+
+    Which of the two the row uses is the report's call, not the caller's. A report that has not
+    resolved has no fix live yet, so a check on it is stored `pending` with a soak, and its dates
+    stay provisional until `arm_pending_checks` rewrites them at the resolve. A dated check keeps
+    the gap its author left as that soak. Only a resolved report takes a date as written.
 
     The report row is locked for the same reason the REST path locks it: the per-report cap is a
-    count followed by an insert, which only holds if concurrent creates serialize.
+    count followed by an insert, which only holds if concurrent creates serialize. The status
+    decision is read under the same lock, so a resolve landing mid-write either precedes the row
+    or arms it.
     """
     if (next_run_at is None) == (soak_minutes is None):
         raise CheckCreationError("a check names either a next_run_at or a soak_minutes, not both and not neither")
@@ -90,20 +101,6 @@ def create_check(
             raise CheckCreationError(f"This check cannot run: {error}.") from None
 
     now = timezone.now()
-    if soak_minutes is not None:
-        status = SignalReportCheck.Status.PENDING
-        # Provisional, and rewritten at arm time. The horizon is real though: a report that never
-        # resolves retires its pending checks rather than holding them forever.
-        next_run_at = now + timedelta(minutes=soak_minutes)
-        expires_at = now + MAX_CHECK_HORIZON
-    else:
-        status = SignalReportCheck.Status.ACTIVE
-        assert next_run_at is not None
-        if expires_at is None:
-            expires_at = min(
-                _last_run_at(next_run_at, run_interval_minutes, runs_remaining) + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
-                now + MAX_CHECK_HORIZON,
-            )
 
     with transaction.atomic():
         locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
@@ -114,6 +111,26 @@ def create_check(
         )
         if open_checks.count() >= MAX_ACTIVE_CHECKS_PER_REPORT:
             raise CheckCreationError(f"A report may carry at most {MAX_ACTIVE_CHECKS_PER_REPORT} active checks.")
+        if locked_report.status == SignalReport.Status.RESOLVED:
+            status = SignalReportCheck.Status.ACTIVE
+            if next_run_at is None:
+                assert soak_minutes is not None
+                next_run_at = now + timedelta(minutes=soak_minutes)
+            if expires_at is None:
+                expires_at = min(
+                    _last_run_at(next_run_at, run_interval_minutes, runs_remaining)
+                    + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
+                    now + MAX_CHECK_HORIZON,
+                )
+        else:
+            status = SignalReportCheck.Status.PENDING
+            if soak_minutes is None:
+                assert next_run_at is not None
+                soak_minutes = _soak_from_first_run(next_run_at, now)
+            # Provisional, and rewritten at arm time. The horizon is real though: a report that
+            # never resolves retires its pending checks rather than holding them forever.
+            next_run_at = now + timedelta(minutes=soak_minutes)
+            expires_at = now + MAX_CHECK_HORIZON
         check = SignalReportCheck.objects.for_team(locked_report.team_id).create(
             # The report's own environment team, never a canonicalized one: the report's reads and
             # its artefact log filter by it.
@@ -134,6 +151,9 @@ def create_check(
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
         )
+        # In the same transaction as the row, so the log can never show a watch the report does not
+        # carry, nor carry one the log never opened.
+        write_check_scheduled(check, attribution)
         # Reported from the shared write so every author is counted: the REST endpoint, the scout
         # tool and the research pipeline. Post-commit, so a check the cap or a rollback rejected is
         # never counted as written.
@@ -149,10 +169,10 @@ def create_checks_from_specs(
 ) -> list[SignalReportCheck]:
     """Write a research run's check specs on the report it just finished.
 
-    The specs replace the report's pending checks rather than joining them. Only research writes a
-    pending check, so every pending row came from an earlier pass over an older version of this
-    report. Left in place, those rows would fill the per-report cap, and the resolve would arm them
-    against prose they were not written for. A pass that returns no specs leaves them alone, because
+    The specs replace the report's pending checks rather than joining them. Every pending row on the
+    report was written against an older version of this prose, which this pass has just rewritten.
+    Left in place, those rows would fill the per-report cap, and the resolve would arm them against
+    prose they were not written for. A pass that returns no specs leaves them alone, because
     the verification turn is best-effort and an empty result can be a failed turn.
 
     A spec the report cannot carry is dropped with a log rather than failing the run, the way an
@@ -161,9 +181,17 @@ def create_checks_from_specs(
     """
     if not specs:
         return []
-    SignalReportCheck.objects.for_team(report.team_id).filter(
+    # Only the pending rows, never a check the resolve already armed: this pass replaces prose that
+    # has not been measured against yet.
+    for replaced in SignalReportCheck.objects.for_team(report.team_id).filter(
         report_id=report.id, status=SignalReportCheck.Status.PENDING
-    ).update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+    ):
+        cancel_check(
+            replaced,
+            reason="replaced_by_research",
+            attribution=attribution,
+            from_statuses=(SignalReportCheck.Status.PENDING,),
+        )
     written: list[SignalReportCheck] = []
     for spec in specs:
         try:
@@ -187,6 +215,34 @@ def create_checks_from_specs(
                 reason=str(error),
             )
     return written
+
+
+def cancel_check(
+    check: SignalReportCheck,
+    *,
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"],
+    attribution: ArtefactAttribution,
+    from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
+) -> bool:
+    """Stop one check and log it. Returns False when the check had already finished.
+
+    One conditional update rather than a read and then a write: a verdict that lands in between
+    leaves a result artefact, and an unconditional write would overwrite the status that artefact
+    explains. The log entry follows the update rather than the intent, so a cancel that lost that
+    race records nothing, and it is built from the row as it was, so the entry names the check that
+    was stopped rather than the status it now holds.
+
+    `check` is refreshed either way, because both callers report the status back to whoever asked.
+    """
+    cancelled = (
+        SignalReportCheck.objects.for_team(check.team_id)
+        .filter(id=check.id, status__in=from_statuses)
+        .update(status=SignalReportCheck.Status.CANCELLED, updated_at=timezone.now())
+    )
+    if cancelled:
+        write_check_cancelled(check, reason=reason, attribution=attribution)
+    check.refresh_from_db()
+    return bool(cancelled)
 
 
 def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime) -> int:
@@ -221,6 +277,16 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             )
         )
     return armed
+
+
+def _soak_from_first_run(next_run_at: datetime, now: datetime) -> int:
+    """The soak a dated check keeps when its report has not resolved yet.
+
+    The author left a gap before the first run to allow for deploy and soak time, so that gap is
+    what the check waits out once the report resolves, bounded by what a soak may be.
+    """
+    minutes = round((next_run_at - now).total_seconds() / 60)
+    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
 
 
 def _last_run_at(next_run_at: datetime, run_interval_minutes: int | None, runs_remaining: int) -> datetime:

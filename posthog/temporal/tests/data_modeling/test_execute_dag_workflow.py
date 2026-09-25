@@ -1,7 +1,9 @@
 import uuid
+import asyncio
 import datetime as dt
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 import temporalio.worker
@@ -912,3 +914,67 @@ class TestExecuteDAGWorkflowWithMocks:
         ephemeral_result = next(r for r in result.node_results if r.node_id == ephemeral_view_id)
         assert ephemeral_result.success is True
         assert ephemeral_result.skipped is False
+
+
+class TestTrinoDependencyOutcomes:
+    @pytest.mark.parametrize(
+        "upstream_success,downstream_enabled", [(True, True), (False, True), (None, True), (None, False)]
+    )
+    @pytest.mark.parametrize("patched", [True, False])
+    async def test_downstream_trino_waits_for_upstream_success(
+        self, upstream_success: bool | None, downstream_enabled: bool, patched: bool
+    ) -> None:
+        plan = DAGPlan(nodes=["a", "b", "c"], executable_nodes=["a", "b", "c"], edges=[("a", "b"), ("b", "c")])
+        child_inputs: list[MaterializeViewWorkflowInputs] = []
+
+        async def start_child(
+            workflow: object, inputs: MaterializeViewWorkflowInputs, **kwargs: object
+        ) -> asyncio.Future[MaterializeViewWorkflowResult]:
+            child_inputs.append(inputs)
+            future = asyncio.get_running_loop().create_future()
+            future.set_result(
+                MaterializeViewWorkflowResult(
+                    job_id=f"job-{inputs.node_id}",
+                    node_id=inputs.node_id,
+                    rows_materialized=10,
+                    duration_seconds=1,
+                    trino_materialized=upstream_success
+                    if inputs.node_id == "a"
+                    else (not inputs.skip_trino if downstream_enabled else None),
+                )
+            )
+            return future
+
+        async def execute_activity(fn: object, *args: object, **kwargs: object) -> DAGPlan | None:
+            if fn == get_dag_structure_activity:
+                return plan
+            return None
+
+        info = MagicMock()
+        with (
+            patch.object(
+                temporal_workflow, "execute_activity", new=AsyncMock(side_effect=execute_activity)
+            ) as activities,
+            patch.object(temporal_workflow, "start_child_workflow", new=AsyncMock(side_effect=start_child)),
+            patch.object(temporal_workflow, "patched", return_value=patched),
+            patch.object(temporal_workflow, "now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
+            patch.object(temporal_workflow, "info", return_value=info),
+            patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
+            patch.object(temporal_workflow, "logger"),
+        ):
+            result = await ExecuteDAGWorkflow().run(ExecuteDAGInputs(team_id=7, dag_id="dag"))
+
+        assert result.successful_nodes == 3
+        assert [i.node_id for i in child_inputs] == ["a", "b", "c"]
+        blocked = patched and upstream_success is not True
+        assert [i.skip_trino for i in child_inputs] == [False, blocked, blocked]
+        skips = [
+            c.args[1]
+            for c in activities.await_args_list
+            if getattr(c.args[0], "__name__", "") == "record_skipped_data_modeling_jobs_activity"
+        ]
+        if blocked and downstream_enabled:
+            assert skips[0].engine == "managed_warehouse"
+            assert [n.node_id for n in skips[0].skipped_nodes] == ["b", "c"]
+        else:
+            assert not skips

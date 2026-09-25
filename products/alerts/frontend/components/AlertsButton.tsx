@@ -8,12 +8,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightModel } from '~/types'
 
 import { alertsUnsupportedReason, areAlertsSupportedForInsight, insightAlertsLogic } from '../logic/insightAlertsLogic'
 
 export type AlertsButtonProps = LemonButtonProps & {
-    insight: Partial<QueryBasedInsightModel>
+    insight: Partial<InsightModel>
     insightLogicProps: InsightLogicProps
     text: string
 }

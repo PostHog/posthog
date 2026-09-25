@@ -67,6 +67,10 @@ export const BusinessKnowledgeSourcesListParams = () => zod.object({
 })
 
 export const BusinessKnowledgeSourcesListQueryParams = () => zod.object({
+    added_by: zod
+        .enum(['human', 'learned'])
+        .optional()
+        .describe('Filter by who added the source: human (you added it) or learned (from a resolved support ticket).'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Case-insensitive substring match against the source name and URL.'),

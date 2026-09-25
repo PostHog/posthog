@@ -275,7 +275,7 @@ test.describe('Task run surface', () => {
         const composer = page.getByTestId('sandbox-composer-input')
         await composer.fill(followUp)
         await composer.press('Enter')
-        await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+        await expect(page.getByTestId('run-queue-label')).toBeVisible()
         await expect(page.getByText(followUp, { exact: true })).toBeVisible()
 
         let startAgent!: () => void
@@ -304,10 +304,29 @@ test.describe('Task run surface', () => {
             }
         )
         await composer.fill(draft)
+        await page.addInitScript((runId) => {
+            const originalFetch = window.fetch.bind(window)
+            window.fetch = async (input, init): Promise<Response> => {
+                const response = await originalFetch(input, init)
+                const url = input instanceof Request ? input.url : input.toString()
+                if (!new RegExp(`/runs/${runId}/stream/?$`).test(new URL(url, window.location.href).pathname)) {
+                    return response
+                }
+                const body = new TextEncoder().encode(await response.text())
+                return new Response(
+                    new ReadableStream<Uint8Array>({
+                        start(controller): void {
+                            controller.enqueue(body)
+                        },
+                    }),
+                    { status: response.status, headers: response.headers }
+                )
+            }
+        }, RUN_ID)
         await page.reload()
         await expect(composer).toHaveValue(restoredDraft, { timeout: 40000 })
         await expect(page.getByTestId('task-draft-restored')).toHaveText('Draft restored. Review it before sending.')
-        await expect(page.getByText('Up next', { exact: true })).toHaveCount(0)
+        await expect(page.getByTestId('run-queue-label')).toHaveCount(0)
         await expect(page.getByText(firstMessage, { exact: true })).toBeVisible()
 
         startAgent()
@@ -428,7 +447,7 @@ test.describe('Task run surface', () => {
             await expect(page.getByRole('combobox', { name: 'Mode', exact: true })).toBeVisible()
             await followUpComposer.fill(followUp)
             await followUpComposer.press('Enter')
-            await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+            await expect(page.getByTestId('run-queue-label')).toBeVisible()
             await expect(page.getByText(followUp, { exact: true })).toBeVisible()
             await expect(page.getByTestId('run-queue-steer')).toBeDisabled()
             await followUpComposer.fill(draft)
@@ -444,7 +463,7 @@ test.describe('Task run surface', () => {
             await expect(followUpComposer).toBeVisible()
             await followUpComposer.fill(followUp)
             await followUpComposer.press('Enter')
-            await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+            await expect(page.getByTestId('run-queue-label')).toBeVisible()
             await followUpComposer.fill(draft)
             finishCreation(true)
 
@@ -454,14 +473,14 @@ test.describe('Task run surface', () => {
             await expect(page.getByTestId('run-log-skeleton')).toHaveCount(0)
             await expect(followUpComposer).toHaveValue(draft)
             await expect(followUpComposer).toBeFocused()
-            await expect(page.getByText('Up next', { exact: true })).toBeVisible()
+            await expect(page.getByTestId('run-queue-label')).toBeVisible()
             await expect(page.getByTestId('run-queue-steer')).toBeDisabled()
             await page.screenshot({ path: test.info().outputPath('new-task-starting.png') })
 
             startAgent()
             await expect(page.getByText('Start by grouping activity by week.', { exact: true })).toBeVisible()
             await expect(page.getByText(message, { exact: true })).toHaveCount(1)
-            await expect(page.getByText('Up next', { exact: true })).toHaveCount(0)
+            await expect(page.getByTestId('run-queue-label')).toHaveCount(0)
             await expect(page.getByText(followUp, { exact: true })).toHaveCount(1)
             await expect(followUpComposer).toHaveValue(draft)
             revealMetadata()
@@ -623,8 +642,8 @@ test.describe('Task run surface', () => {
         await expect(composer).toHaveValue('Keep this newer draft.')
     })
 
-    test('live stream drop shows the reconnecting banner', async ({ page }) => {
-        // Regression: a clean-EOF drop on an in-progress run must surface the reconnecting banner (the backoff
+    test('live stream drop shows the restoring conversation banner', async ({ page }) => {
+        // Regression: a clean-EOF drop on an in-progress run must surface the recovery banner (the backoff
         // loop) rather than silently stalling or reading as ordinary thinking.
         await routeTasksApi(page, {
             runStatus: 'in_progress',
@@ -639,7 +658,7 @@ test.describe('Task run surface', () => {
 
         // Assert only the first reconnecting window — `reconnectAttempt` resets to 0 on each reopen so the banner
         // cycles; a single visibility check on the title keeps it deterministic.
-        await expect(page.getByText('Reconnecting to agent')).toBeVisible({ timeout: 20000 })
+        await expect(page.getByText('Restoring conversation')).toBeVisible({ timeout: 20000 })
     })
 
     test('exhausted run history shows connection lost', async ({ page }) => {

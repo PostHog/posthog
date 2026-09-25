@@ -11,10 +11,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
-    PaginatedPersonRecordListApi,
+    PaginatedPersonListRecordListApi,
     PatchedPersonRecordApi,
     PersonBulkDeleteRequestApi,
     PersonBulkDeleteResponseApi,
+    PersonCohortsResponseApi,
     PersonDeletePropertyRequestApi,
     PersonPropertiesAtTimeResponseApi,
     PersonRecordApi,
@@ -83,8 +84,8 @@ export const personsList = async (
     projectId: string,
     params?: PersonsListParams,
     options?: RequestInit
-): Promise<PaginatedPersonRecordListApi> => {
-    return apiMutator<PaginatedPersonRecordListApi>(getPersonsListUrl(projectId, params), {
+): Promise<PaginatedPersonListRecordListApi> => {
+    return apiMutator<PaginatedPersonListRecordListApi>(getPersonsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -561,6 +562,8 @@ export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: Person
 
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+ *
+ * Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
  */
 export const personsBulkDeleteCreate = async (
     projectId: string,
@@ -599,8 +602,8 @@ export const personsCohortsRetrieve = async (
     projectId: string,
     params: PersonsCohortsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsCohortsRetrieveUrl(projectId, params), {
+): Promise<PersonCohortsResponseApi> => {
+    return apiMutator<PersonCohortsResponseApi>(getPersonsCohortsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -10,13 +10,13 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
+from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS
 from ee.tasks.subscriptions.slack_subscriptions import (

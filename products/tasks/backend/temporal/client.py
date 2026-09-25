@@ -17,10 +17,17 @@ from posthog.models.team.team import Team
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.constants import (
+    AGENT_OTEL_TELEMETRY_STATE_KEY,
+    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+)
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
 from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id, get_task_run_credential_user
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
@@ -32,6 +39,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
+from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
@@ -41,6 +49,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _PRE_START_STATUSES: tuple[str, ...] = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED)
+
+_BOOT_ROLLOUT_FLAGS: tuple[tuple[str, str], ...] = (
+    ("agent_proxy_keep_stream_open", AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG),
+    ("overlap_clone_boot_enabled", OVERLAP_CLONE_BOOT_FEATURE_FLAG),
+    ("use_modal_network_allowlist", MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG),
+)
 
 
 def _normalize_slack_context(slack_thread_context: Optional[Any]) -> Optional[dict[str, Any]]:
@@ -119,6 +133,33 @@ def _get_task_run_for_metrics(run_id: str) -> TaskRun | None:
         return None
 
 
+def _evaluate_boot_rollout_flag(
+    flag_key: str,
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    task_id: str,
+) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                flag_key,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "boot_rollout_capture_flag_failed",
+            extra={"run_id": run_id, "task_id": task_id, "flag_key": flag_key, "error": str(e)},
+        )
+        return False
+
+
 def _capture_run_feature_flags(run_id: str) -> None:
     """Evaluate per-run rollout flags once at dispatch and stamp them into run state.
 
@@ -133,7 +174,12 @@ def _capture_run_feature_flags(run_id: str) -> None:
     state = task_run.state or {}
     need_event_ingest = not isinstance(state.get("sandbox_event_ingest_enabled"), bool)
     need_otel_telemetry = not isinstance(state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool)
-    if not need_event_ingest and not need_otel_telemetry:
+    pending_boot_flags = [
+        (state_key, flag_key)
+        for state_key, flag_key in _BOOT_ROLLOUT_FLAGS
+        if not isinstance(state.get(state_key), bool)
+    ]
+    if not need_event_ingest and not need_otel_telemetry and not pending_boot_flags:
         return
 
     task = task_run.task
@@ -141,6 +187,8 @@ def _capture_run_feature_flags(run_id: str) -> None:
     distinct_id = (
         task.created_by.distinct_id if task.created_by and task.created_by.distinct_id else "process_task_workflow"
     )
+    actor_user = get_task_run_credential_user(task, state)
+    boot_distinct_id = get_actor_distinct_id(actor_user) if actor_user else distinct_id
 
     event_ingest_enabled = False
     if need_event_ingest:
@@ -163,12 +211,25 @@ def _capture_run_feature_flags(run_id: str) -> None:
     otel_telemetry_enabled = need_otel_telemetry and is_agent_otel_telemetry_enabled(
         distinct_id=distinct_id, organization_id=organization_id
     )
+    boot_flag_values: dict[str, bool] = {
+        state_key: _evaluate_boot_rollout_flag(
+            flag_key,
+            distinct_id=boot_distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+            task_id=str(task.id),
+        )
+        for state_key, flag_key in pending_boot_flags
+    }
 
     def _stamp_flags(latest_state: dict[str, Any]) -> None:
         if need_event_ingest and not isinstance(latest_state.get("sandbox_event_ingest_enabled"), bool):
             latest_state["sandbox_event_ingest_enabled"] = event_ingest_enabled
         if need_otel_telemetry and not isinstance(latest_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY), bool):
             latest_state[AGENT_OTEL_TELEMETRY_STATE_KEY] = otel_telemetry_enabled
+        for state_key, value in boot_flag_values.items():
+            if not isinstance(latest_state.get(state_key), bool):
+                latest_state[state_key] = value
 
     captured_state = TaskRun.mutate_state_atomic(task_run.id, _stamp_flags)
     if need_otel_telemetry:
@@ -182,6 +243,7 @@ def _capture_run_feature_flags(run_id: str) -> None:
             "task_id": str(task.id),
             "sandbox_event_ingest_enabled": captured_state.get("sandbox_event_ingest_enabled"),
             "agent_otel_telemetry_enabled": captured_state.get(AGENT_OTEL_TELEMETRY_STATE_KEY),
+            **{state_key: captured_state.get(state_key) for state_key, _ in _BOOT_ROLLOUT_FLAGS},
         },
     )
 
@@ -396,41 +458,6 @@ def execute_task_processing_workflow(
         )
 
 
-def _resolve_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
-    """Best-effort scope posture for the reconciler when ``pending_dispatch`` didn't carry
-    ``posthog_mcp_scopes`` (pre-reconciler rows, or the bootstrap/start path). Mirrors
-    ``_trigger_task_processing_workflow``: full scopes unless the run_source is scoped down.
-
-    Signals scout runs are the exception. Their posture (``signal_scout_internal:*`` +
-    ``signal_scout_report:write``) is carried by neither ``"full"`` nor ``"read_only"``, so a scout
-    re-dispatched on this fallback with a generic posture loses every ``signals-scout-*`` tool — they
-    drop out of the MCP catalog and surface to the agent as "Unknown tool", burning the whole run
-    (it investigates, then can't emit a report, write scratchpad, or build its profile). Pin
-    scout-origin runs to the most-capable scout posture so a reconciled scout stays fully functional.
-    Over-granting the report scope to a non-report scout is harmless: the report endpoints
-    independently gate on the skill's ``allowed_tools`` opt-in.
-    """
-    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — avoid an import cycle
-        RunSource,
-        parse_run_state,
-    )
-
-    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT:
-        return "signals_scout_reports"
-    # The suggestion scan only reads; a reconciled run must not inherit the generic full posture.
-    if task_run.task.origin_product == Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS:
-        return "read_only"
-
-    # Loop-fired runs persist their real scopes in pending_dispatch; a row missing it must
-    # degrade to read_only, never escalate to the full write surface the generic fallback
-    # below grants (loop runs carry no run_source).
-    if task_run.task.origin_product == Task.OriginProduct.LOOP:
-        return "read_only"
-
-    run_source = parse_run_state(task_run.state).run_source
-    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
-
-
 def redispatch_orphaned_task_run(run_id: str) -> str:
     """Re-dispatch a run stuck in QUEUED whose create-time on_commit dispatch never fired.
 
@@ -484,7 +511,7 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         run_id=run_id,
         create_pr=dispatch_params.get("create_pr", default_create_pr),
         slack_thread_context=dispatch_params.get("slack_thread_context"),
-        posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
+        posthog_mcp_scopes=dispatched_run_scopes(task, task_run.state),
     )
 
     # A loop run's skill bundles are seeded by the same on_commit callback whose loss

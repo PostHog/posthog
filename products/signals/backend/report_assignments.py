@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TypedDict
 
 from django.db import transaction
@@ -15,7 +16,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import TaskRunArtefact, WorkClaim, WorkRelease
+from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.claim_display_name import claim_display_name
 from products.signals.backend.models import (
     InvalidStatusTransition,
@@ -331,7 +332,15 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
     # GitHub already reports this pull request as closed or merged. Without this marker the
     # dismissal receiver queues a redundant close for every report that shares the pull request.
     report._status_from_pr_state = True  # type: ignore[attr-defined]
-    report.save(update_fields=updated_fields)
+    with transaction.atomic():
+        report.save(update_fields=updated_fields)
+        if target == SignalReport.Status.SUPPRESSED:
+            SignalReportArtefact.append_dismissal(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                content=Dismissal(),
+                attribution=ArtefactAttribution.system(),
+            )
 
 
 def claim_report(
@@ -450,6 +459,7 @@ def update_assignments_for_pull_request(
     repository: str,
     pr_number: int,
     pr_state: str,
+    merged_at: datetime | None = None,
 ) -> int:
     from products.signals.backend.implementation_pr import (
         fetch_implementation_prs_for_reports,
@@ -487,6 +497,10 @@ def update_assignments_for_pull_request(
                             claim_id=pr.claim_id,
                         )
             updated += update_pull_request_state(
-                team_id=team_id, repository=repository, number=pr_number, state=pr_state
+                team_id=team_id,
+                repository=repository,
+                number=pr_number,
+                state=pr_state,
+                merged_at=merged_at,
             )
     return updated

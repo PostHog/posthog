@@ -49,11 +49,6 @@ _SPARKLINE_QUERY_SETTINGS = HogQLGlobalSettings(
     read_overflow_mode="throw",
 )
 
-# Both `metric_series` and `metrics` expire at the same `original_expiry_timestamp`,
-# which ingest sets to the team's retention (90 days by default).
-# A lookback beyond this would quietly return fewer names than the raw table has.
-SERIES_RETENTION = dt.timedelta(days=90)
-
 # Short enough that a new metric shows up while someone is still wiring it up,
 # long enough to absorb the burst of mounts a team generates in a working session.
 METRIC_NAMES_CACHE_TTL = 60

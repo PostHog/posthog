@@ -289,6 +289,7 @@ export function useInboxBulkActions(
           triageId,
           bulkSize: result.totalCount,
           dismissalReason: dismissal?.reason,
+          dismissalNote: dismissal?.note,
         });
         for (const event of events) {
           track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION, event);

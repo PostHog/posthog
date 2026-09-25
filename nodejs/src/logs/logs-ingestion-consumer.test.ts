@@ -51,6 +51,7 @@ import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
@@ -2071,6 +2072,51 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('JSON attribute extraction', () => {
+        it.each([
+            ['disabled', '', 'payload', false],
+            ['different team', 'other_team', 'payload', false],
+            ['allowlisted team', 'this_team', 'payload', true],
+            ['wildcard', '*', 'payload', true],
+            ['missing setting', '*', undefined, false],
+            ['empty setting', '*', '', false],
+        ] as const)('%s only re-encodes eligible logs', async (_, allowlist, key, enabled) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS:
+                    allowlist === 'this_team'
+                        ? ` ${team.id}, ${team2.id} `
+                        : allowlist === 'other_team'
+                          ? String(team2.id)
+                          : allowlist,
+            })
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                ...team,
+                logs_settings: { json_parse_logs_attribute_key: key },
+            })
+            const message = await createKafkaMessage(
+                createLogMessage(),
+                { token: team.api_token },
+                { payload: JSON.stringify('{"count":7}') }
+            )
+            if (!enabled) {
+                message.value = Buffer.from('disabled extraction must not decode')
+            }
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+            const output = getProducedKafkaMessages().filter((entry) => entry.topic === KAFKA_LOGS_CLICKHOUSE)
+            expect(output).toHaveLength(1)
+            if (enabled) {
+                const [, , records] = await decodeLogRecords(output[0].value as Buffer)
+                expect(records[0].attributes).toMatchObject({
+                    payload: JSON.stringify('{"count":7}'),
+                    'payload.count': '7',
+                })
+            } else {
+                expect(output[0].value).toEqual(message.value)
+            }
+        })
+    })
+
     describe('metric rules (generate metrics from logs)', () => {
         let mockEmitter: { emit: jest.Mock }
         let mockMetricRulesCache: Pick<MetricRulesCache, 'getCompiledRules'>
@@ -2273,7 +2319,10 @@ describe('LogsIngestionConsumer', () => {
 
         it('never sniffs or decodes traces for a configured JSON attribute on a wildcard allowlist', async () => {
             await consumer.stop()
-            consumer = createTracesIngestionConsumer({ LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '*' })
+            consumer = createTracesIngestionConsumer({
+                LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '*',
+                LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS: '*',
+            })
             await consumer.start()
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 ...team,
@@ -2336,6 +2385,38 @@ describe('LogsIngestionConsumer', () => {
 
             expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
             expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
+        })
+
+        it('evaluates the span retention rules, not the log ones', () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+
+            expect(tracesConsumer['retentionRuleSource']).toBe('spans')
+        })
+
+        it('gates retention on TRACES_RETENTION_* rather than the logs config', () => {
+            const tracesConsumer = createTracesIngestionConsumer({ TRACES_RETENTION_KILLSWITCH: true })
+
+            expect(tracesConsumer['isRetentionEvalEnabledForTeam'](team.id)).toBe(false)
+        })
+
+        it('takes its default retention from the tracing config, not logs_settings', async () => {
+            const tracingConfigCache = { getRetentionDays: jest.fn().mockResolvedValue(90) }
+            const tracesConsumer = createTracesIngestionConsumer()
+            tracesConsumer['tracingConfigCache'] = tracingConfigCache as any
+
+            // A different logs period must not reach spans.
+            const days = await tracesConsumer['defaultRetentionDays'](team.id, { retention_days: 30 })
+
+            expect(days).toBe(90)
+            expect(tracingConfigCache.getRetentionDays).toHaveBeenCalledWith(team.id)
+        })
+
+        it('falls back to the built-in default when no tracing config cache is wired', async () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+
+            expect(await tracesConsumer['defaultRetentionDays'](team.id, { retention_days: 30 })).toBe(
+                DEFAULT_TRACES_RETENTION_DAYS
+            )
         })
     })
 

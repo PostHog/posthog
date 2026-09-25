@@ -81,8 +81,7 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         },
         customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: definition },
         columnDisplay: {},
-        sortOrder: null,
-        canSortClientSide: true,
+        serverSortOrder: null,
         ...overrides,
     }
 }
@@ -96,8 +95,7 @@ describe('accountsTableQuery', () => {
                 assignmentStatus: 'assigned',
                 assignedToFilter: [7, 9],
                 accountFilters: [relationshipFilter(), customFilter()],
-                sortOrder: { column: 'csm', direction: 'desc' },
-                canSortClientSide: false,
+                serverSortOrder: { column: 'csm', direction: 'desc' },
             })
         )
 
@@ -210,8 +208,7 @@ describe('accountsTableQuery', () => {
                 ],
                 visibleColumnNames: ['name', 'cp_value'],
                 columnDisplay: { [CUSTOM_PROPERTY_ID]: { mode: 'sparkline', window_days: 30 } },
-                sortOrder: { column: 'cp_value', direction: 'asc' },
-                canSortClientSide: false,
+                serverSortOrder: { column: 'cp_value', direction: 'asc' },
             })
         )
 

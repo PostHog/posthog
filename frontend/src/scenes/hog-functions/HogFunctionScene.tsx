@@ -354,7 +354,7 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                         {
                             key: Scene.HogFunction,
                             name: 'Notifications',
-                            path: returnTo,
+                            path: returnTo ?? urls.destinations('notifications'),
                         },
                         finalCrumb,
                     ]

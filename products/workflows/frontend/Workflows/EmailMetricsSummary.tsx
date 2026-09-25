@@ -26,9 +26,11 @@ function sumTimeSeries(timeSeries: AppMetricsTimeSeriesResponse | null): number 
 export function EmailMetricsSummary({
     logicKey,
     onMetricClick,
+    compact,
 }: {
     logicKey: string
     onMetricClick?: (metricKey: EmailMetric) => void
+    compact?: boolean
 }): JSX.Element {
     const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))
 
@@ -75,6 +77,7 @@ export function EmailMetricsSummary({
                             onClick={canDrillDown ? () => onMetricClick(key) : undefined}
                             onClickTooltip={`View invocations with a ${metric.name.toLowerCase()} log entry in this timeframe`}
                             footer={shareOfSent ? <span>{shareOfSent} of sent</span> : null}
+                            compact={compact}
                         />
                     )
                 })}
