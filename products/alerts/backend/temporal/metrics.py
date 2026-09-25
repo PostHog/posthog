@@ -72,6 +72,19 @@ def increment_notifications_muted(source: str, reason: str) -> None:
     ).add(1)
 
 
+def increment_history_rows_dropped(count: int) -> None:
+    """Check rows the platform decided but could not record.
+
+    The alert's state and schedule are already written when this rises, so the cost is a gap in
+    history rather than a lost evaluation. A comparison against a source's own stack reads as a
+    disagreement where the gap falls.
+    """
+    get_metric_meter().create_counter(
+        "alerts_platform_history_rows_dropped_total",
+        "Check history rows lost to a failed ClickHouse write",
+    ).add(count)
+
+
 def increment_state_transition(source: str, from_state: str, to_state: str) -> None:
     get_metric_meter({"source": source, "from": from_state, "to": to_state}).create_counter(
         "alerts_platform_state_transitions_total",

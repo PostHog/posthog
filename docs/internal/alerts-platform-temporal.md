@@ -282,6 +282,35 @@ a real grouping key, and would bury them where Postgres cannot lift them into an
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
+### What a check leaves behind
+
+Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
+confirmed the alert.
+Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
+table needs no such flag, so nothing has to decide which checks are worth keeping.
+
+The row is self-sufficient.
+`alert_name`, `condition_snapshot` and `source_config_snapshot` are read when the outcome is
+recorded, so a threshold edited between a check and a retried send cannot change what a message
+claims was breached, and a rename cannot make one thread contradict itself.
+The snapshots are taken at write time rather than shipped with the outcome, because a source's copy
+of `source_config` is a filter tree and shipping one per outcome would cost Temporal payload on
+every batch.
+
+The write happens after the Postgres transaction commits, not inside it.
+`insert_events` never raises: the alert's state and schedule are already written by then, so a
+ClickHouse outage costs a gap in history rather than an alert left due with its state unwritten.
+`alerts_platform_history_rows_dropped_total` counts that gap.
+
+ClickHouse has no unique constraint, so a retried batch inserts a second row for the same
+evaluation.
+`expires_at` is the ReplacingMergeTree version column, so a merge keeps the later row, and a reader
+deduplicates on `(alert_id, evaluation_key)` rather than assuming a merge has run.
+
+`labels` lands empty and stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; service and severity live in
+`source_config_snapshot`, which is where a message should read them.
+
 ### A mute holds the announcement, not the check
 
 A snooze and a schedule restriction both mute. Neither stops a check.
