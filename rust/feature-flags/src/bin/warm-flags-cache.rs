@@ -895,12 +895,12 @@ mod tests {
         use common_redis::MockRedisClient;
         use feature_flags::flags::cache_writer::make_cache_config;
         use feature_flags::utils::test_utils::{
-            dummy_s3_client, insert_v1_and_v2_flags, published_flag_keys, TestContext,
+            dummy_s3_client, insert_v1_v2_and_unsupported_flags, published_flag_keys, TestContext,
         };
 
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
-        insert_v1_and_v2_flags(&context, team.id).await;
+        insert_v1_v2_and_unsupported_flags(&context, team.id).await;
         let redis = Arc::new(MockRedisClient::new());
         let writer = HyperCacheWriter::new(
             redis.clone(),

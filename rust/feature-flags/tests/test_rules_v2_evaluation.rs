@@ -379,7 +379,10 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     assert!(!format!("{evaluator:?} {result:?}").contains("sensitive-seed"));
 }
 
-/// Complete properties come from a stored person, partial ones from request overrides.
+/// Complete properties come from a stored person and run through the request path. The
+/// service reads the person for a missing predicate key and treats an overrides-only
+/// request as complete, so partial and unavailable context exist only below that path:
+/// those cases reach `get_match` directly, with no preparation.
 #[tokio::test]
 async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
     use feature_flags::api::types::{
@@ -398,13 +401,12 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         None,
         None,
     ));
-    let (mut projected, mut skipped) = (0, 0);
+    let (mut projected, mut direct, mut skipped) = (0, 0, 0);
     for case in corpus::cases() {
         let id = case["id"].as_str().unwrap();
         let properties = corpus::properties(&case);
         let context = corpus::context(&case, &properties);
-        // White-box needs the hash seam, eligibility the request boundary. Unavailable
-        // context is a request without properties: partial, and empty.
+        // White-box needs the hash seam, eligibility the request boundary.
         if matches!(
             case["family"].as_str().unwrap(),
             "white_box" | "eligibility"
@@ -412,19 +414,9 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             skipped += 1;
             continue;
         }
-        let complete = matches!(context.properties, PersonProperties::Complete(_));
         let team = db.insert_new_team(None).await.unwrap();
         let mut flag = corpus::read(&case);
         flag.team_id = team.id;
-        if complete && !properties.is_empty() {
-            db.insert_person(
-                team.id,
-                context.person_identifier.to_string(),
-                Some(json!(properties)),
-            )
-            .await
-            .unwrap();
-        }
         let mut matcher = FeatureFlagMatcher::new(
             context.person_identifier.to_string(),
             None,
@@ -436,16 +428,59 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         )
         .with_timezone(context.timezone)
         .with_explicit_exact_matching(context.use_explicit_exact_matching)
-        .with_now(context.now)
-        .with_only_use_override_person_properties(!complete);
+        .with_now(context.now);
         let expected = &case["expected"];
         let failed = expected["status"] != "success";
         let enabled = expected["value"].as_bool().unwrap_or(false);
+        let reason = match expected["reason"].as_str() {
+            Some("targeting_match") => "condition_match",
+            Some("rollout_miss") => "out_of_rollout_bound",
+            _ => "no_condition_match",
+        };
+        let rule_index = expected["rule"]["index"].as_i64();
+        let PersonProperties::Complete(_) = context.properties else {
+            let overrides =
+                matches!(context.properties, PersonProperties::Partial(_)).then_some(&properties);
+            match matcher.get_match(&flag, overrides, None, None, &None) {
+                Ok(outcome) => {
+                    assert!(!failed, "{id}");
+                    assert_eq!(
+                        (
+                            outcome.matches,
+                            outcome.reason.to_string(),
+                            outcome.condition_index
+                        ),
+                        (enabled, reason.to_string(), rule_index.map(|i| i as usize)),
+                        "{id}"
+                    );
+                    assert_eq!((outcome.variant, outcome.payload), (None, None), "{id}");
+                }
+                Err(error) => {
+                    assert!(failed, "{id}");
+                    assert_eq!(
+                        error.evaluation_error_code(),
+                        "flag_evaluation_error",
+                        "{id}"
+                    );
+                }
+            }
+            direct += 1;
+            continue;
+        };
+        if !properties.is_empty() {
+            db.insert_person(
+                team.id,
+                context.person_identifier.to_string(),
+                Some(json!(properties)),
+            )
+            .await
+            .unwrap();
+        }
         let key = flag.key.clone();
         let response = matcher
             .evaluate_all_feature_flags(
                 flag_list_with_metadata(vec![flag]),
-                (!complete).then(|| properties.clone()),
+                None,
                 None,
                 None,
                 Uuid::new_v4(),
@@ -473,6 +508,13 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
                 "flag_evaluation_error"
             };
             assert_eq!(details.reason.code, expected_code, "{id}");
+        } else {
+            assert_eq!(details.reason.code, reason, "{id}");
+            assert_eq!(
+                details.reason.condition_index.map(i64::from),
+                rule_index,
+                "{id}"
+            );
         }
         let wire = serde_json::to_value(&response).unwrap();
         let reparse = || serde_json::from_value::<FlagsResponse>(wire.clone()).unwrap();
@@ -499,5 +541,5 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         );
         projected += 1;
     }
-    assert_eq!((projected, skipped), (122, 13));
+    assert_eq!((projected, direct, skipped), (114, 8, 13));
 }

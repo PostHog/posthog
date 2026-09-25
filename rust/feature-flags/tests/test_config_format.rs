@@ -249,6 +249,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
     let client = reqwest::Client::new();
     let payload = json!({"token": team.api_token, "distinct_id": "example-person",
         "person_properties": {"account_tier": "preview"}});
+    let rejected_rows_reach_matcher = cached;
 
     for (endpoint, version, has_error_field, shape) in FORMATS {
         let response = client
@@ -264,7 +265,10 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
         assert_eq!(response.headers()["content-type"], "application/json");
         let body: Value = response.json().await?;
         if has_error_field {
-            assert_eq!(body["errorsWhileComputingFlags"], cached, "{body}");
+            assert_eq!(
+                body["errorsWhileComputingFlags"], rejected_rows_reach_matcher,
+                "{body}"
+            );
         } else {
             assert!(body.get("errorsWhileComputingFlags").is_none(), "{body}");
         }
@@ -281,7 +285,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                     }
                 }
                 for (key, _, active, deleted) in &docs {
-                    if key.starts_with("rejected-") && !cached {
+                    if key.starts_with("rejected-") && !rejected_rows_reach_matcher {
                         assert!(body["flags"].get(key).is_none(), "{body}");
                     } else if key.starts_with("rejected-") {
                         assert_eq!(body["flags"][key]["failed"], true, "{body}");
@@ -309,7 +313,7 @@ async fn config_dispatch_preserves_siblings_and_wire_errors(#[case] cached: bool
                 for key in EVALUATED {
                     expected[key] = json!(true);
                 }
-                if cached && !enabled_only {
+                if rejected_rows_reach_matcher && !enabled_only {
                     for (key, _, _, _) in &docs {
                         if key.starts_with("rejected-") {
                             expected[key] = json!(false);
@@ -623,7 +627,7 @@ async fn mixed_team_projects_supported_v2_beside_v1(#[case] cached: bool) -> Res
 }
 
 #[tokio::test]
-async fn detailed_analysis_is_omitted_for_a_v2_flag_and_kept_for_v1() {
+async fn detailed_analysis_is_empty_for_a_v2_flag_and_kept_for_v1() {
     let db = TestContext::new(None).await;
     let mut matcher = matcher(&db).with_detailed_analysis(true);
     let flags: Vec<FeatureFlag> = serde_json::from_value(json!([
@@ -653,5 +657,8 @@ async fn detailed_analysis_is_omitted_for_a_v2_flag_and_kept_for_v1() {
         Some(1)
     );
     assert!(response.flags["v2"].enabled);
-    assert!(response.flags["v2"].conditions.is_none());
+    assert_eq!(
+        response.flags["v2"].conditions.as_ref().map(Vec::len),
+        Some(0)
+    );
 }

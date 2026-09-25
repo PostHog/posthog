@@ -133,7 +133,8 @@ def _reads_v1_conditions(flag_data: dict[str, Any]) -> bool:
 def _validates_v2(filters: Mapping[str, Any]) -> bool:
     """Whether the shared validator admits a v2 document under the deployed filter-size
     limit, the bound the Rust reader also applies. Rust may still reject what it cannot
-    read; it then isolates that row with a failed record rather than failing the team.
+    read; the service then returns that one flag with ``failed: true`` and a
+    ``flag_data_parsing_error`` reason and still evaluates the rest.
     """
     # Deferred: the validator imports posthog.hogql, which must stay off the django.setup() path.
     from products.feature_flags.backend.facade.config_validation import (  # noqa: PLC0415
@@ -156,10 +157,10 @@ def _stored_dependency_ids(flag: FeatureFlag) -> set[int] | None:
     """The flag ids a stored row's release conditions reference, or ``None`` when this
     cache cannot carry the row.
 
-    A non-object document, an unsupported discriminator, and a v2 document that is
-    inactive or that ``_validates_v2`` rejects are rejected whatever the row's
-    lifecycle, so an inactive v2 row is never blanked into a v1-shaped entry. A supported
-    active v2 row is carried verbatim and has no dependencies. An unevaluable v1 object is
+    A non-object document and an unsupported discriminator are rejected whatever the
+    row's lifecycle. A v2 document is carried verbatim, with no dependencies, only when
+    the row is active and ``_validates_v2`` admits it. Any other v2 row is rejected, so an
+    inactive v2 row is never blanked into a v1-shaped entry. An unevaluable v1 object is
     not read, since ``_blank_inactive_filters`` empties it; an evaluable one whose
     conditions cannot be read is rejected instead of failing the team.
     """

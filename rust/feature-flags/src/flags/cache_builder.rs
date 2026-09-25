@@ -87,7 +87,7 @@ pub(crate) async fn load_supported_flags(
 }
 
 /// Drop the stored rows this cache cannot carry, and their dependents transitively:
-/// non-v1 documents unless active and accepted by the v2 evaluator, non-object documents
+/// non-v1 documents unless active and their v2 parse succeeded, non-object documents
 /// whatever their lifecycle, and evaluable v1 objects the typed decoder rejected. Mirrors
 /// Python's `_omit_unsupported_flags()` in `products/feature_flags/backend/flags_cache.py`.
 fn omit_unsupported_flags(
@@ -127,18 +127,16 @@ fn omit_unsupported_flags(
             }
         }
     }
-    if !excluded.is_empty() {
-        let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
-        unsupported_flag_ids.sort_unstable();
-        let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
-        dependent_flag_ids.sort_unstable();
-        tracing::warn!(
-            team_id,
-            ?unsupported_flag_ids,
-            ?dependent_flag_ids,
-            "Omitted flags the service cache cannot carry"
-        );
-    }
+    let mut unsupported_flag_ids: Vec<_> = unsupported.iter().copied().collect();
+    unsupported_flag_ids.sort_unstable();
+    let mut dependent_flag_ids: Vec<_> = excluded.difference(&unsupported).copied().collect();
+    dependent_flag_ids.sort_unstable();
+    tracing::warn!(
+        team_id,
+        ?unsupported_flag_ids,
+        ?dependent_flag_ids,
+        "Omitted flags the service cache cannot carry"
+    );
     flags.retain(|flag| !excluded.contains(&flag.id));
 }
 

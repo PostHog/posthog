@@ -1430,10 +1430,10 @@ impl FeatureFlagMatcher {
         hash_key_overrides: Option<&HashMap<String, String>>,
         request_hash_key_override: &Option<String>,
     ) -> Result<FeatureFlagMatch, FlagError> {
-        flag.filters.require_supported()?;
         if let Some(config) = flag.filters.supported_v2() {
             return self.get_match_v2(config, person_property_overrides);
         }
+        flag.filters.require_v1()?;
         // Seed with the lowest-priority "could not evaluate" reason so any real evaluation
         // result outranks it via `get_highest_priority_match_evaluation`. NoGroupType is
         // the floor: a pure-group flag whose only condition is skipped for missing context
@@ -1716,8 +1716,12 @@ impl FeatureFlagMatcher {
         } else {
             None
         };
+        // An overrides-only request treats its map as authoritative, as v1 does.
         let properties = match &merged {
-            Some(map) if self.flag_evaluation_state.get_person_properties().is_some() => {
+            Some(map)
+                if self.only_use_override_person_properties
+                    || self.flag_evaluation_state.get_person_properties().is_some() =>
+            {
                 PersonProperties::Complete(map)
             }
             Some(map) if person_property_overrides.is_some() => PersonProperties::Partial(map),

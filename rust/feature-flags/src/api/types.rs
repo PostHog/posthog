@@ -534,19 +534,23 @@ impl FromFeatureAndMatch for FlagDetails {
                 payload: flag_match.payload.clone(),
                 has_experiment: flag.has_experiment,
             },
-            // The analysis describes v1 release conditions; a v2 flag omits it.
-            conditions: if detailed_analysis && flag.filters.is_v1() {
-                Some(Self::build_condition_analysis(
-                    flag,
-                    flag_match,
-                    property_values,
-                    group_property_values,
-                    flag_evaluation_results,
-                    matching_context,
-                ))
-            } else {
-                None
-            },
+            // The analysis describes v1 release conditions, so a v2 flag reports none. The
+            // field stays present: Django's `test_evaluation` reads its absence as a
+            // rejected internal request.
+            conditions: detailed_analysis.then(|| {
+                if flag.filters.is_v1() {
+                    Self::build_condition_analysis(
+                        flag,
+                        flag_match,
+                        property_values,
+                        group_property_values,
+                        flag_evaluation_results,
+                        matching_context,
+                    )
+                } else {
+                    Vec::new()
+                }
+            }),
         }
     }
 
