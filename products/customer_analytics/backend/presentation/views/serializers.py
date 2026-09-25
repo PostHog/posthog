@@ -29,6 +29,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import BULK_UPDATE_TAGS_MAX_TAGS, TAG_NAME_MAX_LENGTH
 from posthog.models import OrganizationMembership
 
 from products.customer_analytics.backend.facade.api import (
@@ -1015,9 +1016,13 @@ class AccountSerializer(DataclassSerializer):
         ),
     )
     tags = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH, allow_blank=True),
+        max_length=BULK_UPDATE_TAGS_MAX_TAGS,
         required=False,
-        help_text="Tag names attached to the account. Pass a list to replace existing tags.",
+        help_text=(
+            "Tag names attached to the account. Pass a list to replace existing tags "
+            "(up to 100, 255 characters each). Blank names are dropped."
+        ),
     )
     notebooks = serializers.ListField(
         child=serializers.CharField(),
