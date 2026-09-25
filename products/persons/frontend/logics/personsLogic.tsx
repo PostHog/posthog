@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { decodeParams, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
@@ -13,6 +26,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { delay } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isUUIDLike } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -23,7 +37,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -391,6 +405,43 @@ export const personsLogic = kea<personsLogicType>([
                 actions.setSurveyResponsesQuery(createInitialSurveyResponsesPayload(person.id))
             }
         }
+
+        const queryPersonByUUID = async (uuid: string): Promise<PersonType | null> => {
+            const response = await api.query<HogQLQuery>(
+                {
+                    kind: NodeKind.HogQLQuery,
+                    query: getHogqlQueryStringForPersonId(),
+                    values: { id: uuid },
+                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                },
+                { refresh: 'blocking' }
+            )
+            const row = response?.results?.[0]
+            if (!row) {
+                return null
+            }
+            const person = parsePersonFromHogQLRow(row)
+            setupPersonQueries(person)
+            return person
+        }
+
+        const fetchPersonByUUID = async (uuid: string, breakpoint: BreakPointFunction): Promise<PersonType | null> => {
+            try {
+                return await queryPersonByUUID(uuid)
+            } catch (error) {
+                // The blocking query is aborted when navigation moves on before it resolves.
+                // That's expected, not a load failure — drop the stale result instead of
+                // surfacing an error or letting it be captured as an exception. Emit a
+                // breadcrumb so the otherwise-silent swallow is still measurable.
+                if (isAbortedRequest(error)) {
+                    posthog.capture('person_uuid_load_aborted')
+                    breakpoint()
+                    return values.person
+                }
+                throw error
+            }
+        }
+
         return {
             persons: [
                 {
@@ -434,50 +485,19 @@ export const personsLogic = kea<personsLogicType>([
             person: [
                 null as PersonType | null,
                 {
-                    loadPerson: async ({ id }): Promise<PersonType | null> => {
+                    loadPerson: async ({ id }, breakpoint): Promise<PersonType | null> => {
                         const response = await api.persons.list({ distinct_id: id })
-                        if (!response.results.length) {
-                            return null
-                        }
                         const person = response.results[0]
                         if (person) {
                             setupPersonQueries(person)
-                        }
-
-                        return person
-                    },
-                    loadPersonUUID: async ({ uuid }, breakpoint): Promise<PersonType | null> => {
-                        let response: HogQLQueryResponse
-                        try {
-                            response = await api.query<HogQLQuery>(
-                                {
-                                    kind: NodeKind.HogQLQuery,
-                                    query: getHogqlQueryStringForPersonId(),
-                                    values: { id: uuid },
-                                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                },
-                                { refresh: 'blocking' }
-                            )
-                        } catch (error) {
-                            // The blocking query is aborted when navigation moves on before it resolves.
-                            // That's expected, not a load failure — drop the stale result instead of
-                            // surfacing an error or letting it be captured as an exception. Emit a
-                            // breadcrumb so the otherwise-silent swallow is still measurable.
-                            if (isAbortedRequest(error)) {
-                                posthog.capture('person_uuid_load_aborted')
-                                breakpoint()
-                                return values.person
-                            }
-                            throw error
-                        }
-                        const row = response?.results?.[0]
-                        if (row) {
-                            const person = parsePersonFromHogQLRow(row)
-                            setupPersonQueries(person)
                             return person
                         }
-                        return null
+                        // Links into this route carry a person UUID as often as a distinct ID, so retry
+                        // the identifier the way the person preview does before giving up on it.
+                        return isUUIDLike(id) ? fetchPersonByUUID(id, breakpoint) : null
                     },
+                    loadPersonUUID: ({ uuid }, breakpoint): Promise<PersonType | null> =>
+                        fetchPersonByUUID(uuid, breakpoint),
                 },
             ],
             cohorts: [
@@ -806,7 +826,13 @@ export const personsLogic = kea<personsLogicType>([
                     // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
                     const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
 
-                    if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
+                    // The identifier in this route can be a person UUID, so a person loaded by UUID
+                    // counts as already loaded even though its distinct IDs don't contain it.
+                    if (
+                        !values.person ||
+                        (values.person.id !== decodedPersonDistinctId &&
+                            !values.person.distinct_ids.includes(decodedPersonDistinctId))
+                    ) {
                         actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
                     }
                 }

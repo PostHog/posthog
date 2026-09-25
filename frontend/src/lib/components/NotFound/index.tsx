@@ -108,7 +108,7 @@ export function NotFound({ object, caption, meta, className, style }: NotFoundPr
                     </LemonButton>
                 </div>
             )}
-            {object === 'Person' && meta?.urlId && (
+            {object.toLowerCase() === 'person' && meta?.urlId && (
                 <div className="flex justify-center mt-4 w-fit">
                     <LemonButton
                         type="secondary"

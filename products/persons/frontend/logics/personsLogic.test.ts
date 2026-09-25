@@ -39,7 +39,7 @@ describe('personsLogic', () => {
                 },
             ]
         }
-        return [200, { result: ['result from api'] }]
+        return [200, { results: [] }]
     }
 
     beforeEach(() => {
@@ -185,6 +185,50 @@ describe('personsLogic', () => {
                 .toMatchValues({
                     person: 'person from api',
                 })
+        })
+    })
+
+    describe('falls back to a person UUID lookup', () => {
+        afterEach(() => jest.restoreAllMocks())
+
+        const personUUID = '0199ed4a-5c03-0000-3220-df21df612e95'
+
+        it('resolves a UUID that the distinct ID lookup misses', async () => {
+            jest.spyOn(api, 'query').mockResolvedValueOnce({
+                results: [[personUUID, ['anon-1'], '{"email":"someone@example.com"}', true, '2024-01-01', null]],
+            } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson(personUUID)
+            })
+                .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+                .toMatchValues({
+                    person: expect.objectContaining({ uuid: personUUID, distinct_ids: ['anon-1'] }),
+                })
+        })
+
+        it('does not query by UUID for an id that is not UUID-shaped', async () => {
+            jest.spyOn(api, 'query')
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('not-a-uuid')
+            })
+                .toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+                .toMatchValues({ person: null })
+
+            expect(api.query).not.toHaveBeenCalled()
+        })
+
+        it('keeps the person loaded by UUID when the url syncs again', async () => {
+            jest.spyOn(api, 'query').mockResolvedValueOnce({
+                results: [[personUUID, ['anon-1'], '{}', true, '2024-01-01', null]],
+            } as any)
+
+            router.actions.push(`/person/${personUUID}`)
+            await expectLogic(logic).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+
+            router.actions.push(`/person/${personUUID}`, {}, { sessionRecordingId: 'abc-123' })
+            await expectLogic(logic).toNotHaveDispatchedActions(['loadPerson'])
         })
     })
 
