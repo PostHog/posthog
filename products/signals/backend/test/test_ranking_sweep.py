@@ -238,6 +238,22 @@ class TestScoreInboxReports(SimpleTestCase):
 
         assert (result.scored, result.teams, result.failed_teams) == (1, 2, 1)
 
+    def test_teams_left_when_the_time_budget_runs_out_are_deferred_to_the_next_tick(self) -> None:
+        self._candidates((1, "a"), (2, "b"), (3, "c"))
+        clock = [0.0]
+        self._patch(sweep, "time", new=SimpleNamespace(monotonic=lambda: clock[0]))
+
+        def slow_first_team(team_id: int, report_ids: list[str], *, persist: bool, now: datetime.datetime) -> list:
+            clock[0] += sweep._TIME_BUDGET.total_seconds()
+            return self._outcomes(team_id, report_ids, persist=persist, now=now)
+
+        self.score_reports.side_effect = slow_first_team
+
+        result = score_inbox_reports()
+
+        assert [call.args[0] for call in self.score_reports.call_args_list] == [1]
+        assert (result.scored, result.teams, result.failed_teams, result.deferred_teams) == (1, 3, 0, 2)
+
     @parameterized.expand(
         [("scoring_error", ScoringError("no served score")), ("served_model_load", ModelLoadError("no booster"))]
     )

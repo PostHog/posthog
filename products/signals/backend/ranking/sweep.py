@@ -8,6 +8,7 @@ moves `updated_at` with no text change. A new vector lands only when a rendering
 Nothing reads the `ranking_score` artefacts to order the inbox yet.
 """
 
+import time
 import uuid
 import datetime
 from collections import defaultdict
@@ -44,6 +45,12 @@ SCORING_WORKFLOW_NAME = "inbox-ranking-scoring-sweep"
 
 # Report ids per Postgres lookup, so a large vector feed does not become one huge `IN` list.
 _POSTGRES_BATCH_SIZE = 5000
+
+_ACTIVITY_TIMEOUT = datetime.timedelta(minutes=10)
+# The activity timeout does not stop the scoring thread, and the schedule's SKIP stops guarding it
+# when the workflow closes. The pass starts no new team after this budget, which is below the
+# timeout, so only the team in progress can run past it and into the next tick.
+_TIME_BUDGET = datetime.timedelta(minutes=8)
 
 # `timestamp` is the report's `created_at` and the partition key, so the lower bound prunes the
 # read to a few weekly partitions. The query does not read the `embedding` column.
@@ -82,6 +89,8 @@ class ScoreInboxReportsResult:
     no_vector: int = 0
     teams: int = 0
     failed_teams: int = 0
+    # Teams not started because the time budget ran out. The next tick scores them.
+    deferred_teams: int = 0
     manifest_version: str | None = None
     # "disabled" or "no manifest". None when the pass ran.
     skipped_reason: str | None = None
@@ -198,6 +207,7 @@ def reports_due_for_scoring(
 def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     if not settings.INBOX_RANKING_SCORING_ENABLED:
         return ScoreInboxReportsResult(skipped_reason="disabled")
+    deadline = time.monotonic() + _TIME_BUDGET.total_seconds()
     # A served model that does not load raises here and aborts the run.
     serving = load_serving_set()
     if serving is None:
@@ -214,8 +224,11 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
     for candidate in candidates:
         ids_by_team[candidate.team_id].append(candidate.report_id)
 
-    scored = no_vector = failed_teams = 0
+    scored = no_vector = failed_teams = deferred_teams = 0
     for team_id, report_ids in ids_by_team.items():
+        if time.monotonic() >= deadline:
+            deferred_teams += 1
+            continue
         try:
             outcomes = scorer.score_reports(team_id, report_ids, persist=True, now=now)
         except (scorer.ScoringError, ModelLoadError):
@@ -234,6 +247,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         no_vector=no_vector,
         teams=len(ids_by_team),
         failed_teams=failed_teams,
+        deferred_teams=deferred_teams,
         manifest_version=manifest_version,
     )
     logger.info(
@@ -243,6 +257,7 @@ def score_inbox_reports(limit: int | None = None) -> ScoreInboxReportsResult:
         no_vector=result.no_vector,
         teams=result.teams,
         failed_teams=result.failed_teams,
+        deferred_teams=result.deferred_teams,
         manifest_version=result.manifest_version,
     )
     return result
@@ -262,7 +277,7 @@ class InboxRankingScoringWorkflow:
         return await workflow.execute_activity(
             score_inbox_reports_activity,
             inputs,
-            start_to_close_timeout=datetime.timedelta(minutes=10),
+            start_to_close_timeout=_ACTIVITY_TIMEOUT,
             # No retry: a timed-out attempt keeps running in its thread, so a second attempt could
             # score the same batch at the same time. The next tick finds what this one left,
             # because the vector comparison finds it again.
