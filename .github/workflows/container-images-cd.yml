@@ -548,6 +548,9 @@ jobs:
 
                       weeklyDigest:
                         - 'posthog/temporal/weekly_digest/**'
+                        - 'products/data_catalog/backend/**'
+                        - 'posthog/tasks/email.py'
+                        - 'posthog/models/organization_notification_lock.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml

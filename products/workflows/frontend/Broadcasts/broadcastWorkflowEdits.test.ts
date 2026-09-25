@@ -1,6 +1,10 @@
-import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    HogFlowApi,
+    HogFlowBatchJobApi,
+    HogFlowScheduleApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
-import { canEditInWizard } from './broadcastsLogic'
+import { StoppableBroadcast, canEditInWizard, canMoveToDraft } from './broadcastsLogic'
 import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
 
 const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
@@ -42,6 +46,45 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ],
     ])('opens %s in the wizard: %s', (_, actions, flowEdges, expected) => {
         expect(canEditInWizard(actions, flowEdges)).toBe(expected)
+    })
+
+    it.each<
+        [
+            string,
+            HogFlowApi['status'],
+            HogFlowScheduleApi['status'][],
+            HogFlowBatchJobApi['status'][] | null,
+            string | undefined,
+            boolean,
+        ]
+    >([
+        ['a scheduled broadcast', 'active', ['active'], [], undefined, true],
+        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], undefined, true],
+        ['a broadcast whose schedule was paused', 'active', ['paused'], [], undefined, true],
+        ['a broadcast sent right away', 'active', [], ['completed'], undefined, false],
+        ['a one-time broadcast that already sent', 'active', ['completed'], ['completed'], undefined, false],
+        [
+            'a workflow with a sent one-time schedule and another',
+            'active',
+            ['completed', 'active'],
+            [],
+            undefined,
+            false,
+        ],
+        ['a broadcast mid-send', 'active', ['active'], ['active'], undefined, false],
+        ['a broadcast with an older run still queued', 'active', ['active'], ['completed', 'queued'], undefined, false],
+        ['a broadcast whose runs have not loaded', 'active', ['active'], null, undefined, false],
+        ['a draft', 'draft', ['active'], [], undefined, false],
+        ['a workflow the wizard cannot edit', 'active', ['active'], [], '{{ inputs.owner }}', false],
+    ])('lets %s be stopped: %s', (_, status, scheduleStatuses, jobStatuses, recipient, expected) => {
+        const broadcast: StoppableBroadcast = {
+            status,
+            schedules: scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus })),
+            actions: [trigger(), email(recipient), exit],
+            edges,
+        }
+        const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
+        expect(canMoveToDraft(broadcast, jobs)).toBe(expected)
     })
 
     it('saves the audience and email into the existing steps without replacing them', () => {

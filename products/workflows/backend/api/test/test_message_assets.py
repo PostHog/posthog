@@ -136,11 +136,15 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
             ("bob", {"inv-1"}),
             ("Newsletter", {"inv-2"}),
             ("example.com", {"inv-1", "inv-2"}),
+            ("first_last", {"inv-3"}),
+            ("50%", {"inv-3"}),
         ]
     )
     def test_search_matches_recipient_or_subject(self, term: str, expected_ids: set):
         self._seed("inv-1", recipient="bob@example.com", subject="Welcome")
         self._seed("inv-2", recipient="alice@example.com", subject="Newsletter")
+        self._seed("inv-3", recipient="first_last@example.org", subject="50% off")
+        self._seed("inv-4", recipient="first.last@example.org", subject="500 offers")
         results = self._list({"search": term}).json()
         assert {r["invocation_id"] for r in results} == expected_ids
 
@@ -164,10 +168,13 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert {r["invocation_id"] for r in results} == {"recent"}
 
     def test_respects_limit_and_offset(self):
+        sent_at = datetime.now(tz=UTC)
         for i in range(5):
-            self._seed(f"inv-{i}")
+            self._seed(f"inv-{i}", sent_at=sent_at)
         assert len(self._list({"limit": 2}).json()) == 2
         assert len(self._list({"limit": 2, "offset": 4}).json()) == 1
+        paged = [r["invocation_id"] for offset in (0, 2, 4) for r in self._list({"limit": 2, "offset": offset}).json()]
+        assert sorted(paged) == [f"inv-{i}" for i in range(5)]
 
     def test_content_returns_html_bytes_inline(self):
         self._seed("inv-1", action_id="step-a", html="<html><body>Hello Bob</body></html>")

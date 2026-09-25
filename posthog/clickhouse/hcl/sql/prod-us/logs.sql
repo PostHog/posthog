@@ -846,6 +846,8 @@ CREATE TABLE posthog.trace_spans (
   INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
   INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
   INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+  INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+  INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
   PROJECTION projection_index_span_id (SELECT _part_offset
 ORDER BY span_id),
   PROJECTION projection_index_team_span_id (SELECT team_id, _part_offset

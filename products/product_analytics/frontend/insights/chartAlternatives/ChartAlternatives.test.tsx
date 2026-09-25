@@ -55,7 +55,7 @@ describe('ChartAlternatives', () => {
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
-            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: true,
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: 'test',
         })
 
         insightLogic(insightProps).mount()
@@ -124,12 +124,19 @@ describe('ChartAlternatives', () => {
         )
     })
 
-    it('renders the chart switch control only while the flag is on', async () => {
+    it.each([
+        ['the flag is off', [], {}],
+        [
+            'the control variant is served',
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES],
+            { [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: 'control' },
+        ],
+    ])('hides the chart switch control when %s', async (_, flags, variants) => {
         setQuery(makeTrendsQuery())
         alternativesLogic()
         await waitFor(() => expect(document.querySelector('[data-attr="chart-alternatives-all"]')).toBeInTheDocument())
 
-        featureFlagLogic.actions.setFeatureFlags([], {})
+        featureFlagLogic.actions.setFeatureFlags(flags, variants)
         await waitFor(() =>
             expect(document.querySelector('[data-attr="chart-alternatives-all"]')).not.toBeInTheDocument()
         )

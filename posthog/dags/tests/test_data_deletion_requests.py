@@ -347,17 +347,24 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
 
 
 @pytest.mark.django_db
-def test_hogql_event_deletion_executor_rejects_multiple_columns_before_insert(team, user):
+@pytest.mark.parametrize(
+    ("query", "error"),
+    [
+        ("SELECT uuid, event FROM events", "exactly one event UUID column"),
+        ("SELECT event FROM events", "selected column must contain event UUIDs"),
+    ],
+)
+def test_hogql_event_deletion_executor_rejects_invalid_output_before_insert(team, user, query, error):
     deletion_request = HogQLEventRemovalContext(
         request_id=str(uuid4()),
         team_id=team.pk,
         created_by_id=user.pk,
-        query="SELECT uuid, event FROM events",
+        query=query,
         variables={},
     )
 
     with patch("posthog.dags.data_deletion_requests.sync_execute") as execute:
-        with pytest.raises(dagster.Failure, match="exactly one event UUID column"):
+        with pytest.raises(dagster.Failure, match=error):
             HogQLEventDeletionExecutor(deletion_request).execute()
 
     execute.assert_not_called()
