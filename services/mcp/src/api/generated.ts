@@ -17738,6 +17738,13 @@ export namespace Schemas {
       end_date: string;
     }
 
+    export interface CalendarSyncInterval {
+      /** Id of the connected Google account. */
+      integration_id: number;
+      /** Minutes between scheduled syncs: 5, 15, 30, or 60. */
+      sync_interval_minutes: number;
+    }
+
     /**
      * Sync state of one connected calendar (read-only).
      */
@@ -17751,6 +17758,8 @@ export namespace Schemas {
       readonly last_synced_at: string | null;
       /** Whether a sync run is currently in flight. */
       readonly is_syncing: boolean;
+      /** Minutes between scheduled syncs. */
+      readonly sync_interval_minutes: number;
     }
 
     /**

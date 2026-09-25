@@ -4211,6 +4211,7 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
         SYNC_RETRY_AT_CONFIG_KEY,
         SYNC_STALE_AFTER,
         SYNC_STARTED_AT_CONFIG_KEY,
+        get_calendar_sync_interval,
     )
 
     statuses = []
@@ -4233,9 +4234,23 @@ def list_calendar_sync_statuses(team_id: int) -> list[contracts.CalendarSyncStat
                 integration_id=integration.id,
                 last_synced_at=last_synced_at,
                 is_syncing=is_syncing,
+                sync_interval_minutes=get_calendar_sync_interval(config),
             )
         )
     return statuses
+
+
+def update_calendar_sync_interval(team_id: int, integration_id: int, interval_minutes: int) -> bool:
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
+        SYNC_INTERVAL_CONFIG_KEY,
+        update_calendar_sync_config,
+    )
+
+    try:
+        update_calendar_sync_config(integration_id, team_id, {SYNC_INTERVAL_CONFIG_KEY: interval_minutes})
+    except Integration.DoesNotExist:
+        return False
+    return True
 
 
 def _parse_datetime(value: str | None) -> datetime | None:

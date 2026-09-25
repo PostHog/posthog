@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
@@ -26,6 +27,9 @@ SYNC_TOKEN_CONFIG_KEY = "calendar_sync_token"
 SYNC_STARTED_AT_CONFIG_KEY = "calendar_sync_started_at"
 SYNC_RETRY_AT_CONFIG_KEY = "calendar_sync_retry_at"
 LAST_SYNCED_AT_CONFIG_KEY = "calendar_last_synced_at"
+SYNC_INTERVAL_CONFIG_KEY = "calendar_sync_interval_minutes"
+SYNC_ATTEMPTED_AT_CONFIG_KEY = "calendar_sync_attempted_at"
+ALLOWED_SYNC_INTERVALS = (5, 15, 30, 60)
 # Matches the sync activity's start_to_close timeout: past this, an unfinished run is dead.
 SYNC_STALE_AFTER = timedelta(minutes=30)
 
@@ -61,24 +65,42 @@ class CalendarBackfillPage:
     counts: CalendarSyncCounts
 
 
+def get_calendar_sync_interval(config: dict) -> int:
+    value = config.get(SYNC_INTERVAL_CONFIG_KEY)
+    return value if type(value) is int and value in ALLOWED_SYNC_INTERVALS else 60
+
+
+def update_calendar_sync_config(
+    integration_id: int, team_id: int, updates: dict[str, object], removals: tuple[str, ...] = ()
+) -> None:
+    with transaction.atomic():
+        integration = Integration.objects.select_for_update().get(
+            id=integration_id, team_id=team_id, kind="google-calendar"
+        )
+        config = dict(integration.config or {})
+        config.update(updates)
+        for key in removals:
+            config.pop(key, None)
+        integration.config = config
+        integration.save(update_fields=["config"])
+
+
 def mark_calendar_sync_started(integration_id: int, team_id: int) -> None:
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
-    integration.config[SYNC_STARTED_AT_CONFIG_KEY] = timezone.now().isoformat()
-    integration.config.pop(SYNC_RETRY_AT_CONFIG_KEY, None)
-    integration.save(update_fields=["config"])
+    update_calendar_sync_config(
+        integration_id, team_id, {SYNC_STARTED_AT_CONFIG_KEY: timezone.now().isoformat()}, (SYNC_RETRY_AT_CONFIG_KEY,)
+    )
 
 
 def mark_calendar_sync_retrying(integration_id: int, team_id: int, retry_after: timedelta) -> None:
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
-    integration.config[SYNC_RETRY_AT_CONFIG_KEY] = (timezone.now() + retry_after).isoformat()
-    integration.save(update_fields=["config"])
+    update_calendar_sync_config(
+        integration_id, team_id, {SYNC_RETRY_AT_CONFIG_KEY: (timezone.now() + retry_after).isoformat()}
+    )
 
 
 def mark_calendar_sync_completed(integration_id: int, team_id: int) -> None:
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
-    integration.config[LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
-    integration.config.pop(SYNC_RETRY_AT_CONFIG_KEY, None)
-    integration.save(update_fields=["config"])
+    update_calendar_sync_config(
+        integration_id, team_id, {LAST_SYNCED_AT_CONFIG_KEY: timezone.now().isoformat()}, (SYNC_RETRY_AT_CONFIG_KEY,)
+    )
 
 
 def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSyncCounts:
@@ -108,8 +130,7 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
             team, access_token, str(integration.integration_id), None, internal_domain, counts
         )
 
-    integration.config[SYNC_TOKEN_CONFIG_KEY] = next_sync_token
-    integration.save(update_fields=["config"])
+    update_calendar_sync_config(integration_id, team_id, {SYNC_TOKEN_CONFIG_KEY: next_sync_token})
     mark_calendar_sync_completed(integration_id, team_id)
     return counts
 

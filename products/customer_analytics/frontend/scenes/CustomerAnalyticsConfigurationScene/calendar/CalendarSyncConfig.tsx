@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewind, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -29,9 +29,17 @@ export function CalendarSyncConfig(): JSX.Element {
         backfillEndDate,
         backfillDateError,
         backfillSubmitting,
+        savingIntervalIds,
     } = useValues(calendarSyncLogic)
-    const { syncNow, openBackfill, closeBackfill, setBackfillStartDate, setBackfillEndDate, submitBackfill } =
-        useActions(calendarSyncLogic)
+    const {
+        syncNow,
+        openBackfill,
+        closeBackfill,
+        setBackfillStartDate,
+        setBackfillEndDate,
+        submitBackfill,
+        saveInterval,
+    } = useActions(calendarSyncLogic)
     const { user } = useValues(userLogic)
     const adminRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -101,6 +109,25 @@ export function CalendarSyncConfig(): JSX.Element {
                         // A custom suffix replaces IntegrationView's built-in Disconnect button, so it returns here.
                         suffix={
                             <div className="flex flex-row flex-wrap items-center justify-end gap-2">
+                                {!adminRestrictedReason && (
+                                    <label className="flex items-center gap-2 text-xs whitespace-nowrap">
+                                        Sync every
+                                        <LemonSelect<number>
+                                            data-attr={`google-account-sync-interval-${integration.id}`}
+                                            value={syncStatus?.sync_interval_minutes ?? 60}
+                                            options={[
+                                                { value: 5, label: '5 minutes' },
+                                                { value: 15, label: '15 minutes' },
+                                                { value: 30, label: '30 minutes' },
+                                                { value: 60, label: '1 hour' },
+                                            ]}
+                                            disabledReason={
+                                                savingIntervalIds.includes(integration.id) ? 'Saving...' : undefined
+                                            }
+                                            onChange={(value) => saveInterval(integration.id, value)}
+                                        />
+                                    </label>
+                                )}
                                 <span className="text-xs text-secondary whitespace-nowrap">
                                     {isSyncing ? (
                                         'Syncing Google account...'
