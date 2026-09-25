@@ -1328,6 +1328,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed.
             Call scout-config-sync directly with the same arguments.'
+    signals-scout-config-tool-catalogue:
+        operation: signals_scout_config_tool_catalogue
+        enabled: false
     signals-scout-config-trial-history:
         operation: signals_scout_config_trial_history
         enabled: false

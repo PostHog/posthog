@@ -29,7 +29,6 @@ describe('dataNodeCollectionLogic', () => {
             id,
             loadData: jest.fn(),
             cancelQuery: jest.fn(),
-            kind: 'TrendsQuery',
         })
     }
 
@@ -123,8 +122,8 @@ describe('dataNodeCollectionLogic', () => {
             mountTile('tile-a')
             mountTile('tile-b')
 
-            logic.actions.collectionNodeLoadData('tile-a')
-            logic.actions.collectionNodeLoadData('tile-b')
+            logic.actions.collectionNodeLoadData('tile-a', 'TrendsQuery')
+            logic.actions.collectionNodeLoadData('tile-b', 'TrendsQuery')
 
             logic.actions.collectionNodeLoadDataSuccess('tile-a', { isCached: true })
             expect(capturedLoads()).toHaveLength(0)

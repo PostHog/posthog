@@ -2381,7 +2381,7 @@ Note: docs.decagon.ai is a fully client-rendered Mintlify site that returns the 
 
 ## Deel — **thin**
 
-Today (11): `contracts`, `cost_centers`, `invoice_adjustments`, `invoices`, `legal_entities`, `payment_breakdowns`, `payments`, `people`, `time_off_events`, `time_offs`, `timesheets`
+Today (23): `contracts`, `cost_centers`, `countries`, `currencies`, `departments`, `groups`, `invoice_adjustments`, `invoices`, `job_titles`, `legal_entities`, `offboarding_tracker`, `onboarding_tracker`, `payment_breakdowns`, `payments`, `payroll_cycles`, `payroll_gross_to_net`, `payroll_reports`, `people`, `seniorities`, `teams`, `time_off_events`, `time_offs`, `timesheets`
 
 Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 
@@ -2389,17 +2389,18 @@ Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 - [x] `/payments (+ /payments/{payment_id}/breakdown)` — actual payment transactions and their per-contract breakdown; today only invoices are synced, not what was paid (high)
 - [x] `/legal-entities (+ /legal-entities/{id}/cost-centers)` — lookup that resolves the legal entity and cost center IDs carried on contracts and invoices (high)
 - [x] `/time_offs (+ /time_offs/dailies, /time_offs/time-off-events)` — absence records and transition events per worker — headline HR analytics (high)
-- [ ] `/departments, /teams, /groups` — org lookup tables that resolve the department/team IDs on people rows (high)
+- [x] `/departments, /teams, /groups` — org lookup tables that resolve the department/team IDs on people rows (high)
 - [ ] `/contracts/{contract_id}/adjustments` — per-contract bonuses, deductions and expenses; adjustments are only reachable one-by-one today (medium)
 - [ ] `/contracts/{contract_id}/milestones` — line items for milestone-based contracts, needed to explain invoice amounts (medium)
-- [ ] `/reports/payroll/cycles/{cycle_id}/gross-to-net (and /gp/legal-entities/{id}/reports)` — gross-to-net payroll report — the canonical payroll cost breakdown (medium)
+- [x] `/reports/payroll/cycles/{cycle_id}/gross-to-net (and /gp/legal-entities/{id}/reports)` — gross-to-net payroll report — the canonical payroll cost breakdown (medium)
 - [ ] `/contracts/{contract_id}/amendments (and /eor/contracts/{id}/amendments)` — contract change history: comp changes over time rather than only current state (medium)
-- [ ] `/onboarding/tracker and /offboarding/tracker` — worker lifecycle state so joiner/leaver funnels can be measured (medium)
-- [ ] `/lookups/countries, /lookups/currencies, /lookups/job-titles, /lookups/seniorities, /lookups/time-off-types` — reference tables that decode the coded fields on contracts, people and time off (medium)
+- [x] `/onboarding/tracker and /offboarding/tracker` — worker lifecycle state so joiner/leaver funnels can be measured (medium)
+- [x] `/lookups/countries, /lookups/currencies, /lookups/job-titles, /lookups/seniorities, /lookups/time-off-types` — reference tables that decode the coded fields on contracts, people and time off (medium)
 - [ ] `/ats/applications, /ats/candidates, /ats/job-postings` — recruiting funnel objects for orgs using Deel's ATS (low)
 
 Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has hundreds of paths across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the synced tables still cover a small slice.
-Two sub-endpoints of the ticked lines were deliberately not given their own table: `/contracts/{contract_id}/timesheets` returns the same rows as `/timesheets` filtered to one contract, and `/time_offs/dailies` is a date-range query for holidays and work schedules with no row identity, whose absence dailies already arrive nested on `/time_offs` rows.
+Sub-endpoints of the ticked lines that were deliberately not given their own table: `/contracts/{contract_id}/timesheets` returns the same rows as `/timesheets` filtered to one contract; `/time_offs/dailies` is a date-range query for holidays and work schedules with no row identity, whose absence dailies already arrive nested on `/time_offs` rows; and `/lookups/time-off-types` returns a bare array of enum strings with no object shape or row identity, and those same values already arrive on `/time_offs` rows.
+The gross-to-net line added a third table, `payroll_cycles` (`/legal-entities/{id}/payroll-events`): the report is keyed by payroll cycle and cycles are only listed per legal entity, so the cycle listing is both the path to the report and the table that dates it.
 
 ## Deepgram — gaps
 
@@ -2681,17 +2682,19 @@ Note: Spec has 36 paths; the only other GETs are file downloads, embedded URL ge
 
 ## Dub — gaps
 
-Today (11): `click_events`, `commissions`, `customers`, `domains`, `folders`, `lead_events`, `links`, `partners`, `payouts`, `sale_events`, `tags`
+Today (23): `analytics_browsers`, `analytics_cities`, `analytics_continents`, `analytics_countries`, `analytics_devices`, `analytics_os`, `analytics_referers`, `analytics_regions`, `analytics_timeseries`, `analytics_triggers`, `click_events`, `commissions`, `customers`, `domains`, `folders`, `lead_events`, `links`, `partner_analytics_timeseries`, `partner_applications`, `partners`, `payouts`, `sale_events`, `tags`
 
 Diffed against: <https://spec.speakeasy.com/dub/dub/dub-with-code-samples>
 
-- [ ] `GET /analytics` — Dub's headline metric endpoint - clicks/leads/sales aggregated by timeseries, countries, cities, regions, continents, devices, browsers, os, referers, top_links, top_urls, trigger; none of these breakdown dimensions are reachable from the raw event tables today (high)
-- [ ] `GET /partners/analytics` — per-partner clicks/leads/sales/earnings rollup, the core affiliate-program metric (medium)
-- [ ] `GET /partners/applications` — pending partner applications for partner-acquisition funnel analysis (medium)
+- [x] `GET /analytics` — Dub's headline metric endpoint - clicks/leads/sales aggregated by timeseries, countries, cities, regions, continents, devices, browsers, os, referers, top_links, top_urls, trigger; none of these breakdown dimensions are reachable from the raw event tables today (high)
+- [x] `GET /partners/analytics` — per-partner clicks/leads/sales/earnings rollup, the core affiliate-program metric (medium)
+- [x] `GET /partners/applications` — pending partner applications for partner-acquisition funnel analysis (medium)
 - [ ] `GET /bounties/{bountyId}/submissions` — bounty submission records and their approval state (low)
 - [ ] `GET /links/count` — link counts grouped by domain/tag/folder/userId without paging all links (low)
 
 Note: api.dub.co/openapi.json 404s; the live spec is served from spec.speakeasy.com. Coverage of the object model (links, tags, folders, domains, customers, partners, commissions, payouts, and the three event types) is essentially complete - the gap is the aggregation layer.
+
+Note on the aggregation endpoints, added 2026-09-25: `/analytics` is imported as one table per `groupBy` breakdown, because each groupBy returns a different row shape. The `top_links` and `top_urls` breakdowns were deliberately left out - `links` already carries every link's destination URL alongside its lifetime clicks, leads and sales, so both are a grouping over a table we already sync. `/partners/analytics` has no program-wide mode: its handler rejects a request that names neither `partnerId` nor `tenantId`, even though the published spec marks both optional. It is therefore imported by walking every enrolled partner and stamping the partner id onto each row. The per-bucket `earnings` column is what it adds; `/partners` already reports each partner's lifetime totals (`totalClicks`, `totalLeads`, `totalSaleAmount`, `totalCommissions`). `/bounties/{bountyId}/submissions` is not syncable: the spec exposes no endpoint that lists bounties (`GET /bounties` does not exist, and no other response carries a `bountyId`), so there is no way to enumerate the parent IDs to fan out over.
 
 ## Dynatrace — gaps
 
@@ -2716,19 +2719,28 @@ Note: Diffed against the Environment API section of docs.dynatrace.com/docs/site
 
 ## E2B — gaps
 
-Today (3): `sandboxes`, `snapshots`, `templates`
+Today (7): `sandbox_metrics`, `sandbox_metrics_latest`, `sandboxes`, `snapshots`, `team_metrics`, `template_builds`, `templates`
 
 Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/openapi.yml>
 
-- [ ] `GET /sandboxes/metrics and GET /sandboxes/{sandboxID}/metrics` — CPU/memory/disk timeseries per sandbox - the usage metric everyone charts, and the only quantitative data E2B exposes (high)
-- [ ] `GET /teams/{teamID}/metrics and /teams/{teamID}/metrics/max` — team-level concurrent-sandbox and start-rate metrics, the headline capacity/quota numbers (high)
+- [x] `GET /sandboxes/metrics and GET /sandboxes/{sandboxID}/metrics` — CPU/memory/disk timeseries per sandbox - the usage metric everyone charts, and the only quantitative data E2B exposes (high)
+- [x] `GET /teams/{teamID}/metrics` — team-level concurrent-sandbox and start-rate metrics, the headline capacity/quota numbers (high)
+- [ ] `GET /teams/{teamID}/metrics/max` — one scalar per metric enum value, not a table; see the reasons below (high)
 - [ ] `GET /teams` — team lookup resolving the teamID stamped on sandboxes, templates and snapshots (medium)
-- [ ] `GET /templates/{templateID} (returns the template's build list) and /templates/{templateID}/builds/{buildID}/status` — template build history - durations, statuses and failure rates for the build pipeline (medium)
+- [x] `GET /templates/{templateID}` (returns the template's build list) — template build history - durations, statuses and failure rates for the build pipeline (medium)
+- [ ] `GET /templates/{templateID}/builds/{buildID}/status` — per-build status and logs; see the reasons below (medium)
 - [ ] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
 - [ ] `GET /volumes` — persistent volume inventory and their sandbox attachments (low)
 - [ ] `GET /v2/sandboxes/{sandboxID}/logs` — per-sandbox logs for failure analysis; high volume and per-ID fetch, so nice to have (low)
 
-Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes /v2/sandboxes, /v2/templates and /snapshots with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
+Note: E2B's public API is genuinely small (~20 GET-able paths, most of them template build plumbing or admin/api-key management). The source is static: E2B_ENDPOINTS in settings.py hardcodes each path with no dynamic discovery, and correctly uses the v2 sandbox listing (all states) rather than the running-only v1.
+
+Not covered, with reasons:
+
+- `/teams` is the one endpoint in the spec that does not accept `ApiKeyAuth` — it is `AuthProviderBearerAuth` only, so the team-scoped API key this source stores cannot call it. Its `Team` schema also returns the team's live `apiKey`, which must not land in a warehouse table. The gap's rationale does not hold either: `ListedSandbox`, `Template` and `SnapshotInfo` carry no `teamID` to resolve.
+- `/teams/{teamID}/metrics/max` returns a single `{timestamp, value}` object per `metric` enum value, so it is one scalar per call rather than a table, and it is the max of the `team_metrics` series over the same window.
+- `/templates/{templateID}/builds/{buildID}/status` is a second fan-out hop costing one request per build. Its only non-log fields (`templateID`, `buildID`, `status`) already arrive in `template_builds`; the rest is build log entries.
+- `/teams/{teamID}/metrics` and the sandbox metrics endpoints do take `start`/`end` filters, but the spec documents no ordering guarantee, and a fan-out child's global ascending watermark would advance past sandboxes a partial run has not reached. Both ship full refresh, like the rest of the source.
 
 ## Easybill — gaps
 
@@ -2742,14 +2754,14 @@ Note: `/incoming-documents` is read-only and its only list filter is `created_at
 
 ## Easypost — gaps
 
-Today (9): `addresses`, `batches`, `events`, `insurances`, `pickups`, `refunds`, `scan_forms`, `shipments`, `trackers`
+Today (13): `addresses`, `batches`, `carrier_accounts`, `carriers`, `claims`, `end_shippers`, `events`, `insurances`, `pickups`, `refunds`, `scan_forms`, `shipments`, `trackers`
 
 Diffed against: <https://docs.easypost.com/docs/carrier-accounts>
 
-- [ ] `GET /v2/carrier_accounts` — lookup that resolves the carrier_account_id stamped on every shipment and rate already synced (high)
-- [ ] `GET /v2/claims` — insurance claims with amount, status and resolution - transactional and completely absent (only insurances are synced) (high)
-- [ ] `GET /v2/metadata/carriers` — carrier service levels, predefined packages and supported options - resolves the service/carrier codes on shipments and rates (medium)
-- [ ] `GET /v2/end_shippers` — end shipper records referenced by international shipments (medium)
+- [x] `GET /v2/carrier_accounts` — lookup that resolves the carrier_account_id stamped on every shipment and rate already synced (high)
+- [x] `GET /v2/claims` — insurance claims with amount, status and resolution - transactional and completely absent (only insurances are synced) (high)
+- [x] `GET /v2/metadata/carriers` — carrier service levels, predefined packages and supported options - resolves the service/carrier codes on shipments and rates (medium)
+- [x] `GET /v2/end_shippers` — end shipper records referenced by international shipments (medium)
 - [ ] `GET /v2/users/children` — child user roster for platforms that break spend and volume down by sub-account (medium)
 - [ ] `GET /v2/reports/{type}` — generated shipment/payment_log/tracker/refund report objects, useful for reconciling billing (low)
 - [ ] `GET /v2/carrier_types` — lookup of available carrier types and their credential fields (low)

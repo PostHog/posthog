@@ -24,6 +24,7 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, cast
 
 from django.db import transaction
@@ -133,6 +134,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutOrigin,
     ScoutRunIdsBatchRequestSerializer,
     ScoutRunTokenCostsSerializer,
+    ScoutToolCatalogueSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -161,6 +163,7 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_team_metadata,
     withheld_skills_for_team,
 )
+from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tools.checks import (
     InvalidCheckResultError,
     InvalidCheckWriteError,
@@ -3111,6 +3114,16 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
 
+@lru_cache(maxsize=1)
+def _scout_tool_catalogue_payload() -> dict[str, Any]:
+    """The rendered tool catalogue.
+
+    The catalogue is built from committed files and code constants, so it is identical for every
+    project and every caller. Rendering a thousand tools on each request would be pure waste.
+    """
+    return dict(ScoutToolCatalogueSerializer(get_scout_tool_catalogue()).data)
+
+
 class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
     and emit posture.
@@ -3615,3 +3628,36 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         )
         context = scout_config_context(team, [c.skill_name for c in configs], request)
         return Response(SignalScoutConfigSerializer(configs, many=True, context=context).data)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ScoutToolCatalogueSerializer,
+                description="Every catalogued MCP tool, with the scout scope postures to read it against.",
+            ),
+        },
+        summary="List the MCP tool catalogue",
+        description=(
+            "List every MCP tool a scout could be configured with. Each entry carries the tool's name, "
+            "label, one-line summary, category, and required scopes, plus `holdable`: whether a scout run "
+            "can hold every scope the tool needs, and `missing_scopes`: what it would have to be granted "
+            "on top of the baseline preset. The response also returns the scout scope presets and the "
+            "write scopes a person can grant to one scout, so a caller can show why a tool is out of "
+            "reach. Tools a successor has replaced are left out. A tool can carry a `feature_flag`, which "
+            "resolves per project: evaluate it for the project you are configuring before you offer the "
+            "tool. Read-only, and the same for every project."
+        ),
+        operation_id="signals_scout_config_tool_catalogue",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="tool_catalogue",
+        url_name="tool-catalogue",
+        pagination_class=None,
+        # Custom actions need explicit scopes, as the `sync` action above notes. This one reads
+        # committed definition files and constants, so it uses the public read scope.
+        required_scopes=["signal_scout:read"],
+    )
+    def tool_catalogue(self, request: Request, *args, **kwargs) -> Response:
+        return Response(_scout_tool_catalogue_payload())
