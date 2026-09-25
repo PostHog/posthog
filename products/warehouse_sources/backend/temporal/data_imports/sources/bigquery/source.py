@@ -278,6 +278,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # must fix the project reference. Matched on the stable guidance wording rather than the
             # volatile project id that appears earlier in the message.
             "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
+            # Raised as a 403 Forbidden by `bq_client.get_table(...)` in `_build_source_response` (and
+            # other direct REST calls) when the GCP project the source runs against has been deleted,
+            # e.g. "... Project #898288516447 has been deleted.". Unlike the "Make sure it references
+            # valid GCP project" key above (a 404 naming the friendly project id), this is a 403 naming
+            # the numeric project number, so it slips through and retries forever against a project that
+            # no longer exists. The `delete_table` cleanup path in `bigquery.py` already treats this
+            # wording as terminal (skips rather than raises); this key gives the same condition the same
+            # treatment on the main sync path. Matched on the stable "has been deleted" wording rather
+            # than the volatile project number.
+            "has been deleted": "BigQuery couldn't complete this sync because the Google Cloud project it uses has been deleted. Restore the project in Google Cloud, or update your source configuration to use a project that still exists, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
