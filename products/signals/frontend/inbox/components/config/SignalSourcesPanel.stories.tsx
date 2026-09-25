@@ -22,7 +22,6 @@ interface PanelState {
     errorTrackingArmed: boolean
     /** Replay Vision arms per scanner, so this stands in for "the first scanner emits signals". */
     replayVisionArmed: boolean
-    sessionReplayArmed: boolean
     supportArmed: boolean
     aiObservabilityArmed: boolean
     productAnalyticsArmed: boolean
@@ -60,11 +59,6 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
     return [
         ...ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
             sourceConfig(SignalSourceProduct.ErrorTracking, sourceType, state.errorTrackingArmed)
-        ),
-        sourceConfig(
-            SignalSourceProduct.SessionReplay,
-            SignalSourceType.SessionAnalysisCluster,
-            state.sessionReplayArmed
         ),
         sourceConfig(SignalSourceProduct.Conversations, SignalSourceType.Ticket, state.supportArmed),
         sourceConfig(SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport, state.aiObservabilityArmed),
@@ -233,7 +227,6 @@ const meta: Meta<typeof PanelHarness> = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
-        sessionReplayArmed: true,
         supportArmed: false,
         aiObservabilityArmed: false,
         productAnalyticsArmed: false,
@@ -260,7 +253,6 @@ export const ArmedButToolsOff: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
-        sessionReplayArmed: true,
         supportArmed: true,
         exceptionAutocaptureOn: false,
         sessionRecordingOn: false,
@@ -276,7 +268,6 @@ export const ArmingBlocked: Story = {
     args: {
         errorTrackingArmed: false,
         replayVisionArmed: false,
-        sessionReplayArmed: false,
         supportArmed: false,
         aiObservabilityArmed: false,
         productAnalyticsArmed: false,
@@ -295,7 +286,6 @@ export const EverythingHealthy: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
-        sessionReplayArmed: true,
         supportArmed: true,
         aiObservabilityArmed: true,
         productAnalyticsArmed: true,
@@ -314,7 +304,6 @@ export const ToolsOnNoRecentData: Story = {
     args: {
         errorTrackingArmed: true,
         replayVisionArmed: true,
-        sessionReplayArmed: true,
         supportArmed: true,
         aiObservabilityArmed: true,
         productAnalyticsArmed: true,
