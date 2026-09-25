@@ -40,6 +40,7 @@ import type {
     HogFlowsMetricsTotalsRetrieveParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogFlowsSummariesListParams,
     HogInvocationCancelRequestApi,
     HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
@@ -48,6 +49,7 @@ import type {
     HogInvocationResultDetailApi,
     HogInvocationResultsCountApi,
     MessageAssetApi,
+    PaginatedHogFlowListRowListApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
@@ -1062,6 +1064,37 @@ export const hogFlowsReputationRetrieve = async (
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
     return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSummariesListUrl = (projectId: string, params?: HogFlowsSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/summaries/`
+}
+
+/**
+ * Slim workflow rows for loading a whole project's list at once: status, type, trigger, channels, email subjects and senders, and 7-day totals. Takes the same filters as the list. Never returns the step graph, step inputs or email bodies.
+ * @summary List workflow summaries
+ */
+export const hogFlowsSummariesList = async (
+    projectId: string,
+    params?: HogFlowsSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowListRowListApi> => {
+    return apiMutator<PaginatedHogFlowListRowListApi>(getHogFlowsSummariesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

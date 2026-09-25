@@ -1,12 +1,14 @@
 from copy import deepcopy
-from typing import Any
+from typing import Any, Final
 
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,6 +21,11 @@ from posthog.cdp.validation import build_html_wrap_design
 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.email_senders import (
+    load_email_sender_integrations,
+    resolve_email_sender,
+    sender_integration_ids,
+)
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
@@ -280,6 +287,73 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY: Final = "email_sender_integrations"
+
+
+class MessageTemplateListRowPagination(LimitOffsetPagination):
+    default_limit = 500
+    max_limit = 1000
+
+
+class MessageTemplateListRowListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: Any) -> list[Any]:
+        rows = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
+        integration_ids = {integration_id for row in rows for integration_id in sender_integration_ids(row.email_from)}
+        self.context[_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY] = load_email_sender_integrations(
+            self.context["get_team"]().id, integration_ids
+        )
+        return super().to_representation(rows)
+
+
+class MessageTemplateListRowSerializer(serializers.ModelSerializer):
+    # Reads the `email_subject` and `email_from` annotations from MessageTemplatesViewSet.summaries, so a
+    # page of rows never loads the html and design JSON.
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the template.")
+    subject = serializers.SerializerMethodField(
+        help_text="Email subject line as written, Liquid tags included. Empty when the template has none."
+    )
+    from_addresses = serializers.SerializerMethodField(
+        help_text=(
+            "Every address the template sends from: its override address, else the address of each sender "
+            "integration it names. Empty for most templates, which leave the sender to the workflow step."
+        )
+    )
+
+    class Meta:
+        model = MessageTemplate
+        list_serializer_class = MessageTemplateListRowListSerializer
+        fields = [
+            "id",
+            "name",
+            "description",
+            "type",
+            "subject",
+            "from_addresses",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "Template id."},
+            "name": {"help_text": "Human-readable template name shown in the library."},
+            "description": {"help_text": "What the template is for and when to use it."},
+            "type": {"help_text": "Message channel of the template. Currently 'email'."},
+            "created_at": {"help_text": "When the template was created."},
+            "updated_at": {"help_text": "When the template was last changed."},
+        }
+
+    @extend_schema_field(serializers.CharField())
+    def get_subject(self, instance: MessageTemplate) -> str:
+        subject = getattr(instance, "email_subject", None)
+        return subject if isinstance(subject, str) else ""
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_from_addresses(self, instance: MessageTemplate) -> list[str]:
+        integrations = self.context.get(_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY, {})
+        return list(resolve_email_sender(getattr(instance, "email_from", None), integrations).addresses)
+
+
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -290,6 +364,8 @@ class MessageTemplatesViewSet(
     # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
     # hog_flow:write checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
+    # `summaries` is a custom read action, so it has to be declared for personal API keys to reach it.
+    scope_object_read_actions = ["list", "retrieve", "summaries"]
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
@@ -303,6 +379,28 @@ class MessageTemplatesViewSet(
             .select_related("created_by")
             .order_by("-created_at")
         )
+
+    @extend_schema(
+        operation_id="messaging_templates_summaries_list",
+        summary="List email template summaries",
+        description=(
+            "Slim email template rows for loading the whole library at once: name, subject and sender. "
+            "Never returns the template content, html or design."
+        ),
+        responses={200: MessageTemplateListRowSerializer(many=True)},
+    )
+    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=MessageTemplateListRowPagination)
+    def summaries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        email = KeyTransform("email", "content")
+        queryset = (
+            self.get_queryset()
+            .order_by("-updated_at", "-id")
+            .defer("content")
+            .annotate(email_subject=KeyTextTransform("subject", email), email_from=KeyTransform("from", email))
+        )
+        page = self.paginate_queryset(queryset)
+        serializer = MessageTemplateListRowSerializer(page, many=True, context=self.get_serializer_context())
+        return self.get_paginated_response(serializer.data)
 
     @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
     @action(detail=True, methods=["PATCH"])

@@ -492,6 +492,36 @@ export interface PatchedDesignPatchApi {
     operations?: DesignOperationApi[]
 }
 
+export interface MessageTemplateListRowApi {
+    /** Template id. */
+    readonly id: string
+    /** Human-readable template name shown in the library. */
+    readonly name: string
+    /** What the template is for and when to use it. */
+    readonly description: string
+    /** Message channel of the template. Currently 'email'. */
+    readonly type: string
+    /** Email subject line as written, Liquid tags included. Empty when the template has none. */
+    readonly subject: string
+    /** Every address the template sends from: its override address, else the address of each sender integration it names. Empty for most templates, which leave the sender to the workflow step. */
+    readonly from_addresses: readonly string[]
+    /** User who created the template. */
+    readonly created_by: UserBasicApi | null
+    /** When the template was created. */
+    readonly created_at: string
+    /** When the template was last changed. */
+    readonly updated_at: string
+}
+
+export interface PaginatedMessageTemplateListRowListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MessageTemplateListRowApi[]
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -535,6 +565,17 @@ export type MessagingSuppressionsSuppressionsRetrieveParams = {
 }
 
 export type MessagingTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type MessagingTemplatesSummariesListParams = {
     /**
      * Number of results to return per page.
      */

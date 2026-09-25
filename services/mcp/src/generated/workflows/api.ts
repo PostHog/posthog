@@ -23,8 +23,45 @@ export const HogFlowsListQueryParams = () => zod.object({
         .describe(
             'Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.'
         ),
+    channel: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated channels. Returns workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.'
+        ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
-    created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Comma-separated user uuids. Returns workflows created by any of these users.'),
+    exclude_channel: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated channels. Leaves out workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.'
+        ),
+    exclude_created_by: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated user uuids. Leaves out workflows created by any of these users. Workflows with no creator stay.'
+        ),
+    exclude_status: zod
+        .string()
+        .optional()
+        .describe('Comma-separated statuses. Leaves out workflows in any of them. One of: draft, active, archived.'),
+    exclude_trigger_type: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated trigger types. Leaves out workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.'
+        ),
+    exclude_type: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated workflow types. Leaves out workflows of any of them. One of: messaging, automation, loop, broadcast.'
+        ),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -39,14 +76,20 @@ export const HogFlowsListQueryParams = () => zod.object({
             'Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.'
         ),
     status: zod
-        .enum(['active', 'archived', 'draft'])
+        .string()
         .optional()
-        .describe('\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'),
+        .describe('Comma-separated statuses. Returns workflows in any of them. One of: draft, active, archived.'),
     trigger: zod
         .string()
         .optional()
         .describe(
             'Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {\"type\": \"event\"}.'
+        ),
+    trigger_type: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated trigger types. Returns workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.'
         ),
     type: zod
         .string()

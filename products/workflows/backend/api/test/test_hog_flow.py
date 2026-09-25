@@ -377,14 +377,99 @@ class TestHogFlowAPI(APIBaseTest):
             == "Your beta access starts today"
         )
 
-    def test_list_filter_by_created_by_uuid(self):
-        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
-        HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Theirs", created_by=other_user)
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, query, expected)
+            for endpoint in ("hog_flows", "hog_flows/summaries")
+            for name, query, expected in [
+                ("status_single_value", "status=active", {"Welcome", "Legacy"}),
+                ("status_multi_value", "status=active,draft", {"Welcome", "Digest", "Legacy"}),
+                ("exclude_status", "exclude_status=archived", {"Welcome", "Digest", "Legacy"}),
+                ("status_include_and_exclude", "status=active,draft&exclude_status=draft", {"Welcome", "Legacy"}),
+                ("created_by_single_value", "created_by=OTHER", {"Digest"}),
+                ("created_by_multi_value", "created_by=ME,OTHER", {"Welcome", "Digest", "Legacy"}),
+                ("exclude_created_by_keeps_rows_without_creator", "exclude_created_by=ME", {"Digest", "Sync"}),
+                ("trigger_type_follows_trigger_action", "trigger_type=event,schedule", {"Welcome", "Digest"}),
+                ("trigger_type_falls_back_to_trigger_column", "trigger_type=batch", {"Legacy"}),
+                ("exclude_trigger_type", "exclude_trigger_type=webhook", {"Welcome", "Digest", "Legacy"}),
+                ("channel_email", "channel=email", {"Welcome"}),
+                ("channel_slack_or_webhook", "channel=slack,webhook", {"Digest", "Sync"}),
+                ("exclude_channel", "exclude_channel=email,push", {"Digest", "Sync"}),
+                ("exclude_type", "exclude_type=messaging", {"Sync"}),
+                ("params_are_and", "status=active&channel=push", {"Legacy"}),
+                ("type_unchanged", "type=automation", {"Sync"}),
+                ("trigger_json_unchanged", 'trigger={"type": "batch"}', {"Legacy"}),
+                ("search_unchanged", "search=digest", {"Digest"}),
+            ]
+        ]
+    )
+    def test_list_filters(self, _name, endpoint, query, expected_names):
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
+        def trigger(trigger_type: str) -> dict[str, Any]:
+            return {"id": "trigger_node", "type": "trigger", "config": {"type": trigger_type}}
+
+        def step(action_type: str, template_id: str) -> dict[str, Any]:
+            return {"id": action_type, "type": action_type, "config": {"template_id": template_id}}
+
+        HogFlow.objects.create(
+            team=self.team,
+            name="Welcome",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            actions=[trigger("event"), step("function_email", "template-email")],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Digest",
+            status=HogFlow.State.DRAFT,
+            created_by=other_user,
+            actions=[trigger("schedule"), step("function_sms", "template-twilio"), step("function", "template-slack")],
+        )
+        # The legacy `trigger` column disagrees with the trigger action. Filters follow the action.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Sync",
+            status=HogFlow.State.ARCHIVED,
+            trigger={"type": "event"},
+            actions=[trigger("webhook"), step("function", "template-webhook")],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Legacy",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            trigger={"type": "batch"},
+            actions=[step("function_push", "template-firebase-push")],
+        )
+
+        query = query.replace("ME", str(self.user.uuid)).replace("OTHER", str(other_user.uuid))
+        with patch("products.workflows.backend.api.hog_flow_list.fetch_app_metric_totals_by_source", return_value={}):
+            response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/?{query}")
         assert response.status_code == 200, response.json()
-        assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{param}", endpoint, param, value)
+            for endpoint in ("hog_flows", "hog_flows/summaries")
+            for param, value in [
+                ("status", "paused"),
+                ("exclude_status", "active,paused"),
+                ("exclude_type", "campaign"),
+                ("trigger_type", "cron"),
+                ("exclude_trigger_type", ",,"),
+                ("channel", "fax"),
+                ("exclude_channel", "email,fax"),
+                ("created_by", "not-a-uuid"),
+                ("exclude_created_by", "not-a-uuid"),
+            ]
+        ]
+    )
+    def test_list_filters_reject_unknown_values(self, _name, endpoint, param, value):
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/?{param}={value}")
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == param
 
     @parameterized.expand(
         [
@@ -537,7 +622,15 @@ class TestHogFlowAPI(APIBaseTest):
         result = mcp_response.json()["results"][0]
         assert "actions" not in result
         assert "edges" not in result
+        assert "draft" not in result
         assert secret not in mcp_response.content.decode()
+        assert {key: result[key] for key in ("type", "trigger_type", "has_draft", "channels", "email_steps")} == {
+            "type": "automation",
+            "trigger_type": "event",
+            "has_draft": False,
+            "channels": ["webhook"],
+            "email_steps": [],
+        }
 
         # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
         # and it does carry the secret, proving the MCP omission above is the summary serializer at

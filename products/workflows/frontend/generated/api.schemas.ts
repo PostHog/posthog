@@ -1692,6 +1692,134 @@ export interface TeamEmailReputationResponseApi {
     readonly sending_allowance: EmailSendingAllowanceApi | null
 }
 
+export type HogFlowTypeEnumApi = (typeof HogFlowTypeEnumApi)[keyof typeof HogFlowTypeEnumApi]
+
+export const HogFlowTypeEnumApi = {
+    Messaging: 'messaging',
+    Automation: 'automation',
+    Loop: 'loop',
+    Broadcast: 'broadcast',
+} as const
+
+/**
+ * * `email` - Email
+ * * `sms` - Sms
+ * * `push` - Push
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ */
+export type HogFlowChannelEnumApi = (typeof HogFlowChannelEnumApi)[keyof typeof HogFlowChannelEnumApi]
+
+export const HogFlowChannelEnumApi = {
+    Email: 'email',
+    Sms: 'sms',
+    Push: 'push',
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+export interface DispatchSummaryApi {
+    /** Action type of the first step using this template, e.g. `function`. */
+    action_type: string
+    /** Function template id the steps dispatch through. */
+    template_id: string
+    /** Number of steps in the workflow that use this template. */
+    count: number
+}
+
+export interface EmailStepSummaryApi {
+    /** Id of the email step in the workflow's actions. */
+    action_id: string
+    /** Name of the email step. */
+    name: string
+    /** Subject line as written, Liquid tags included. Empty when the step has no subject. */
+    subject: string
+    /** Every address the step can send from: the override address when set, otherwise the address of each sender integration in rotation order. Integrations that no longer exist are skipped. */
+    from_addresses: string[]
+    /**
+     * Display name of the sender: the override name, else the first resolved sender integration's name.
+     * @nullable
+     */
+    from_name: string | null
+    /** Sender integration ids the step names, primary first, then the rotation, without duplicates. */
+    from_integration_ids: number[]
+    /**
+     * Id of the email template this step was based on, or null when it has no link.
+     * @nullable
+     */
+    template_uuid: string | null
+}
+
+export interface WorkflowRunTotalsApi {
+    /** Succeeded metric count in the last 7 days. */
+    succeeded: number
+    /** Failed metric count in the last 7 days. */
+    failed: number
+}
+
+/**
+ * The derived fields a workflow listing shows, shared by the slim summaries and the MCP list.
+ */
+export interface HogFlowListRowApi {
+    /** Workflow id. */
+    readonly id: string
+    /**
+     * Workflow name.
+     * @nullable
+     */
+    readonly name: string | null
+    /** Workflow description. */
+    readonly description: string
+    /** Lifecycle status: `draft`, `active` or `archived`.
+     *
+     * * `draft` - Draft
+     * * `active` - Active
+     * * `archived` - Archived */
+    readonly status: HogFlowStateEnumApi
+    /** `loop` and `broadcast` for workflows those surfaces own. Otherwise `messaging` when a live step sends email, SMS or push, else `automation`. Matches the `type` filter. */
+    readonly type: HogFlowTypeEnumApi
+    /** Product surface that owns the workflow, or null for the workflows UI.
+     *
+     * * `loops` - Loops
+     * * `broadcasts` - Broadcasts */
+    readonly origin_product: HogFlowOriginProductEnumApi | null
+    /**
+     * Trigger type from the live trigger step, e.g. `event` or `schedule`. Null when there is none.
+     * @nullable
+     */
+    readonly trigger_type: string | null
+    /** Whether staged changes are waiting to be published. */
+    readonly has_draft: boolean
+    /** Channels the live steps send on, without duplicates, in the order email, sms, push, slack, webhook. */
+    readonly channels: readonly HogFlowChannelEnumApi[]
+    /** One entry per function template the live steps dispatch through, in first-seen order. */
+    readonly dispatches: readonly DispatchSummaryApi[]
+    /** One entry per live email step, in step order, with its subject and sender. Never the email body. */
+    readonly email_steps: readonly EmailStepSummaryApi[]
+    /** User who created the workflow. */
+    readonly created_by: UserBasicApi | null
+    /** When the workflow was created. */
+    readonly created_at: string
+    /** When the workflow was last changed. */
+    readonly updated_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    /** Succeeded and failed metric totals over the last 7 days, as returned by `metrics/global`. Null on every row when the metrics store is unavailable. */
+    readonly last_7_days: WorkflowRunTotalsApi | null
+}
+
+export interface PaginatedHogFlowListRowListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HogFlowListRowApi[]
+}
+
 /**
  * Property filters to apply
  */
@@ -1785,11 +1913,35 @@ export type HogFlowsListParams = {
      * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
      */
     broadcast_eligible?: boolean
+    /**
+     * Comma-separated channels. Returns workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.
+     */
+    channel?: string
     created_at?: string
     /**
-     * Filter to workflows created by the user with this uuid.
+     * Comma-separated user uuids. Returns workflows created by any of these users.
      */
     created_by?: string
+    /**
+     * Comma-separated channels. Leaves out workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.
+     */
+    exclude_channel?: string
+    /**
+     * Comma-separated user uuids. Leaves out workflows created by any of these users. Workflows with no creator stay.
+     */
+    exclude_created_by?: string
+    /**
+     * Comma-separated statuses. Leaves out workflows in any of them. One of: draft, active, archived.
+     */
+    exclude_status?: string
+    /**
+     * Comma-separated trigger types. Leaves out workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.
+     */
+    exclude_trigger_type?: string
+    /**
+     * Comma-separated workflow types. Leaves out workflows of any of them. One of: messaging, automation, loop, broadcast.
+     */
+    exclude_type?: string
     id?: string
     /**
      * Number of results to return per page.
@@ -1808,15 +1960,17 @@ export type HogFlowsListParams = {
      */
     search?: string
     /**
-     * * `draft` - Draft
-     * * `active` - Active
-     * * `archived` - Archived
+     * Comma-separated statuses. Returns workflows in any of them. One of: draft, active, archived.
      */
-    status?: HogFlowsListStatus
+    status?: string
     /**
      * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
      */
     trigger?: string
+    /**
+     * Comma-separated trigger types. Returns workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.
+     */
+    trigger_type?: string
     /**
      * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
      */
@@ -1829,14 +1983,6 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
-} as const
-
-export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
-
-export const HogFlowsListStatus = {
-    Active: 'active',
-    Archived: 'archived',
-    Draft: 'draft',
 } as const
 
 export type HogFlowsAssetsRetrieveParams = {
@@ -2149,3 +2295,81 @@ export type HogFlowsReputationRetrieveParams = {
      */
     search?: string
 }
+
+export type HogFlowsSummariesListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean
+    /**
+     * Comma-separated channels. Returns workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.
+     */
+    channel?: string
+    created_at?: string
+    /**
+     * Comma-separated user uuids. Returns workflows created by any of these users.
+     */
+    created_by?: string
+    /**
+     * Comma-separated channels. Leaves out workflows with a step sending on any of them. One of: email, sms, push, slack, webhook.
+     */
+    exclude_channel?: string
+    /**
+     * Comma-separated user uuids. Leaves out workflows created by any of these users. Workflows with no creator stay.
+     */
+    exclude_created_by?: string
+    /**
+     * Comma-separated statuses. Leaves out workflows in any of them. One of: draft, active, archived.
+     */
+    exclude_status?: string
+    /**
+     * Comma-separated trigger types. Leaves out workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.
+     */
+    exclude_trigger_type?: string
+    /**
+     * Comma-separated workflow types. Leaves out workflows of any of them. One of: messaging, automation, loop, broadcast.
+     */
+    exclude_type?: string
+    id?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
+     */
+    origin_product?: HogFlowsSummariesListOriginProduct
+    /**
+     * Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
+     */
+    search?: string
+    /**
+     * Comma-separated statuses. Returns workflows in any of them. One of: draft, active, archived.
+     */
+    status?: string
+    /**
+     * Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.
+     */
+    trigger?: string
+    /**
+     * Comma-separated trigger types. Returns workflows whose trigger step has any of them. One of: batch, data-warehouse-table, data-warehouse-view, event, internal-event, manual, schedule, tracking_pixel, webhook.
+     */
+    trigger_type?: string
+    /**
+     * Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.
+     */
+    type?: string
+    updated_at?: string
+}
+
+export type HogFlowsSummariesListOriginProduct =
+    (typeof HogFlowsSummariesListOriginProduct)[keyof typeof HogFlowsSummariesListOriginProduct]
+
+export const HogFlowsSummariesListOriginProduct = {
+    Broadcasts: 'broadcasts',
+    Loops: 'loops',
+} as const

@@ -1,10 +1,16 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
+from posthog.models.integration import Integration
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -56,6 +62,93 @@ class TestMessageTemplatesAPI(APIBaseTest):
             "email": {"subject": "Test Subject", "text": "Test Body"},
         }
         assert template["type"] == "email"
+
+    def test_summaries_rows_carry_no_content(self):
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "news@example.com", "name": "Acme News", "domain": "example.com", "verified": True},
+        )
+        marker = "invented-template-body-4b2d"
+        template = MessageTemplate.objects.create(
+            team=self.team,
+            name="Welcome",
+            description="First email a new user gets",
+            created_by=self.user,
+            content={
+                "email": {
+                    "subject": "Welcome aboard",
+                    "from": {"integrationId": sender.id},
+                    "preheader": marker,
+                    "text": marker,
+                    "html": f"<p>{marker}</p>",
+                    "design": {"body": {"rows": [], "values": {"marker": marker}}},
+                }
+            },
+        )
+        MessageTemplate.objects.create(team=self.team, name="Deleted", deleted=True, content={})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/summaries/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert marker not in response.content.decode()
+
+        rows = response.json()["results"]
+        (full,) = [
+            row
+            for row in self.client.get(f"/api/projects/{self.team.id}/messaging_templates/").json()["results"]
+            if row["id"] == str(template.id)
+        ]
+        assert [row["name"] for row in rows] == ["Welcome", "Test Template"]
+        assert rows[0] == {
+            **{
+                key: full[key]
+                for key in ("id", "name", "description", "type", "created_by", "created_at", "updated_at")
+            },
+            "subject": "Welcome aboard",
+            "from_addresses": ["news@example.com"],
+        }
+        assert rows[1]["subject"] == "Test Subject"
+        assert rows[1]["from_addresses"] == []
+
+    def test_summaries_page_past_the_first_hundred(self):
+        MessageTemplate.objects.bulk_create(
+            [MessageTemplate(team=self.team, name=f"Template {index}", content={}) for index in range(150)]
+        )
+
+        everything = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/summaries/").json()
+        assert everything["count"] == 151
+        assert len(everything["results"]) == 151
+        assert everything["next"] is None
+
+        seen: list[str] = []
+        page = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/summaries/?limit=100").json()
+        while True:
+            seen.extend(row["id"] for row in page["results"])
+            if page["next"] is None:
+                break
+            page = self.client.get(page["next"]).json()
+        assert len(seen) == len(set(seen)) == 151
+
+    def test_summaries_query_count_is_constant_in_the_row_count(self):
+        sender = Integration.objects.create(team=self.team, kind="email", config={"email": "news@example.com"})
+
+        def query_count(rows: int) -> int:
+            MessageTemplate.objects.filter(team=self.team).delete()
+            for index in range(rows):
+                creator = User.objects.create_and_join(self.organization, f"author-{uuid4().hex}@example.com", None)
+                MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"Template {index}",
+                    created_by=creator,
+                    content={"email": {"subject": "Hi", "from": {"integrationId": sender.id}}},
+                )
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/summaries/")
+            assert len(response.json()["results"]) == rows
+            return len(queries)
+
+        query_count(2)
+        assert query_count(2) == query_count(20)
 
     def test_retrieve_message_template(self):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
@@ -269,6 +362,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         [
             ("list_with_read_scope", ["hog_flow:read"], "get", None, status.HTTP_200_OK),
             ("retrieve_with_read_scope", ["hog_flow:read"], "get", "detail", status.HTTP_200_OK),
+            ("summaries_with_read_scope", ["hog_flow:read"], "get", "summaries", status.HTTP_200_OK),
             ("create_with_write_scope", ["hog_flow:write"], "post", None, status.HTTP_201_CREATED),
             ("update_with_write_scope", ["hog_flow:write"], "patch", "detail", status.HTTP_200_OK),
             ("create_with_read_scope_forbidden", ["hog_flow:read"], "post", None, status.HTTP_403_FORBIDDEN),
@@ -282,7 +376,9 @@ class TestMessageTemplatesAPI(APIBaseTest):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
 
         base_url = f"/api/projects/{self.team.id}/messaging_templates/"
-        url = f"{base_url}{self.message_template.id}/" if target == "detail" else base_url
+        url = {"detail": f"{base_url}{self.message_template.id}/", "summaries": f"{base_url}summaries/"}.get(
+            target or "", base_url
+        )
         data = (
             {
                 "name": "API key template",

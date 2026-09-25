@@ -6,7 +6,7 @@ import dataclasses
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
-from typing import Any, Final, NamedTuple, Optional, cast
+from typing import Any, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
@@ -86,7 +86,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -129,6 +129,20 @@ from products.workflows.backend.api.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
 )
+from products.workflows.backend.api.hog_flow_list import (
+    LIST_ACTIONS,
+    LIST_FILTER_PARAMETERS,
+    RUN_TOTALS_CONTEXT_KEY,
+    SUMMARY_DEFERRED_FIELDS,
+    HogFlowListRowPagination,
+    HogFlowListRowSerializer,
+    HogFlowSummaryFieldsMixin,
+    HogFlowSummaryListSerializer,
+    apply_list_filters,
+    fetch_last_7_days_totals,
+    json_path,
+    jsonb_path_exists,
+)
 from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
@@ -139,7 +153,6 @@ from products.workflows.backend.api.message_assets import (
 from products.workflows.backend.api.publish_impact import build_publish_impact
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
-    MESSAGING_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
@@ -2882,23 +2895,30 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         return data
 
 
-class HogFlowSummarySerializer(HogFlowMinimalSerializer):
+class HogFlowSummarySerializer(HogFlowSummaryFieldsMixin, HogFlowMinimalSerializer):
     # Metadata-only listing view. Deliberately omits the action graph (actions/edges) and other
     # detail-only fields: an action's `config` can hold credential-like values (e.g. a webhook
     # Authorization header), and a workflow *listing* must not broaden their visibility. Full
     # definitions stay behind retrieve. Used for MCP list requests; see get_serializer_class.
+    # The derived fields come from summarize_hog_flow, which exposes only email subjects and senders.
     class Meta(HogFlowMinimalSerializer.Meta):
+        list_serializer_class = HogFlowSummaryListSerializer
         fields = [
             "id",
             "name",
             "description",
             "version",
             "status",
+            "type",
             "origin_product",
             "created_at",
             "created_by",
             "updated_at",
             "trigger",
+            "trigger_type",
+            "has_draft",
+            "channels",
+            "email_steps",
             "user_access_level",
         ]
         read_only_fields = fields
@@ -3810,50 +3830,8 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
 
-# A workflow's type is what owns it, else what it does. `loop` and `broadcast` name the surfaces that
-# have their own page, and the behavioural values exclude them: a flow those surfaces own is tagged
-# by surface in the UI (see WorkflowTypeTag), so returning it under `messaging` would contradict the
-# tag on the row. Accepting several lets a list say which surfaces it covers, which is how the
-# workflows page asks for everything except the ones that moved out.
-WORKFLOW_TYPES: Final[tuple[str, ...]] = ("messaging", "automation", "loop", "broadcast")
-OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
-    "loop": HogFlow.OriginProduct.LOOPS,
-    "broadcast": HogFlow.OriginProduct.BROADCASTS,
-}
-
-
-def workflow_type_q(requested: set[str]) -> Q:
-    owned = Q(origin_product__in=[OWNED_WORKFLOW_TYPES[t] for t in requested if t in OWNED_WORKFLOW_TYPES])
-    behavioural = requested - set(OWNED_WORKFLOW_TYPES)
-    if not behavioural:
-        return owned
-
-    messaging = Q()
-    for action_type in MESSAGING_ACTION_TYPES:
-        messaging |= Q(actions__contains=[{"type": action_type}])
-    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
-    if behavioural == {"messaging", "automation"}:
-        return owned | unowned
-    return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
-
-
 BROADCAST_TRIGGER_TYPE = "batch"
 BROADCAST_ALLOWED_ACTION_TYPES = frozenset({"trigger", "function_email", "exit"})
-
-
-def _json_path(path: str) -> models.Func:
-    # A jsonpath bind parameter. Postgres types a plain parameter as text and the jsonb_path_*
-    # functions take jsonpath, so the cast has to be spelled out.
-    return models.Func(models.Value(path), template="%(expressions)s::jsonpath", output_field=models.TextField())
-
-
-def _jsonb_path_exists(path: str) -> models.Func:
-    return models.Func(
-        models.F("actions"),
-        _json_path(path),
-        function="jsonb_path_exists",
-        output_field=models.BooleanField(),
-    )
 
 
 def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
@@ -3864,29 +3842,30 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     # row whose `actions` is not an array yields no matches rather than an error.
     other_step = " && ".join(f'@.type != "{action_type}"' for action_type in sorted(BROADCAST_ALLOWED_ACTION_TYPES))
     return queryset.annotate(
-        _has_batch_trigger=_jsonb_path_exists(
-            f'$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
+        _has_batch_trigger=jsonb_path_exists(
+            "actions", f'$[*] ? (@.type == "trigger" && @.config.type == "{BROADCAST_TRIGGER_TYPE}")'
         ),
         _email_step_count=models.Func(
             models.Func(
                 models.F("actions"),
-                _json_path('$[*] ? (@.type == "function_email")'),
+                json_path('$[*] ? (@.type == "function_email")'),
                 function="jsonb_path_query_array",
                 output_field=models.JSONField(),
             ),
             function="jsonb_array_length",
             output_field=models.IntegerField(),
         ),
-        _has_other_step=_jsonb_path_exists(f"$[*] ? ({other_step})"),
+        _has_other_step=jsonb_path_exists("actions", f"$[*] ? ({other_step})"),
     )
 
 
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
-        # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+        # `created_by` and `status` take comma lists and reject unknown values, so apply_list_filters
+        # handles them rather than an exact-match field here. `created_by` is a uuid, not a pk, because
+        # the list UI's member picker keys on uuid.
+        fields = ["id", "created_at", "updated_at", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -3996,49 +3975,14 @@ WRITABLE_DRAFT_CONTENT_FIELDS = frozenset(DRAFT_CONTENT_FIELDS) - frozenset(HogF
 
 
 @extend_schema(extensions={"x-product": "workflows"})
-@extend_schema_view(
-    list=extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "search",
-                OpenApiTypes.STR,
-                description="Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
-            ),
-            OpenApiParameter(
-                "created_by",
-                OpenApiTypes.UUID,
-                description="Filter to workflows created by the user with this uuid.",
-            ),
-            OpenApiParameter(
-                "type",
-                OpenApiTypes.STR,
-                description="Comma-separated workflow types. `loop` and `broadcast` return the workflows those surfaces own; `messaging` returns the remaining workflows with an email, SMS, or push action, and `automation` the rest.",
-            ),
-            OpenApiParameter(
-                "origin_product",
-                OpenApiTypes.STR,
-                enum=HogFlow.OriginProduct.values,
-                description="Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            ),
-            OpenApiParameter(
-                "trigger",
-                OpenApiTypes.STR,
-                description='Filter by trigger config as a JSON object. Returns workflows whose trigger contains the given object, e.g. {"type": "event"}.',
-            ),
-            OpenApiParameter(
-                "broadcast_eligible",
-                OpenApiTypes.BOOL,
-                description="Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
-            ),
-        ]
-    )
-)
+@extend_schema_view(list=extend_schema(parameters=LIST_FILTER_PARAMETERS))
 class HogFlowViewSet(
     TeamAndOrgViewSetMixin, AccessControlViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet
 ):
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
+        "summaries",
         "retrieve",
         "logs",
         "metrics",
@@ -4147,29 +4091,15 @@ class HogFlowViewSet(
         return context
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        if self.action == "list":
+        if self.action in LIST_ACTIONS:
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
-            queryset = queryset.order_by("-updated_at", "-id")
-
-            created_by = self.request.GET.get("created_by")
-            if created_by:
-                try:
-                    uuid_mod.UUID(created_by)
-                except ValueError:
-                    raise exceptions.ValidationError({"created_by": "Must be a valid user uuid"})
-                queryset = queryset.filter(created_by__uuid=created_by)
-
-            workflow_type = self.request.GET.get("type")
-            if workflow_type:
-                requested = {value for value in workflow_type.split(",") if value}
-                unknown = sorted(requested - set(WORKFLOW_TYPES))
-                # A value of only separators names no type. Filtering on nothing would answer with an
-                # empty list, so it is rejected the way any other unusable value is.
-                if unknown or not requested:
-                    named = f"Unknown: {', '.join(unknown)}. " if unknown else ""
-                    raise exceptions.ValidationError({"type": f"{named}Must be one of: {', '.join(WORKFLOW_TYPES)}"})
-                queryset = queryset.filter(workflow_type_q(requested))
+            queryset = queryset.order_by("-updated_at", "-id").select_related("created_by")
+            queryset = apply_list_filters(queryset, self.request.GET)
+            # Annotated so a list row can say a draft exists without loading the draft itself.
+            queryset = queryset.annotate(
+                has_draft=models.ExpressionWrapper(Q(draft__isnull=False), output_field=models.BooleanField())
+            )
 
             if self.request.GET.get("broadcast_eligible") == "true":
                 queryset = annotate_broadcast_shape(queryset).filter(
@@ -4192,6 +4122,9 @@ class HogFlowViewSet(
                     )
                 queryset = queryset.filter(origin_product=origin_product)
 
+        if self.action == "summaries":
+            queryset = queryset.defer(*SUMMARY_DEFERRED_FIELDS)
+
         if self.request.GET.get("trigger"):
             try:
                 trigger = json.loads(self.request.GET["trigger"])
@@ -4207,7 +4140,7 @@ class HogFlowViewSet(
         # Search runs after the filter backends so the tier decision below sees the same rows the response
         # will: a name match that the `status` filter then drops must not stop the step search from running.
         queryset = super().filter_queryset(queryset)
-        if self.action != "list":
+        if self.action not in LIST_ACTIONS:
             return queryset
 
         search = (self.request.GET.get("search") or "").strip()
@@ -4235,6 +4168,30 @@ class HogFlowViewSet(
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
+
+    @extend_schema(
+        operation_id="hog_flows_summaries_list",
+        summary="List workflow summaries",
+        description=(
+            "Slim workflow rows for loading a whole project's list at once: status, type, trigger, channels, "
+            "email subjects and senders, and 7-day totals. Takes the same filters as the list. "
+            "Never returns the step graph, step inputs or email bodies."
+        ),
+        parameters=LIST_FILTER_PARAMETERS,
+        responses={200: HogFlowListRowSerializer(many=True)},
+    )
+    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=HogFlowListRowPagination)
+    def summaries(self, request: Request, *args, **kwargs) -> Response:
+        queryset = self.get_queryset()
+        # _filter_queryset_by_access_level only runs for `list`, so this action applies it itself. The
+        # service-credential skip mirrors it: those callers are gated by API scope alone.
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+        page = self.paginate_queryset(self.filter_queryset(queryset))
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+        context = {**self.get_serializer_context(), RUN_TOTALS_CONTEXT_KEY: fetch_last_7_days_totals(self.team_id)}
+        return self.get_paginated_response(HogFlowListRowSerializer(page, many=True, context=context).data)
 
     @extend_schema(
         request=HogInvocationRerunRequestSerializer,

@@ -13304,7 +13304,7 @@
         }
     },
     "workflows-list": {
-        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<text> to find a workflow by its name or description, or, when neither matches, by a step name or the subject, preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as 'workflow_id'.",
+        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), type (messaging/automation/loop/broadcast), version, trigger configuration and trigger_type, whether a draft is staged (has_draft), the channels it sends on (email, sms, push, slack, webhook), and per email step its subject and the From addresses and name it sends from, plus timestamps. Pass search=<text> to find a workflow by its name or description, or, when neither matches, by a step name or the subject, preheader or body text of an email it sends (live or pending draft), and read its id. Filters take comma lists, OR within one param and AND across params: status, created_by (user uuids), type, trigger_type and channel. Each has an exclude_* twin (exclude_status, exclude_created_by, exclude_type, exclude_trigger_type, exclude_channel) that leaves out matching workflows. Most workflows-* tools take the returned id as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as 'workflow_id'.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "List workflows",

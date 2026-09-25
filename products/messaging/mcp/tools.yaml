@@ -90,6 +90,9 @@ tools:
     messaging-templates-retrieve:
         operation: messaging_templates_retrieve
         enabled: false
+    messaging-templates-summaries-list:
+        operation: messaging_templates_summaries_list
+        enabled: false
     messaging-templates-update:
         operation: messaging_templates_update
         enabled: false
