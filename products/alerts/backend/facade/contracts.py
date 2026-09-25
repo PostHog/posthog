@@ -138,17 +138,21 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
 
 
-class CheckOutcomeReason(StrEnum):
-    """Why a check reached the outcome it did.
+class SkipReason(StrEnum):
+    """Why a check reached an outcome without a query answering it.
 
-    A label on the platform's own counters. It never reaches an alert's state or schedule; the
-    one branch on it picks which counter to write.
+    A label on the platform's own counters. It never reaches an alert's state or schedule. A check
+    that was evaluated has no skip reason, which is `None` rather than a member here.
     """
 
-    EVALUATED = "evaluated"
     BROKEN_CONFIG = "broken_config"
     QUERY_FAILED = "query_failed"
-    # Mute reasons: a muted check is evaluated, so these label a held announcement, not a skip.
+
+
+class MuteReason(StrEnum):
+    """Why an announcement was held. A muted check is evaluated like any other, so this labels the
+    held announcement rather than a skip."""
+
     SNOOZE = "snooze"
     QUIET_HOURS = "quiet_hours"
 
