@@ -81,14 +81,16 @@ pub fn compute_kafka_log_row_bytes(row: &KafkaLogRow) -> i64 {
 /// payload-sized `bytes_uncompressed` header — so the two can be compared before billing
 /// switches to the records-based value.
 pub fn sum_kafka_log_row_bytes(rows: &[KafkaLogRow]) -> u64 {
-    rows.iter()
-        .map(|row| row.bytes_uncompressed.unwrap_or(0).max(0) as u64)
-        .sum()
+    rows.iter().map(KafkaLogRow::byte_count).sum()
 }
 
 impl KafkaLogRow {
     /// Set `bytes_uncompressed` from the row's variable-length content. Consuming
     /// builder; the `mut self` is encapsulated and never escapes.
+    pub(crate) fn byte_count(&self) -> u64 {
+        self.bytes_uncompressed.unwrap_or(0).max(0) as u64
+    }
+
     pub(crate) fn with_computed_bytes(mut self) -> Self {
         self.bytes_uncompressed = Some(compute_kafka_log_row_bytes(&self));
         self
@@ -113,7 +115,7 @@ impl KafkaLogRow {
         let mut severity_number = record.severity_number;
 
         if let Some(parsed_severity) = try_extract_severity(&body) {
-            severity_text = parsed_severity;
+            severity_text = parsed_severity.to_string();
             severity_number = convert_severity_text_to_number(&severity_text);
         }
 
@@ -257,17 +259,23 @@ pub fn extract_span_id(input: &[u8]) -> [u8; 8] {
     }
 }
 
+fn severity_for_lowercase(lowered: &str) -> Option<&'static str> {
+    Some(match lowered {
+        "critical" | "fatal" | "crit" | "alert" | "emerg" => "fatal",
+        "error" | "err" | "eror" => "error",
+        "warn" | "warning" => "warn",
+        "info" | "information" | "informational" => "info",
+        "debug" | "dbug" => "debug",
+        "trace" => "trace",
+        _ => return None,
+    })
+}
+
 pub(crate) fn normalize_severity_text(severity_text: String) -> String {
-    match severity_text.to_lowercase().as_str() {
-        "critical" | "fatal" | "crit" | "alert" | "emerg" => "fatal".to_string(),
-        "error" | "err" | "eror" => "error".to_string(),
-        "warn" | "warning" => "warn".to_string(),
-        "info" | "information" | "informational" => "info".to_string(),
-        "debug" | "dbug" => "debug".to_string(),
-        "trace" => "trace".to_string(),
-        // don't allow arbitrary values in severity text. normalize unknown to info
-        _ => "info".to_string(),
-    }
+    // don't allow arbitrary values in severity text. normalize unknown to info
+    severity_for_lowercase(&severity_text.to_lowercase())
+        .unwrap_or("info")
+        .to_string()
 }
 
 pub(crate) fn convert_severity_text_to_number(severity_text: &str) -> i32 {
@@ -334,7 +342,7 @@ pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String
 // TODO - pull this from PG
 const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
 
-pub(crate) fn try_extract_severity(body: &str) -> Option<String> {
+pub(crate) fn try_extract_severity(body: &str) -> Option<&'static str> {
     if !body.trim_start().starts_with('{') {
         return None;
     }
@@ -354,11 +362,8 @@ pub(crate) fn try_extract_severity(body: &str) -> Option<String> {
 
 /// Canonical severity for a level word, or `None` when the word is not a known level. Unlike
 /// `normalize_severity_text`, an unknown word is not folded to `info`, so callers can keep looking.
-pub(crate) fn severity_alias(word: &str) -> Option<String> {
-    let lowered = word.trim().to_lowercase();
-    let text = normalize_severity_text(lowered.clone());
-    let is_info_alias = matches!(lowered.as_str(), "info" | "information" | "informational");
-    (text != "info" || is_info_alias).then_some(text)
+pub(crate) fn severity_alias(word: &str) -> Option<&'static str> {
+    severity_for_lowercase(&word.trim().to_lowercase())
 }
 
 pub fn any_value_to_json(value: AnyValue) -> JsonValue {

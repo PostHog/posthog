@@ -16,6 +16,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::result::Result::Ok;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
 
@@ -117,9 +118,11 @@ pub struct KafkaSink {
     logs_topic: String,
     traces_topic: String,
     metrics_topic: String,
-    logs_schema: Schema,
-    traces_schema: Schema,
-    metrics_schema: Schema,
+    // Shared, because `KafkaSink` is cloned into every request's state and a `Schema` clone is
+    // a few hundred allocations.
+    logs_schema: Arc<Schema>,
+    traces_schema: Arc<Schema>,
+    metrics_schema: Arc<Schema>,
     logs_message_max_bytes: usize,
 }
 
@@ -327,9 +330,9 @@ impl KafkaSink {
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
             metrics_topic: config.kafka_metrics_topic,
-            logs_schema: Schema::parse_str(AVRO_SCHEMA)?,
-            traces_schema: Schema::parse_str(TRACES_AVRO_SCHEMA)?,
-            metrics_schema: Schema::parse_str(METRICS_AVRO_SCHEMA)?,
+            logs_schema: Arc::new(Schema::parse_str(AVRO_SCHEMA)?),
+            traces_schema: Arc::new(Schema::parse_str(TRACES_AVRO_SCHEMA)?),
+            metrics_schema: Arc::new(Schema::parse_str(METRICS_AVRO_SCHEMA)?),
             logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
         })
     }
