@@ -1,7 +1,8 @@
+import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
-import { useNavigation } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
@@ -23,10 +24,12 @@ import {
   useSeenReports,
   useStartReport,
 } from "@/lib/reports";
+import { useSessions } from "@/lib/session";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export default function SelfDrivingScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const reports = useReports();
   const seen = useSeenReports((s) => s.seen);
@@ -100,17 +103,29 @@ export default function SelfDrivingScreen() {
     });
   };
 
+  // Open the chat immediately with the report prompt in it (the same pending
+  // pattern as the new-chat screen), then re-key it to the real task id.
   const onStart = (report: SignalReport): void => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
       () => {},
     );
     finish(report);
+    const tempId = `new-${Date.now()}`;
+    const prompt = buildCreatePrReportPrompt({ reportId: report.id });
+    const { startPending, adopt, failPending } = useSessions.getState();
+    startPending(tempId, prompt, `local-${Date.now()}`);
+    router.push({ pathname: "/(drawer)/task/[id]", params: { id: tempId } });
     start.mutate(report, {
-      onSuccess: () =>
-        setNotice(`Started "${(report.title ?? "report").slice(0, 40)}"`),
+      onSuccess: (task) => {
+        adopt(tempId, task);
+        router.replace({
+          pathname: "/(drawer)/task/[id]",
+          params: { id: task.id },
+        });
+      },
       onError: (error) => {
         restore(report);
-        setNotice(error.message);
+        failPending(tempId, error.message);
       },
     });
   };
