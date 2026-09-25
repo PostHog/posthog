@@ -5,6 +5,7 @@ import secrets
 import dataclasses
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from urllib.parse import urlparse
 
 from django.db import transaction
@@ -57,6 +58,18 @@ class DCRRegistrationRejectedError(Exception):
         super().__init__(provider_message)
         self.provider_message = provider_message
         self.status_code = status_code
+
+
+def dcr_status_is_refusal(status_code: int | None) -> bool:
+    """Whether a registration status proves the provider will not register our client.
+
+    A 4xx is the provider's decision about this client, so the same request gets the same
+    answer tomorrow. A 429 is a throttle and a 5xx is a fault, and both are worth a retry.
+    No status at all means the request never got an answer, which proves nothing.
+    """
+    if status_code is None:
+        return False
+    return 400 <= status_code < 500 and status_code != HTTPStatus.TOO_MANY_REQUESTS
 
 
 def _validate_url(url: str) -> None:

@@ -81,7 +81,8 @@ At app startup, every environment queues `sync_mcp_server_templates` (see `backe
 - **A refused DCR registration deactivates the row**: the re-probe clears `is_active` only when the server answered, served OAuth metadata, and still refused to register a client.
   The store stops listing the tile and refuses new installs of it.
   A probe that does not reach the server, or that finds no OAuth metadata, leaves `is_active` alone.
-  A working tile does not disappear after a network timeout.
+  So does a registration request that met a fault or a throttle, or that never got an answer.
+  A working tile does not disappear after a network timeout, and an inactive row is never re-probed to heal itself.
   A row you reactivate in admin does not stay active while the vendor keeps refusing.
   The next sync after the interval re-probes it and deactivates it again.
   Provision a reviewed credential source for the entry, or get our client allowlisted with the vendor, before you reactivate it.

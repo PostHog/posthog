@@ -69,6 +69,7 @@ from ..oauth import (
     DCRRegistrationRejectedError,
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
+    dcr_status_is_refusal,
     discover_oauth_metadata,
     exchange_oauth_token,
     generate_pkce,
@@ -1050,13 +1051,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             failure_reason = "dcr_not_supported"
             detail = "This MCP server does not support Dynamic Client Registration (DCR)."
             http_status = status.HTTP_400_BAD_REQUEST
-        # A 429 is the endpoint throttling us, not a decision about our client, so it
-        # belongs with the retryable failures below, not here.
-        elif (
-            provider_status is not None
-            and 400 <= provider_status < 500
-            and provider_status != status.HTTP_429_TOO_MANY_REQUESTS
-        ):
+        elif dcr_status_is_refusal(provider_status):
             failure_reason = "dcr_refused"
             detail = (
                 "This server doesn't accept app registrations from PostHog, so we can't connect it here. "
