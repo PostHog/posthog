@@ -314,20 +314,24 @@ function toTimestampMs(value: unknown): number {
     return Number.NaN
 }
 
-function sessionTimelineParameters(event: ErrorEventType): Record<string, unknown> {
+function sessionTimelineParameters(event: ErrorEventType, { headerOnly = false } = {}): Record<string, unknown> {
     const center = new Date(event.timestamp).getTime()
     const at = (deltaMs: number): string => new Date(center + deltaMs).toISOString()
 
     const exceptionList = Array.isArray(event.properties?.$exception_list) ? event.properties.$exception_list : []
     const exceptionRows: StoryExceptionRow[] = [[event.uuid, event.timestamp, JSON.stringify(event.properties)]]
-    const pageRows: StoryPageRow[] = [
-        ['page-1', at(-15000), 'https://app.example.com/home', 'web'],
-        ['page-2', at(-7000), 'https://app.example.com/demo', 'web'],
-    ]
-    const customRows: StoryCustomRow[] = [
-        ['custom-1', 'form_opened', at(-11000), 'web'],
-        ['custom-2', 'button_clicked', at(-3000), 'web'],
-    ]
+    const pageRows: StoryPageRow[] = headerOnly
+        ? []
+        : [
+              ['page-1', at(-15000), 'https://app.example.com/home', 'web'],
+              ['page-2', at(-7000), 'https://app.example.com/demo', 'web'],
+          ]
+    const customRows: StoryCustomRow[] = headerOnly
+        ? []
+        : [
+              ['custom-1', 'form_opened', at(-11000), 'web'],
+              ['custom-2', 'button_clicked', at(-3000), 'web'],
+          ]
     const combinedEventRows: StoryCombinedEventRow[] = [
         ['page-1', '$pageview', at(-15000), 'web', 'https://app.example.com/home', null, null, null],
         ['custom-1', 'form_opened', at(-11000), 'web', null, null, null, null],
@@ -355,7 +359,9 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
         ],
     ]
 
-    const eventDetailsRowsEntries: Array<[string, StoryEventDetailsRow]> = combinedEventRows.map(
+    const timelineRows = headerOnly ? combinedEventRows.slice(-1) : combinedEventRows
+
+    const eventDetailsRowsEntries: Array<[string, StoryEventDetailsRow]> = timelineRows.map(
         (row): [string, StoryEventDetailsRow] => {
             const [uuid, eventName, ts, lib, currentUrl, exceptionListForRow, exceptionFingerprint, exceptionIssueId] =
                 row
@@ -374,12 +380,14 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
 
     const eventDetailsRowsByUuid = Object.fromEntries(eventDetailsRowsEntries) as Record<string, StoryEventDetailsRow>
 
-    const logRows: StoryLogRow[] = [
-        [at(-13000), 'info', 'App initialized'],
-        [at(-6000), 'warn', 'Slow network detected'],
-        [at(-3500), 'info', 'Form submitted'],
-        [at(-1200), 'error', 'Console error before exception'],
-    ]
+    const logRows: StoryLogRow[] = headerOnly
+        ? []
+        : [
+              [at(-13000), 'info', 'App initialized'],
+              [at(-6000), 'warn', 'Slow network detected'],
+              [at(-3500), 'info', 'Form submitted'],
+              [at(-1200), 'error', 'Console error before exception'],
+          ]
 
     const filterRows = <T extends unknown[]>(rows: T[], timestampIndex: number, query: TimelineQueryLike): T[] => {
         const after = query.after ? new Date(query.after).getTime() : Number.NEGATIVE_INFINITY
@@ -443,7 +451,7 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
                 query.select?.includes('properties.$exception_list')
 
             if (isCombinedEventLoaderQuery) {
-                return [200, { results: filterRows(combinedEventRows, 2, query) }]
+                return [200, { results: filterRows(timelineRows, 2, query) }]
             }
 
             const isEventDetailsQuery =
@@ -473,7 +481,7 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
                 return [200, { results: filterRows(exceptionRows, 1, query) }]
             }
 
-            return [200, { results: filterRows(combinedEventRows, 2, query) }]
+            return [200, { results: filterRows(timelineRows, 2, query) }]
         }
 
         if (query.kind === NodeKind.HogQLQuery) {
@@ -678,7 +686,9 @@ ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()
 // Both have to be satisfied or the right-hand cell renders empty and the story stops testing the
 // crowded case it exists for.
 function headerActionParameters(): Record<string, unknown> {
-    const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']))
+    const timeline = sessionTimelineParameters(asErrorEventType(TEST_EVENTS['javascript_resolved']), {
+        headerOnly: true,
+    })
     const timelineMocks = (timeline.msw as { mocks: Mocks }).mocks
 
     return {
