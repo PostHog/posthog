@@ -1940,6 +1940,21 @@ class ComposeTicketSustainedThrottle(UserRateThrottle):
     rate = "60/hour"
 
 
+class TicketNoteBurstThrottle(UserRateThrottle):
+    """
+    Private notes get their own bucket, so an agent writing notes cannot use up the compose
+    budget that the same user needs for customer replies.
+    """
+
+    scope = "ticket_note_burst"
+    rate = "10/minute"
+
+
+class TicketNoteSustainedThrottle(UserRateThrottle):
+    scope = "ticket_note_sustained"
+    rate = "60/hour"
+
+
 class TeamsAdminGraphThrottle(UserRateThrottle):
     """
     Protect the bot's per-tenant Graph API quota. The TeamsTeamsView /
