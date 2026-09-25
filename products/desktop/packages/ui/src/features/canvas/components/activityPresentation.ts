@@ -36,14 +36,21 @@ function ownedItemName(item: TaskActivityItem): string {
 function activityEventPresentation(
   item: TaskActivityItem,
   currentUserEmail?: string | null,
+  agentIsWorking = false,
 ): ActivityEventPresentation {
   switch (item.activityKind) {
     case "awaiting_input":
-      return {
-        action: "Agent is waiting for your reply",
-        actionInSpace: "Agent is waiting for your reply in",
-        agentIcon: "question",
-      };
+      return agentIsWorking
+        ? {
+            action: "Agent is working",
+            actionInSpace: "Agent is working in",
+            agentIcon: "chat",
+          }
+        : {
+            action: "Agent is waiting for your reply",
+            actionInSpace: "Agent is waiting for your reply in",
+            agentIcon: "question",
+          };
     case "completed":
       return {
         action: "Agent finished",
@@ -107,11 +114,20 @@ function activitySpace(channelName: string | null): string | null {
   return label === PERSONAL_CHANNEL_LABEL ? "Personal" : label;
 }
 
+/**
+ * `agentIsWorking` says the live session has taken the reply an
+ * `awaiting_input` row asked for, so the row must stop asking for it.
+ */
 export function activityPresentation(
   item: TaskActivityItem,
   currentUserEmail?: string | null,
+  agentIsWorking = false,
 ): ActivityPresentation {
-  const event = activityEventPresentation(item, currentUserEmail);
+  const event = activityEventPresentation(
+    item,
+    currentUserEmail,
+    agentIsWorking,
+  );
   const spaceLabel = activitySpace(item.channelName);
   const action = spaceLabel ? event.actionInSpace : event.action;
   const time = formatRelativeAge(item.activityAt);

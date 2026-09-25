@@ -62,6 +62,8 @@ interface ActivityRowProps {
   onMarkRead: (item: TaskActivityItem) => void;
   currentUser?: UserBasic | null;
   blockedTaskIds: ReadonlySet<string>;
+  /** Tasks whose live session has gone back to work, from `useWorkingTaskIds`. */
+  workingTaskIds: ReadonlySet<string>;
   surface?: "activity" | "activity_panel";
   onActivate: (item: TaskActivityItem) => void;
   isSelected?: boolean;
@@ -76,6 +78,7 @@ export function ActivityRow({
   onMarkRead,
   currentUser,
   blockedTaskIds,
+  workingTaskIds,
   surface = "activity",
   onActivate,
   isSelected = false,
@@ -83,12 +86,16 @@ export function ActivityRow({
   asOption = false,
   optionValue,
 }: ActivityRowProps): ReactElement {
-  const presentation = activityPresentation(item, currentUser?.email);
   const channelId = item.channelId;
   // The event records a past prompt; only the live session says whether it
   // still needs a reply after the row was created.
   const awaitsReply =
     item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
+  const presentation = activityPresentation(
+    item,
+    currentUser?.email,
+    workingTaskIds.has(item.taskId),
+  );
   const agentIconClassName = awaitsReply ? "text-(--blue-11)" : undefined;
   const agentIconWrapperClassName =
     item.isUnread && !awaitsReply
