@@ -35,11 +35,11 @@ export interface slackConnectLogicActions {
     connectSlackClicked: () => {
         value: true
     }
-    slackConnected: (integrationId: number) => {
-        integrationId: number
-    }
     slackConnectTimedOut: () => {
         value: true
+    }
+    slackConnected: (integrationId: number) => {
+        integrationId: number
     }
 }
 
