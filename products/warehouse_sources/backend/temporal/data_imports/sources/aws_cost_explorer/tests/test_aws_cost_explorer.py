@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     VALIDATION_ERROR_MESSAGES,
     AwsCostExplorerError,
     AwsCostExplorerResumeConfig,
-    AwsCostExplorerThrottledError,
+    AwsCostExplorerRetryableError,
     build_payload,
     build_windows,
     error_for_response,
@@ -41,7 +41,7 @@ SAVINGS_PLANS = AWS_COST_EXPLORER_ENDPOINTS["savings_plans_utilization_daily"]
 
 
 def without_retry_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the throttling retry's behaviour but drop its wait, so tests stay fast."""
+    """Keep the retry behaviour but drop its wait, so tests stay fast."""
     monkeypatch.setattr(cast(Any, send_operation).retry, "wait", wait_none())
 
 
@@ -302,14 +302,22 @@ class TestNormalizeResults:
 class TestErrorClassification:
     @pytest.mark.parametrize(
         "code",
-        ["LimitExceededException", "ThrottlingException", "TooManyRequestsException", "RequestLimitExceeded"],
+        [
+            "LimitExceededException",
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "RequestLimitExceeded",
+            "InternalFailure",
+            "InternalServerException",
+            "ServiceUnavailable",
+        ],
     )
-    def test_throttling_codes_are_retryable(self, code: str) -> None:
+    def test_throttling_and_server_fault_codes_are_retryable(self, code: str) -> None:
         response = make_response(400, {"__type": f"com.amazon.coral.availability#{code}", "message": "slow down"})
 
         error = error_for_response(response)
 
-        assert isinstance(error, AwsCostExplorerThrottledError)
+        assert isinstance(error, AwsCostExplorerRetryableError)
         assert f"AWS Cost Explorer request failed: {code}" in str(error)
 
     @pytest.mark.parametrize(
@@ -321,7 +329,7 @@ class TestErrorClassification:
 
         error = error_for_response(response)
 
-        assert not isinstance(error, AwsCostExplorerThrottledError)
+        assert not isinstance(error, AwsCostExplorerRetryableError)
         assert str(error) == f"AWS Cost Explorer request failed: {code} - nope"
 
     def test_the_error_type_header_wins_over_the_body(self) -> None:
@@ -335,6 +343,18 @@ class TestErrorClassification:
             "AWS Cost Explorer request failed: AccessDeniedException - nope"
         )
 
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def test_a_code_the_transport_already_retried_is_not_retried_again(self, status: int) -> None:
+        # Stacking both loops would bill one operation for up to 24 requests.
+        response = make_response(status, {"__type": "InternalFailure", "message": "server error"})
+
+        assert not isinstance(error_for_response(response), AwsCostExplorerRetryableError)
+
+    def test_a_body_without_a_message_does_not_end_the_error_in_a_bare_dash(self) -> None:
+        response = make_response(400, {"__type": "InternalFailure"})
+
+        assert str(error_for_response(response)) == "AWS Cost Explorer request failed: InternalFailure"
+
     def test_a_non_json_error_body_still_produces_a_usable_message(self) -> None:
         response = requests.Response()
         response.status_code = 503
@@ -342,7 +362,7 @@ class TestErrorClassification:
 
         error = error_for_response(response)
 
-        assert not isinstance(error, AwsCostExplorerThrottledError)
+        assert not isinstance(error, AwsCostExplorerRetryableError)
         assert "HTTP 503" in str(error)
 
 
@@ -374,11 +394,12 @@ class TestSendOperation:
 
         assert session.post.call_args[1]["headers"]["X-Amz-Security-Token"] == "session-token"
 
-    def test_throttled_calls_are_retried_until_they_succeed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize("code", ["LimitExceededException", "InternalFailure"])
+    def test_retryable_calls_are_retried_until_they_succeed(self, code: str, monkeypatch: pytest.MonkeyPatch) -> None:
         without_retry_backoff(monkeypatch)
         session = mock.MagicMock(spec=requests.Session)
         session.post.side_effect = [
-            make_response(400, {"__type": "LimitExceededException", "message": "slow down"}),
+            make_response(400, {"__type": code, "message": "try again"}),
             make_response(200, {"ResultsByTime": []}),
         ]
 
@@ -420,6 +441,7 @@ class TestValidateCredentials:
             ("AccessDeniedException", VALIDATION_ERROR_MESSAGES["AccessDeniedException"]),
             ("ExpiredTokenException", VALIDATION_ERROR_MESSAGES["ExpiredTokenException"]),
             ("ThrottlingException", TRANSIENT_VALIDATION_ERROR),
+            ("InternalFailure", TRANSIENT_VALIDATION_ERROR),
             ("HTTP 503", TRANSIENT_VALIDATION_ERROR),
             ("SomeUnmappedException", GENERIC_VALIDATION_ERROR),
         ],
