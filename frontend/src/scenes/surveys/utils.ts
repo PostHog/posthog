@@ -610,7 +610,9 @@ export function getRecurringSurveyScheduleInfo(
     return { totalDurationDays, autoCloseDate }
 }
 
-const URL_SCHEME_PREFIXES = ['http://', 'https://']
+// Any RFC 3986 scheme, not only http and https, because an Electron app, a Capacitor webview and a
+// browser extension page each carry their own scheme and the SDK runs in all of them.
+const URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i
 
 /** The SDK compares an exact URL condition against the browser's full URL, which always carries a
  * scheme. A value without one, such as a bare host or a bare path, can never be equal to it, so the
@@ -620,10 +622,10 @@ export function getExactUrlSchemeError(url: string | undefined, matchType: Surve
     if (matchType !== SurveyMatchType.Exact || !trimmedUrl) {
         return null
     }
-    if (URL_SCHEME_PREFIXES.some((prefix) => trimmedUrl.toLowerCase().startsWith(prefix))) {
+    if (URL_SCHEME_PATTERN.test(trimmedUrl)) {
         return null
     }
-    return 'Exact match compares the whole page URL, which always starts with http:// or https://. Add the protocol and host, or use "contains" instead.'
+    return 'Exact match compares the whole page URL, which always starts with a protocol such as https://. Add the protocol and host, or use "contains" instead.'
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
