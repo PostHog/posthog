@@ -61,8 +61,11 @@ import { MlMirrorConsumerServer } from './ml-mirror-consumer-server'
 const STORE_BATCH_BUDGET_MS = 50_000
 const IMAGE_FETCH_KAFKA_QUEUE_BUDGET_KBYTES = 102_400
 const IMAGE_FETCH_MIN_CONSUMER_QUEUE_KBYTES = 25_600
-/** In continuous-pool mode the pool window limits a member, so this only bounds offsets that wait to commit. */
-const POOL_MAX_BATCHES_IN_FLIGHT_PER_MEMBER = 8
+/**
+ * The pool window paces a member in continuous-pool mode. This limit stays above that window at typical
+ * batch sizes, and it is the hard bound on a member's resident URLs and crash replay when batches are large.
+ */
+const POOL_MAX_BATCHES_IN_FLIGHT_PER_MEMBER = 4
 
 /** Matches MAX_URL_LEN in the crate, which is what the collector applied to the first candidate. */
 const MAX_REDIRECT_URL_LENGTH = 2048

@@ -35,7 +35,7 @@ describe('image fetch consumer wiring', () => {
             },
             8,
             8,
-            8,
+            4,
             328_192,
         ],
         ['sixteen consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 16 }, 16, 16, 2, 656_384],
