@@ -3864,9 +3864,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -3874,13 +3871,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -3893,9 +3890,6 @@ database "posthog" {
     }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -6356,9 +6350,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -6366,13 +6357,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -6385,9 +6376,6 @@ database "posthog" {
     }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -6406,15 +6394,10 @@ database "posthog" {
       type        = "bloom_filter()"
       granularity = 1
     }
-    index "flag_keys_bloom_filter" {
-      expr        = "flag_keys"
-      type        = "bloom_filter()"
-      granularity = 1
-    }
-    index "flag_key_values_bloom_filter" {
+    index "flag_key_values_text" {
       expr        = "flag_key_values"
-      type        = "bloom_filter()"
-      granularity = 1
+      type        = "text(tokenizer = splitByString(['=']))"
+      granularity = 100000000
     }
     index "hosts_bloom_filter" {
       expr        = "hosts"
@@ -8447,9 +8430,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -8457,13 +8437,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -8476,9 +8456,6 @@ database "posthog" {
     }
     column "flag_values" {
       type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -9668,16 +9645,14 @@ SELECT
   argMinMerge(entry_fbclid) AS entry_fbclid,
   argMinMerge(entry_has_gclid) AS entry_has_gclid,
   argMinMerge(entry_has_fbclid) AS entry_has_fbclid,
-  argMinMerge(entry_ad_ids_map) AS entry_ad_ids_map,
   argMinMerge(entry_ad_ids_set) AS entry_ad_ids_set,
   argMinMerge(entry_channel_type_properties) AS entry_channel_type_properties,
-  uniqExactMerge(pageview_uniq) AS pageview_uniq,
-  uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
-  uniqExactMerge(screen_uniq) AS screen_uniq,
+  uniqMerge(pageview_uniq) AS pageview_uniq,
+  uniqMerge(autocapture_uniq) AS autocapture_uniq,
+  uniqMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
   groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
-  groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,
   groupUniqArrayArray(10)(emails) AS emails,

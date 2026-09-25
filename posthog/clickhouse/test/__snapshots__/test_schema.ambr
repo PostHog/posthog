@@ -6836,8 +6836,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -6845,12 +6845,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -6859,8 +6860,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -6915,20 +6916,38 @@
               `dclid` Nullable(String),
               `gbraid` Nullable(String),
               `wbraid` Nullable(String),
+              `gad_campaignid` Nullable(String),
+              `srsltid` Nullable(String),
               `msclkid` Nullable(String),
               `twclid` Nullable(String),
               `li_fat_id` Nullable(String),
               `mc_cid` Nullable(String),
               `igshid` Nullable(String),
               `ttclid` Nullable(String),
+              `rdt_cid` Nullable(String),
               `epik` Nullable(String),
               `qclid` Nullable(String),
               `sccid` Nullable(String),
               `_kx` Nullable(String),
-              `irclid` Nullable(String)
+              `irclid` Nullable(String),
+              `irclickid` Nullable(String),
+              `utm_id` Nullable(String),
+              `utm_source_platform` Nullable(String),
+              `utm_creative_format` Nullable(String),
+              `utm_marketing_tactic` Nullable(String),
+              `yclid` Nullable(String),
+              `tblci` Nullable(String),
+              `dicbo` Nullable(String),
+              `ndclid` Nullable(String),
+              `cjevent` Nullable(String),
+              `awc` Nullable(String),
+              `syclid` Nullable(String),
+              `_bhlid` Nullable(String),
+              `rtid` Nullable(String)
           )') as p,
           JSONExtractString(person_properties, 'email') as _person_email,
           tupleElement(p, '$current_url') as _current_url,
+          if(event = '$pageview' OR event = '$screen', left(coalesce(_current_url, ''), 16384), '') as _attribution_url,
           tupleElement(p, '$external_click_url') as _external_click_url,
           tupleElement(p, '$browser') as _browser,
           tupleElement(p, '$browser_version') as _browser_version,
@@ -6951,54 +6970,71 @@
           tupleElement(p, 'gclid') as _gclid,
           tupleElement(p, 'gad_source') as _gad_source,
           tupleElement(p, 'fbclid') as _fbclid,
-          tupleElement(p, 'gclsrc') as gclsrc,
-          tupleElement(p, 'dclid') as dclid,
-          tupleElement(p, 'gbraid') as gbraid,
-          tupleElement(p, 'wbraid') as wbraid,
-          tupleElement(p, 'msclkid') as msclkid,
-          tupleElement(p, 'twclid') as twclid,
-          tupleElement(p, 'li_fat_id') as li_fat_id,
-          tupleElement(p, 'mc_cid') as mc_cid,
-          tupleElement(p, 'igshid') as igshid,
-          tupleElement(p, 'ttclid') as ttclid,
-          tupleElement(p, 'epik') as epik,
-          tupleElement(p, 'qclid') as qclid,
-          tupleElement(p, 'sccid') as sccid,
-          tupleElement(p, '_kx') as _kx,
-          tupleElement(p, 'irclid') as irclid,
-          CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-              'gclsrc', gclsrc,
-              'dclid', dclid,
-              'gbraid', gbraid,
-              'wbraid', wbraid,
-              'msclkid', msclkid,
-              'twclid', twclid,
-              'li_fat_id', li_fat_id,
-              'mc_cid', mc_cid,
-              'igshid', igshid,
-              'ttclid', ttclid,
-              'epik', epik,
-              'qclid', qclid,
-              'sccid', sccid,
-              '_kx', _kx,
-              'irclid', irclid
-          )) AS Map(String, String)) as ad_ids_map,
+          coalesce(nullIf(tupleElement(p, 'gclsrc'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'gclsrc')), 2048), '')) as gclsrc,
+          coalesce(nullIf(tupleElement(p, 'dclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'dclid')), 2048), '')) as dclid,
+          coalesce(nullIf(tupleElement(p, 'gbraid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'gbraid')), 2048), '')) as gbraid,
+          coalesce(nullIf(tupleElement(p, 'wbraid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'wbraid')), 2048), '')) as wbraid,
+          coalesce(nullIf(tupleElement(p, 'gad_campaignid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'gad_campaignid')), 2048), '')) as gad_campaignid,
+          coalesce(nullIf(tupleElement(p, 'srsltid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'srsltid')), 2048), '')) as srsltid,
+          coalesce(nullIf(tupleElement(p, 'msclkid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'msclkid')), 2048), '')) as msclkid,
+          coalesce(nullIf(tupleElement(p, 'twclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'twclid')), 2048), '')) as twclid,
+          coalesce(nullIf(tupleElement(p, 'li_fat_id'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'li_fat_id')), 2048), '')) as li_fat_id,
+          coalesce(nullIf(tupleElement(p, 'mc_cid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'mc_cid')), 2048), '')) as mc_cid,
+          coalesce(nullIf(tupleElement(p, 'igshid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'igshid')), 2048), '')) as igshid,
+          coalesce(nullIf(tupleElement(p, 'ttclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'ttclid')), 2048), '')) as ttclid,
+          coalesce(nullIf(tupleElement(p, 'rdt_cid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'rdt_cid')), 2048), '')) as rdt_cid,
+          coalesce(nullIf(tupleElement(p, 'epik'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'epik')), 2048), '')) as epik,
+          coalesce(nullIf(tupleElement(p, 'qclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'qclid')), 2048), '')) as qclid,
+          coalesce(nullIf(tupleElement(p, 'sccid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'sccid')), 2048), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'ScCid')), 2048), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'SsCid')), 2048), '')) as sccid,
+          coalesce(nullIf(tupleElement(p, '_kx'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, '_kx')), 2048), '')) as _kx,
+          coalesce(nullIf(tupleElement(p, 'irclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'irclid')), 2048), '')) as irclid,
+          coalesce(nullIf(tupleElement(p, 'irclickid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'irclickid')), 2048), '')) as irclickid,
+          coalesce(nullIf(tupleElement(p, 'utm_id'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_id')), 2048), '')) as utm_id,
+          coalesce(nullIf(tupleElement(p, 'utm_source_platform'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_source_platform')), 2048), '')) as utm_source_platform,
+          coalesce(nullIf(tupleElement(p, 'utm_creative_format'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_creative_format')), 2048), '')) as utm_creative_format,
+          coalesce(nullIf(tupleElement(p, 'utm_marketing_tactic'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_marketing_tactic')), 2048), '')) as utm_marketing_tactic,
+          coalesce(nullIf(tupleElement(p, 'yclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'yclid')), 2048), '')) as yclid,
+          coalesce(nullIf(tupleElement(p, 'tblci'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'tblci')), 2048), '')) as tblci,
+          coalesce(nullIf(tupleElement(p, 'dicbo'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'dicbo')), 2048), '')) as dicbo,
+          coalesce(nullIf(tupleElement(p, 'ndclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'ndclid')), 2048), '')) as ndclid,
+          coalesce(nullIf(tupleElement(p, 'cjevent'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'cjevent')), 2048), '')) as cjevent,
+          coalesce(nullIf(tupleElement(p, 'awc'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'awc')), 2048), '')) as awc,
+          coalesce(nullIf(tupleElement(p, 'syclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'syclid')), 2048), '')) as syclid,
+          coalesce(nullIf(tupleElement(p, '_bhlid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, '_bhlid')), 2048), '')) as _bhlid,
+          coalesce(nullIf(tupleElement(p, 'rtid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'rtid')), 2048), '')) as rtid,
           CAST(arrayFilter(x -> x IS NOT NULL, [
-              if(gclsrc IS NOT NULL, 'gclsrc', NULL),
-              if(dclid IS NOT NULL, 'dclid', NULL),
-              if(gbraid IS NOT NULL, 'gbraid', NULL),
-              if(wbraid IS NOT NULL, 'wbraid', NULL),
-              if(msclkid IS NOT NULL, 'msclkid', NULL),
-              if(twclid IS NOT NULL, 'twclid', NULL),
-              if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
-              if(mc_cid IS NOT NULL, 'mc_cid', NULL),
-              if(igshid IS NOT NULL, 'igshid', NULL),
-              if(ttclid IS NOT NULL, 'ttclid', NULL),
-              if(epik IS NOT NULL, 'epik', NULL),
-              if(qclid IS NOT NULL, 'qclid', NULL),
-              if(sccid IS NOT NULL, 'sccid', NULL),
-              if(_kx IS NOT NULL, '_kx', NULL),
-              if(irclid IS NOT NULL, 'irclid', NULL)
+              if(gclsrc IS NOT NULL, concat('gclsrc=', gclsrc), NULL),
+              if(dclid IS NOT NULL, concat('dclid=', dclid), NULL),
+              if(gbraid IS NOT NULL, concat('gbraid=', gbraid), NULL),
+              if(wbraid IS NOT NULL, concat('wbraid=', wbraid), NULL),
+              if(gad_campaignid IS NOT NULL, concat('gad_campaignid=', gad_campaignid), NULL),
+              if(srsltid IS NOT NULL, concat('srsltid=', srsltid), NULL),
+              if(msclkid IS NOT NULL, concat('msclkid=', msclkid), NULL),
+              if(twclid IS NOT NULL, concat('twclid=', twclid), NULL),
+              if(li_fat_id IS NOT NULL, concat('li_fat_id=', li_fat_id), NULL),
+              if(mc_cid IS NOT NULL, concat('mc_cid=', mc_cid), NULL),
+              if(igshid IS NOT NULL, concat('igshid=', igshid), NULL),
+              if(ttclid IS NOT NULL, concat('ttclid=', ttclid), NULL),
+              if(rdt_cid IS NOT NULL, concat('rdt_cid=', rdt_cid), NULL),
+              if(epik IS NOT NULL, concat('epik=', epik), NULL),
+              if(qclid IS NOT NULL, concat('qclid=', qclid), NULL),
+              if(sccid IS NOT NULL, concat('sccid=', sccid), NULL),
+              if(_kx IS NOT NULL, concat('_kx=', _kx), NULL),
+              if(irclid IS NOT NULL, concat('irclid=', irclid), NULL),
+              if(irclickid IS NOT NULL, concat('irclickid=', irclickid), NULL),
+              if(utm_id IS NOT NULL, concat('utm_id=', utm_id), NULL),
+              if(utm_source_platform IS NOT NULL, concat('utm_source_platform=', utm_source_platform), NULL),
+              if(utm_creative_format IS NOT NULL, concat('utm_creative_format=', utm_creative_format), NULL),
+              if(utm_marketing_tactic IS NOT NULL, concat('utm_marketing_tactic=', utm_marketing_tactic), NULL),
+              if(yclid IS NOT NULL, concat('yclid=', yclid), NULL),
+              if(tblci IS NOT NULL, concat('tblci=', tblci), NULL),
+              if(dicbo IS NOT NULL, concat('dicbo=', dicbo), NULL),
+              if(ndclid IS NOT NULL, concat('ndclid=', ndclid), NULL),
+              if(cjevent IS NOT NULL, concat('cjevent=', cjevent), NULL),
+              if(awc IS NOT NULL, concat('awc=', awc), NULL),
+              if(syclid IS NOT NULL, concat('syclid=', syclid), NULL),
+              if(_bhlid IS NOT NULL, concat('_bhlid=', _bhlid), NULL),
+              if(rtid IS NOT NULL, concat('rtid=', rtid), NULL)
           ]) AS Array(String)) as ad_ids_set,
           tupleElement(p, '$host') as _host,
       -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
@@ -7054,7 +7090,6 @@
       initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
   
       -- other ad ids
-      initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
       initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
   
       -- channel type
@@ -7062,9 +7097,9 @@
   
   
       -- counts
-      initializeAggregation('uniqExactState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-      initializeAggregation('uniqExactState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-      initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
+      initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
+      initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+      initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- perf
       initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen', uuid, NULL)) as page_screen_uniq_up_to,
@@ -7072,7 +7107,6 @@
   
       -- flags
       arrayMap((k, v) -> concat(k, '=', v), mapKeys(properties_group_feature_flags), mapValues(properties_group_feature_flags)) as flag_key_values,
-      mapKeys(properties_group_feature_flags) as flag_keys,
   
       -- event names
       [event] as event_names,
@@ -7154,16 +7188,15 @@
       initializeAggregation('argMinState', false, max_ts_64) as entry_has_fbclid,
   
       -- other ad ids
-      initializeAggregation('argMinState', CAST(map(), 'Map(String, String)'), max_ts_64) as entry_ad_ids_map,
       initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) as entry_ad_ids_set,
   
       -- channel type
       initializeAggregation('argMinState', tuple(null_s, null_s, null_s, null_s, false, false, null_s), max_ts_64) as entry_channel_type_properties,
   
       -- counts
-      initializeAggregation('uniqExactState', null_uuid) as pageview_uniq,
-      initializeAggregation('uniqExactState', null_uuid) as autocapture_uniq,
-      initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
+      initializeAggregation('uniqState', null_uuid) as pageview_uniq,
+      initializeAggregation('uniqState', null_uuid) as autocapture_uniq,
+      initializeAggregation('uniqState', null_uuid) as screen_uniq,
   
       -- perf
       initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_uniq_up_to,
@@ -7171,7 +7204,6 @@
   
       -- flags
       CAST([], 'Array(String)') as flag_key_values,
-      CAST([], 'Array(String)') as flag_keys,
   
       -- event names
       CAST([], 'Array(String)') as event_names,
@@ -8894,8 +8926,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -8903,12 +8935,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -8917,8 +8950,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -8935,8 +8968,7 @@
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_key_values_text flag_key_values TYPE text(tokenizer = splitByString(['='])),
       INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
       INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
@@ -11252,8 +11284,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -11261,12 +11293,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -11275,8 +11308,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -14566,8 +14599,8 @@
       entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
       entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
   
-      -- for lower-tier ad ids, just put them in a map, and set of the ones present
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      -- lower-tier ad ids as a flat 'key=value' array - like flag_key_values, a per-key map
+      -- state made merges much more expensive
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
@@ -14575,12 +14608,13 @@
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
-      -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+      -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
       -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-      pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
-      screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+      -- uniq (not uniqExact) keeps the state small; per-session counts are tiny so it is exact in practice.
+      pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
+      autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
+      screen_uniq AggregateFunction(uniq, Nullable(UUID)),
   
       -- As a performance optimisation, also keep track of the uniq events for all of these combined.
       -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -14589,8 +14623,8 @@
   
       -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
       -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+      -- Key-only searches use the text index below (tokenized on '='), so no separate keys column.
       flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-      flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
@@ -14607,8 +14641,7 @@
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+      INDEX flag_key_values_text flag_key_values TYPE text(tokenizer = splitByString(['='])),
       INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
       INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')

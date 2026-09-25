@@ -137,6 +137,11 @@ class TestSessionsAPI(APIBaseTest):
             "$entry_utm_source",
             "$entry_utm_term",
         }
+        if version == "v3":
+            for ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
+                if "utm" in ad_id:
+                    expected_properties.add(f"$entry_{ad_id}")
+                    expected_properties.add(f"$entry_has_{ad_id}")
         assert actual_properties == expected_properties
 
     def test_empty_search_session_properties(self):

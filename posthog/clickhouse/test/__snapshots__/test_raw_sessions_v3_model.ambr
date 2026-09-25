@@ -1,5 +1,77 @@
 # serializer version: 1
-# name: TestRawSessionsModel.test_ad_ids_map_and_set
+# name: TestRawSessionsModel.test_ad_id_property_vs_url_param_precedence_0_property_wins
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_id_property_vs_url_param_precedence_1_empty_property_falls_back
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_0_gad_campaignid
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_1_utm_id
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_2_irclickid
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_3_snapchat_canonical
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_4_snapchat_sccid_cased
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_5_snapchat_sscid_cased
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_set_collects_kv_pairs
   '''
   
   select *
@@ -63,15 +135,6 @@
   '''
 # ---
 # name: TestRawSessionsModel.test_event_names_are_collected
-  '''
-  
-  select *
-  from raw_sessions_v3_v
-  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
-    AND team_id = 99999
-  '''
-# ---
-# name: TestRawSessionsModel.test_flag_keys_are_collected
   '''
   
   select *

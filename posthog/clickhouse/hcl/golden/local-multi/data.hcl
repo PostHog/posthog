@@ -4535,9 +4535,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -4545,13 +4542,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -4561,9 +4558,6 @@ database "posthog" {
     }
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
@@ -7217,9 +7211,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -7227,13 +7218,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -7243,9 +7234,6 @@ database "posthog" {
     }
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
@@ -7264,15 +7252,10 @@ database "posthog" {
       type        = "bloom_filter()"
       granularity = 1
     }
-    index "flag_key_values_bloom_filter" {
+    index "flag_key_values_text" {
       expr        = "flag_key_values"
-      type        = "bloom_filter()"
-      granularity = 1
-    }
-    index "flag_keys_bloom_filter" {
-      expr        = "flag_keys"
-      type        = "bloom_filter()"
-      granularity = 1
+      type        = "text(tokenizer = splitByString(['=']))"
+      granularity = 100000000
     }
     index "hosts_bloom_filter" {
       expr        = "hosts"
@@ -9498,9 +9481,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -9508,13 +9488,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -9524,9 +9504,6 @@ database "posthog" {
     }
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String))"
@@ -10980,6 +10957,501 @@ SQL
     }
   }
 
+  materialized_view "raw_sessions_v3_mv" {
+    to_table = "posthog.writable_raw_sessions_v3"
+    query    = <<SQL
+WITH
+  JSONExtract(properties, 'Tuple(\n            `$current_url` Nullable(String),\n            `$external_click_url` Nullable(String),\n            `$browser` Nullable(String),\n            `$browser_version` Nullable(String),\n            `$os` Nullable(String),\n            `$os_version` Nullable(String),\n            `$device_type` Nullable(String),\n            `$viewport_width` Nullable(Int64),\n            `$viewport_height` Nullable(Int64),\n            `$geoip_country_code` Nullable(String),\n            `$geoip_subdivision_1_code` Nullable(String),\n            `$geoip_subdivision_1_name` Nullable(String),\n            `$geoip_subdivision_city_name` Nullable(String),\n            `$geoip_time_zone` Nullable(String),\n            `$referring_domain` Nullable(String),\n            `utm_source` Nullable(String),\n            `utm_campaign` Nullable(String),\n            `utm_medium` Nullable(String),\n            `utm_term` Nullable(String),\n            `utm_content` Nullable(String),\n            `gclid` Nullable(String),\n            `gad_source` Nullable(String),\n            `fbclid` Nullable(String),\n            `$host` Nullable(String),\n            `gclsrc` Nullable(String),\n            `dclid` Nullable(String),\n            `gbraid` Nullable(String),\n            `wbraid` Nullable(String),\n            `gad_campaignid` Nullable(String),\n            `srsltid` Nullable(String),\n            `msclkid` Nullable(String),\n            `twclid` Nullable(String),\n            `li_fat_id` Nullable(String),\n            `mc_cid` Nullable(String),\n            `igshid` Nullable(String),\n            `ttclid` Nullable(String),\n            `rdt_cid` Nullable(String),\n            `epik` Nullable(String),\n            `qclid` Nullable(String),\n            `sccid` Nullable(String),\n            `_kx` Nullable(String),\n            `irclid` Nullable(String),\n            `irclickid` Nullable(String),\n            `utm_id` Nullable(String),\n            `utm_source_platform` Nullable(String),\n            `utm_creative_format` Nullable(String),\n            `utm_marketing_tactic` Nullable(String),\n            `yclid` Nullable(String),\n            `tblci` Nullable(String),\n            `dicbo` Nullable(String),\n            `ndclid` Nullable(String),\n            `cjevent` Nullable(String),\n            `awc` Nullable(String),\n            `syclid` Nullable(String),\n            `_bhlid` Nullable(String),\n            `rtid` Nullable(String)\n        )') AS p,
+  JSONExtractString(person_properties, 'email') AS _person_email,
+  tupleElement(p, '$current_url') AS _current_url,
+  if((event = '$pageview') OR (event = '$screen'), left(coalesce(_current_url, ''), 16384), '') AS _attribution_url,
+  tupleElement(p, '$external_click_url') AS _external_click_url,
+  tupleElement(p, '$browser') AS _browser,
+  tupleElement(p, '$browser_version') AS _browser_version,
+  tupleElement(p, '$os') AS _os,
+  tupleElement(p, '$os_version') AS _os_version,
+  tupleElement(p, '$device_type') AS _device_type,
+  tupleElement(p, '$viewport_width') AS _viewport_width,
+  tupleElement(p, '$viewport_height') AS _viewport_height,
+  tupleElement(p, '$geoip_country_code') AS _geoip_country_code,
+  tupleElement(p, '$geoip_subdivision_1_code') AS _geoip_subdivision_1_code,
+  tupleElement(p, '$geoip_subdivision_1_name') AS _geoip_subdivision_1_name,
+  tupleElement(p, '$geoip_subdivision_city_name') AS _geoip_subdivision_city_name,
+  tupleElement(p, '$geoip_time_zone') AS _geoip_time_zone,
+  tupleElement(p, '$referring_domain') AS _referring_domain,
+  tupleElement(p, 'utm_source') AS _utm_source,
+  tupleElement(p, 'utm_campaign') AS _utm_campaign,
+  tupleElement(p, 'utm_medium') AS _utm_medium,
+  tupleElement(p, 'utm_term') AS _utm_term,
+  tupleElement(p, 'utm_content') AS _utm_content,
+  tupleElement(p, 'gclid') AS _gclid,
+  tupleElement(p, 'gad_source') AS _gad_source,
+  tupleElement(p, 'fbclid') AS _fbclid,
+  coalesce(nullIf(tupleElement(p, 'gclsrc'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'gclsrc')), 2048), '')) AS gclsrc,
+  coalesce(nullIf(tupleElement(p, 'dclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'dclid')), 2048), '')) AS dclid,
+  coalesce(nullIf(tupleElement(p, 'gbraid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'gbraid')), 2048), '')) AS gbraid,
+  coalesce(nullIf(tupleElement(p, 'wbraid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'wbraid')), 2048), '')) AS wbraid,
+  coalesce(nullIf(tupleElement(p, 'gad_campaignid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'gad_campaignid')), 2048), '')) AS gad_campaignid,
+  coalesce(nullIf(tupleElement(p, 'srsltid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'srsltid')), 2048), '')) AS srsltid,
+  coalesce(nullIf(tupleElement(p, 'msclkid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'msclkid')), 2048), '')) AS msclkid,
+  coalesce(nullIf(tupleElement(p, 'twclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'twclid')), 2048), '')) AS twclid,
+  coalesce(nullIf(tupleElement(p, 'li_fat_id'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'li_fat_id')), 2048), '')) AS li_fat_id,
+  coalesce(nullIf(tupleElement(p, 'mc_cid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'mc_cid')), 2048), '')) AS mc_cid,
+  coalesce(nullIf(tupleElement(p, 'igshid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'igshid')), 2048), '')) AS igshid,
+  coalesce(nullIf(tupleElement(p, 'ttclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'ttclid')), 2048), '')) AS ttclid,
+  coalesce(nullIf(tupleElement(p, 'rdt_cid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'rdt_cid')), 2048), '')) AS rdt_cid,
+  coalesce(nullIf(tupleElement(p, 'epik'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'epik')), 2048), '')) AS epik,
+  coalesce(nullIf(tupleElement(p, 'qclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'qclid')), 2048), '')) AS qclid,
+  coalesce(nullIf(tupleElement(p, 'sccid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'sccid')), 2048), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'ScCid')), 2048), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'SsCid')), 2048), '')) AS sccid,
+  coalesce(nullIf(tupleElement(p, '_kx'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, '_kx')), 2048), '')) AS _kx,
+  coalesce(nullIf(tupleElement(p, 'irclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'irclid')), 2048), '')) AS irclid,
+  coalesce(nullIf(tupleElement(p, 'irclickid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'irclickid')), 2048), '')) AS irclickid,
+  coalesce(nullIf(tupleElement(p, 'utm_id'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_id')), 2048), '')) AS utm_id,
+  coalesce(nullIf(tupleElement(p, 'utm_source_platform'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_source_platform')), 2048), '')) AS utm_source_platform,
+  coalesce(nullIf(tupleElement(p, 'utm_creative_format'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_creative_format')), 2048), '')) AS utm_creative_format,
+  coalesce(nullIf(tupleElement(p, 'utm_marketing_tactic'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'utm_marketing_tactic')), 2048), '')) AS utm_marketing_tactic,
+  coalesce(nullIf(tupleElement(p, 'yclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'yclid')), 2048), '')) AS yclid,
+  coalesce(nullIf(tupleElement(p, 'tblci'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'tblci')), 2048), '')) AS tblci,
+  coalesce(nullIf(tupleElement(p, 'dicbo'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'dicbo')), 2048), '')) AS dicbo,
+  coalesce(nullIf(tupleElement(p, 'ndclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'ndclid')), 2048), '')) AS ndclid,
+  coalesce(nullIf(tupleElement(p, 'cjevent'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'cjevent')), 2048), '')) AS cjevent,
+  coalesce(nullIf(tupleElement(p, 'awc'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'awc')), 2048), '')) AS awc,
+  coalesce(nullIf(tupleElement(p, 'syclid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'syclid')), 2048), '')) AS syclid,
+  coalesce(nullIf(tupleElement(p, '_bhlid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, '_bhlid')), 2048), '')) AS _bhlid,
+  coalesce(nullIf(tupleElement(p, 'rtid'), ''), nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, 'rtid')), 2048), '')) AS rtid,
+  CAST(arrayFilter(x -> (x IS NOT NULL), [if(gclsrc IS NOT NULL, concat('gclsrc=', gclsrc), NULL), if(dclid IS NOT NULL, concat('dclid=', dclid), NULL), if(gbraid IS NOT NULL, concat('gbraid=', gbraid), NULL), if(wbraid IS NOT NULL, concat('wbraid=', wbraid), NULL), if(gad_campaignid IS NOT NULL, concat('gad_campaignid=', gad_campaignid), NULL), if(srsltid IS NOT NULL, concat('srsltid=', srsltid), NULL), if(msclkid IS NOT NULL, concat('msclkid=', msclkid), NULL), if(twclid IS NOT NULL, concat('twclid=', twclid), NULL), if(li_fat_id IS NOT NULL, concat('li_fat_id=', li_fat_id), NULL), if(mc_cid IS NOT NULL, concat('mc_cid=', mc_cid), NULL), if(igshid IS NOT NULL, concat('igshid=', igshid), NULL), if(ttclid IS NOT NULL, concat('ttclid=', ttclid), NULL), if(rdt_cid IS NOT NULL, concat('rdt_cid=', rdt_cid), NULL), if(epik IS NOT NULL, concat('epik=', epik), NULL), if(qclid IS NOT NULL, concat('qclid=', qclid), NULL), if(sccid IS NOT NULL, concat('sccid=', sccid), NULL), if(_kx IS NOT NULL, concat('_kx=', _kx), NULL), if(irclid IS NOT NULL, concat('irclid=', irclid), NULL), if(irclickid IS NOT NULL, concat('irclickid=', irclickid), NULL), if(utm_id IS NOT NULL, concat('utm_id=', utm_id), NULL), if(utm_source_platform IS NOT NULL, concat('utm_source_platform=', utm_source_platform), NULL), if(utm_creative_format IS NOT NULL, concat('utm_creative_format=', utm_creative_format), NULL), if(utm_marketing_tactic IS NOT NULL, concat('utm_marketing_tactic=', utm_marketing_tactic), NULL), if(yclid IS NOT NULL, concat('yclid=', yclid), NULL), if(tblci IS NOT NULL, concat('tblci=', tblci), NULL), if(dicbo IS NOT NULL, concat('dicbo=', dicbo), NULL), if(ndclid IS NOT NULL, concat('ndclid=', ndclid), NULL), if(cjevent IS NOT NULL, concat('cjevent=', cjevent), NULL), if(awc IS NOT NULL, concat('awc=', awc), NULL), if(syclid IS NOT NULL, concat('syclid=', syclid), NULL), if(_bhlid IS NOT NULL, concat('_bhlid=', _bhlid), NULL), if(rtid IS NOT NULL, concat('rtid=', rtid), NULL)]), 'Array(String)') AS ad_ids_set,
+  tupleElement(p, '$host') AS _host,
+  if((event = '$pageview') OR (event = '$screen'), timestamp, timestamp + toIntervalYear(1)) AS pageview_prio_timestamp_min,
+  if((event = '$pageview') OR (event = '$screen'), timestamp, timestamp - toIntervalYear(1)) AS pageview_prio_timestamp_max
+SELECT
+  team_id,
+  `$session_id_uuid` AS session_id_v7,
+  initializeAggregation('argMaxState', source_table.distinct_id, timestamp) AS distinct_id,
+  initializeAggregation('groupUniqArrayState', source_table.distinct_id) AS distinct_ids,
+  timestamp AS min_timestamp,
+  timestamp AS max_timestamp,
+  inserted_at AS max_inserted_at,
+  if(
+    (_current_url IS NOT NULL) AND ((event = '$pageview') OR (event = '$screen')),
+    [_current_url],
+    []
+  ) AS urls,
+  initializeAggregation('argMinState', _current_url, pageview_prio_timestamp_min) AS entry_url,
+  initializeAggregation('argMaxState', _current_url, pageview_prio_timestamp_max) AS end_url,
+  initializeAggregation('argMaxState', _external_click_url, timestamp) AS last_external_click_url,
+  initializeAggregation('argMinState', _browser, timestamp) AS browser,
+  initializeAggregation('argMinState', _browser_version, timestamp) AS browser_version,
+  initializeAggregation('argMinState', _os, timestamp) AS os,
+  initializeAggregation('argMinState', _os_version, timestamp) AS os_version,
+  initializeAggregation('argMinState', _device_type, timestamp) AS device_type,
+  initializeAggregation('argMinState', _viewport_width, timestamp) AS viewport_width,
+  initializeAggregation('argMinState', _viewport_height, timestamp) AS viewport_height,
+  initializeAggregation('argMinState', _geoip_country_code, timestamp) AS geoip_country_code,
+  initializeAggregation('argMinState', _geoip_subdivision_1_code, timestamp) AS geoip_subdivision_1_code,
+  initializeAggregation('argMinState', _geoip_subdivision_1_name, timestamp) AS geoip_subdivision_1_name,
+  initializeAggregation('argMinState', _geoip_subdivision_city_name, timestamp) AS geoip_subdivision_city_name,
+  initializeAggregation('argMinState', _geoip_time_zone, timestamp) AS geoip_time_zone,
+  initializeAggregation('argMinState', _referring_domain, pageview_prio_timestamp_min) AS entry_referring_domain,
+  initializeAggregation('argMinState', _utm_source, pageview_prio_timestamp_min) AS entry_utm_source,
+  initializeAggregation('argMinState', _utm_campaign, pageview_prio_timestamp_min) AS entry_utm_campaign,
+  initializeAggregation('argMinState', _utm_medium, pageview_prio_timestamp_min) AS entry_utm_medium,
+  initializeAggregation('argMinState', _utm_term, pageview_prio_timestamp_min) AS entry_utm_term,
+  initializeAggregation('argMinState', _utm_content, pageview_prio_timestamp_min) AS entry_utm_content,
+  initializeAggregation('argMinState', _gclid, pageview_prio_timestamp_min) AS entry_gclid,
+  initializeAggregation('argMinState', _gad_source, pageview_prio_timestamp_min) AS entry_gad_source,
+  initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) AS entry_fbclid,
+  initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_gclid,
+  initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_fbclid,
+  initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) AS entry_ad_ids_set,
+  initializeAggregation(
+    'argMinState',
+    tuple(
+      _utm_source,
+      _utm_medium,
+      _utm_campaign,
+      _referring_domain,
+      _gclid IS NOT NULL,
+      _fbclid IS NOT NULL,
+      _gad_source
+    ),
+    pageview_prio_timestamp_min
+  ) AS entry_channel_type_properties,
+  initializeAggregation('uniqState', if(event = '$pageview', uuid, NULL)) AS pageview_uniq,
+  initializeAggregation('uniqState', if(event = '$autocapture', uuid, NULL)) AS autocapture_uniq,
+  initializeAggregation('uniqState', if(event = '$screen', uuid, NULL)) AS screen_uniq,
+  initializeAggregation(
+    'uniqUpToState(1)',
+    if((event = '$pageview') OR (event = '$screen'), uuid, NULL)
+  ) AS page_screen_uniq_up_to,
+  event = '$autocapture' AS has_autocapture,
+  arrayMap(
+    (k, v) -> concat(k, '=', v),
+    mapKeys(properties_group_feature_flags),
+    mapValues(properties_group_feature_flags)
+  ) AS flag_key_values,
+  [event] AS event_names,
+  if((_host IS NOT NULL) AND (_host != ''), [_host], []) AS hosts,
+  if((_person_email IS NOT NULL) AND (_person_email != ''), [_person_email], []) AS emails,
+  false AS has_replay_events
+FROM posthog.sharded_events AS source_table
+WHERE
+  (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7)
+AND
+  true
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "session_id_v7" {
+      type = "Nullable(UInt128)"
+    }
+    column "distinct_id" {
+      type = "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
+    }
+    column "distinct_ids" {
+      type = "AggregateFunction(groupUniqArray, String)"
+    }
+    column "min_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_inserted_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "urls" {
+      type = "Array(Nullable(String))"
+    }
+    column "entry_url" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "end_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "last_external_click_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "browser" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "browser_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "os" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "os_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "device_type" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "viewport_width" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6, 'UTC'))"
+    }
+    column "viewport_height" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_country_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_subdivision_1_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_subdivision_1_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_subdivision_city_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_time_zone" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_referring_domain" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_campaign" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_medium" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_term" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_content" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_gclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_gad_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_fbclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_has_gclid" {
+      type = "AggregateFunction(argMin, UInt8, DateTime64(6, 'UTC'))"
+    }
+    column "entry_has_fbclid" {
+      type = "AggregateFunction(argMin, UInt8, DateTime64(6, 'UTC'))"
+    }
+    column "entry_ad_ids_set" {
+      type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_channel_type_properties" {
+      type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), UInt8, UInt8, Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "pageview_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "autocapture_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "screen_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "page_screen_uniq_up_to" {
+      type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
+    }
+    column "has_autocapture" {
+      type = "UInt8"
+    }
+    column "flag_key_values" {
+      type = "Array(String)"
+    }
+    column "event_names" {
+      type = "Array(String)"
+    }
+    column "hosts" {
+      type = "Array(Nullable(String))"
+    }
+    column "emails" {
+      type = "Array(String)"
+    }
+    column "has_replay_events" {
+      type = "Bool"
+    }
+  }
+
+  materialized_view "raw_sessions_v3_recordings_mv" {
+    to_table = "posthog.writable_raw_sessions_v3"
+    query    = <<SQL
+WITH
+  min_first_timestamp AS timestamp,
+  CAST(fromUnixTimestamp64Milli(9223372036854775), 'DateTime64(6)') AS max_ts_64,
+  CAST(fromUnixTimestamp64Milli(-9223372036854775), 'DateTime64(6)') AS min_ts_64,
+  CAST(NULL, 'Nullable(String)') AS null_s,
+  CAST(NULL, 'Nullable(Int64)') AS null_i64,
+  CAST(NULL, 'Nullable(UUID)') AS null_uuid
+SELECT
+  team_id,
+  toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
+  fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,
+  initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) AS distinct_id,
+  initializeAggregation('groupUniqArrayState', source_table.distinct_id) AS distinct_ids,
+  timestamp AS min_timestamp,
+  timestamp AS max_timestamp,
+  fromUnixTimestamp(0) AS max_inserted_at,
+  CAST([], 'Array(String)') AS urls,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_url,
+  initializeAggregation('argMaxState', null_s, min_ts_64) AS end_url,
+  initializeAggregation('argMaxState', null_s, min_ts_64) AS last_external_click_url,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS browser,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS browser_version,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS os,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS os_version,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS device_type,
+  initializeAggregation('argMinState', null_i64, max_ts_64) AS viewport_width,
+  initializeAggregation('argMinState', null_i64, max_ts_64) AS viewport_height,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_country_code,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_subdivision_1_code,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_subdivision_1_name,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_subdivision_city_name,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS geoip_time_zone,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_referring_domain,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_source,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_campaign,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_medium,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_term,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_utm_content,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_gclid,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_gad_source,
+  initializeAggregation('argMinState', null_s, max_ts_64) AS entry_fbclid,
+  initializeAggregation('argMinState', false, max_ts_64) AS entry_has_gclid,
+  initializeAggregation('argMinState', false, max_ts_64) AS entry_has_fbclid,
+  initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) AS entry_ad_ids_set,
+  initializeAggregation(
+    'argMinState',
+    tuple(null_s, null_s, null_s, null_s, false, false, null_s),
+    max_ts_64
+  ) AS entry_channel_type_properties,
+  initializeAggregation('uniqState', null_uuid) AS pageview_uniq,
+  initializeAggregation('uniqState', null_uuid) AS autocapture_uniq,
+  initializeAggregation('uniqState', null_uuid) AS screen_uniq,
+  initializeAggregation('uniqUpToState(1)', null_uuid) AS page_screen_uniq_up_to,
+  false AS has_autocapture,
+  CAST([], 'Array(String)') AS flag_key_values,
+  CAST([], 'Array(String)') AS event_names,
+  CAST([], 'Array(String)') AS hosts,
+  CAST([], 'Array(String)') AS emails,
+  true AS has_replay_events
+FROM posthog.sharded_session_replay_events AS source_table
+WHERE
+  (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 15) = 7)
+AND
+  true
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "session_timestamp" {
+      type = "DateTime64(3)"
+    }
+    column "distinct_id" {
+      type = "AggregateFunction(argMax, String, DateTime64(6))"
+    }
+    column "distinct_ids" {
+      type = "AggregateFunction(groupUniqArray, String)"
+    }
+    column "min_timestamp" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "max_inserted_at" {
+      type = "DateTime"
+    }
+    column "urls" {
+      type = "Array(String)"
+    }
+    column "entry_url" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "end_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6))"
+    }
+    column "last_external_click_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6))"
+    }
+    column "browser" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "browser_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "os" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "os_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "device_type" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "viewport_width" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6))"
+    }
+    column "viewport_height" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6))"
+    }
+    column "geoip_country_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_subdivision_1_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_subdivision_1_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_subdivision_city_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_time_zone" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_referring_domain" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_campaign" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_medium" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_term" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_content" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_gclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_gad_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_fbclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_has_gclid" {
+      type = "AggregateFunction(argMin, Bool, DateTime64(6))"
+    }
+    column "entry_has_fbclid" {
+      type = "AggregateFunction(argMin, Bool, DateTime64(6))"
+    }
+    column "entry_ad_ids_set" {
+      type = "AggregateFunction(argMin, Array(String), DateTime64(6))"
+    }
+    column "entry_channel_type_properties" {
+      type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6))"
+    }
+    column "pageview_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "autocapture_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "screen_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "page_screen_uniq_up_to" {
+      type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
+    }
+    column "has_autocapture" {
+      type = "Bool"
+    }
+    column "flag_key_values" {
+      type = "Array(String)"
+    }
+    column "event_names" {
+      type = "Array(String)"
+    }
+    column "hosts" {
+      type = "Array(String)"
+    }
+    column "emails" {
+      type = "Array(String)"
+    }
+    column "has_replay_events" {
+      type = "Bool"
+    }
+  }
+
   materialized_view "sessions_mv" {
     to_table = "posthog.writable_sessions"
     query    = <<SQL
@@ -11620,16 +12092,14 @@ SELECT
   argMinMerge(entry_fbclid) AS entry_fbclid,
   argMinMerge(entry_has_gclid) AS entry_has_gclid,
   argMinMerge(entry_has_fbclid) AS entry_has_fbclid,
-  argMinMerge(entry_ad_ids_map) AS entry_ad_ids_map,
   argMinMerge(entry_ad_ids_set) AS entry_ad_ids_set,
   argMinMerge(entry_channel_type_properties) AS entry_channel_type_properties,
-  uniqExactMerge(pageview_uniq) AS pageview_uniq,
-  uniqExactMerge(autocapture_uniq) AS autocapture_uniq,
-  uniqExactMerge(screen_uniq) AS screen_uniq,
+  uniqMerge(pageview_uniq) AS pageview_uniq,
+  uniqMerge(autocapture_uniq) AS autocapture_uniq,
+  uniqMerge(screen_uniq) AS screen_uniq,
   uniqUpToMerge(1)(page_screen_uniq_up_to) AS page_screen_uniq_up_to,
   max(has_autocapture) AS has_autocapture,
   groupUniqArrayArray(10000)(flag_key_values) AS flag_key_values,
-  groupUniqArrayArray(flag_keys) AS flag_keys,
   groupUniqArrayArray(2000)(event_names) AS event_names,
   groupUniqArrayArray(100)(hosts) AS hosts,
   groupUniqArrayArray(10)(emails) AS emails,

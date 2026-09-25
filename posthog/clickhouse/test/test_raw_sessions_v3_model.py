@@ -8,6 +8,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
@@ -373,7 +375,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         # assert that it's close to now, allowing for a small margin of error because we're running this on CI in the cloud somewhere with preempting
         assert abs((max_inserted_at - now).total_seconds()) < 10
 
-    def test_ad_ids_map_and_set(self):
+    def test_ad_ids_set_collects_kv_pairs(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
 
@@ -391,11 +393,62 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         result = self.select_by_session_id(session_id)
 
-        assert result[0]["entry_ad_ids_map"][present_ad_id] == value
-        assert missing_ad_id not in result[0]["entry_ad_ids_map"].keys()
+        ad_ids_set = result[0]["entry_ad_ids_set"]
+        assert f"{present_ad_id}={value}" in ad_ids_set
+        assert not any(entry.startswith(f"{missing_ad_id}=") for entry in ad_ids_set)
 
-        assert present_ad_id in result[0]["entry_ad_ids_set"]
-        assert missing_ad_id not in result[0]["entry_ad_ids_set"]
+    @parameterized.expand(
+        [
+            ("gad_campaignid", "gad_campaignid", "123456789"),
+            ("utm_id", "utm_id", "spring_sale"),
+            ("irclickid", "irclickid", "imp_abc"),
+            ("snapchat_canonical", "sccid", "sc-lower"),
+            ("snapchat_sccid_cased", "ScCid", "sc-cased"),
+            ("snapchat_sscid_cased", "SsCid", "sc-alt"),
+        ]
+    )
+    def test_ad_ids_fall_back_to_url_params(self, _name, url_param, value):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$session_id": session_id, "$current_url": f"https://example.com/?{url_param}={value}"},
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        canonical_key = "sccid" if url_param in ("ScCid", "SsCid") else url_param
+        assert f"{canonical_key}={value}" in result[0]["entry_ad_ids_set"]
+
+    @parameterized.expand(
+        [
+            ("property_wins", "from_property", "from_property"),
+            ("empty_property_falls_back", "", "from_url"),
+        ]
+    )
+    def test_ad_id_property_vs_url_param_precedence(self, _name, property_value, expected):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "ttclid": property_value,
+                "$current_url": "https://example.com/?ttclid=from_url",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert f"ttclid={expected}" in result[0]["entry_ad_ids_set"]
 
     def test_channel_type_properties(self):
         distinct_id = create_distinct_id()
@@ -681,38 +734,6 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         result = self.select_by_session_id(session_id)
 
         assert set(result[0]["event_names"]) == {"$pageview", "$autocapture", "custom_event"}
-
-    def test_flag_keys_are_collected(self):
-        distinct_id = create_distinct_id()
-        session_id = create_session_id()
-
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id=distinct_id,
-            properties={
-                "$session_id": session_id,
-                "$feature/flag_a": "value1",
-                "$feature/flag_b": "value2",
-            },
-            timestamp="2024-03-08",
-        )
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id=distinct_id,
-            properties={
-                "$session_id": session_id,
-                "$feature/flag_a": "different_value",
-                "$feature/flag_c": "value3",
-            },
-            timestamp="2024-03-08",
-        )
-
-        result = self.select_by_session_id(session_id)
-
-        # Should have all unique flag keys (not values)
-        assert set(result[0]["flag_keys"]) == {"$feature/flag_a", "$feature/flag_b", "$feature/flag_c"}
 
     def test_hosts_are_collected(self):
         distinct_id = create_distinct_id()

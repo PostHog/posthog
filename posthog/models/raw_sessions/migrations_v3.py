@@ -6,9 +6,11 @@ DROP COLUMN IF EXISTS person_id
 """
 
 
+# These statements replay on fresh clusters against a table created from today's base SQL,
+# so an AFTER clause may only name a column that base SQL still creates.
 ADD_HAS_REPLAY_EVENTS = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS has_replay_events SimpleAggregateFunction(max, Boolean) AFTER flag_values;
+ADD COLUMN IF NOT EXISTS has_replay_events SimpleAggregateFunction(max, Boolean);
 """
 
 SPLIT_BOUNCE_RATE = """
@@ -23,7 +25,7 @@ ADD COLUMN IF NOT EXISTS has_autocapture SimpleAggregateFunction(max, Boolean) A
 
 ADD_EVENT_NAMES = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)) AFTER flag_values
+ADD COLUMN IF NOT EXISTS event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String))
 """
 
 
@@ -35,7 +37,7 @@ ADD INDEX IF NOT EXISTS event_names_bloom_filter event_names TYPE bloom_filter()
 
 ADD_FLAG_KEYS = """
 ALTER TABLE {table_name}
-ADD COLUMN IF NOT EXISTS flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)) AFTER flag_values
+ADD COLUMN IF NOT EXISTS flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String))
 """
 
 
