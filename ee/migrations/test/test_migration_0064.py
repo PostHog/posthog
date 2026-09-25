@@ -5,6 +5,8 @@ from posthog.test.base import BaseTest
 from django.apps import apps
 from django.db import connection
 
+from parameterized import parameterized
+
 from posthog.models import IdentityProviderConfig, LinkedIdentityProviderConfig, OrganizationDomain
 
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
@@ -87,3 +89,36 @@ class TestSplitIdentityProviderConfigScopes(BaseTest):
         assert list(
             IdentityProviderConfig.objects.filter(organization=self.organization).values_list("config_scope", flat=True)
         ) == ["saml"]
+
+    @parameterized.expand([("provisioned_user",), ("request_log",)])
+    def test_disabled_scim_preserves_record_attribution(self, record_type: str) -> None:
+        source = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            scim_enabled=False,
+            scim_bearer_token=None,
+        )
+        if record_type == "provisioned_user":
+            record = SCIMProvisionedUser.objects.create(
+                user=self.user,
+                identity_provider_config=source,
+                identity_provider="okta",
+                username="example",
+            )
+        else:
+            record = SCIMRequestLog.objects.create(
+                identity_provider_config=source,
+                request_method="GET",
+                request_path="/scim/v2/example/Users",
+                response_status=200,
+            )
+
+        migration = import_module("ee.migrations.0064_split_identity_provider_config_scopes")
+        migration.split_identity_provider_config_scopes(apps, connection.schema_editor())
+
+        assert not IdentityProviderConfig.objects.filter(pk=source.pk).exists()
+        scoped = IdentityProviderConfig.objects.get(organization=self.organization, config_scope="scim")
+        assert str(scoped.scim_slug) == str(source.scim_slug)
+        assert scoped.scim_enabled is False
+        assert scoped.scim_bearer_token is None
+        record.refresh_from_db()
+        assert record.identity_provider_config_id == scoped.pk

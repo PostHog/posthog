@@ -10,9 +10,23 @@ def split_identity_provider_config_scopes(apps, schema_editor):
     SCIMRequestLog = apps.get_model("ee", "SCIMRequestLog")
     db_alias = schema_editor.connection.alias
 
-    configs = IdentityProviderConfig.objects.using(db_alias).filter(config_scope__isnull=True)
-    for config in configs.iterator(chunk_size=CHUNK_SIZE):
+    config_ids = (
+        IdentityProviderConfig.objects.using(db_alias)
+        .filter(config_scope__isnull=True)
+        .values_list("pk", flat=True)
+        .iterator(chunk_size=CHUNK_SIZE)
+    )
+    for config_id in config_ids:
         with transaction.atomic(using=db_alias):
+            config = (
+                IdentityProviderConfig.objects.using(db_alias)
+                .select_for_update()
+                .filter(pk=config_id, config_scope__isnull=True)
+                .first()
+            )
+            if config is None:
+                continue
+
             IdentityProviderConfig.objects.using(db_alias).filter(pk=config.pk).update(
                 saml_relay_state=None,
                 scim_slug=None,
@@ -45,7 +59,15 @@ def split_identity_provider_config_scopes(apps, schema_editor):
                 ),
             )
             for scope, presence_fields, copied_fields in scopes:
-                if not any(getattr(config, field) for field in presence_fields):
+                is_present = any(getattr(config, field) for field in presence_fields)
+                if scope == "scim" and not is_present:
+                    is_present = (
+                        SCIMProvisionedUser.objects.using(db_alias)
+                        .filter(identity_provider_config_id=config.pk)
+                        .exists()
+                        or SCIMRequestLog.objects.using(db_alias).filter(identity_provider_config_id=config.pk).exists()
+                    )
+                if not is_present:
                     continue
 
                 scoped_config = IdentityProviderConfig.objects.using(db_alias).create(
