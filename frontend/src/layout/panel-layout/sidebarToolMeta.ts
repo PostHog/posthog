@@ -94,12 +94,10 @@ export function sidebarToolMeta(product: FileSystemImport): SidebarToolMeta {
     const isGroup =
         product.iconType === 'group' || product.iconType?.startsWith('group_') || product.type?.startsWith('group_')
     return {
-        description:
-            descriptions[product.path] ??
-            sceneConfig?.description ??
-            (isGroup
-                ? 'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.'
-                : undefined),
+        // Group paths come from configurable group type names, which can match a built-in app name.
+        description: isGroup
+            ? 'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.'
+            : (descriptions[product.path] ?? sceneConfig?.description),
         docsHref: sceneConfig?.docsHref,
     }
 }
