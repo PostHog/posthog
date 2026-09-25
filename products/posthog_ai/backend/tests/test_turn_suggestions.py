@@ -8,25 +8,20 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import httpx
 import requests
 from openai.resources.chat.completions import Completions
 from parameterized import parameterized
 
 from posthog.celery_queues import CeleryQueue
-from posthog.egress.typesafe import (
-    Answer,
-    ChoiceAnswer,
-    ChoiceQuestion,
-    NoulAnswer,
-    SystemOneResult,
-    TypeSafeRequestFailed,
-)
+from posthog.llm.system_one import Answer, ChoiceAnswer, ChoiceQuestion, NoulAnswer, SystemOneResult
 
 from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
 from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, card_copy, classify_turn, pick_offer
 from products.posthog_ai.backend.turn_suggestions.dispatch import TURN_SETTLE_SECONDS, enqueue_turn_suggestion
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
 from products.posthog_ai.backend.turn_suggestions.judgment import (
+    JUDGE_MODELS,
     MAX_REF_OPTIONS,
     TurnJudgment,
     build_judge_questions,
@@ -509,6 +504,9 @@ def _answers(nouls: dict[str, float], choices: dict[str, str]) -> SystemOneResul
 
 FUNNEL_INSIGHT = replace(SAVED_INSIGHT, query_kind="FunnelsQuery")
 JUDGMENT = "products.posthog_ai.backend.turn_suggestions.judgment"
+_NO_SERVER = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": "", "TYPESAFE_API_KEY": ""}
+_GATEWAY_ONLY = {**_NO_SERVER, "AI_GATEWAY_URL": "https://ai-gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
+_TYPESAFE_ONLY = {**_NO_SERVER, "TYPESAFE_API_KEY": "ts-test"}
 CLASSIFIER = "products.posthog_ai.backend.turn_suggestions.classifier"
 
 
@@ -539,7 +537,9 @@ class TestJudgeTurn(SimpleTestCase):
         only_scout = frozenset({OfferKind.SCOUT})
         answers = _answers({"show_offer": 0.8}, {"intent": "metric_state", "scout_mode": "report", "cadence": "weekly"})
 
-        with patch(f"{JUDGMENT}.system_one", return_value=answers):
+        with patch(
+            f"{JUDGMENT}.build_system_one_client", return_value=MagicMock(decide=MagicMock(return_value=answers))
+        ):
             judgment = judge_turn(transcript, available=only_scout)
 
         assert "offer" not in build_judge_questions(transcript, only_scout)
@@ -573,7 +573,9 @@ class TestJudgeTurn(SimpleTestCase):
             },
         )
 
-        with patch(f"{JUDGMENT}.system_one", return_value=answers):
+        with patch(
+            f"{JUDGMENT}.build_system_one_client", return_value=MagicMock(decide=MagicMock(return_value=answers))
+        ):
             judgment = judge_turn(build_turn_transcript(_saved_insight_turn()), available=ALL_OFFERS)
 
         assert judgment is not None
@@ -584,11 +586,45 @@ class TestJudgeTurn(SimpleTestCase):
         assert judgment.cadence == ScoutCadence.DAILY
         assert judgment.error_issue is None
 
+    def test_the_gateway_answers_with_its_own_model_for_the_team(self):
+        picks = {"intent": "metric_state", "scout_mode": "report", "cadence": "weekly"}
+
+        def answer(request: httpx.Request, **_kwargs: object) -> httpx.Response:
+            answers: dict[str, dict] = {}
+            for key, question in json.loads(request.content)["questions"].items():
+                if question["type"] == "noul":
+                    answers[key] = {"type": "noul", "noul": 0.8}
+                    continue
+                choice = picks.get(key, next(iter(question["criteria"])))
+                probabilities = {option: float(option == choice) for option in question["criteria"]}
+                answers[key] = {"type": "choice", "choice": choice, "confidence": 1.0, "probabilities": probabilities}
+            return httpx.Response(200, json={"model": JUDGE_MODELS.gateway, "answers": answers, "usage": {}})
+
+        only_scout = frozenset({OfferKind.SCOUT})
+        with (
+            override_settings(**_GATEWAY_ONLY),
+            patch.object(httpx.Client, "send", side_effect=answer) as send,
+        ):
+            judgment = judge_turn(build_turn_transcript(_metric_turn()), available=only_scout, team_id=7)
+
+        request = send.call_args.args[0]
+        assert json.loads(request.content)["model"] == JUDGE_MODELS.gateway
+        assert request.headers["X-PostHog-Distinct-Id"] == "team-7"
+        assert judgment is not None and judgment.offer == OfferKind.SCOUT
+
     @parameterized.expand(
-        [("typesafe_error", TypeSafeRequestFailed("HTTP 500")), ("network_error", requests.ConnectionError())]
+        [
+            ("gateway_error", _GATEWAY_ONLY, "httpx", httpx.Response(500, json={})),
+            ("typesafe_network_error", _TYPESAFE_ONLY, "requests", requests.ConnectionError()),
+        ]
     )
-    def test_a_failed_request_returns_none(self, _name: str, error: Exception):
-        with patch(f"{JUDGMENT}.system_one", side_effect=error):
+    def test_a_failed_request_returns_none(self, _name: str, configured: dict, transport: str, outcome: object):
+        target = patch.object(httpx.Client, "send") if transport == "httpx" else patch("requests.request")
+        with override_settings(**configured), target as send:
+            if isinstance(outcome, Exception):
+                send.side_effect = outcome
+            else:
+                send.return_value = outcome
             assert judge_turn(build_turn_transcript(_metric_turn()), available=ALL_OFFERS) is None
 
 

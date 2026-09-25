@@ -15,7 +15,7 @@ from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 
 from products.posthog_ai.backend.turn_suggestions.classifier import card_copy, classify_turn
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL
-from products.posthog_ai.backend.turn_suggestions.judgment import JUDGE_MODEL, judge_configured
+from products.posthog_ai.backend.turn_suggestions.judgment import judge_configured, judge_model
 from products.posthog_ai.backend.turn_suggestions.offer_ledger import (
     TurnSuggestionResolution,
     claim_turn,
@@ -141,7 +141,7 @@ def _capture_classified(
                     "task_id": str(task_run.task_id),
                     "run_id": str(task_run.id),
                     "turn_index": turn_index,
-                    "model": JUDGE_MODEL,
+                    "model": judge_model(),
                     "draft_model": DRAFT_MODEL if verdict and verdict.picked in _DRAFTED_OFFERS else None,
                     "intent": verdict.intent.value if verdict else None,
                     "picked": verdict.picked.value if verdict else None,
