@@ -181,6 +181,8 @@ On a provider that sets `retry_status` a skipped consumer also costs the request
 The budget is a backstop, not a scheduler: it cannot interrupt a consumer that is already running.
 A consumer that touches the database on this path wraps its reads in `bounded_statement_timeout(ms, models=...)`, which installs `SET LOCAL statement_timeout` on each alias those models route to.
 Pass the models rather than capping every configured alias: opening an alias is itself unbounded, so reaching for one the read never uses can stall the delivery on connection setup before the cap is even installed.
+Installing the cap opens a connection, and the pooler drops connections, so an alias whose connection died is opened once more on a fresh one before the error reaches the consumer.
+Only a dead connection is retried: the retry is immediate, so a saturated pool or a restarting server would meet the same failure again inside the delivery's wall clock.
 
 Both controls exist because the incidents on the GitHub webhook path came from unbounded query cost against a shared connection pool, not from running consumers inside the request.
 The fixes that worked bounded the queries: [#83852](https://github.com/PostHog/posthog/pull/83852) scoped the run lookup to the installation's teams and put a statement timeout on the attribution lookup, and [#87779](https://github.com/PostHog/posthog/pull/87779) added the indexes it needed.
@@ -305,6 +307,7 @@ A provider that sends no delivery id skips dedup entirely, and its own README sa
 - **`posthog_ingress_consumer_duration_seconds{provider,consumer}`** — where a delivery's budget actually went.
 - **`posthog_ingress_ownership_total{provider,consumer,outcome}`** — what a consumer answered when asked which region owns the delivery: `local`, `elsewhere`, `undecided`, `failed`.
 - **`posthog_ingress_forwards_total{provider,app,outcome}`** — what the owning region answered a forwarded request: `forwarded`, `rejected`, `failed`.
+- **`posthog_ingress_bounded_read_reconnects_total{outcome}`** — a capped read whose connection the pooler had already dropped, opened again on a fresh one: `recovered` or `failed`. Without the retry each of these lost the delivery, because a consumer forgives the cap firing and nothing else.
 - **`ingress_delivery_invalid_payload`** — a warning log with the parser error text for a verified delivery whose body did not parse. The counter above cannot carry that text.
 
 A secret in a URL or header is the credential and never becomes a metric label.

@@ -1,11 +1,15 @@
+from contextlib import ExitStack
+
 from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connections
-from django.test import SimpleTestCase, TestCase
+from django.db.backends.signals import connection_created
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 
 from parameterized import parameterized
 
+from posthog.ingress.dispatch import database
 from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout, read_aliases
 from posthog.models import Team, User
 
@@ -68,3 +72,92 @@ class TestBoundedStatementTimeout(TestCase):
             self.assertEqual(_current_statement_timeout(alias), "50ms")
 
         self.assertEqual(_current_statement_timeout(alias), before)
+
+
+class TestBoundedStatementTimeoutReconnects(TransactionTestCase):
+    def test_a_read_survives_a_connection_the_server_dropped(self) -> None:
+        # Installing the cap is the first thing that touches a connection, and the pooler drops
+        # connections. Before the retry, that lost the whole webhook delivery.
+        alias = read_aliases([Team])[0]
+        connection = connections[alias]
+        connection.ensure_connection()
+        with self.assertRaises(OperationalError):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_terminate_backend(pg_backend_pid())")
+
+        with bounded_statement_timeout(500, models=[Team]):
+            self.assertEqual(Team.objects.filter(pk=-1).count(), 0)
+
+    def test_a_connection_that_dies_while_the_cap_is_installed_costs_one_dial(self) -> None:
+        # Dying here, rather than on the dial, lets the rolled-back block leave Django holding a
+        # connection it opened itself. Dropping that one too spends a second dial of the
+        # delivery's wall clock, on the path where the pool is already unhealthy.
+        alias = read_aliases([Team])[0]
+        connection = connections[alias]
+        connection.ensure_connection()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            backend_pid = cursor.fetchone()[0]
+
+        killer = connections.create_connection(alias)
+        killer.ensure_connection()
+        self.addCleanup(killer.close)
+        opened: list[str] = []
+
+        def record_open(sender: object, connection: object, **kwargs: object) -> None:
+            opened.append(connection.alias)  # type: ignore[attr-defined]
+
+        real_apply = database._apply_statement_timeout
+        killed = False
+
+        def apply_timeout(target, value: str) -> None:
+            nonlocal killed
+            if not killed:
+                killed = True
+                with killer.cursor() as cursor:
+                    cursor.execute("SELECT pg_terminate_backend(%s)", [backend_pid])
+            real_apply(target, value)
+
+        connection_created.connect(record_open)
+        self.addCleanup(connection_created.disconnect, record_open)
+
+        with patch.object(database, "_apply_statement_timeout", side_effect=apply_timeout):
+            with bounded_statement_timeout(500, models=[Team]):
+                self.assertEqual(Team.objects.filter(pk=-1).count(), 0)
+
+        self.assertEqual(opened, [alias])
+
+
+class TestCappedAliasRetry(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a_dropped_connection_is_opened_again", "server closed the connection unexpectedly", 2),
+            # libpq keeps the OS string's own case, and reports a drop on an encrypted connection
+            # through the TLS layer, so neither of these reaches the plain lowercase wording.
+            ("a_reset_the_os_capitalized_is_too", "could not receive data from server: Connection reset by peer", 2),
+            ("a_tls_drop_is_too", "SSL connection has been closed unexpectedly", 2),
+            ("a_tls_socket_drop_is_too", "consuming input failed: SSL SYSCALL error: EOF detected", 2),
+            # No backoff sits behind this retry, so a failure that needs one must not be repeated
+            # into the delivery's wall clock. The pooler quotes the backend failure it cached, so
+            # the cooldown has to outrank a marker that appears inside that quote.
+            ("a_saturated_pool_is_not", "query_wait_timeout", 1),
+            (
+                "a_cached_pooler_login_failure_is_not",
+                "server login has been failing, cached error: server closed the connection unexpectedly",
+                1,
+            ),
+        ]
+    )
+    def test_only_a_dropped_connection_is_opened_again(self, _name: str, message: str, expected_opens: int) -> None:
+        opens = []
+
+        def open_alias(alias: str, timeout_ms: int) -> ExitStack:
+            opens.append(alias)
+            raise OperationalError(message)
+
+        with patch("posthog.ingress.dispatch.database._open_capped_alias", side_effect=open_alias):
+            with self.assertRaises(OperationalError):
+                with bounded_statement_timeout(500, models=[Team]):
+                    pass
+
+        self.assertEqual(len(opens), expected_opens)
