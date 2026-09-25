@@ -115,6 +115,9 @@
 #   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
 # - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
 #   warmer, which cannot signal readiness for Depot's separate cache channel.
+# - capture-test-selection checks `github.run_attempt == '1'` on its step, not on the job.
+#   Depot evaluates `github.run_attempt` as an empty string in a job-level `if`, so a
+#   job-level guard is always false. Steps see the real attempt number.
 
 # This workflow runs all of our backend django tests.
 #
@@ -4093,13 +4096,14 @@ jobs:
         # DevEx project only, mirroring monitor-github-rate-limit; continue-on-error so
         # telemetry never reds CI. Skipped on forks/Dependabot, which never have the secret.
         if: |
-            !cancelled() && github.run_attempt == '1'
+            !cancelled()
             && github.actor != 'dependabot[bot]'
             && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
             && needs.turbo-discover.result == 'success'
             && needs.turbo-discover.outputs.mode != ''
         steps:
             - name: Capture test selection to DevEx PostHog
+              if: github.run_attempt == '1'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
