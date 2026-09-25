@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -265,6 +266,15 @@ def get_rows(
     def request(params: dict[str, Any]) -> dict[str, Any]:
         nonlocal token
 
+        @retry(
+            # A slow Account Engagement host is a vendor blip, not a broken sync: back off and
+            # ask again rather than failing the page. The adapter policy only retries status
+            # codes, so a socket-level timeout or drop has to be caught here.
+            retry=retry_if_exception_type((requests.ReadTimeout, requests.ConnectionError)),
+            stop=stop_after_attempt(5),
+            wait=wait_exponential_jitter(initial=2, max=60),
+            reraise=True,
+        )
         def _do() -> requests.Response:
             return session.get(
                 url,

@@ -69,6 +69,24 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAut
             QUERY_REJECTED_MESSAGE: None,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` (pardot.py) already retries a read timeout and a dropped connection with
+        # backoff; if that budget exhausts, Temporal retries the activity and the sync resumes
+        # from its saved page token, so the failure is transient and self-recovering.
+        #
+        # Match the library wording rather than the host, because only some of these shapes
+        # carry one: a read timeout and a connect urllib3 retried itself name the connection
+        # pool, while a drop mid-request reports bare as "Connection aborted" before the
+        # headers and "Connection broken" once the body is streaming. Google Analytics and
+        # LangSmith classify the same text.
+        return {
+            "Read timed out",
+            "Max retries exceeded with url",
+            "Connection aborted",
+            "Connection broken",
+            "Connection reset by peer",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

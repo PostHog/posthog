@@ -4,6 +4,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldOauthConfig, SourceFieldSelectConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pardot import PardotSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.canonical_descriptions import (
@@ -93,6 +94,25 @@ class TestPardotSource:
     )
     def test_auth_failures_are_non_retryable(self, observed_error: str) -> None:
         assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "HTTPSConnectionPool(host='pi.pardot.com', port=443): Read timed out. (read timeout=60)",
+            "HTTPSConnectionPool(host='pi.demo.pardot.com', port=443): Max retries exceeded with url: "
+            '/api/v5/objects/prospects (Caused by ReadTimeoutError("HTTPSConnectionPool('
+            "host='pi.demo.pardot.com', port=443): Read timed out. (read timeout=60)\"))",
+            # A drop mid-request names no host at all, so a host-scoped pattern would miss it.
+            "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))",
+            "('Connection aborted.', ConnectionResetError(104, 'Connection reset by peer'))",
+            "Connection broken: IncompleteRead(3 bytes read)",
+        ],
+    )
+    def test_transient_network_failures_are_retryable(self, observed_error: str) -> None:
+        # `get_rows` already backs off on these, and Temporal retries the activity after that,
+        # so an exhausted timeout or drop is self-recovering and must not become a tracked
+        # exception.
+        assert error_message_matches(observed_error, self.source.get_retryable_errors())
 
     def test_get_schemas_needs_no_credentials(self) -> None:
         # `lists_tables_without_credentials` promises the public docs can list tables from a
