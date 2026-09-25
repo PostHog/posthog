@@ -999,6 +999,18 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
             {
                 markTemplateUnavailable: (state: Set<string>, { templateId }: { templateId: string }) =>
                     new Set(state).add(templateId),
+                // A template an admin re-enables is connectable again, so drop the mark
+                // once the catalog serves it. Otherwise the card stays dead for the session.
+                loadTemplatesSuccess: (state: Set<string>, { templates }: { templates: MCPServerTemplateApi[] }) => {
+                    if (state.size === 0) {
+                        return state
+                    }
+                    const next = new Set(state)
+                    for (const template of templates) {
+                        next.delete(template.id)
+                    }
+                    return next.size === state.size ? state : next
+                },
             },
         ],
         templateEnabledLoadingIds: [

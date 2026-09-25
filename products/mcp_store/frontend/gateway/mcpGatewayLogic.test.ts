@@ -694,6 +694,17 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.connectionModalServerId).toBeNull()
     })
 
+    it('re-enables a card once the catalog serves its template again', () => {
+        logic.actions.markTemplateUnavailable('gone-template')
+        logic.actions.markTemplateUnavailable('still-gone-template')
+
+        logic.actions.loadTemplatesSuccess([serverTemplate({ id: 'gone-template' })])
+
+        expect(logic.values.unavailableTemplateIds.has('gone-template')).toBe(false)
+        // A template the catalog still withholds keeps its mark, so its card stays disabled.
+        expect(logic.values.unavailableTemplateIds.has('still-gone-template')).toBe(true)
+    })
+
     it('tracks preset updates by audience and uses the mutation response', async () => {
         const pendingPreset = deferred<Awaited<ReturnType<typeof mcpGatewayConfigApplyPresetCreate>>>()
         const updatedConfig = {

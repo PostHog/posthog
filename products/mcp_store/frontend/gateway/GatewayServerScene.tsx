@@ -195,11 +195,13 @@ export function GatewayServerScene({
                                     type="primary"
                                     size="small"
                                     disabledReason={
-                                        !server.is_team_enabled
-                                            ? 'This server is turned off for the team.'
-                                            : server.is_revoked_for_you
-                                              ? 'Ask an admin to restore your access first.'
-                                              : undefined
+                                        server.template_id && unavailableTemplateIds.has(server.template_id)
+                                            ? TEMPLATE_UNAVAILABLE_REASON
+                                            : !server.is_team_enabled
+                                              ? 'This server is turned off for the team.'
+                                              : server.is_revoked_for_you
+                                                ? 'Ask an admin to restore your access first.'
+                                                : undefined
                                     }
                                     onClick={() => reconnectServer(connection.installation_id)}
                                     data-attr="mcp-server-reconnect"
