@@ -18,6 +18,11 @@ So the Depot wait job's check name carries the event: the pull request number an
 event's run, and every other check of the run is matched by the Depot workflow id in its
 details URL.
 
+Two events of one commit that arrive within a second or two race the concurrency cancel of
+both engines, and each engine can keep a different event. GitHub Actions alone can also keep
+either event of such a pair, so when this event has no live Depot run, the relay follows the
+run that Depot kept for the racing event.
+
 Standard library only: the relay job runs this with the runner's python3 before any install.
 """
 
@@ -32,6 +37,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
@@ -40,6 +46,11 @@ DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
 EVENT_SUFFIX = " (PR {pr}, event {event_at})"
+# How a pull request event payload renders `updated_at`.
+EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
+# Events of one commit at most this far apart race each engine's concurrency cancel, which can
+# keep either event.
+RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
 MIGRATION_CHECK = f"{DEPOT_WORKFLOW} / Validate migrations"
 CHANGES_CHECK = f"{DEPOT_WORKFLOW} / Determine need to run backend and migration checks"
@@ -246,6 +257,19 @@ class Event:
     event_at: str
 
 
+def racing_wait(reader: CheckReader, event: Event) -> str | None:
+    """The wait check name of the newest event that raced this one and has a live Depot run."""
+    event_at = datetime.strptime(event.event_at, EVENT_TIME)
+    for offset in range(RACING_EVENT_SECONDS, -RACING_EVENT_SECONDS - 1, -1):
+        if offset == 0:
+            continue
+        name = wait_check_name(event.pr_number, (event_at + timedelta(seconds=offset)).strftime(EVENT_TIME))
+        wait = newest_live(reader.read(name))
+        if wait is not None and wait.state != "cancelled":
+            return name
+    return None
+
+
 def wait_for_handoff(
     reader: CheckReader,
     event: Event,
@@ -278,9 +302,11 @@ def poll(
 
     A duplicate run of the same event can replace a cancelled one. The migration report
     gives an absent or cancelled run the full deadline; the required gate uses a shorter grace period.
+    After the grace period, the run of a racing event stands in for an absent or cancelled one.
     """
     start = clock()
-    event_name = wait_check_name(event.pr_number, event.event_at)
+    own_name = wait_check_name(event.pr_number, event.event_at)
+    event_name = own_name
     while True:
         wait = newest_live(reader.read(event_name))
         checks = reader.read(check_name) if wait and wait.state == "success" else []
@@ -293,7 +319,12 @@ def poll(
         if current.phase in (Phase.FINISHED, Phase.DECLINED):
             return current
         if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
-            return current
+            racing = racing_wait(reader, event) if event_name == own_name else None
+            if racing is None:
+                return current
+            sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
+            event_name = racing
+            continue
         if elapsed >= deadline_minutes * 60:
             return current
         # The checked job only posts its check when the matrix is done, so once Depot has
