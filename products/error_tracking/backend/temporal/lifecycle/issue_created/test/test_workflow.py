@@ -16,6 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
+from products.error_tracking.backend.logic.severity_inference import build_severity_state
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -87,6 +88,29 @@ def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
 
     assert encoding.decode(tokens[:2]) == "hello �"
     assert decode_token_prefix(encoding, tokens, max_tokens=2) == "hello"
+
+
+@pytest.mark.parametrize(
+    "properties,expected",
+    [
+        (
+            {
+                "$exception_list": [{"type": "TypeError", "mechanism": {"handled": False}}],
+                "$exception_handled": True,
+                "$exception_level": "error",
+                "$current_url": "https://app.example.com/checkout/pay?token=secret#step-2",
+                "$lib": "web",
+            },
+            "TypeError: boom\nHandled by the application: no\nLevel: error\nPage: app.example.com/checkout/pay\nSDK: web",
+        ),
+        (
+            {"$exception_list": [{"type": "TypeError"}], "$exception_handled": False, "$current_url": "not a url"},
+            "TypeError: boom",
+        ),
+    ],
+)
+def test_severity_state(properties: dict[str, object], expected: str) -> None:
+    assert build_severity_state("TypeError: boom\n", properties) == expected
 
 
 def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:

@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from uuid import UUID
 
 from django.conf import settings
@@ -52,15 +53,40 @@ def severity_inference_enabled(team_id: int) -> bool:
 
 
 def build_severity_state(stacktrace: str, event_properties: dict[str, object]) -> str:
-    handled = event_properties.get("$exception_handled")
     lines = [stacktrace.rstrip("\n")]
-    if isinstance(handled, bool):
+    handled = _mechanism_handled(event_properties)
+    if handled is not None:
         lines.append(f"Handled by the application: {'yes' if handled else 'no'}")
-    for label, key in (("Level", "$exception_level"), ("SDK", "$lib")):
-        value = event_properties.get(key)
-        if isinstance(value, str) and value:
-            lines.append(f"{label}: {value}")
+    level = event_properties.get("$exception_level")
+    if isinstance(level, str) and level:
+        lines.append(f"Level: {level}")
+    page = _page_without_query(event_properties.get("$current_url"))
+    if page:
+        lines.append(f"Page: {page}")
+    library = event_properties.get("$lib")
+    if isinstance(library, str) and library:
+        lines.append(f"SDK: {library}")
     return "\n".join(lines)
+
+
+def _mechanism_handled(event_properties: dict[str, object]) -> bool | None:
+    # Same source as cymbal's severity heuristic: the first exception's mechanism, not `$exception_handled`.
+    exception_list = event_properties.get("$exception_list")
+    if not isinstance(exception_list, list) or not exception_list or not isinstance(exception_list[0], dict):
+        return None
+    mechanism = exception_list[0].get("mechanism")
+    handled = mechanism.get("handled") if isinstance(mechanism, dict) else None
+    return handled if isinstance(handled, bool) else None
+
+
+def _page_without_query(current_url: object) -> str | None:
+    # Query strings and fragments can carry tokens or personal data, and the path already names the feature.
+    if not isinstance(current_url, str) or not current_url:
+        return None
+    parsed = urlparse(current_url)
+    if not parsed.netloc:
+        return None
+    return f"{parsed.netloc}{parsed.path}"
 
 
 def infer_severity(team_id: int, state: str) -> ChoiceAnswer | None:
