@@ -15,7 +15,7 @@ from celery.signals import task_postrun, task_prerun
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
@@ -157,7 +157,7 @@ def get_property_access_level(
         return get_default_access_level()
 
     membership = None
-    user_role_ids: set[int] = set()
+    user_role_ids: set[UUID] = set()
     if user is not None:
         membership = (
             OrganizationMembership.objects.filter(
@@ -171,11 +171,7 @@ def get_property_access_level(
         if membership is None:
             raise ValueError("user does not have organization membership")
 
-        user_role_ids = set(
-            RoleMembership.objects.filter(organization_member=membership)
-            .valid_for_authorization()
-            .values_list("role_id", flat=True)
-        )
+        user_role_ids = _get_user_role_ids(membership, property.team.organization)
 
     return _resolve_access_level(rules, membership=membership, user_role_ids=user_role_ids)
 
@@ -256,20 +252,15 @@ def get_non_writable_property_names(
         return set()
 
     membership = None
-    user_role_ids: set[int] = set()
+    user_role_ids: set[UUID] = set()
     if user is not None:
-        from posthog.models.team import Team
-
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-        membership = OrganizationMembership.objects.filter(user=user, organization_id=org_id).only("id").first()
-
-        from products.access_control.backend.models.role import RoleMembership
-
-        user_role_ids = set(
-            RoleMembership.objects.filter(user=user, role__organization_id=org_id)
-            .valid_for_authorization()
-            .values_list("role_id", flat=True)
+        organization = Organization.objects.get(team__id=team_id)
+        membership = (
+            OrganizationMembership.objects.filter(user=user, organization_id=organization.id)
+            .only("id", "level")
+            .first()
         )
+        user_role_ids = _get_user_role_ids(membership, organization)
 
     non_writable: set[str] = set()
     for _prop_def_id, prop_rules in rules_by_property.items():
@@ -359,23 +350,19 @@ def get_restricted_properties_with_group_type_index_for_team(
 
     # resolve the user's membership and roles once
     membership = None
-    user_role_ids: set[int] = set()
+    user_role_ids: set[UUID] = set()
     if user is not None:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        organization = team.organization if team is not None else Organization.objects.get(team__id=team_id)
         membership_qs = OrganizationMembership.objects.filter(
             user=user,
-            organization_id=org_id,
+            organization_id=organization.id,
         ).only("id", "level")
         membership = membership_qs.first()
 
         if membership is None:
             raise ValueError("user does not have organization membership")
 
-        user_role_ids = set(
-            RoleMembership.objects.filter(organization_member=membership)
-            .valid_for_authorization()
-            .values_list("role_id", flat=True)
-        )
+        user_role_ids = _get_user_role_ids(membership, organization)
 
     restricted: set[RestrictedProperty] = set()
 
@@ -411,11 +398,26 @@ def get_restricted_properties_for_team(
     return {(restriction.name, restriction.property_type) for restriction in restrictions}
 
 
+def _get_user_role_ids(membership: OrganizationMembership | None, organization: Organization) -> set[UUID]:
+    """Roles the member holds for property rule resolution.
+
+    Returns no roles without the role-based access feature, so role rules do not apply. Object
+    rules skip role rules the same way.
+    """
+    if membership is None or not organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        return set()
+    return set(
+        RoleMembership.objects.filter(organization_member=membership)
+        .valid_for_authorization()
+        .values_list("role_id", flat=True)
+    )
+
+
 def _resolve_access_level(
     rules: list[PropertyAccessControl],
     *,
     membership: OrganizationMembership | None,
-    user_role_ids: set[int],
+    user_role_ids: set[UUID],
 ) -> PropertyAccessLevel:
     """
     Resolves the effective access level from a set of rules for a single property definition,
