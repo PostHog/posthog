@@ -9,7 +9,8 @@ function applyPersonProcessingRestrictions(
     restrictions: ReadonlySet<RestrictionType>,
     team_person_processing_opt_out: boolean
 ): void {
-    const hasSkipRestriction = restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING)
+    const hasSkipRestriction =
+        restrictions.has(RestrictionType.SKIP_PERSON_PROCESSING) || event.event === '$sdk_diagnostics_config'
     const shouldSkipPerson = hasSkipRestriction || team_person_processing_opt_out
 
     if (shouldSkipPerson) {

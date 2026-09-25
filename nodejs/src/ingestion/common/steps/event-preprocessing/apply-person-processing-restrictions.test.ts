@@ -1,7 +1,10 @@
 import { EventIngestionRestrictionManager, Restriction } from '~/common/utils/event-ingestion-restrictions'
-import { ok } from '~/ingestion/framework/results'
+import { createNormalizeEventStep } from '~/ingestion/common/steps/event-processing/normalize-event-step'
+import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/event-processing/normalize-process-person-flag-step'
+import { isOkResult, ok } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
+import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 
 import { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
@@ -18,24 +21,76 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         step = createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager)
     })
 
-    it('should not modify event if no skip conditions', async () => {
-        const event = createTestPipelineEvent({ properties: { defaultProp: 'defaultValue' } })
-        const team = createTestTeam({ person_processing_opt_out: false })
-        const headers = createTestEventHeaders({ token: 'valid-token-abc', distinct_id: 'user-123' })
-        const input = { event, team, headers }
+    it.each(['$pageview', '$sdk_diagnostics_config_custom'])(
+        'should not modify %s if no skip conditions',
+        async (eventName) => {
+            const event = createTestPipelineEvent({ event: eventName, properties: { defaultProp: 'defaultValue' } })
+            const team = createTestTeam({ person_processing_opt_out: false })
+            const headers = createTestEventHeaders({ token: 'valid-token-abc', distinct_id: 'user-123' })
+            const input = { event, team, headers }
 
-        const result = await step(input)
+            const result = await step(input)
 
-        expect(result).toEqual(ok(input))
-        expect(input.event.properties).toEqual({ defaultProp: 'defaultValue' })
-        expect(input.headers.force_disable_person_processing).toBe(false)
-        expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
-            'valid-token-abc',
-            expect.objectContaining({
-                distinct_id: 'user-123',
+            expect(result).toEqual(ok(input))
+            expect(input.event.properties).toEqual({ defaultProp: 'defaultValue' })
+            expect(input.headers.force_disable_person_processing).toBe(false)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'valid-token-abc',
+                expect.objectContaining({
+                    distinct_id: 'user-123',
+                })
+            )
+        }
+    )
+
+    it.each([undefined, true, false])(
+        'forces diagnostics to be personless when the sender sets $process_person_profile=%s',
+        async (processPersonProfile) => {
+            const input = {
+                event: createTestPluginEvent({
+                    event: '$sdk_diagnostics_config',
+                    $set: { name: 'top-level update' },
+                    $set_once: { source: 'top-level initial value' },
+                    properties: {
+                        ...(processPersonProfile === undefined
+                            ? {}
+                            : { $process_person_profile: processPersonProfile }),
+                        $set: { name: 'property update' },
+                        $set_once: { source: 'initial value' },
+                        $unset: ['email'],
+                        diagnostics_value: 'preserved',
+                    },
+                }),
+                team: createTestTeam({ person_processing_opt_out: false }),
+                headers: createTestEventHeaders(),
+            }
+
+            expect(await step(input)).toEqual(ok(input))
+            expect(input.event.properties?.$process_person_profile).toBe(false)
+            expect(input.headers.force_disable_person_processing).toBe(true)
+
+            const personFlagResult = await createNormalizeProcessPersonFlagStep<typeof input>()(input)
+            if (!isOkResult(personFlagResult)) {
+                throw new Error('Diagnostics event must not be dropped')
+            }
+            expect(personFlagResult.value.processPerson).toBe(false)
+            expect(personFlagResult.value.forceDisablePersonProcessing).toBe(true)
+
+            const normalizedResult = await createNormalizeEventStep<typeof personFlagResult.value>()(
+                personFlagResult.value
+            )
+            if (!isOkResult(normalizedResult)) {
+                throw new Error('Diagnostics event must remain ingestible')
+            }
+            const { normalizedEvent } = normalizedResult.value
+            expect(normalizedEvent.$set).toBeUndefined()
+            expect(normalizedEvent.$set_once).toBeUndefined()
+            expect(normalizedEvent.properties).toEqual({
+                $process_person_profile: false,
+                diagnostics_value: 'preserved',
             })
-        )
-    })
+        }
+    )
 
     it('should set $process_person_profile to false and force_disable_person_processing to true if there is a restriction', async () => {
         const event = createTestPipelineEvent()

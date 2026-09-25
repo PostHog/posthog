@@ -222,6 +222,10 @@ Changing the global setting requires restarting the config-building workers and 
 Changes take effect after the cache update and the SDK's next remote-config fetch, not immediately.
 SDKs must consume `sdkDiagnosticsEnabled` to apply this control; returning it does not implement diagnostic reporting in an SDK.
 
+Ingestion forces person processing off for the exact `$sdk_diagnostics_config` event, regardless of the sender's `$process_person_profile` value.
+The event cannot create or update a person profile, and normalization strips `$set`, `$set_once`, and `$unset` updates.
+SDKs must still send `$process_person_profile: false` on this event; the ingestion guard enforces that behavior if a sender omits or overrides it.
+
 ### Cache lookup flow
 
 ```python
