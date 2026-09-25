@@ -310,6 +310,11 @@ def handle_pull_request_event(payload: dict) -> None:
     if action == "closed" and task_run and pr_url in claimed_pr_urls:
         _notify_slack_thread_on_close(task_run, pr_url, merged=merged)
 
+    # Re-read after the backstop, which can bind a just-opened PR to the run.
+    if analytics_event in {"pr_created", "pr_merged", "pr_closed"} and task_run is not None:
+        if pr_url in read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}):
+            _notify_loop_on_pr_event(task_run, analytics_event, pr_url)
+
 
 def handle_pull_request_review_event(payload: dict) -> None:
     """Process a verified pull_request_review webhook event.
@@ -531,6 +536,29 @@ def _notify_slack_thread_on_close(task_run: TaskRun, pr_url: str, *, merged: boo
             notify_slack_thread_pr_closed.delay(str(task_run.id), pr_url, merged=merged)
         except Exception:
             logger.warning("github_pr_webhook_slack_pr_closed_enqueue_failed", run_id=str(task_run.id), exc_info=True)
+
+    transaction.on_commit(_enqueue)
+
+
+def _notify_loop_on_pr_event(task_run: TaskRun, event: str, pr_url: str) -> None:
+    """Queue the loop notification for a PR a loop run opened, merged, or closed.
+
+    The in-memory check keeps runs outside any loop off the queue. Best-effort: the webhook must
+    stay 2xx if the broker is down.
+    """
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if not task_run.task.loop_id and not state.get("loop_id"):
+        return
+
+    def _enqueue() -> None:
+        try:
+            from products.tasks.backend.tasks.tasks import (  # noqa: PLC0415 — keeps the Celery task module off the webhook import path
+                dispatch_loop_pr_notification_task,
+            )
+
+            dispatch_loop_pr_notification_task.delay(str(task_run.id), event, pr_url)
+        except Exception:
+            logger.warning("github_pr_webhook_loop_pr_enqueue_failed", run_id=str(task_run.id), exc_info=True)
 
     transaction.on_commit(_enqueue)
 

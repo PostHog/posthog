@@ -63,3 +63,13 @@ def resume_workflow_step_for_run_deferred(run_id: str) -> None:
 @shared_task(ignore_result=True)
 def notify_slack_thread_pr_closed(run_id: str, pr_url: str, merged: bool = False) -> None:
     post_pr_closed_slack_update(run_id, pr_url, merged=merged)
+
+
+# No retries: the run records the event before it goes out, so a retry finds it and sends nothing.
+@shared_task(ignore_result=True)
+def dispatch_loop_pr_notification_task(run_id: str, event: str, pr_url: str) -> None:
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the celery import path)
+        dispatch_loop_pr_notification,
+    )
+
+    dispatch_loop_pr_notification(run_id, event, pr_url)
