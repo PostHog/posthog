@@ -91,18 +91,21 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+_HOST_NOT_RESOLVED = "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog."
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
     "authentication failed": _INVALID_CREDENTIALS,
     "code: 516": _INVALID_CREDENTIALS,  # AUTHENTICATION_FAILED
     "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
-    "code: 60": "Table does not exist",  # UNKNOWN_TABLE
-    "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
-    "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
-    "nodename nor servname provided": "Could not resolve the ClickHouse host",
-    "name or service not known": "Could not resolve the ClickHouse host",
-    "connection refused": "Could not connect to ClickHouse on the given host/port",
+    "code: 60": "Table does not exist. Check the table still exists in your ClickHouse database.",  # UNKNOWN_TABLE
+    "code: 192": _INVALID_CREDENTIALS,  # UNKNOWN_USER
+    "code: 497": "Your ClickHouse user doesn't have permission to read this database. Grant the user SELECT on the database, then try again.",  # ACCESS_DENIED
+    # Same wording as the MySQL source, so a wrong host or port reads the same across databases.
+    "nodename nor servname provided": _HOST_NOT_RESOLVED,
+    "name or service not known": _HOST_NOT_RESOLVED,
+    "connection refused": "Could not connect to the host on the port given. Check the host and port are correct and the ClickHouse server is accepting connections.",
     "connection timed out": "Connection to ClickHouse timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     # Must stay above the generic "ssl" entry, which would otherwise match first and send the
     # user to the wrong toggle. Verification runs against the configured ClickHouse host even
@@ -325,6 +328,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own `max_result_bytes`/
+            # `max_result_rows` limit rejected our extraction query because the table
+            # (or incremental window) is larger than that limit allows. Like Code: 241
+            # and Code: 243 this is a capacity/config limit on the customer's database,
+            # not something we can change our side, so retrying just replays the same
+            # oversized query against the same limit. We match the ClickHouse error-code
+            # name rather than "Code: 396" because some ClickHouse-compatible endpoints
+            # (e.g. Tinybird) wrap this error without the usual "Code: NNN. DB::Exception:"
+            # native wording.
+            "TOO_MANY_ROWS_OR_BYTES": "Your ClickHouse server's result size limit was exceeded while reading this table. Raise the max_result_bytes/max_result_rows limit for the user PostHog connects with, sync fewer columns, or switch this table to an incremental sync so each run reads a smaller window, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
