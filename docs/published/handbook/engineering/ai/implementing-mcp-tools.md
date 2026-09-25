@@ -553,6 +553,14 @@ Runtime access still comes from the viewset's `scope_object`,
 and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
 Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
 
+### MCP-only endpoints
+
+An endpoint that is in the public schema becomes a REST contract: it shows up in Swagger, Redoc and the API docs, and people build on it.
+To generate MCP tools and frontend types for an endpoint without that contract, mark it with `@extend_schema(extensions={"x-internal": True})`.
+The codegen build (`hogli build:openapi`, which sets `OPENAPI_INCLUDE_INTERNAL=1`) keeps the operation.
+The served `/api/schema/` drops it, the same way `@extend_schema(exclude=True)` does.
+The marker only controls schema inclusion. The endpoint stays reachable, and auth and scopes still apply.
+
 ## HogQL query schemas (WIP)
 
 [`frontend/src/queries/schema/schema-assistant-queries.ts`](https://github.com/PostHog/posthog/blob/master/frontend/src/queries/schema/schema-assistant-queries.ts) defines structured query types

@@ -9,11 +9,11 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.models import SlackThreadTaskMapping

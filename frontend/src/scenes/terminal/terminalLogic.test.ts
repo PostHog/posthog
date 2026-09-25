@@ -1,13 +1,18 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { FILES_TREE_KEY } from '~/layout/panel-layout/navbar/tabs/navFilesTabLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { initKeaTests } from '~/test/init'
 
 import { PosthogFilesystem } from './posthogFilesystem'
@@ -15,6 +20,7 @@ import { TerminalConfirmation } from './terminalConfirmation'
 import { terminalDockLogic } from './terminalDockLogic'
 import { terminalLogic } from './terminalLogic'
 import { TerminalRuntime } from './terminalRuntime'
+import { TerminalSession } from './TerminalSession'
 
 const mockFolderFor = jest.fn<Promise<string | null>, []>()
 
@@ -61,6 +67,43 @@ describe('terminal lifecycle', () => {
     })
 
     afterEach(() => jest.restoreAllMocks())
+
+    it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled,
+        })
+        const push = jest.spyOn(router.actions, 'push')
+        const url = urls.projectFiles('Research & notes/Reports')
+        terminalLogic.actions.openUrl(url)
+        if (enabled) {
+            expect(push).not.toHaveBeenCalled()
+            expect(panelLayoutLogic.values.navExperimentActiveTab).toBe('files')
+            expect(projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).values.expandedFolders).toContain(
+                'project://Research & notes/Reports'
+            )
+        } else {
+            expect(push).toHaveBeenCalledWith(url)
+        }
+        terminalLogic.actions.openUrl('/insights/example')
+        expect(push).toHaveBeenCalledWith('/insights/example')
+    })
+
+    it.each([true, false])('keeps project-qualified folder links in their own project: %s', (sameProject) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
+            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
+        })
+        const push = jest.spyOn(router.actions, 'push')
+        const projectId = MOCK_DEFAULT_TEAM.id + (sameProject ? 0 : 1)
+        const url = `/project/${projectId}/files?folder=Reports`
+        terminalLogic.actions.openUrl(url)
+        if (sameProject) {
+            expect(push).not.toHaveBeenCalled()
+        } else {
+            expect(push).toHaveBeenCalledWith(url)
+        }
+    })
 
     it('does not boot without the flag and stops an active session on revocation', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
@@ -118,9 +161,19 @@ describe('terminal lifecycle', () => {
             expect.any(Function),
             '/posthog/files/Research'
         )
+        const view = jest.mocked(TerminalSession).mock.results[0].value.view
+        view.focus.mockClear()
         terminalDockLogic.actions.openInTerminal('Research/Reports')
         await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Research/Reports'))
+        await waitFor(() => expect(view.focus).toHaveBeenCalled())
         expect(TerminalRuntime).toHaveBeenCalledTimes(1)
+        terminalDockLogic.actions.setDockOpen(false)
+        router.actions.push(urls.terminal())
+        view.focus.mockClear()
+        terminalDockLogic.actions.openInTerminal('Research/Notes')
+        await waitFor(() => expect(runtime.changeDirectory).toHaveBeenCalledWith('/posthog/files/Research/Notes'))
+        await waitFor(() => expect(view.focus).toHaveBeenCalled())
+        expect(terminalDockLogic.values.dockOpen).toBe(false)
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.POSTHOG_TERMINAL]: false })
         terminalDockLogic.actions.openInTerminal('Hidden')
         expect(terminalDockLogic.values.dockOpen).toBe(false)

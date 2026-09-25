@@ -436,4 +436,112 @@ describe("PostHogAPIClient", () => {
     ).rejects.toThrow("Failed to sync task session: [504] Gateway Timeout");
     expect(mockFetch).toHaveBeenCalledOnce();
   });
+
+  it.each([
+    new TypeError("fetch failed"),
+    new DOMException("The request timed out", "TimeoutError"),
+  ])("classifies a token transport failure as retryable: %s", async (error) => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockRejectedValueOnce(error);
+
+    await expect(
+      client.requestCodexSubscriptionToken(
+        "task-1",
+        "run-1",
+        "run-token",
+        null,
+        5_000,
+      ),
+    ).rejects.toMatchObject({
+      name: "CodexSubscriptionTokenError",
+      code: "request_failed",
+    });
+  });
+
+  it("asks the run's subscription_token endpoint with the fd 3 run token", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    const grant = {
+      access_token: "chatgpt-access",
+      account_id: "acct-1",
+      plan_type: "plus",
+      expires_at: "2030-01-01T00:00:00Z",
+    };
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue(grant),
+    });
+
+    await expect(
+      client.requestCodexSubscriptionToken(
+        "task-1",
+        "run-1",
+        "run-token",
+        "a".repeat(64),
+        5_000,
+      ),
+    ).resolves.toEqual(grant);
+
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      "https://app.posthog.com/api/projects/7/tasks/task-1/runs/run-1/subscription_token/",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          rejected_access_token_sha256: "a".repeat(64),
+        }),
+      }),
+    );
+    const request = mockFetch.mock.calls.at(-1)?.[1] as RequestInit;
+    expect((request.headers as Headers).get("X-Task-Run-Token")).toBe(
+      "run-token",
+    );
+  });
+
+  it.each([
+    [409, { code: "reauth_required", error: "Reconnect." }, "reauth_required"],
+    [
+      502,
+      { code: "openai_unavailable", error: "No answer." },
+      "openai_unavailable",
+    ],
+    [403, {}, "forbidden"],
+    [500, {}, "request_failed"],
+  ])(
+    "maps a %s from subscription_token to the %s error code",
+    async (status, body, code) => {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status,
+        statusText: "Error",
+        json: vi.fn().mockResolvedValue(body),
+      });
+
+      await expect(
+        client.requestCodexSubscriptionToken(
+          "task-1",
+          "run-1",
+          "run-token",
+          null,
+          5_000,
+        ),
+      ).rejects.toMatchObject({
+        name: "CodexSubscriptionTokenError",
+        code,
+        status,
+      });
+    },
+  );
 });

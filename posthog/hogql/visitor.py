@@ -785,6 +785,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             value=node.value,
+            is_sensitive=node.is_sensitive,
             inline_sentinel=node.inline_sentinel,
         )
 

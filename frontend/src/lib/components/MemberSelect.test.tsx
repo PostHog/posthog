@@ -52,7 +52,10 @@ describe('MemberSelect', () => {
     function renderSelect(props: Partial<Parameters<typeof MemberSelect>[0]> = {}): void {
         render(
             <Provider>
-                <MemberSelect value={null} onChange={onChange} {...props} />
+                <>
+                    <MemberSelect value={null} onChange={onChange} {...props} />
+                    <button type="button">Outside</button>
+                </>
             </Provider>
         )
     }
@@ -109,5 +112,52 @@ describe('MemberSelect', () => {
         await userEvent.click(screen.getAllByText('Any user')[0])
 
         expect(await screen.findByPlaceholderText('Search')).toHaveValue('')
+    })
+
+    it('focuses search and picks a custom option from an external roster', async () => {
+        const onSelectOption = jest.fn()
+        const onSearch = jest.fn()
+        const onForYou = jest.fn()
+        renderSelect({
+            defaultLabel: 'Entire project',
+            extraOptions: [{ label: 'For you', onClick: onForYou }],
+            options: [
+                { uuid: 'reviewer-1', name: 'Alex', email: 'alex@example.com' },
+                {
+                    uuid: MOCK_DEFAULT_BASIC_USER.uuid,
+                    name: MOCK_DEFAULT_BASIC_USER.first_name,
+                    email: MOCK_DEFAULT_BASIC_USER.email,
+                },
+            ],
+            onSearch,
+            onSelectOption,
+        })
+
+        await userEvent.click(screen.getByText('Entire project'))
+        expect(screen.getByPlaceholderText('Search')).toHaveFocus()
+        expect(
+            screen.getByText(MOCK_DEFAULT_BASIC_USER.first_name).compareDocumentPosition(screen.getByText('Alex')) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(screen.queryByText(MOCK_SECOND_BASIC_USER.first_name)).not.toBeInTheDocument()
+        await userEvent.type(screen.getByPlaceholderText('Search'), 'Alex')
+        expect(onSearch).toHaveBeenLastCalledWith('Alex')
+        await userEvent.click(screen.getByText('Outside'))
+        await waitFor(() => expect(screen.queryByPlaceholderText('Search')).not.toBeInTheDocument())
+        await userEvent.click(screen.getByText('Entire project'))
+        expect(screen.getByPlaceholderText('Search')).toHaveValue('Alex')
+        expect(onSearch).toHaveBeenLastCalledWith('Alex')
+        await userEvent.click(screen.getByText('Alex'))
+        expect(onSelectOption).toHaveBeenCalledWith('reviewer-1', 'Alex')
+        expect(onSearch).toHaveBeenLastCalledWith('')
+
+        await userEvent.click(screen.getByText('Entire project'))
+        expect(screen.getByPlaceholderText('Search')).toHaveValue('')
+        await userEvent.click(screen.getAllByText('Entire project')[1])
+        expect(onChange).toHaveBeenCalledWith(null)
+
+        await userEvent.click(screen.getByText('Entire project'))
+        await userEvent.click(screen.getByText('For you'))
+        expect(onForYou).toHaveBeenCalledTimes(1)
     })
 })

@@ -1,7 +1,7 @@
 import os
 import atexit
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from numbers import Number
 from typing import Any, cast
@@ -133,7 +133,7 @@ class ScopedCapture:
 
 
 @contextmanager
-def ph_scoped_capture(region: str = "US"):
+def ph_scoped_capture(region: str = "US", *, raise_on_error: bool = False) -> Iterator[ScopedCapture]:
     """Use this instead of posthoganalytics.capture() in Celery tasks — the global
     client's background flush may never run before the worker exits, silently losing events.
     This creates a dedicated client and flushes on context-manager exit.
@@ -147,7 +147,12 @@ def ph_scoped_capture(region: str = "US"):
         with ph_scoped_capture() as capture:
             capture(distinct_id="...", event="my_event", properties={...})
     """
-    ph_client = get_client(region)
+    errors: list[Exception] = []
+
+    def on_error(error: Exception, _batch: object) -> None:
+        errors.append(error)
+
+    ph_client = get_client(region, on_error=on_error) if raise_on_error else get_client(region)
 
     # Flush even when the caller's block raises — events already captured
     # before the exception shouldn't be dropped with the buffer.
@@ -155,6 +160,8 @@ def ph_scoped_capture(region: str = "US"):
         yield ScopedCapture(ph_client)
     finally:
         ph_client.shutdown()
+    if errors:
+        raise errors[0]
 
 
 _background_client: Any = None

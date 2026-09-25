@@ -32,39 +32,10 @@ _BILLING_LIMIT_REASONS: dict[str, str] = {
 }
 
 
-def _last_run_at(schema: ExternalDataSchema) -> datetime | None:
-    """When a sync last ran to completion, whether or not it moved any rows.
-
-    `last_synced_at` alone answers a narrower question. It is the signals watermark
-    (`partition_field > last_synced_at`) as well as a display value, so the v3 pipeline
-    deliberately leaves it where it is when a run extracts nothing — advancing it would
-    narrow the next run's signal window past rows that arrive late. Such a run stamps only
-    `last_full_run_at`, so a schema whose source is simply quiet reads here as having run.
-
-    Both are consulted because neither covers every path on its own: a fast return writes
-    `last_synced_at` and not `last_full_run_at`, and a v3 zero-batch run does the reverse.
-    """
-    stamped: datetime | None = None
-    raw = schema.last_full_run_at
-    if raw is not None:
-        try:
-            parsed = datetime.fromisoformat(raw)
-        except (TypeError, ValueError):
-            parsed = None
-        # A naive stamp cannot be compared against `now`, and guessing its zone would
-        # invent freshness. Mirrors `_fast_return_eligible`, which rejects one outright.
-        if parsed is not None and parsed.tzinfo is not None:
-            stamped = parsed
-
-    synced = ensure_utc(schema.last_synced_at) if schema.last_synced_at is not None else None
-    candidates = [value for value in (synced, stamped) if value is not None]
-    return max(candidates) if candidates else None
-
-
 def _is_stale(schema: ExternalDataSchema, now: datetime) -> bool:
     """Stale once the last sync run is older than 2x the cadence; unknown cadence or never-run is not stale."""
     interval = schema.sync_frequency_interval
-    last_run = _last_run_at(schema)
+    last_run = schema.last_run_at
     if interval is None or last_run is None:
         return False
     return (now - last_run) > interval * STALE_RUNNING_MULTIPLIER

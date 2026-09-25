@@ -5,8 +5,8 @@ from typing import Any
 from temporalio import activity
 
 from posthog.dataclasses import frozen
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown
 from posthog.object_tags.slack import rewrite_object_tags_for_slack
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 

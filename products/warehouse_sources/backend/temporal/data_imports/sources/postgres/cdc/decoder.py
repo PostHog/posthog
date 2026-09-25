@@ -203,6 +203,10 @@ class PgOutputDecoder:
         self._tx_event_count = 0
         self._tx_timestamp: datetime | None = None
         self._truncated_tables: list[str] = []
+        # Truncates of the open transaction. They become visible only once its changes are consumed,
+        # so a caller that handles truncates mid-transaction never purges ahead of the changes before
+        # them.
+        self._tx_truncated_tables: list[str] = []
         self._last_commit_end_lsn: str | None = None
 
     def decode_message(self, data: bytes, lsn: str) -> Iterable[ChangeEvent]:
@@ -238,7 +242,7 @@ class PgOutputDecoder:
 
     @property
     def truncated_tables(self) -> list[str]:
-        """Tables that received a Truncate message. Caller should trigger re-snapshot."""
+        """Tables truncated by a transaction whose changes the caller has consumed. Caller should re-snapshot them."""
         return list(self._truncated_tables)
 
     def clear_truncated_tables(self) -> None:
@@ -276,16 +280,26 @@ class PgOutputDecoder:
         self._last_commit_end_lsn = end_lsn
         self._check_decode_time()
         spill, tail, types = self._tx_spill, self._tx_buffer, self._tx_spill_types
+        truncated = self._tx_truncated_tables
         self._tx_spill = None
         self._reset_transaction()
         self._tx_timestamp = None
+        events: Iterable[ChangeEvent]
         if spill is None:
-            return [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
-        # A caller that abandoned the previous replay would otherwise keep its budget share.
-        if self._replay_spill is not None:
-            self._replay_spill.close()
-        self._replay_spill = spill
-        return _replay_spilled_transaction(spill, types, tail, end_lsn)
+            events = [dataclass_replace(e, position_serialized=end_lsn) for e in tail]
+        else:
+            # A caller that abandoned the previous replay would otherwise keep its budget share.
+            if self._replay_spill is not None:
+                self._replay_spill.close()
+            self._replay_spill = spill
+            events = _replay_spilled_transaction(spill, types, tail, end_lsn)
+        if not truncated:
+            return events
+        return self._publish_truncates_after(events, truncated)
+
+    def _publish_truncates_after(self, events: Iterable[ChangeEvent], truncated: list[str]) -> Iterator[ChangeEvent]:
+        yield from events
+        self._truncated_tables.extend(truncated)
 
     def _check_decode_time(self) -> None:
         if time.monotonic() - self._tx_started_at > MAX_TX_DECODE_SECONDS:
@@ -306,6 +320,7 @@ class PgOutputDecoder:
         self._tx_spill_types = []
         self._tx_buffer = []
         self._tx_event_count = 0
+        self._tx_truncated_tables = []
 
     def _handle_relation(self, payload: bytes) -> None:
         """R message: relation_id(4) + namespace(str) + name(str) + replica_identity(1) + n_cols(2) + columns"""
@@ -472,7 +487,7 @@ class PgOutputDecoder:
                     relation.schema_name,
                     relation.table_name,
                 )
-                self._truncated_tables.append(relation.qualified_name)
+                self._tx_truncated_tables.append(relation.qualified_name)
 
     # --- Helpers ---
 
