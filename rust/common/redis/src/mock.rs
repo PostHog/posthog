@@ -30,6 +30,9 @@ pub struct MockRedisClient {
     pipeline_errors_by_call: HashMap<usize, CustomRedisError>,
     /// Shared via `Arc` so clones of the mock agree on call sequencing.
     pipeline_call_counter: Arc<AtomicUsize>,
+    mget_errors_by_call: HashMap<usize, CustomRedisError>,
+    /// Shared via `Arc` so clones of the mock agree on call sequencing.
+    mget_call_counter: Arc<AtomicUsize>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
 }
 
@@ -56,6 +59,8 @@ impl Default for MockRedisClient {
             pipeline_block: None,
             pipeline_errors_by_call: HashMap::new(),
             pipeline_call_counter: Arc::new(AtomicUsize::new(0)),
+            mget_errors_by_call: HashMap::new(),
+            mget_call_counter: Arc::new(AtomicUsize::new(0)),
             calls: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -207,6 +212,14 @@ impl MockRedisClient {
     /// flush paths where some chunks succeed and others don't.
     pub fn pipeline_error_at_call(&mut self, call_index: usize, err: CustomRedisError) -> Self {
         self.pipeline_errors_by_call.insert(call_index, err);
+        self.clone()
+    }
+
+    /// Fail the Nth `mget` call (0-indexed across the lifetime of this mock)
+    /// with the given error. Other calls proceed normally. Takes precedence
+    /// over `mget_error`. Use to exercise a tick where some reads fail.
+    pub fn mget_error_at_call(&mut self, call_index: usize, err: CustomRedisError) -> Self {
+        self.mget_errors_by_call.insert(call_index, err);
         self.clone()
     }
 }
@@ -586,6 +599,10 @@ impl Client for MockRedisClient {
             value: MockRedisValue::VecString(keys.clone()),
         });
 
+        let call_index = self.mget_call_counter.fetch_add(1, Ordering::SeqCst);
+        if let Some(err) = self.mget_errors_by_call.get(&call_index) {
+            return Err(err.clone());
+        }
         if let Some(err) = &self.mget_error {
             return Err(err.clone());
         }
