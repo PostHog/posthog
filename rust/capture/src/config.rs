@@ -507,6 +507,9 @@ pub struct Config {
 /// Each output capture produces to: a topic and the named producer that
 /// carries it, read from `CAPTURE_OUTPUT_<OUTPUT>_TOPIC` and
 /// `CAPTURE_OUTPUT_<OUTPUT>_PRODUCER` as in Node.js ingestion's outputs.
+///
+/// Topic defaults are the local dev and hobby topics. Those stacks pull
+/// `capture:master` with compose files that can predate these variables.
 #[derive(Envconfig, Clone)]
 pub struct OutputsConfig {
     #[envconfig(
@@ -538,7 +541,7 @@ pub struct OutputsConfig {
     pub analytics_historical_producer: ProducerName,
     #[envconfig(
         from = "CAPTURE_OUTPUT_SESSION_REPLAY_MAIN_TOPIC",
-        default = "events_plugin_ingestion"
+        default = "session_recording_snapshot_item_events"
     )]
     pub session_replay_main_topic: String,
     #[envconfig(
@@ -572,7 +575,7 @@ pub struct OutputsConfig {
     pub client_warnings_producer: ProducerName,
     #[envconfig(
         from = "CAPTURE_OUTPUT_ERROR_TRACKING_TOPIC",
-        default = "error_tracking_events"
+        default = "ingestion-errortracking-main"
     )]
     pub error_tracking_topic: String,
     #[envconfig(from = "CAPTURE_OUTPUT_ERROR_TRACKING_PRODUCER", default = "INGESTION")]
@@ -688,11 +691,19 @@ mod tests {
     }
 
     #[test]
-    fn ai_output_topic_defaults() {
+    fn output_topic_defaults_match_the_local_stack() {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
         assert_eq!(config.outputs.ai_main_topic, "events_plugin_ingestion_ai");
         assert_eq!(config.outputs.ai_overflow_topic, None);
+        assert_eq!(
+            config.outputs.session_replay_main_topic,
+            "session_recording_snapshot_item_events"
+        );
+        assert_eq!(
+            config.outputs.error_tracking_topic,
+            "ingestion-errortracking-main"
+        );
     }
 
     #[rstest::rstest]
