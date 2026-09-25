@@ -774,11 +774,14 @@ class TestErrorTracking(APIBaseTest):
         assert event.properties["status"] == "Resolved"
         assert event.properties["previous_status"] == "Active"
 
-    def test_issue_assign_produces_lifecycle_internal_event(self):
+    @parameterized.expand([("user",), ("role",)])
+    def test_issue_assign_produces_lifecycle_internal_event(self, assignee_type):
         issue = self.create_issue()
         self.user.first_name = "Jane"
         self.user.last_name = "Doe"
         self.user.save()
+        role = Role.objects.create(name="Backend", organization=self.organization)
+        assignee_id = self.user.id if assignee_type == "user" else str(role.id)
 
         with (
             patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
@@ -786,7 +789,7 @@ class TestErrorTracking(APIBaseTest):
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
-                data={"assignee": {"id": self.user.id, "type": "user"}},
+                data={"assignee": {"id": assignee_id, "type": assignee_type}},
             )
 
         assert response.status_code == 200, response.json()
@@ -795,10 +798,18 @@ class TestErrorTracking(APIBaseTest):
         assert event.event == "$error_tracking_issue_assigned"
         assert event.distinct_id == str(issue.id)
         # Byte-identical to cymbal's compact serde output so exact-match filters work.
-        assert event.properties["assignee"] == f'{{"type":"user","id":{self.user.id}}}'
-        assert json.loads(event.properties["assignee"]) == {"type": "user", "id": self.user.id}
-        assert event.properties["assignee_name"] == "Jane Doe"
-        assert event.properties["assignee_email"] == self.user.email
+        expected_properties = {
+            "user": {
+                "assignee": f'{{"type":"user","id":{self.user.id}}}',
+                "assignee_name": "Jane Doe",
+                "assignee_email": self.user.email,
+            },
+            "role": {"assignee": f'{{"type":"role","id":"{role.id}"}}', "assignee_name": "Backend"},
+        }[assignee_type]
+        assert {key: value for key, value in event.properties.items() if key.startswith("assignee")} == (
+            expected_properties
+        )
+        assert json.loads(event.properties["assignee"]) == {"type": assignee_type, "id": assignee_id}
 
     def test_issue_unassign_produces_lifecycle_internal_event(self):
         issue = self.create_issue()
