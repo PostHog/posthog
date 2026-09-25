@@ -1987,9 +1987,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (start == null || leadingRecoveryTimestamp == null) {
                     return 0
                 }
-                // `durationMs` is capped by the metadata duration, so a skewed start can put the recovery
-                // point past the end of the timeline. A span longer than the recording it belongs to is
-                // impossible, so report at most the whole recording.
+                // A skewed start puts the recovery point past the end of the timeline, and a span longer
+                // than the recording it belongs to is impossible.
                 return Math.min(leadingRecoveryTimestamp - start, sessionPlayerData.durationMs)
             },
         ],

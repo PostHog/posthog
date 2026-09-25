@@ -5,6 +5,7 @@ import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-ty
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { sessionEventsDataLogic } from 'scenes/session-recordings/player/sessionEventsDataLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import * as sessionRecordingDataCoordinatorLogicModule from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
@@ -667,6 +668,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     '/api/environments/:team_id/session_recordings/:id': {
                         ...recordingMetaJson,
                         recording_duration: recordingDurationSeconds,
+                        end_time: new Date(START + recordingDurationSeconds * 1000).toISOString(),
                     },
                 },
             })
@@ -1085,6 +1087,31 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.leadingUnplayableMs).toBe(logic.values.sessionPlayerData.durationMs)
             expect(logic.values.leadingUnplayableMs).toBeLessThan(LATE_FS_TS - START)
             expect(logic.values.hasLateFullSnapshot).toBe(true)
+        })
+
+        it('keeps a snapshot with a skewed clock from becoming the time origin', async () => {
+            // A snapshot dated hours before the recording used to drag `start` back with it. The
+            // timeline then ended before any real event, so the recording could not be watched at all.
+            await mountWithRecordingDuration(60)
+            seedRecording([inc(START - 17 * 60 * 60 * 1000), inc(START), inc(START + 1000)], [fs(START + 30000)])
+
+            expect(logic.values.sessionPlayerData.start?.valueOf()).toBe(START)
+            expect(logic.values.sessionPlayerData.durationMs).toBe(60000)
+        })
+
+        it('reports at most the recording length while the recording is still loading', async () => {
+            // The reported symptom: a skewed snapshot timestamp stretches the span between `start` and
+            // `end`, so a clamp that waits for every source to arrive lets the banner claim an
+            // unplayable opening many times longer than the recording itself.
+            await mountWithRecordingDuration(60)
+            seedRecording([inc(START), inc(START + 1000)], [fs(LATE_FS_TS)])
+            // the events request keeps the recording short of fully loaded, as it is for the first
+            // seconds of every playback
+            sessionEventsDataLogic({ sessionRecordingId: '2', blobV2PollingDisabled: true }).actions.loadEvents()
+
+            expect(logic.values.sessionPlayerData.fullyLoaded).toBe(false)
+            expect(logic.values.leadingUnplayableMs).toBe(60000)
+            expect(logic.values.sessionPlayerData.durationMs).toBe(60000)
         })
 
         it.each([
