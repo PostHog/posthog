@@ -3815,6 +3815,31 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    def test_log_entries_queries_inherit_profile_spill(self):
+        printed = self._print(
+            "SELECT instance_id, max(timestamp) FROM log_entries GROUP BY instance_id",
+            settings=HogQLGlobalSettings(),
+        )
+        assert "max_bytes_before_external_group_by" not in printed, printed
+
+    def test_log_entries_subquery_inherits_profile_spill(self):
+        printed = self._print(
+            "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries)",
+            settings=HogQLGlobalSettings(),
+        )
+        assert "max_bytes_before_external_group_by" not in printed, printed
+
+    def test_non_log_entries_queries_keep_spill_disabled(self):
+        printed = self._print("SELECT event FROM events", settings=HogQLGlobalSettings())
+        assert "max_bytes_before_external_group_by=0" in printed, printed
+
+    def test_log_entries_keeps_explicit_spill_threshold(self):
+        printed = self._print(
+            "SELECT message FROM log_entries",
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=1_000_000),
+        )
+        assert "max_bytes_before_external_group_by=1000000" in printed, printed
+
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
         assert isinstance(query, ast.SelectQuery)

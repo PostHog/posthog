@@ -81,6 +81,7 @@ class BasePrinter(Visitor[str]):
         self._indent = -1
         self.tab_size = 4
         self._table_top_level_settings: dict[str, Any] = {}
+        self._inherit_profile_spill = False
         self._placeholder_macro_expansion_depth = 0
 
     def indent(self, extra: int = 0):
@@ -1594,6 +1595,8 @@ class BasePrinter(Visitor[str]):
         return True
 
     def _collect_table_top_level_settings(self, table: Table) -> None:
+        if table.inherit_profile_spill:
+            self._inherit_profile_spill = True
         if table.top_level_settings is None:
             return
         for key, value in table.top_level_settings.model_dump().items():
@@ -1609,6 +1612,9 @@ class BasePrinter(Visitor[str]):
 
     def _merge_table_top_level_settings(self, settings: HogQLQuerySettings | None) -> dict[str, Any]:
         merged = dict(settings.model_dump()) if settings else {}
+        # Drop only HogQL's default of 0 (spill disabled); an explicit caller threshold is kept.
+        if self._inherit_profile_spill and merged.get("max_bytes_before_external_group_by") == 0:
+            merged["max_bytes_before_external_group_by"] = None
         if not self._table_top_level_settings:
             return merged
         for key, value in self._table_top_level_settings.items():
