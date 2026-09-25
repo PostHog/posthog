@@ -28,7 +28,13 @@ export function ShareBarLabels({ rows, totalCalls }: { rows: ShareBarLabel[]; to
                     <span className="flex min-w-0 items-center gap-1.5" title={row.label}>
                         {row.icon}
                         {row.href ? (
-                            <Link to={row.href} target="_blank" className="truncate">
+                            <Link
+                                to={row.href}
+                                target="_blank"
+                                className="pointer-events-auto truncate"
+                                data-hog-charts-interactive-overlay
+                                onClick={(event) => event.stopPropagation()}
+                            >
                                 {row.label}
                             </Link>
                         ) : (
