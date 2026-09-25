@@ -457,6 +457,8 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
     timer = _StepTimer()
     started = time.monotonic()
+    # Mint the installation token once up front. On a cold cache every pool thread would mint its own.
+    client.installation_token()
     executor = ThreadPoolExecutor(max_workers=_CONTEXT_FETCH_WORKERS, thread_name_prefix="stamphog-context")
     try:
 
@@ -1233,17 +1235,21 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
 
 
 def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) -> None:
-    """Emit ``stamphog_review_timings``. Best effort: the verdict is already posted and saved.
+    """Emit ``stamphog_review_timings`` once per run. Best effort: the verdict is already posted and saved.
 
     The background client, because a per-call client and its synchronous flush would block every
-    review's last activity for seconds.
+    review's last activity for seconds. A retried post_verdict finds the marker and sends nothing.
     """
+    if (run.output or {}).get("timings_captured"):
+        return
     try:
         ph_background_capture()(
             distinct_id=run.pull_request.author_login or run.pull_request.repo_config.repository,
             event="stamphog_review_timings",
             properties=_review_timing_properties(run, verdict, post_verdict_ms),
         )
+        run.output = {**(run.output or {}), "timings_captured": True}
+        run.save(update_fields=["output", "updated_at"])
     except Exception:
         activity.logger.exception(f"Failed to capture review timings for run {run.id}")
 

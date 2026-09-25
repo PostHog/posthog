@@ -57,6 +57,8 @@ FOLDER_POLICY_FILENAME = "AGENT_APPROVALS.md"
 _FOLDER_POLICY_BUDGET_SECONDS = 10
 # Well past the ancestor directories of any real PR, and small enough to stay one or two probes.
 _MAX_FOLDER_POLICY_CANDIDATES = 300
+# The files ride in run.output. A real folder file is a few hundred bytes of frontmatter and prose.
+_MAX_FOLDER_POLICY_BYTES = 256 * 1024
 
 # A gate-only run imports the engine and evaluates a few regexes. A run that takes longer than this
 # is broken, and the caller then falls through to the sandbox review.
@@ -155,6 +157,9 @@ def fetch_folder_policy_files(
                 logger.info("stamphog_folder_policy_not_a_file", repo=repo, kind=entry.kind)
                 return None
             found[path] = entry.text
+            if sum(len(text) for text in found.values()) > _MAX_FOLDER_POLICY_BYTES:
+                logger.info("stamphog_folder_policy_bytes_capped", repo=repo)
+                return None
         return found
     except Exception:
         logger.warning("stamphog_folder_policy_fetch_failed", repo=repo, exc_info=True)
