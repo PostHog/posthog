@@ -22,6 +22,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
+    SavedQuery,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -509,6 +510,29 @@ class TestResolver(BaseTest):
         self.assertIn("Unknown table `event`", message)
         self.assertIn("Did you mean:", message)
         self.assertIn("events", message)
+
+    def test_unknown_table_inside_a_view_body_does_not_suggest_the_view(self):
+        # The typo sits inside the body of `customer_orders_view`, so the view is the closest
+        # name in the catalog. Suggesting it would send the author into a resolution cycle.
+        view = SavedQuery(
+            id="customer_orders_view",
+            name="customer_orders_view",
+            query="SELECT 1 AS id FROM customer_orders_vie",
+            fields={"id": StringDatabaseField(name="id")},
+        )
+        self.database._add_views(
+            TableNode(
+                name="root", children={"customer_orders_view": TableNode(name="customer_orders_view", table=view)}
+            )
+        )
+
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("SELECT id FROM customer_orders_view"),
+                self.context,
+                dialect="clickhouse",
+            )
+        assert str(ctx.exception) == "Unknown table `customer_orders_vie`."
 
     def test_unresolved_field_suggests_close_matches(self):
         # user_id isn't on events, but distinct_id and person_id are close enough to suggest
