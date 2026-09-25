@@ -313,6 +313,25 @@ export default meta
 
 export const Default: StoryObj<typeof TerminalScene> = {}
 
+export const RendererContextLoss: StoryObj<typeof TerminalScene> = {
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(terminalLogic.values.status).toBe('ready'))
+        const canvas = canvasElement.querySelector<HTMLCanvasElement>('.xterm-screen canvas:not(.xterm-link-layer)')
+        const gl = canvas?.getContext('webgl2')
+        if (gl) {
+            const extension = gl.getExtension('WEBGL_lose_context')
+            expect(extension).not.toBeNull()
+            extension!.loseContext()
+            await waitFor(() => expect(canvas!.isConnected).toBe(false), { timeout: 5000 })
+        }
+        const { view } = terminalLogic.cache.session as TerminalSession
+        await new Promise<void>((resolve) => view.write('\r\nRenderer fallback ready', resolve))
+        await waitFor(() =>
+            expect(canvasElement.querySelector('.xterm-rows')?.textContent).toContain('Renderer fallback ready')
+        )
+    },
+}
+
 export const LiveRuntime: StoryObj<typeof TerminalScene> = {
     tags: ['!test'],
     parameters: { liveRuntime: true },
