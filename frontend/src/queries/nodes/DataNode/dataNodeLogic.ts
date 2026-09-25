@@ -966,6 +966,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             ignoreVisualizationOnlyChanges: true,
         })
         const queryVarsHaveChanged = haveVariablesOrFiltersChanged(props.query, oldProps.query)
+        // The response in state answers the previous query. A table keeps it on screen until the new
+        // response lands, so rows the new filter excludes read as a broken date range. Insight
+        // visualizations keep their last chart on purpose while they refresh, so they are left alone.
+        const responseIsStale = hasQueryChanged && !isInsightQueryNode(props.query)
 
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
@@ -973,6 +977,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // We need to force a refresh in this case
             const refreshType =
                 isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
+            if (responseIsStale) {
+                actions.clearResponse()
+            }
             actions.loadData(refreshType, queryStatus.id)
         } else if (
             hasQueryChanged &&
@@ -993,6 +1000,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 refreshType = isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'async' : 'blocking'
             }
 
+            if (responseIsStale) {
+                actions.clearResponse()
+            }
             actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again

@@ -68,8 +68,10 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
+    relativeTime,
 }: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
     time: dayjs.Dayjs
+    relativeTime: string
 }): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
@@ -100,7 +102,12 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     return (
         <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center border-b-1 p-1">
-                <h4 className="mb-0 px-1">{title || 'Timezone conversion'}</h4>
+                <div className="px-1">
+                    <h4 className="mb-0">{title || 'Timezone conversion'}</h4>
+                    {/* Repeat the relative time the cell can show. Without it a reader compares a
+                        relative label against absolute rows and reads the offset as an error. */}
+                    <div className="text-xs text-secondary">{relativeTime}</div>
+                </div>
                 <LemonButton
                     icon={<IconGear />}
                     size="xsmall"
@@ -223,19 +230,22 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     }, [parsedTime, displayTimezone])
     const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
+    const formatRelative = useCallback(
+        () => (suffix ? `${displayTime.fromNow(true)} ${suffix}` : displayTime.fromNow()),
+        [displayTime, suffix]
+    )
+
     const format = useCallback(() => {
         if (formatDate || formatTime || effectiveTimestampStyle === 'absolute') {
             return humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
                 timestampStyle: effectiveTimestampStyle,
             })
         }
-        if (suffix) {
-            return `${displayTime.fromNow(true)} ${suffix}`
-        }
-        return displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, suffix])
+        return formatRelative()
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, formatRelative])
 
     const [formattedContent, setFormattedContent] = useState(format)
+    const [relativeContent, setRelativeContent] = useState(formatRelative)
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -248,12 +258,14 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         const run = (): void => {
             const newContent = format()
             setFormattedContent((current) => (newContent !== current ? newContent : current))
+            const newRelative = formatRelative()
+            setRelativeContent((current) => (newRelative !== current ? newRelative : current))
         }
 
         run()
 
         return subscribeToTicker(run)
-    }, [displayTime, format, isPageVisible])
+    }, [displayTime, format, formatRelative, isPageVisible])
 
     const innerContent = children ?? (
         <span
@@ -282,6 +294,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
                         showSeconds={showSeconds}
                         title={title}
                         displayTimezone={displayTimezone}
+                        relativeTime={relativeContent}
                     />
                 }
             >

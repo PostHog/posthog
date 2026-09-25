@@ -82,7 +82,7 @@ describe('dataNodeLogic', () => {
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results }) })
 
-        // changing the query should trigger a new query, but keep the results while it's loading
+        // changing the query should trigger a new query, and drop the results of the previous one
         const results2 = {}
         mockedQuery.mockResolvedValueOnce({ results: results2 })
         dataNodeLogic({
@@ -94,7 +94,7 @@ describe('dataNodeLogic', () => {
         })
         expect(performQuery).toHaveBeenCalledTimes(2)
         await expectLogic(logic)
-            .toMatchValues({ responseLoading: true, response: partial({ results }) })
+            .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results2 }) })
 
@@ -123,6 +123,33 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
+    })
+
+    it('keeps the previous insight results on screen while a changed insight query reloads', async () => {
+        const results = [[1, 2, 3]]
+        mockedQuery.mockResolvedValueOnce({ results })
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            }),
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .delay(0)
+            .toMatchValues({ response: partial({ results }) })
+
+        mockedQuery.mockResolvedValueOnce({ results: [[4, 5, 6]] })
+        dataNodeLogic({
+            key: testUniqueKey,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                dateRange: { date_from: '-30d' },
+            }),
+        })
+        await expectLogic(logic).toMatchValues({ responseLoading: true, response: partial({ results }) })
     })
 
     it('force refreshes account table results when filters change', async () => {
