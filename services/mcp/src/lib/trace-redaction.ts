@@ -9,11 +9,16 @@
  * an allowlist. A withheld property is reported by name, so an agent can see
  * that it exists and read it in PostHog.
  *
+ * An allowlist cannot cover the error values, because their text is retained AI
+ * payload that a provider wrote and can hold the rejected key. Those values go
+ * through the credential scrub beside this module as well.
+ *
  * This is a client-boundary safeguard on these two tools only. Stored events,
  * the PostHog UI, and property filters keep the complete bag, so a query can
  * still filter on a property it cannot read back.
  */
 
+import { redactCredentials } from '@/lib/credential-redaction'
 import { assignKey, isRecord } from '@/lib/plain-object'
 import { AI_TAXONOMY_EVENT_PROPERTIES } from '@/lib/trace-property-allowlist.generated'
 
@@ -42,6 +47,15 @@ const RETAINED_NAVIGATION_PROPERTIES = new Set(['$session_id', '$lib', '$lib_ver
  * carries the API key as a query parameter.
  */
 const SANITIZED_URL_PROPERTIES = new Set(['$ai_base_url', '$ai_request_url'])
+
+/**
+ * Retained properties whose value is scrubbed of credential-shaped text. Both
+ * hold an error message a provider or a framework wrote, and such a message
+ * quotes the rejected key back or carries the request headers with it. Masking
+ * by the provider is not enough, because the prefix and the last characters of
+ * the key survive it. See `credential-redaction.ts`.
+ */
+const CREDENTIAL_SCRUBBED_PROPERTIES = new Set(['$ai_error', '$ai_error_normalized', '$ai_error_type'])
 
 /**
  * Names of the properties withheld from a bag, reported in place of their
@@ -104,7 +118,11 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
         return emptiedBag(event)
     }
     const keys = Object.keys(properties)
-    if (keys.every((key) => isRetained(key) && !SANITIZED_URL_PROPERTIES.has(key))) {
+    if (
+        keys.every(
+            (key) => isRetained(key) && !SANITIZED_URL_PROPERTIES.has(key) && !CREDENTIAL_SCRUBBED_PROPERTIES.has(key)
+        )
+    ) {
         return event
     }
     const retained: Record<string, unknown> = {}
@@ -117,6 +135,8 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
             } else {
                 assignKey(retained, key, sanitized)
             }
+        } else if (CREDENTIAL_SCRUBBED_PROPERTIES.has(key)) {
+            assignKey(retained, key, redactCredentials(properties[key]))
         } else if (isRetained(key)) {
             assignKey(retained, key, properties[key])
         } else {

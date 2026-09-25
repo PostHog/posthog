@@ -16,6 +16,10 @@ const SECRETS = {
     budget: 'INVENTEDBUDGET5555',
     custom: 'INVENTEDCUSTOM6666',
     personSet: 'INVENTEDPERSONSET7777',
+    // A provider echoes the rejected key with its middle masked, so these two
+    // are what survives inside an error message the allowlist retains.
+    maskedKeyTail: 'INVENTEDKEYTAIL8888',
+    normalizedKeyTail: 'INVENTEDNORMALIZEDTAIL',
 }
 
 function traceWithSecrets(): Record<string, unknown> {
@@ -48,6 +52,9 @@ function traceWithSecrets(): Record<string, unknown> {
                     $ai_input: [{ role: 'user', content: 'Why did checkout drop?' }],
                     $ai_output_choices: [{ role: 'assistant', content: 'Payments timed out.' }],
                     $session_id: 'session-1',
+                    $ai_is_error: true,
+                    $ai_error: `Incorrect API key provided: sk-pr************${SECRETS.maskedKeyTail}. You can find your API key at https://platform.example.com/account/api-keys.`,
+                    $ai_error_normalized: `Incorrect API key provided: sk-pr************${SECRETS.normalizedKeyTail}. You can find your API key at https://platform.example.com/account/api-keys.`,
                     api_key: SECRETS.credential,
                     auth: { method: 'oauth', token: SECRETS.authState },
                     request_headers: { cookie: SECRETS.header },
@@ -99,6 +106,39 @@ describe('trace redaction', () => {
             'prompt_version',
             '$ai_debug_data',
         ])
+    })
+
+    it('removes the credential a provider quoted back, and keeps the rest of the message', () => {
+        const properties = (redactTrace(traceWithSecrets()) as any).events[0].properties
+
+        expect(secretsIn(properties)).toEqual([])
+        for (const key of ['$ai_error', '$ai_error_normalized']) {
+            expect(properties[key]).toContain('Incorrect API key provided: [redacted]')
+            expect(properties[key]).toContain('https://platform.example.com/account/api-keys')
+        }
+        expect(properties.$ai_is_error).toBe(true)
+    })
+
+    it('scrubs a structured error, where the credential sits under a key', () => {
+        const trace = {
+            id: 't1',
+            events: [
+                {
+                    id: 'e1',
+                    properties: {
+                        $ai_error: {
+                            message: 'authentication failed',
+                            request: { headers: { authorization: `Bearer ${SECRETS.credential}` } },
+                        },
+                    },
+                },
+            ],
+        }
+
+        const error = (redactTrace(trace) as any).events[0].properties.$ai_error
+
+        expect(secretsIn(error)).toEqual([])
+        expect(error.message).toBe('authentication failed')
     })
 
     it('withholds every person property, including names the event allowlist keeps', () => {
