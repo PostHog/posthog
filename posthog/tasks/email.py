@@ -82,6 +82,7 @@ class NotificationSetting(Enum):
     MATERIALIZED_VIEW_SYNC_FAILED_DAILY = "materialized_view_sync_failed_daily"
     MATERIALIZED_VIEW_SYNC_FAILED_IMMEDIATE = "materialized_view_sync_failed_immediate"
     WEB_ANALYTICS_WEEKLY_DIGEST = "web_analytics_weekly_digest"
+    DATA_CATALOG_WEEKLY_DIGEST = "data_catalog_weekly_digest"
 
 
 NotificationSettingType = Literal[
@@ -96,6 +97,7 @@ NotificationSettingType = Literal[
     "materialized_view_sync_failed_daily",
     "materialized_view_sync_failed_immediate",
     "web_analytics_weekly_digest",
+    "data_catalog_weekly_digest",
 ]
 
 
@@ -345,6 +347,9 @@ def should_send_notification(
         return settings.get(notification_type, True)
 
     elif notification_type == NotificationSetting.PROJECT_API_KEY_EXPOSED.value:
+        return settings.get(notification_type, True)
+
+    elif notification_type == NotificationSetting.DATA_CATALOG_WEEKLY_DIGEST.value:
         return settings.get(notification_type, True)
 
     elif notification_type == NotificationSetting.AI_EVALUATION_DISABLED.value:
