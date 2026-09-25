@@ -1,4 +1,8 @@
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import {
+    InternalCaptureEvent,
+    InternalCaptureService,
+    MAX_EVENTS_PER_CAPTURE_REQUEST,
+} from '~/common/services/internal-capture'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
@@ -33,7 +37,7 @@ describe('CapturedEventsService', () => {
 
     beforeEach(() => {
         internalCaptureService = {
-            capture: jest.fn().mockResolvedValue({ status: 200 }),
+            captureBatch: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<InternalCaptureService>
 
         teamManager = {
@@ -65,9 +69,41 @@ describe('CapturedEventsService', () => {
             service.queue(events)
             await service.flush()
 
-            expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
-            expect(internalCaptureService.capture).toHaveBeenNthCalledWith(1, events[0])
-            expect(internalCaptureService.capture).toHaveBeenNthCalledWith(2, events[1])
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(2)
+            expect(internalCaptureService.captureBatch).toHaveBeenNthCalledWith(1, 'token-a', [events[0]])
+            expect(internalCaptureService.captureBatch).toHaveBeenNthCalledWith(2, 'token-b', [events[1]])
+        })
+
+        it('sends one request per team rather than one per event', async () => {
+            service.queue(
+                Array.from({ length: 40 }, (_, i) => ({
+                    team_token: i % 2 === 0 ? 'token-a' : 'token-b',
+                    event: 'click',
+                    distinct_id: `u${i}`,
+                }))
+            )
+
+            await service.flush()
+
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(2)
+            expect(internalCaptureService.captureBatch.mock.calls.map(([, events]) => events.length)).toEqual([20, 20])
+        })
+
+        it('splits a team over several requests once a batch is full', async () => {
+            service.queue(
+                Array.from({ length: MAX_EVENTS_PER_CAPTURE_REQUEST + 1 }, (_, i) => ({
+                    team_token: 'token-a',
+                    event: 'click',
+                    distinct_id: `u${i}`,
+                }))
+            )
+
+            await service.flush()
+
+            expect(internalCaptureService.captureBatch.mock.calls.map(([, events]) => events.length)).toEqual([
+                MAX_EVENTS_PER_CAPTURE_REQUEST,
+                1,
+            ])
         })
 
         it('clears the buffer after flush so a second flush is a no-op', async () => {
@@ -80,32 +116,52 @@ describe('CapturedEventsService', () => {
             ])
 
             await service.flush()
-            expect(internalCaptureService.capture).toHaveBeenCalledTimes(1)
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(1)
 
             await service.flush()
-            expect(internalCaptureService.capture).toHaveBeenCalledTimes(1)
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(1)
         })
 
         it('queue([]) is a no-op', async () => {
             service.queue([])
             await service.flush()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
+            expect(internalCaptureService.captureBatch).not.toHaveBeenCalled()
         })
 
         it('flush with empty buffer does not call internalCaptureService', async () => {
             await service.flush()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
+            expect(internalCaptureService.captureBatch).not.toHaveBeenCalled()
         })
 
-        it('swallows errors from internalCaptureService.capture', async () => {
-            internalCaptureService.capture.mockRejectedValueOnce(new Error('boom'))
+        it('swallows errors from internalCaptureService.captureBatch', async () => {
+            internalCaptureService.captureBatch.mockRejectedValueOnce(new Error('boom'))
             service.queue([
                 { team_token: 'token-a', event: 'a', distinct_id: 'u1' },
                 { team_token: 'token-b', event: 'b', distinct_id: 'u2' },
             ])
 
             await expect(service.flush()).resolves.toBeUndefined()
-            expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(2)
+        })
+
+        it('keeps a bounded number of requests in flight', async () => {
+            let running = 0
+            internalCaptureService.captureBatch.mockImplementation(() => {
+                running++
+                return new Promise<void>(() => {})
+            })
+            service.queue(
+                Array.from({ length: 50 }, (_, i) => ({
+                    team_token: `token-${i}`,
+                    event: 'click',
+                    distinct_id: 'u1',
+                }))
+            )
+
+            void service.flush()
+
+            // The controller starts its first wave synchronously, and nothing here ever resolves a request.
+            expect(running).toBe(16)
         })
     })
 
@@ -132,28 +188,32 @@ describe('CapturedEventsService', () => {
             await service.queueInvocationResults(results)
             await service.flush()
 
-            expect(internalCaptureService.capture).toHaveBeenCalledTimes(3)
-            expect(internalCaptureService.capture).toHaveBeenCalledWith({
-                team_token: 'token-team-1',
-                event: 'a',
-                distinct_id: 'u1',
-                timestamp: 't1',
-                properties: { foo: 'bar' },
-            })
-            expect(internalCaptureService.capture).toHaveBeenCalledWith({
-                team_token: 'token-team-2',
-                event: 'b',
-                distinct_id: 'u2',
-                timestamp: 't2',
-                properties: { foo: 'bar' },
-            })
-            expect(internalCaptureService.capture).toHaveBeenCalledWith({
-                team_token: 'token-team-1',
-                event: 'c',
-                distinct_id: 'u3',
-                timestamp: 't3',
-                properties: { foo: 'bar' },
-            })
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledTimes(2)
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledWith('token-team-1', [
+                {
+                    team_token: 'token-team-1',
+                    event: 'a',
+                    distinct_id: 'u1',
+                    timestamp: 't1',
+                    properties: { foo: 'bar' },
+                },
+                {
+                    team_token: 'token-team-1',
+                    event: 'c',
+                    distinct_id: 'u3',
+                    timestamp: 't3',
+                    properties: { foo: 'bar' },
+                },
+            ])
+            expect(internalCaptureService.captureBatch).toHaveBeenCalledWith('token-team-2', [
+                {
+                    team_token: 'token-team-2',
+                    event: 'b',
+                    distinct_id: 'u2',
+                    timestamp: 't2',
+                    properties: { foo: 'bar' },
+                },
+            ])
         })
 
         it('drops events whose team is not found (teamManager returns null)', async () => {
@@ -162,7 +222,7 @@ describe('CapturedEventsService', () => {
             await service.queueInvocationResults([buildResult([buildCapturedEvent(99)])])
             await service.flush()
 
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
+            expect(internalCaptureService.captureBatch).not.toHaveBeenCalled()
         })
 
         it('skips results with no captured events', async () => {
@@ -173,7 +233,7 @@ describe('CapturedEventsService', () => {
             await service.flush()
 
             expect(teamManager.getTeam).not.toHaveBeenCalled()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
+            expect(internalCaptureService.captureBatch).not.toHaveBeenCalled()
         })
 
         it('handles an empty result array', async () => {
@@ -181,7 +241,7 @@ describe('CapturedEventsService', () => {
             await service.flush()
 
             expect(teamManager.getTeam).not.toHaveBeenCalled()
-            expect(internalCaptureService.capture).not.toHaveBeenCalled()
+            expect(internalCaptureService.captureBatch).not.toHaveBeenCalled()
         })
     })
 })
