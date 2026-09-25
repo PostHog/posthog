@@ -22,7 +22,7 @@ const buildingIconShellClass =
     'flex shrink-0 items-center justify-center rounded-md bg-fill-secondary text-secondary transition-colors group-hover:text-primary'
 
 const featuredImageColumnClass =
-    'relative shrink-0 w-40 sm:w-44 h-[132px] overflow-hidden transition-transform duration-300 ease-out will-change-transform group-hover:scale-[1.04]'
+    'relative shrink-0 w-40 sm:w-44 h-full overflow-hidden transition-transform duration-300 ease-out will-change-transform group-hover:scale-[1.04]'
 
 export type TemplateItemSize = 'default' | 'large'
 
@@ -67,13 +67,17 @@ function TemplateItemTitleDescription({
     wrapClassName,
     titleClassName,
     descriptionClassName,
+    descriptionTooltip = false,
 }: {
     titleId: string
     template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'scope'>
     wrapClassName: string
     titleClassName: string
     descriptionClassName: string
+    /** Show the full description on hover, for cards that keep the clamp fixed. */
+    descriptionTooltip?: boolean
 }): JSX.Element {
+    const description = <p className={descriptionClassName}>{template?.dashboard_description ?? ' '}</p>
     return (
         <div className={wrapClassName}>
             <div className="flex items-center gap-2 min-w-0">
@@ -82,7 +86,11 @@ function TemplateItemTitleDescription({
                 </h5>
                 <OrganizationScopeBadge scope={template?.scope} />
             </div>
-            <p className={descriptionClassName}>{template?.dashboard_description ?? ' '}</p>
+            {descriptionTooltip && template?.dashboard_description ? (
+                <Tooltip title={template.dashboard_description}>{description}</Tooltip>
+            ) : (
+                description
+            )}
         </div>
     )
 }
@@ -108,7 +116,6 @@ export function TemplateItem({
 }: DashboardTemplateItemProps): JSX.Element {
     const titleId = useId()
     const isLarge = size === 'large'
-    const imageHeightClass = 'h-30'
 
     const favouriteHeart = showFavourite ? (
         <Tooltip title="Users love this template">
@@ -150,7 +157,7 @@ export function TemplateItem({
                 className={clsx(
                     templateItemButtonResetClass,
                     'group border border-border rounded TemplateItem flex flex-row',
-                    'bg-bg-light shadow-sm transition-all duration-200 ease-out relative overflow-hidden min-h-[132px]',
+                    'bg-bg-light shadow-sm transition-all duration-200 ease-out relative overflow-hidden h-[132px]',
                     'hover:border-primary-3000-hover hover:shadow-md hover:-translate-y-1',
                     'hover:ring-1 hover:ring-primary/25',
                     'active:translate-y-0 active:shadow-sm active:ring-0',
@@ -173,9 +180,10 @@ export function TemplateItem({
                 <TemplateItemTitleDescription
                     titleId={titleId}
                     template={template}
-                    wrapClassName="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center gap-1 z-10 overflow-y-auto transition-colors duration-200 group-hover:bg-primary-highlight/25"
+                    wrapClassName="flex-1 min-w-0 px-3 py-2 flex flex-col justify-center gap-1 z-10 overflow-hidden transition-colors duration-200 group-hover:bg-primary-highlight/25"
                     titleClassName="min-w-0 text-base leading-tight"
-                    descriptionClassName="text-secondary text-sm m-0 line-clamp-3 group-hover:line-clamp-none"
+                    descriptionClassName="text-secondary text-sm m-0 line-clamp-3"
+                    descriptionTooltip
                 />
             </button>
         )
@@ -199,7 +207,7 @@ export function TemplateItem({
                     src={template?.image_url}
                     alt="cover photo"
                     index={index}
-                    imageClassName={imageHeightClass}
+                    imageClassName="h-full w-full object-cover"
                 />
             </div>
 
