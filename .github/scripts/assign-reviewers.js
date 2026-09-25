@@ -152,7 +152,7 @@ async function getChangedFiles() {
     return allFiles
 }
 
-async function getReviewRequestState() {
+async function getReviewRequestState(previous = null) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
     const headers = {
         Authorization: `token ${GITHUB_TOKEN}`,
@@ -167,25 +167,81 @@ async function getReviewRequestState() {
     }
     const reviewers = await reviewersResponse.json()
 
-    const events = []
-    let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/events?per_page=100`
-    let pages = 0
-    while (url) {
-        if (++pages > 20) {
-            throw new Error('Review request history exceeds 20 pages')
-        }
-        const response = await fetch(url, { headers })
+    const [owner, repo] = GITHUB_REPOSITORY.split('/')
+    const query = `
+        query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+            repository(owner: $owner, name: $repo) {
+                pullRequest(number: $number) {
+                    timelineItems(first: 100, after: $cursor, itemTypes: [REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                            __typename
+                            ... on ReviewRequestedEvent {
+                                createdAt
+                                actor { __typename login }
+                                requestedReviewer { __typename ... on Team { slug } ... on User { login } }
+                            }
+                            ... on ReviewRequestRemovedEvent {
+                                createdAt
+                                actor { __typename login }
+                                requestedReviewer { __typename ... on Team { slug } ... on User { login } }
+                            }
+                        }
+                    }
+                }
+            }
+        }`
+    const events = previous ? [...previous.events] : []
+    let cursor = previous?.cursor || null
+    while (true) {
+        const response = await fetch('https://api.github.com/graphql', {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, variables: { owner, repo, number: Number(PR_NUMBER), cursor } }),
+        })
         if (!response.ok) {
             throw new Error(`GitHub API error listing review request events: ${response.status}`)
         }
-        events.push(...(await response.json()))
-        url = getNextPageUrl(response.headers.get('Link'))
+        const result = await response.json()
+        if (result.errors?.length || !result.data?.repository?.pullRequest) {
+            throw new Error(
+                `GitHub GraphQL error listing review request events: ${JSON.stringify(result.errors || result)}`
+            )
+        }
+        const timeline = result.data.repository.pullRequest.timelineItems
+        for (const event of timeline.nodes) {
+            const reviewer = event.requestedReviewer
+            if (!reviewer) {
+                continue
+            }
+            const actor = event.actor
+            const login = actor?.login
+            events.push({
+                id: events.length,
+                created_at: event.createdAt,
+                event: event.__typename === 'ReviewRequestedEvent' ? 'review_requested' : 'review_request_removed',
+                actor: {
+                    login: login && actor.__typename !== 'User' && !login.endsWith('[bot]') ? `${login}[bot]` : login,
+                },
+                requested_team: reviewer.__typename === 'Team' ? { slug: reviewer.slug } : undefined,
+                requested_reviewer: reviewer.__typename === 'User' ? { login: reviewer.login } : undefined,
+            })
+        }
+        const nextCursor = timeline.pageInfo.endCursor
+        if (timeline.pageInfo.hasNextPage && !nextCursor) {
+            throw new Error('GitHub review request history has no next cursor')
+        }
+        cursor = nextCursor || cursor
+        if (!timeline.pageInfo.hasNextPage) {
+            break
+        }
     }
 
     return {
         teams: reviewers.teams.map((team) => team.slug),
         users: reviewers.users.map((user) => user.login),
         events,
+        cursor,
     }
 }
 
@@ -204,10 +260,10 @@ async function isCurrentHead() {
     return pullRequest.head.sha === HEAD_SHA && pullRequest.state === 'open'
 }
 
-function planReviewRequestChanges(teams, users, state, botLogin) {
+function planReviewRequestChanges(teams, users, footprints, state, botLogin) {
     const currentTeams = new Set(state.teams)
     const currentUsers = new Set(state.users)
-    // A completed review or human removal must not trigger another notification.
+    // An owner gets one automatic request per PR to bound notifications.
     const requestedBefore = new Set()
     const lastRequester = new Map()
     const lastEvent = new Map()
@@ -232,20 +288,22 @@ function planReviewRequestChanges(teams, users, state, botLogin) {
         lastEvent.get(key)?.event === 'review_request_removed' && lastEvent.get(key)?.actor?.login === botLogin
     const desiredTeams = new Set(teams)
     const desiredUsers = new Set(users)
+    const ownerTeams = new Set(
+        footprints.filter((footprint) => footprint.type === 'team').map((footprint) => footprint.name)
+    )
+    const ownerUsers = new Set(
+        footprints.filter((footprint) => footprint.type === 'user').map((footprint) => footprint.name)
+    )
     return {
-        addTeams: teams.filter(
-            (team) =>
-                !currentTeams.has(team) && (!requestedBefore.has(`team:${team}`) || wasRemovedByBot(`team:${team}`))
-        ),
-        addUsers: users.filter(
-            (user) =>
-                !currentUsers.has(user) && (!requestedBefore.has(`user:${user}`) || wasRemovedByBot(`user:${user}`))
-        ),
+        addTeams: teams.filter((team) => !currentTeams.has(team) && !requestedBefore.has(`team:${team}`)),
+        addUsers: users.filter((user) => !currentUsers.has(user) && !requestedBefore.has(`user:${user}`)),
+        manualTeams: teams.filter((team) => !currentTeams.has(team) && wasRemovedByBot(`team:${team}`)),
+        manualUsers: users.filter((user) => !currentUsers.has(user) && wasRemovedByBot(`user:${user}`)),
         removeTeams: state.teams.filter(
-            (team) => !desiredTeams.has(team) && lastRequester.get(`team:${team}`) === botLogin
+            (team) => !desiredTeams.has(team) && !ownerTeams.has(team) && lastRequester.get(`team:${team}`) === botLogin
         ),
         removeUsers: state.users.filter(
-            (user) => !desiredUsers.has(user) && lastRequester.get(`user:${user}`) === botLogin
+            (user) => !desiredUsers.has(user) && !ownerUsers.has(user) && lastRequester.get(`user:${user}`) === botLogin
         ),
     }
 }
@@ -417,11 +475,9 @@ function formatSkippedOwner(footprint) {
     return `- \`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
 }
 
-// Produce the explanation comment body, or null if no owner was dropped. We
-// only post when we actually skipped someone GitHub's "Reviewers" sidebar would
-// otherwise have hidden, so the comment carries signal, not noise.
-function buildReviewerComment(requested, demoted, config = CONFIG) {
-    if (demoted.length === 0) {
+// Produce the explanation comment only when a reviewer needs manual attention.
+function buildReviewerComment(demoted, manual = [], config = CONFIG) {
+    if (demoted.length === 0 && manual.length === 0) {
         return null
     }
 
@@ -430,18 +486,30 @@ function buildReviewerComment(requested, demoted, config = CONFIG) {
         ? 'they only have minor changes here'
         : 'their changes are minor, or the reviewer list was getting long'
 
-    return [
-        config.commentMarker,
-        '### 👀 Auto-assigned reviewers',
-        '',
-        `These soft owners were skipped because ${reason}. Nothing blocks merge, so self-assign if you'd like a look:`,
-        '',
-        ...demoted.map(formatSkippedOwner),
+    const lines = [config.commentMarker, '### 👀 Reviewer routing']
+    if (demoted.length > 0) {
+        lines.push(
+            '',
+            `These soft owners were skipped because ${reason}. Nothing blocks merge, so self-assign if you'd like a look:`,
+            '',
+            ...demoted.map(formatSkippedOwner)
+        )
+    }
+    if (manual.length > 0) {
+        lines.push(
+            '',
+            'These owners match this PR again, but were already requested and removed by the bot. Request another review manually if needed:',
+            '',
+            ...manual.map(formatSkippedOwner)
+        )
+    }
+    lines.push(
         '',
         "Soft owners come from each directory's `owners.yaml` and each product's `product.yaml` " +
             '(resolved nearest-file-wins). The locator after each owner is the file that decided it. ' +
-            'Generated files and lockfiles are ignored when deciding ownership.',
-    ].join('\n')
+            'Generated files and lockfiles are ignored when deciding ownership.'
+    )
+    return lines.join('\n')
 }
 
 async function assignReviewers(teams, users) {
@@ -543,10 +611,30 @@ async function removeReviewers(teams, users) {
                     Accept: 'application/vnd.github.v3+json',
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ [kind]: [name] }),
+                body: JSON.stringify({
+                    reviewers: kind === 'reviewers' ? [name] : [],
+                    team_reviewers: kind === 'team_reviewers' ? [name] : [],
+                }),
             })
             if (response.status === 422) {
-                console.warn(`Reviewer ${name} was already removed`)
+                const currentResponse = await fetch(url, {
+                    headers: {
+                        Authorization: `token ${GITHUB_TOKEN}`,
+                        Accept: 'application/vnd.github.v3+json',
+                    },
+                })
+                if (!currentResponse.ok) {
+                    throw new Error(`GitHub API error checking reviewer '${name}': ${currentResponse.status}`)
+                }
+                const current = await currentResponse.json()
+                const stillRequested =
+                    kind === 'team_reviewers'
+                        ? current.teams.some((team) => team.slug === name)
+                        : current.users.some((user) => user.login === name)
+                if (stillRequested) {
+                    throw new Error(`GitHub rejected removal of reviewer '${name}': 422 ${await response.text()}`)
+                }
+                console.info(`Reviewer ${name} was already removed`)
             } else if (!response.ok) {
                 throw new Error(
                     `GitHub API error removing reviewer '${name}': ${response.status} ${await response.text()}`
@@ -554,6 +642,27 @@ async function removeReviewers(teams, users) {
             }
         }
     }
+}
+
+async function removeObsoleteReviewers(candidates, teams, users, footprints, state, botLogin) {
+    let currentState = state
+    for (const [kind, names] of [
+        ['removeTeams', candidates.removeTeams],
+        ['removeUsers', candidates.removeUsers],
+    ]) {
+        for (const name of names) {
+            currentState = await getReviewRequestState(currentState)
+            if (!(await isCurrentHead())) {
+                console.info('PR head changed or PR closed; skipping stale reviewer removal')
+                return false
+            }
+            const changes = planReviewRequestChanges(teams, users, footprints, currentState, botLogin)
+            if (changes[kind].includes(name)) {
+                await removeReviewers(kind === 'removeTeams' ? [name] : [], kind === 'removeUsers' ? [name] : [])
+            }
+        }
+    }
+    return true
 }
 
 // Best-effort: a label failure must never fail the job.
@@ -624,6 +733,9 @@ async function upsertReviewerComment(body) {
 
     try {
         const existing = await findExistingComment(CONFIG.commentMarker)
+        if (!existing && !body) {
+            return
+        }
         if (existing?.body === body) {
             return
         }
@@ -631,7 +743,7 @@ async function upsertReviewerComment(body) {
             ? `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/comments/${existing.id}`
             : `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments`
 
-        const method = existing ? 'PATCH' : 'POST'
+        const method = !body ? 'DELETE' : existing ? 'PATCH' : 'POST'
         const response = await fetch(url, {
             method,
             headers: {
@@ -639,13 +751,12 @@ async function upsertReviewerComment(body) {
                 Accept: 'application/vnd.github.v3+json',
                 'Content-Type': 'application/json',
             },
-            // oxlint-disable-next-line no-invalid-fetch-options -- method is always PATCH/POST, never GET
-            body: JSON.stringify({ body }),
+            ...(body ? { body: JSON.stringify({ body }) } : {}),
         })
 
         if (response.status === 403) {
             console.warn(
-                '⚠️  Could not post the reviewer explanation comment (403). ' +
+                '⚠️  Could not update the reviewer explanation comment (403). ' +
                     'The assign-reviewers GitHub App needs `issues: write` permission.'
             )
             return
@@ -655,7 +766,13 @@ async function upsertReviewerComment(body) {
             return
         }
 
-        console.info(existing ? '✅ Reviewer comment updated' : '✅ Reviewer comment posted')
+        console.info(
+            !body
+                ? '✅ Reviewer comment removed'
+                : existing
+                  ? '✅ Reviewer comment updated'
+                  : '✅ Reviewer comment posted'
+        )
     } catch (error) {
         console.warn(`⚠️  Skipping reviewer comment: ${error.message}`)
     }
@@ -710,26 +827,32 @@ async function main() {
 
         const { toLabel, toRequest } = isExternal ? partitionExternalTeams(teams) : { toLabel: [], toRequest: teams }
         const state = await getReviewRequestState()
-        const changes = planReviewRequestChanges(
-            toRequest,
-            users,
-            state,
-            process.env.ASSIGN_REVIEWERS_BOT_LOGIN || 'pr-assigner-resolver-posthog[bot]'
-        )
+        const botLogin = process.env.ASSIGN_REVIEWERS_BOT_LOGIN || 'pr-assigner-resolver-posthog[bot]'
+        const changes = planReviewRequestChanges(toRequest, users, footprints, state, botLogin)
 
         if (!(await isCurrentHead())) {
             console.info('PR head changed or PR closed; skipping stale reviewer assignment')
             return
         }
 
-        await removeReviewers(changes.removeTeams, changes.removeUsers)
-        await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
         await assignReviewers(changes.addTeams, changes.addUsers)
+        await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
 
-        const commentBody = buildReviewerComment(requested, demoted)
-        if (commentBody) {
-            await upsertReviewerComment(commentBody)
+        if (changes.removeTeams.length > 0 || changes.removeUsers.length > 0) {
+            if (!(await removeObsoleteReviewers(changes, toRequest, users, footprints, state, botLogin))) {
+                return
+            }
         }
+
+        const skipped = demoted.filter((footprint) =>
+            footprint.type === 'team' ? !state.teams.includes(footprint.name) : !state.users.includes(footprint.name)
+        )
+        const manual = requested.filter((footprint) =>
+            footprint.type === 'team'
+                ? changes.manualTeams.includes(footprint.name)
+                : changes.manualUsers.includes(footprint.name)
+        )
+        await upsertReviewerComment(buildReviewerComment(skipped, manual))
     } catch (error) {
         console.error('Error:', error.message)
         process.exit(1)
@@ -742,6 +865,10 @@ if (require.main === module) {
 
 module.exports = {
     CONFIG,
+    getReviewRequestState,
+    removeReviewers,
+    removeObsoleteReviewers,
+    upsertReviewerComment,
     isExcludedFile,
     classifyOwner,
     teamSlugToLabel,

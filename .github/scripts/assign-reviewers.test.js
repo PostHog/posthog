@@ -14,6 +14,10 @@ const {
     classifyOwners,
     planReviewRequestChanges,
     buildReviewerComment,
+    getReviewRequestState,
+    removeReviewers,
+    removeObsoleteReviewers,
+    upsertReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
 
@@ -38,6 +42,161 @@ function assertMatchObject(actual, partial) {
         assert.deepEqual(actual[key], expected)
     }
 }
+
+function setGithubEnv(t) {
+    const previous = {
+        GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+        GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY,
+        PR_NUMBER: process.env.PR_NUMBER,
+        HEAD_SHA: process.env.HEAD_SHA,
+    }
+    Object.assign(process.env, {
+        GITHUB_TOKEN: 'test-token',
+        GITHUB_REPOSITORY: 'PostHog/posthog',
+        PR_NUMBER: '123',
+        HEAD_SHA: 'expected-head',
+    })
+    t.after(() => {
+        for (const [name, value] of Object.entries(previous)) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
+    })
+}
+
+test('getReviewRequestState: pages through review events without counting unrelated issue activity', async (t) => {
+    setGithubEnv(t)
+    const cursors = []
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+        if (url.endsWith('/requested_reviewers')) {
+            return Response.json({ teams: [], users: [] })
+        }
+        const { query, variables } = JSON.parse(options.body)
+        assert.match(query, /itemTypes:\s*\[REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT\]/)
+        cursors.push(variables.cursor)
+        const page = variables.cursor === null ? 0 : Number(variables.cursor)
+        const requested = page < 20
+        return Response.json({
+            data: {
+                repository: {
+                    pullRequest: {
+                        timelineItems: {
+                            pageInfo: { hasNextPage: requested, endCursor: String(page + 1) },
+                            nodes: [
+                                {
+                                    __typename: requested ? 'ReviewRequestedEvent' : 'ReviewRequestRemovedEvent',
+                                    createdAt: requested ? '2026-09-25T00:00:01Z' : '2026-09-25T00:00:02Z',
+                                    actor: { __typename: 'Bot', login: 'pr-assigner-resolver-posthog' },
+                                    requestedReviewer: { __typename: 'Team', slug: 'team-context-mcp' },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        })
+    })
+
+    const state = await getReviewRequestState()
+
+    assert.equal(cursors.length, 21)
+    assert.deepEqual(cursors.slice(0, 2), [null, '1'])
+    assert.equal(state.events.length, 21)
+    assert.equal(state.cursor, '21')
+    assert.deepEqual(
+        [state.events[0], state.events.at(-1)].map(({ event, actor }) => [event, actor.login]),
+        [
+            ['review_requested', 'pr-assigner-resolver-posthog[bot]'],
+            ['review_request_removed', 'pr-assigner-resolver-posthog[bot]'],
+        ]
+    )
+})
+
+test('getReviewRequestState: rejects GraphQL errors instead of treating history as empty', async (t) => {
+    setGithubEnv(t)
+    t.mock.method(globalThis, 'fetch', async (url) =>
+        url.endsWith('/requested_reviewers')
+            ? Response.json({ teams: [], users: [] })
+            : Response.json({ errors: [{ message: 'history unavailable' }] })
+    )
+
+    await assert.rejects(getReviewRequestState(), /history unavailable/)
+})
+
+for (const [stillRequested, shouldReject] of [
+    [true, true],
+    [false, false],
+]) {
+    test(`removeReviewers: team DELETE 422 with reviewer still present=${stillRequested}`, async (t) => {
+        setGithubEnv(t)
+        t.mock.method(globalThis, 'fetch', async (_url, options = {}) => {
+            if (options.method === 'DELETE') {
+                assert.deepEqual(JSON.parse(options.body), { reviewers: [], team_reviewers: ['team-context-mcp'] })
+                return new Response('validation failed', { status: 422 })
+            }
+            return Response.json({ teams: stillRequested ? [{ slug: 'team-context-mcp' }] : [], users: [] })
+        })
+
+        if (shouldReject) {
+            await assert.rejects(removeReviewers(['team-context-mcp'], []), /rejected removal/)
+        } else {
+            await removeReviewers(['team-context-mcp'], [])
+        }
+    })
+}
+
+test('removeObsoleteReviewers: preserves a human request made after the first snapshot', async (t) => {
+    setGithubEnv(t)
+    const methods = []
+    t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+        methods.push(options.method || 'GET')
+        if (url.endsWith('/requested_reviewers')) {
+            return Response.json({ teams: [{ slug: 'team-context-mcp' }], users: [] })
+        }
+        if (url.endsWith('/pulls/123')) {
+            return Response.json({ head: { sha: 'expected-head' }, state: 'open' })
+        }
+        assert.equal(JSON.parse(options.body).variables.cursor, 'old-cursor')
+        return Response.json({
+            data: {
+                repository: {
+                    pullRequest: {
+                        timelineItems: {
+                            pageInfo: { hasNextPage: false, endCursor: 'new-cursor' },
+                            nodes: [
+                                {
+                                    __typename: 'ReviewRequestedEvent',
+                                    createdAt: '2026-09-25T00:00:01Z',
+                                    actor: { __typename: 'User', login: 'human' },
+                                    requestedReviewer: { __typename: 'Team', slug: 'team-context-mcp' },
+                                },
+                            ],
+                        },
+                    },
+                },
+            },
+        })
+    })
+
+    await removeObsoleteReviewers(
+        { removeTeams: ['team-context-mcp'], removeUsers: [] },
+        [],
+        [],
+        [],
+        {
+            teams: ['team-context-mcp'],
+            users: [],
+            events: [reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]')],
+            cursor: 'old-cursor',
+        },
+        'pr-assigner-resolver-posthog[bot]'
+    )
+
+    assert.deepEqual(methods, ['GET', 'POST', 'GET'])
+})
 
 for (const [filename, expected] of [
     ['frontend/src/generated/core/api.ts', true],
@@ -195,10 +354,18 @@ test('planReviewRequestChanges: requests each newly eligible owner once', () => 
         planReviewRequestChanges(
             ['team-surveys', 'team-context-mcp'],
             ['reviewer'],
+            [],
             state,
             'pr-assigner-resolver-posthog[bot]'
         ),
-        { addTeams: ['team-context-mcp'], addUsers: ['reviewer'], removeTeams: [], removeUsers: [] }
+        {
+            addTeams: ['team-context-mcp'],
+            addUsers: ['reviewer'],
+            manualTeams: [],
+            manualUsers: [],
+            removeTeams: [],
+            removeUsers: [],
+        }
     )
 })
 
@@ -209,19 +376,24 @@ test('planReviewRequestChanges: never re-requests a removed or completed review'
         events: [reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]')],
     }
 
-    assert.deepEqual(planReviewRequestChanges(['team-context-mcp'], [], state, 'pr-assigner-resolver-posthog[bot]'), {
-        addTeams: [],
-        addUsers: [],
-        removeTeams: [],
-        removeUsers: [],
-    })
+    assert.deepEqual(
+        planReviewRequestChanges(['team-context-mcp'], [], [], state, 'pr-assigner-resolver-posthog[bot]'),
+        {
+            addTeams: [],
+            addUsers: [],
+            manualTeams: [],
+            manualUsers: [],
+            removeTeams: [],
+            removeUsers: [],
+        }
+    )
 })
 
-for (const [remover, expected] of [
+for (const [remover, manualTeams] of [
     ['pr-assigner-resolver-posthog[bot]', ['team-context-mcp']],
     ['human', []],
 ]) {
-    test(`planReviewRequestChanges: re-requests after removal by ${remover} only when the bot removed it`, () => {
+    test(`planReviewRequestChanges: does not re-request after removal by ${remover}`, () => {
         const state = {
             teams: [],
             users: [],
@@ -235,10 +407,12 @@ for (const [remover, expected] of [
         }
 
         assert.deepEqual(
-            planReviewRequestChanges(['team-context-mcp'], [], state, 'pr-assigner-resolver-posthog[bot]'),
+            planReviewRequestChanges(['team-context-mcp'], [], [], state, 'pr-assigner-resolver-posthog[bot]'),
             {
-                addTeams: expected,
+                addTeams: [],
                 addUsers: [],
+                manualTeams,
+                manualUsers: [],
                 removeTeams: [],
                 removeUsers: [],
             }
@@ -256,9 +430,11 @@ test('planReviewRequestChanges: removes only stale bot requests', () => {
         ],
     }
 
-    assert.deepEqual(planReviewRequestChanges([], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+    assert.deepEqual(planReviewRequestChanges([], [], [], state, 'pr-assigner-resolver-posthog[bot]'), {
         addTeams: [],
         addUsers: [],
+        manualTeams: [],
+        manualUsers: [],
         removeTeams: ['team-context-mcp'],
         removeUsers: [],
     })
@@ -274,9 +450,11 @@ test('planReviewRequestChanges: preserves a bot request a person requested again
         ],
     }
 
-    assert.deepEqual(planReviewRequestChanges([], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+    assert.deepEqual(planReviewRequestChanges([], [], [], state, 'pr-assigner-resolver-posthog[bot]'), {
         addTeams: [],
         addUsers: [],
+        manualTeams: [],
+        manualUsers: [],
         removeTeams: [],
         removeUsers: [],
     })
@@ -297,12 +475,52 @@ test('planReviewRequestChanges: removes a stale individual request from the bot'
         ],
     }
 
-    assert.deepEqual(planReviewRequestChanges([], [], state, 'pr-assigner-resolver-posthog[bot]'), {
+    assert.deepEqual(planReviewRequestChanges([], [], [], state, 'pr-assigner-resolver-posthog[bot]'), {
         addTeams: [],
         addUsers: [],
+        manualTeams: [],
+        manualUsers: [],
         removeTeams: [],
         removeUsers: ['reviewer'],
     })
+})
+
+test('planReviewRequestChanges: retains a request for an owner demoted below the threshold', () => {
+    const state = {
+        teams: ['team-context-mcp'],
+        users: ['reviewer'],
+        events: [
+            reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]'),
+            {
+                id: 2,
+                created_at: '2026-09-25T00:00:02Z',
+                event: 'review_requested',
+                actor: { login: 'pr-assigner-resolver-posthog[bot]' },
+                requested_reviewer: { login: 'reviewer' },
+            },
+        ],
+    }
+
+    assert.deepEqual(
+        planReviewRequestChanges(
+            ['team-surveys'],
+            [],
+            [
+                { type: 'team', name: 'team-context-mcp' },
+                { type: 'user', name: 'reviewer' },
+            ],
+            state,
+            'pr-assigner-resolver-posthog[bot]'
+        ),
+        {
+            addTeams: ['team-surveys'],
+            addUsers: [],
+            manualTeams: [],
+            manualUsers: [],
+            removeTeams: [],
+            removeUsers: [],
+        }
+    )
 })
 
 test('computeOwnerFootprints: accumulates files and sources per owner, and requests @handle individuals as users', () => {
@@ -444,12 +662,18 @@ const demoted = [
 ]
 
 test('buildReviewerComment: returns null when no owner was dropped', () => {
-    assert.equal(buildReviewerComment(requested, []), null)
-    assert.equal(buildReviewerComment([...requested, requested[0]], []), null)
+    assert.equal(buildReviewerComment([]), null)
+})
+
+test('buildReviewerComment: explains a needed review that cannot be requested again automatically', () => {
+    const body = buildReviewerComment([], requested)
+
+    assert.ok(body.includes('Request another review manually if needed'))
+    assert.ok(body.includes('- `@PostHog/team-surveys` (`products/surveys/**`)'))
 })
 
 test('buildReviewerComment: lists each skipped owner as a bullet with its matched rule, not raw counts', () => {
-    const body = buildReviewerComment(requested, demoted)
+    const body = buildReviewerComment(demoted)
     assert.ok(body.includes(CONFIG.commentMarker))
     assert.ok(body.includes('- `@PostHog/team-data-tools` (`posthog/hogql/**`)'))
     assert.ok(body.includes('they only have minor changes here'))
@@ -460,7 +684,7 @@ test('buildReviewerComment: lists each skipped owner as a bullet with its matche
 
 test('buildReviewerComment: explains the reviewer cap when an owner was capped out', () => {
     const cappedDemoted = [{ ...demoted[0], reason: 'capped' }]
-    const body = buildReviewerComment(requested, cappedDemoted)
+    const body = buildReviewerComment(cappedDemoted)
     assert.ok(body.includes('the reviewer list was getting long'))
 })
 
@@ -474,6 +698,22 @@ test('buildReviewerComment: truncates long pattern lists', () => {
             reason: 'minor',
         },
     ]
-    const body = buildReviewerComment(requested, manyDemoted)
+    const body = buildReviewerComment(manyDemoted)
     assert.ok(body.includes('(+3 more)'))
+})
+
+test('upsertReviewerComment: removes an obsolete explanation comment', async (t) => {
+    setGithubEnv(t)
+    const methods = []
+    t.mock.method(globalThis, 'fetch', async (_url, options = {}) => {
+        methods.push(options.method || 'GET')
+        if (options.method === 'DELETE') {
+            return new Response(null, { status: 204 })
+        }
+        return Response.json([{ id: 1, body: `${CONFIG.commentMarker}\nNo longer relevant` }])
+    })
+
+    await upsertReviewerComment(null)
+
+    assert.deepEqual(methods, ['GET', 'DELETE'])
 })
