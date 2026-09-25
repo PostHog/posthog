@@ -16,7 +16,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
@@ -1044,11 +1043,6 @@ export const WebStatsTableTile = ({
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
-    const isCompoundBreakdown =
-        breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign ||
-        breakdownBy === WebStatsBreakdown.Viewport ||
-        breakdownBy === WebStatsBreakdown.Timezone
-
     const includeHost = query.source.kind === NodeKind.WebStatsTableQuery ? query.source.includeHost : false
 
     const utmSource = webStatsBreakdownToPropertyName(WebStatsBreakdown.InitialUTMSource)!
@@ -1096,16 +1090,6 @@ export const WebStatsTableTile = ({
 
     const onClick = useCallback(
         (breakdownValue: string | null) => {
-            if (productTab === ProductTab.PAGE_REPORTS) {
-                lemonToast.info('Filters are not yet supported in this tile')
-                return
-            }
-
-            // When includeHost is active, breakdown value contains host+path which doesn't map to a single property filter
-            if (includeHost) {
-                return
-            }
-
             if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign && breakdownValue) {
                 const values = breakdownValue.split(' / ')
                 const sourceValue = values[0]
@@ -1158,8 +1142,6 @@ export const WebStatsTableTile = ({
             togglePropertyFilter,
             type,
             key,
-            productTab,
-            includeHost,
             breakdownBy,
             utmSource,
             utmMedium,
@@ -1169,21 +1151,20 @@ export const WebStatsTableTile = ({
         ]
     )
 
-    const canFilterRow = !includeHost && productTab !== ProductTab.PAGE_REPORTS
-
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
-            // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
-            if (!key && !type && !isCompoundBreakdown) {
-                return {}
+            const filterability = getRowFilterability({
+                breakdownBy,
+                breakdownValue: getBreakdownValue(record, breakdownBy),
+                productTab,
+                includeHost,
+            })
+
+            if (!filterability.canFilter) {
+                return filterability.reason ? { title: filterability.reason } : {}
             }
 
-            const breakdownValue = getBreakdownValue(record, breakdownBy)
-            if (breakdownValue === undefined) {
-                return {}
-            }
-
-            return { onClick: () => onClick(breakdownValue), ...(canFilterRow && { title: 'Filter by this value' }) }
+            return { onClick: () => onClick(filterability.breakdownValue), title: 'Filter by this value' }
         }
 
         return {
@@ -1193,7 +1174,7 @@ export const WebStatsTableTile = ({
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
             showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination, canFilterRow])
+    }, [onClick, insightProps, breakdownBy, productTab, includeHost, query, enablePagination])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({
@@ -1215,6 +1196,53 @@ export const WebStatsTableTile = ({
             </WebAnalyticsTileSkeletonGate>
         </div>
     )
+}
+
+export type RowFilterability =
+    | { canFilter: true; breakdownValue: string | null }
+    | { canFilter: false; reason?: string }
+
+/**
+ * Decides whether clicking a breakdown row can apply a filter, which is what the row's click
+ * handler hangs on: LemonTable paints the pointer and the hover highlight from that handler.
+ * `reason` names the setting to change, where a setting is what blocks the click.
+ */
+export const getRowFilterability = ({
+    breakdownBy,
+    breakdownValue,
+    productTab,
+    includeHost,
+}: {
+    breakdownBy: WebStatsBreakdown
+    breakdownValue: string | null | undefined
+    productTab: ProductTab
+    includeHost?: boolean
+}): RowFilterability => {
+    if (productTab === ProductTab.PAGE_REPORTS) {
+        return { canFilter: false, reason: 'Filtering is not available in this tile' }
+    }
+
+    if (includeHost) {
+        // The value holds host and path together, which no single property filter matches
+        return { canFilter: false, reason: 'Turn off "Include host" to filter by path' }
+    }
+
+    if (breakdownValue === undefined) {
+        return { canFilter: false }
+    }
+
+    // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick,
+    // which splits the value, so an empty value leaves it nothing to filter by
+    const isCompoundBreakdown =
+        breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign ||
+        breakdownBy === WebStatsBreakdown.Viewport ||
+        breakdownBy === WebStatsBreakdown.Timezone
+
+    if (isCompoundBreakdown) {
+        return breakdownValue ? { canFilter: true, breakdownValue } : { canFilter: false }
+    }
+
+    return webStatsBreakdownToPropertyName(breakdownBy) ? { canFilter: true, breakdownValue } : { canFilter: false }
 }
 
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {

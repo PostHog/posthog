@@ -1,4 +1,8 @@
-import { comparisonTooltipText, toUtcOffsetFormat } from './WebAnalyticsTile'
+import { ProductTab } from 'scenes/web-analytics/common'
+
+import { WebStatsBreakdown } from '~/queries/schema/schema-general'
+
+import { comparisonTooltipText, getRowFilterability, toUtcOffsetFormat } from './WebAnalyticsTile'
 
 describe('WebAnalyticsTile helpers', () => {
     describe('toUtcOffsetFormat', () => {
@@ -28,6 +32,56 @@ describe('WebAnalyticsTile helpers', () => {
             [10, 5, false, null],
         ])('formats %s compared with %s', (current, previous, compare, expected) => {
             expect(comparisonTooltipText(current, previous, compare, formatNumber)).toEqual(expected)
+        })
+    })
+
+    describe('getRowFilterability', () => {
+        const baseArgs = {
+            breakdownBy: WebStatsBreakdown.Page,
+            breakdownValue: '/pricing',
+            productTab: ProductTab.ANALYTICS,
+            includeHost: false,
+        }
+
+        it.each([
+            ['a breakdown backed by a property', {}, true, false],
+            ['the host and path breakdown', { includeHost: true }, false, true],
+            ['a page reports tile', { productTab: ProductTab.PAGE_REPORTS }, false, true],
+            ['a breakdown with no property to filter', { breakdownBy: WebStatsBreakdown.PreviousPage }, false, false],
+            [
+                'a breakdown computed at query time',
+                { breakdownBy: WebStatsBreakdown.FirstPageviewChannelType },
+                false,
+                false,
+            ],
+            ['a row with no value', { breakdownValue: undefined }, false, false],
+            [
+                'a compound breakdown',
+                { breakdownBy: WebStatsBreakdown.Viewport, breakdownValue: '390x844' },
+                true,
+                false,
+            ],
+            [
+                'a compound breakdown with an empty value',
+                { breakdownBy: WebStatsBreakdown.Viewport, breakdownValue: '' },
+                false,
+                false,
+            ],
+            [
+                'the utm source, medium and campaign breakdown',
+                {
+                    breakdownBy: WebStatsBreakdown.InitialUTMSourceMediumCampaign,
+                    breakdownValue: 'google / cpc / spring',
+                },
+                true,
+                false,
+            ],
+            ['the UTC timezone row', { breakdownBy: WebStatsBreakdown.Timezone, breakdownValue: '0' }, true, false],
+        ])('%s', (_name, args, canFilter, expectsReason) => {
+            const filterability = getRowFilterability({ ...baseArgs, ...args })
+
+            expect(filterability.canFilter).toEqual(canFilter)
+            expect(!filterability.canFilter && filterability.reason !== undefined).toEqual(expectsReason)
         })
     })
 })
