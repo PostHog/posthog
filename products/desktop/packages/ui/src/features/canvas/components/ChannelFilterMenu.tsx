@@ -11,11 +11,15 @@ import {
   type EnvironmentFilter,
   type KindFilter,
   type PinnedFilter,
+  type SourceFilter,
+  sameSources,
+  toggleSource,
 } from "@posthog/core/canvas/channelItems";
 import {
   Button,
   cn,
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
@@ -180,6 +184,65 @@ function FilterSubmenu<T extends string>({
   );
 }
 
+function sourcesLabel(
+  options: readonly Option<string>[],
+  value: SourceFilter,
+): string {
+  if (value.length === 0) return "Any source";
+  if (value.length > 2) return `${value.length} sources`;
+  return options
+    .filter((option) => value.includes(option.value))
+    .map((option) => option.label)
+    .join(", ");
+}
+
+function SourceSubmenu({
+  options,
+  value,
+  defaultValue,
+  onChange,
+}: {
+  options: readonly Option<string>[];
+  value: SourceFilter;
+  defaultValue: SourceFilter;
+  onChange: (value: SourceFilter) => void;
+}) {
+  const narrowed = !sameSources(value, defaultValue);
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger className="pr-1">
+        <span>Source</span>
+        <span
+          className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
+        >
+          {sourcesLabel(options, value)}
+        </span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        <DropdownMenuCheckboxItem
+          checked={value.length === 0}
+          closeOnClick={false}
+          onCheckedChange={() => onChange(ANY_SOURCE)}
+        >
+          Any source
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={value.includes(option.value)}
+            closeOnClick={false}
+            onCheckedChange={() => onChange(toggleSource(value, option.value))}
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  );
+}
+
 /**
  * The sessions list's filters and sort order, behind the funnel button.
  *
@@ -242,13 +305,12 @@ export function ChannelFilterMenu({
     groupings ?? (showRunFilters ? DEFAULT_GROUPINGS : [])
   ).map((value) => ({ value, label: GROUPING_LABELS[value] }));
 
-  const sourceOptions: Option<string>[] = [
-    { value: ANY_SOURCE, label: "Any source" },
-    ...Array.from(new Set([DESKTOP_SOURCE, ...sources])).map((source) => ({
-      value: source,
-      label: sourceLabel(source),
-    })),
-  ];
+  const sourceOptions: Option<string>[] = Array.from(
+    new Set([DESKTOP_SOURCE, ...sources]),
+  ).map((source) => ({
+    value: source,
+    label: sourceLabel(source),
+  }));
 
   return (
     <DropdownMenu>
@@ -338,12 +400,11 @@ export function ChannelFilterMenu({
               defaultValue={defaultFilters.environment}
               onChange={(value) => onFilterChange("environment", value)}
             />
-            <FilterSubmenu
-              label="Source"
+            <SourceSubmenu
               options={sourceOptions}
-              value={filters.source}
-              defaultValue={defaultFilters.source}
-              onChange={(value) => onFilterChange("source", value)}
+              value={filters.sources}
+              defaultValue={defaultFilters.sources}
+              onChange={(value) => onFilterChange("sources", value)}
             />
           </>
         )}
