@@ -3,7 +3,7 @@ import dataclasses
 from concurrent.futures import Future
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
@@ -12,14 +12,10 @@ from parameterized import parameterized
 from posthoganalytics.ai.prompts import PromptResult
 from rest_framework import status
 
-from products.ml_inference.backend.facade.contracts import (
-    ChoiceAnswer,
-    DecisionGatewayError,
-    DecisionGatewayUnreachableError,
-    DecisionResult,
-    SearchIntent,
-    SearchIntentRequest,
-)
+from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
+
+from products.ml_inference.backend.facade.contracts import SearchIntent, SearchIntentRequest
 from products.ml_inference.backend.facade.enums import SearchIntentSource
 from products.ml_inference.backend.logic.search_intent import classify_search_intent
 from products.ml_inference.backend.logic.search_intent_prompt import (
@@ -40,18 +36,23 @@ def _search(
     )
 
 
-def _answer(choice: str, confidence: float) -> DecisionResult:
-    return DecisionResult(
+BUILD_CLIENT = "products.ml_inference.backend.logic.search_intent.build_system_one_client"
+
+
+def _answer(choice: str, confidence: float) -> SystemOneResult:
+    return SystemOneResult(
         model="jevk5-0.2",
         answers={"tab": ChoiceAnswer(choice=choice, confidence=confidence, probabilities={choice: confidence})},
         input_tokens=90,
     )
 
 
-@patch("products.ml_inference.backend.logic.search_intent.decisions.decide")
 class TestClassifySearchIntent(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
+        build = patch(BUILD_CLIENT).start()
+        self.addCleanup(patch.stopall)
+        self.decide = build.return_value.decide
 
     @parameterized.expand(
         [
@@ -66,22 +67,31 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("partial_email", "ada@exa", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("url_value", "https://example.com/pricing", ALL_TABS, "pageview_urls", SearchIntentSource.RULE),
             ("path_value", "/pricing", ALL_TABS, "pageview_urls", SearchIntentSource.RULE),
+            ("path_with_query", "/reset?token=abc", ALL_TABS, "pageview_urls", SearchIntentSource.RULE),
+            (
+                "path_without_url_tab",
+                "/search?q=ada",
+                ("events", "person_properties"),
+                None,
+                SearchIntentSource.SKIPPED,
+            ),
             ("id_like", "user 12345678", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("opaque_token_in_words", "session sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]
     )
     def test_never_asks_the_model_about_values_or_unanswerable_searches(
-        self, decide: MagicMock, _name: str, query: str, available: tuple[str, ...], expected: str | None, source
+        self, _name: str, query: str, available: tuple[str, ...], expected: str | None, source
     ) -> None:
         intent = classify_search_intent(_search(query, available))
 
         assert (intent.group_type, intent.source) == (expected, source)
-        decide.assert_not_called()
+        self.decide.assert_not_called()
 
-    def test_offers_only_the_tabs_the_picker_shows(self, decide: MagicMock) -> None:
-        decide.return_value = _answer("person_properties", 0.9)
+    def test_offers_only_the_tabs_the_picker_shows(self) -> None:
+        self.decide.return_value = _answer("person_properties", 0.9)
 
         intent = classify_search_intent(_search("email"))
 
@@ -92,15 +102,15 @@ class TestClassifySearchIntent(SimpleTestCase):
             source=SearchIntentSource.MODEL,
             suggests_switch=True,
         )
-        sent = decide.call_args.args[0]
-        assert set(sent.questions["tab"].criteria) == {
+        sent = self.decide.call_args.kwargs
+        assert set(sent["questions"]["tab"].criteria) == {
             "events",
             "event_properties",
             "person_properties",
             "pageview_urls",
             "email_addresses",
         }
-        assert "Search: email" in sent.state
+        assert "Search: email" in sent["state"]
 
     @parameterized.expand(
         [
@@ -111,19 +121,19 @@ class TestClassifySearchIntent(SimpleTestCase):
         ]
     )
     def test_suggests_a_switch_only_for_a_confident_different_tab(
-        self, decide: MagicMock, _name: str, choice: str, confidence: float, active: str, expected: bool
+        self, _name: str, choice: str, confidence: float, active: str, expected: bool
     ) -> None:
-        decide.return_value = _answer(choice, confidence)
+        self.decide.return_value = _answer(choice, confidence)
 
         assert classify_search_intent(_search("email", active=active)).suggests_switch is expected
 
-    def test_an_answer_outside_the_offered_tabs_is_dropped(self, decide: MagicMock) -> None:
-        decide.return_value = _answer("cohorts", 0.99)
+    def test_an_answer_outside_the_offered_tabs_is_dropped(self) -> None:
+        self.decide.return_value = _answer("cohorts", 0.99)
 
         assert classify_search_intent(_search("paying users")).source == SearchIntentSource.SKIPPED
 
-    def test_asks_with_the_managed_prompt(self, decide: MagicMock) -> None:
-        decide.return_value = _answer("person_properties", 0.9)
+    def test_asks_with_the_managed_prompt(self) -> None:
+        self.decide.return_value = _answer("person_properties", 0.9)
         prompt = SearchIntentPrompt(
             instructions="Which tab?",
             options={"events": "An event.", "person_properties": "A person property."},
@@ -134,7 +144,7 @@ class TestClassifySearchIntent(SimpleTestCase):
         intent = classify_search_intent(_search("email"), prompt=prompt)
 
         assert (intent.is_confident, intent.prompt_version) == (False, 7)
-        question = decide.call_args.args[0].questions["tab"]
+        question = self.decide.call_args.kwargs["questions"]["tab"]
         assert (question.instructions, question.criteria) == ("Which tab?", prompt.options)
 
     @parameterized.expand(
@@ -146,14 +156,14 @@ class TestClassifySearchIntent(SimpleTestCase):
         ]
     )
     def test_the_same_search_is_answered_once_per_team_and_prompt(
-        self, decide: MagicMock, _name: str, second_team: int, second_prompt: SearchIntentPrompt, expected_calls: int
+        self, _name: str, second_team: int, second_prompt: SearchIntentPrompt, expected_calls: int
     ) -> None:
-        decide.return_value = _answer("event_properties", 0.8)
+        self.decide.return_value = _answer("event_properties", 0.8)
 
         classify_search_intent(_search("current url"), prompt=BUNDLED_SEARCH_INTENT_PROMPT)
         classify_search_intent(_search("  current   url ", team_id=second_team), prompt=second_prompt)
 
-        assert decide.call_count == expected_calls
+        assert self.decide.call_count == expected_calls
 
 
 MANAGED_OPTIONS = {"events": "An event.", "person_properties": "A person property."}
@@ -185,6 +195,12 @@ class TestSearchIntentPrompt(SimpleTestCase):
                 {"options": MANAGED_OPTIONS, "confident_threshold": 60},
                 MANAGED_OPTIONS,
                 BUNDLED_SEARCH_INTENT_PROMPT.confident_threshold,
+            ),
+            (
+                "more_options_than_the_gateway_takes",
+                {"options": {f"tab_{i}": "A tab." for i in range(17)}, "confident_threshold": 0.7},
+                BUNDLED_SEARCH_INTENT_PROMPT.options,
+                0.7,
             ),
             ("no_config", None, BUNDLED_SEARCH_INTENT_PROMPT.options, BUNDLED_SEARCH_INTENT_PROMPT.confident_threshold),
         ]
@@ -237,11 +253,11 @@ class TestSearchIntentEndpoint(APIBaseTest):
             format="json",
         )
 
-    @patch("products.ml_inference.backend.logic.search_intent.decisions.decide")
+    @patch(BUILD_CLIENT)
     @patch("products.ml_inference.backend.facade.api.decisions.decisions_enabled", return_value=True)
-    def test_returns_the_tab_for_the_team(self, _enabled, decide) -> None:
+    def test_returns_the_tab_for_the_team(self, _enabled, build) -> None:
         cache.clear()
-        decide.return_value = _answer("person_properties", 0.9)
+        build.return_value.decide.return_value = _answer("person_properties", 0.9)
 
         response = self._post()
 
@@ -254,13 +270,14 @@ class TestSearchIntentEndpoint(APIBaseTest):
             "method": "model",
             "prompt_version": None,
         }
-        assert decide.call_args.args[0].team_id == self.team.id
+        assert build.call_args.kwargs["distinct_id"] == team_distinct_id(self.team.id)
 
     @parameterized.expand(
         [
             ("disabled", False, None, status.HTTP_404_NOT_FOUND),
-            ("unreachable", True, DecisionGatewayUnreachableError("timeout"), status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("refused", True, DecisionGatewayError(500, "boom"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("not_configured", True, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("unreachable", True, SystemOneRequestFailed("timeout"), status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("refused", True, SystemOneRequestFailed("boom", status_code=500), status.HTTP_503_SERVICE_UNAVAILABLE),
         ]
     )
     def test_the_picker_gets_a_plain_failure_when_there_is_no_answer(
@@ -269,7 +286,7 @@ class TestSearchIntentEndpoint(APIBaseTest):
         cache.clear()
         with (
             patch("products.ml_inference.backend.facade.api.decisions.decisions_enabled", return_value=enabled),
-            patch("products.ml_inference.backend.logic.search_intent.decisions.decide", side_effect=error),
+            patch(BUILD_CLIENT, side_effect=error),
         ):
             response = self._post()
 

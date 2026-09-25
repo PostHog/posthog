@@ -37,7 +37,7 @@ import time
 import asyncio
 import dataclasses
 
-from posthog.llm.gateway_client import resolve_ai_gateway_config
+from posthog.llm.system_one_client import system_one_configured
 
 from products.ml_inference.backend.facade.contracts import DEFAULT_DECISION_MODEL, SearchIntentRequest
 from products.ml_inference.backend.logic.search_intent import classify_search_intent
@@ -308,8 +308,10 @@ CONTEXT_CASES = [
 
 async def eval_search_intent(ctx: EvalContext) -> None:
     # Without a gateway every case errors and scores 0, which reads as a model regression instead of a setup gap.
-    if resolve_ai_gateway_config() is None:
-        raise RuntimeError("eval_search_intent needs AI_GATEWAY_URL and AI_GATEWAY_API_KEY to reach the decision model")
+    if not system_one_configured():
+        raise RuntimeError(
+            "eval_search_intent needs AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY to reach the decision model"
+        )
     version = os.environ.get("SEARCH_INTENT_PROMPT_VERSION")
     prompt = await asyncio.to_thread(
         fetch_search_intent_prompt,

@@ -12,10 +12,14 @@ import dataclasses
 from django.core.cache import cache
 
 import structlog
+from pydantic import TypeAdapter, ValidationError
 
-from ..facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest, SearchIntent, SearchIntentRequest
-from ..facade.enums import DecisionQuestionType, SearchIntentSource
-from . import decisions
+from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
+from posthog.llm.system_one_client import build_system_one_client
+
+from ..facade.contracts import DEFAULT_DECISION_MODEL, SearchIntent, SearchIntentRequest
+from ..facade.enums import SearchIntentSource
 from .search_intent_prompt import SearchIntentPrompt, current_search_intent_prompt
 
 logger = structlog.get_logger(__name__)
@@ -26,11 +30,12 @@ MAX_QUERY_CHARS = 64
 SEARCH_INTENT_TIMEOUT_SECONDS = 2.0
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: a cache shared across teams lets a fast answer tell one team what another team searched.
-CACHE_KEY_PREFIX = "ml_inference:search_intent:v2"
+CACHE_KEY_PREFIX = "ml_inference:search_intent:v3"
 
 _EMAIL_VALUE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
 _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
-_PATH_VALUE = re.compile(r"^/[\w\-./]*$")
+# Any leading slash, because a query string or a fragment can carry a token or personal data.
+_PATH_VALUE = re.compile(r"^/")
 # Long digit runs are ids or phone numbers, which are not ours to send.
 _DIGIT_RUN = re.compile(r"\d{6,}")
 # One word of 8+ characters that mixes letters with two or more digits is a token or an id, such as a session id.
@@ -38,6 +43,8 @@ _OPAQUE_TOKEN = re.compile(r"^(?=\S*[a-z])(?=\S*\d\S*\d)\S{8,}$", re.IGNORECASE)
 _SCENE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 _QUESTION_ID = "tab"
+# The Django cache pickles what it stores, so the intent goes in as JSON text and comes out schema-validated.
+_CACHED_INTENT = TypeAdapter(SearchIntent)
 
 
 def _skipped() -> SearchIntent:
@@ -61,7 +68,7 @@ def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchInt
         if "pageview_urls" in available_group_types:
             return _rule_match("pageview_urls")
         return _skipped()
-    if _DIGIT_RUN.search(query) or _OPAQUE_TOKEN.match(query):
+    if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in query.split()):
         return _skipped()
     return None
 
@@ -102,7 +109,7 @@ def with_switch_suggestion(intent: SearchIntent, active_group_type: str) -> Sear
 def classify_search_intent(
     request: SearchIntentRequest, *, use_cache: bool = True, prompt: SearchIntentPrompt | None = None
 ) -> SearchIntent:
-    """Raises the decision gateway errors; the caller decides whether a failed answer matters."""
+    """Raises the System One errors; the caller decides whether a failed answer matters."""
     prompt = prompt or current_search_intent_prompt()
     return with_switch_suggestion(_classify(request, prompt, use_cache=use_cache), request.active_group_type)
 
@@ -123,24 +130,25 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
     if len(options) < 2:
         return _skipped()
 
-    decision = DecisionRequest(
-        team_id=request.team_id,
-        state=search_intent_state(query, request.active_group_type, request.scene),
-        questions={
-            _QUESTION_ID: DecisionQuestion(
-                type=DecisionQuestionType.CHOICE, instructions=prompt.instructions, criteria=options
-            )
-        },
-    )
+    state = search_intent_state(query, request.active_group_type, request.scene)
     key = _cache_key(
-        request.team_id, decision.model, decision.state, prompt.instructions, options, prompt.confident_threshold
+        request.team_id, DEFAULT_DECISION_MODEL, state, prompt.instructions, options, prompt.confident_threshold
     )
     if use_cache:
-        cached = cache.get(key)
-        if isinstance(cached, SearchIntent):
+        cached = _cached_intent(key)
+        if cached is not None:
             return cached
 
-    result = decisions.decide(decision, timeout_seconds=SEARCH_INTENT_TIMEOUT_SECONDS)
+    # No TypeSafe fallback: a search is customer text, and TypeSafe is a third party.
+    client = build_system_one_client(
+        model=DEFAULT_DECISION_MODEL,
+        ai_product="ml_inference",
+        distinct_id=team_distinct_id(request.team_id),
+        timeout=SEARCH_INTENT_TIMEOUT_SECONDS,
+    )
+    result = client.decide(
+        state=state, questions={_QUESTION_ID: ChoiceQuestion(instructions=prompt.instructions, criteria=options)}
+    )
     answer = result.answers[_QUESTION_ID]
     if not isinstance(answer, ChoiceAnswer) or answer.choice not in options:
         logger.warning("ml_inference_search_intent_unexpected_answer", team_id=request.team_id)
@@ -153,5 +161,15 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
         prompt_version=prompt.version,
     )
     if use_cache:
-        cache.set(key, intent, CACHE_TTL_SECONDS)
+        cache.set(key, _CACHED_INTENT.dump_json(intent).decode(), CACHE_TTL_SECONDS)
     return intent
+
+
+def _cached_intent(key: str) -> SearchIntent | None:
+    cached = cache.get(key)
+    if not isinstance(cached, str):
+        return None
+    try:
+        return _CACHED_INTENT.validate_json(cached)
+    except ValidationError:
+        return None

@@ -19,6 +19,7 @@ import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
 from posthog.dataclasses import frozen
+from posthog.llm.system_one_client import GATEWAY_MAX_CHOICE_OPTIONS
 
 logger = structlog.get_logger(__name__)
 
@@ -65,7 +66,8 @@ BUNDLED_SEARCH_INTENT_PROMPT = SearchIntentPrompt(
 
 
 def _valid_options(value: Any) -> dict[str, str] | None:
-    if not isinstance(value, dict) or not value:
+    # The gateway refuses a choice question with more options than this before it sends anything.
+    if not isinstance(value, dict) or not 1 <= len(value) <= GATEWAY_MAX_CHOICE_OPTIONS:
         return None
     if not all(isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in value.items()):
         return None

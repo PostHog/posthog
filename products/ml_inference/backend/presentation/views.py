@@ -18,6 +18,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 
 from ..facade import api, contracts
@@ -130,7 +131,7 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             intent = api.classify_search_intent(search)
         except DecisionsDisabledError as error:
             raise NotFound() from error
-        except (GatewayNotConfiguredError, DecisionGatewayUnreachableError, DecisionGatewayError) as error:
+        except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             # The picker works without an answer, so every model failure is the same "not now" to the caller.
             logger.warning("ml_inference_search_intent_unavailable", team_id=self.team_id, reason=type(error).__name__)
             raise DecisionGatewayUnavailable() from error
