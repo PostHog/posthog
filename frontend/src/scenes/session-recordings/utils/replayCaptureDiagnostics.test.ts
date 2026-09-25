@@ -1,4 +1,9 @@
-import { DiagnosisVerdict, diagnoseReplayCapture, hasReplayDiagnosticSignals } from './replayCaptureDiagnostics'
+import {
+    DiagnosisVerdict,
+    canDiagnoseReplayCapture,
+    diagnoseReplayCapture,
+    hasReplayDiagnosticSignals,
+} from './replayCaptureDiagnostics'
 
 type Case = {
     name: string
@@ -17,6 +22,21 @@ describe('diagnoseReplayCapture', () => {
             name: '$has_recording=false does not short-circuit — falls through to other rules',
             properties: { $has_recording: false, $recording_status: 'disabled' },
             expected: 'disabled',
+        },
+        {
+            name: 'a server-side SDK with no signals cannot record',
+            properties: { $lib: 'posthog-python' },
+            expected: 'sdk_cannot_record',
+        },
+        {
+            name: 'a server-side SDK that still carries signals is diagnosed on those signals',
+            properties: { $lib: 'posthog-node', $recording_status: 'disabled' },
+            expected: 'disabled',
+        },
+        {
+            name: 'a web SDK with no signals stays unknown',
+            properties: { $lib: 'web' },
+            expected: 'unknown',
         },
         {
             name: 'ad blocker prevented script load',
@@ -334,5 +354,20 @@ describe('hasReplayDiagnosticSignals', () => {
         expect(hasReplayDiagnosticSignals({ $recording_status: 'buffering' })).toBe(true)
         expect(hasReplayDiagnosticSignals({ $sdk_debug_replay_event_trigger_status: 'trigger_pending' })).toBe(true)
         expect(hasReplayDiagnosticSignals({ $has_recording: false })).toBe(true)
+    })
+})
+
+describe('canDiagnoseReplayCapture', () => {
+    it.each([
+        ['nullish properties', undefined, false],
+        ['no properties', {}, false],
+        ['an ordinary web event with no signals', { $lib: 'web', $browser: 'Chrome' }, false],
+        ['a diagnostic signal', { $recording_status: 'buffering' }, true],
+        // The case support answers by hand: the person only ever sent backend events, so the web
+        // SDK never loaded. Without this the diagnosis stays unreachable for exactly that person.
+        ['a server-side SDK with no signals', { $lib: 'posthog-python' }, true],
+        ['a server-side SDK named in mixed case', { $lib: 'PostHog-Node' }, true],
+    ])('is %s → %s', (_name, properties, expected) => {
+        expect(canDiagnoseReplayCapture(properties)).toBe(expected)
     })
 })

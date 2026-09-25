@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -66,7 +69,36 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         expect(screen.getByText(heading)).toBeInTheDocument()
         // Filters being the likely cause does not rule out capture problems, so the hints stay.
         expect(screen.getByText('An ad blocker might be preventing recordings')).toBeInTheDocument()
-        expect(screen.getByText('Recordings might be outside the retention period')).toBeInTheDocument()
+    })
+
+    it.each([
+        ['30d' as const, '30 days', 30],
+        ['1y' as const, '1 year', 365],
+        [null, '30 days', 30],
+    ])('names the project retention period and the date it cuts off for %s', (retentionPeriod, label, days) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            id: 1,
+            session_recording_opt_in: true,
+            session_recording_retention_period: retentionPeriod,
+        } as any)
+
+        renderTroubleshooting()
+
+        expect(screen.getByText(`Recordings are kept for ${label}`)).toBeInTheDocument()
+        expect(
+            screen.getByText(
+                `Sessions from before ${dayjs().subtract(days, 'day').format('D MMM YYYY')} have been deleted.`
+            )
+        ).toBeInTheDocument()
+    })
+
+    it('says replay is off for the project rather than offering a retention date', () => {
+        teamLogic.actions.loadCurrentTeamSuccess({ id: 1, session_recording_opt_in: false } as any)
+
+        renderTroubleshooting()
+
+        expect(screen.getByText('Session replay is turned off for this project')).toBeInTheDocument()
+        expect(screen.queryByTestId('replay-empty-state-troubleshooting-retention')).not.toBeInTheDocument()
     })
 
     it('offers to clear filters only when the user applied them', () => {

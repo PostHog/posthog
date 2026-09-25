@@ -12,7 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
-import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
+import { canDiagnoseReplayCapture } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -197,7 +197,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     default:
                         return (
                             <div className="mx-3">
-                                {tabKey === 'debug_properties' && hasReplayDiagnosticSignals(properties) && (
+                                {tabKey === 'debug_properties' && canDiagnoseReplayCapture(properties) && (
                                     <div className="mb-2">
                                         <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
                                     </div>

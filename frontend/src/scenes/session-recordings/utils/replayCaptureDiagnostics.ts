@@ -8,6 +8,7 @@ export type DiagnosisVerdict =
     | 'sampled_out'
     | 'buffering_empty'
     | 'recorder_error'
+    | 'sdk_cannot_record'
     | 'unknown'
 
 export interface SuggestedAction {
@@ -55,11 +56,49 @@ const DIAGNOSTIC_KEYS = [
 
 const TROUBLESHOOTING_URL = 'https://posthog.com/docs/session-replay/troubleshooting'
 
+// `$lib` values of SDKs that have no recorder at all, so a session built only from their events can
+// never have a replay. Mirrors SERVER_SIDE_LIBS in posthog/models/team/production_event_activation.py,
+// plus the alternative names the Node and Go SDKs send. An allowlist, so an unrecognized SDK falls
+// through to the ordinary diagnosis instead of being wrongly reported as unable to record.
+const NON_RECORDING_LIBS: ReadonlySet<string> = new Set([
+    'posthog-python',
+    'posthog-node',
+    'posthog-edge',
+    'analytics-node',
+    'posthog-php',
+    'posthog-ruby',
+    'posthog-go',
+    'analytics-go',
+    'posthog-java',
+    'posthog-dotnet',
+    'posthog-elixir',
+    'posthog-rs',
+])
+
+function nonRecordingLib(properties: Record<string, any>): string | null {
+    const lib = properties['$lib']
+    return typeof lib === 'string' && NON_RECORDING_LIBS.has(lib.toLowerCase()) ? lib : null
+}
+
 export function hasReplayDiagnosticSignals(properties: Record<string, any> | null | undefined): boolean {
     if (!properties) {
         return false
     }
     return DIAGNOSTIC_KEYS.some((key) => properties[key] !== undefined)
+}
+
+/**
+ * Whether the diagnosis can say anything useful about this event.
+ *
+ * An event from a server-side SDK carries no `$sdk_debug_*` signals, which is exactly the case
+ * support has to answer by hand: the person only ever sent backend events, so the web SDK never
+ * loaded and no recording could exist. The diagnosis names that, so it must stay reachable.
+ */
+export function canDiagnoseReplayCapture(properties: Record<string, any> | null | undefined): boolean {
+    if (!properties) {
+        return false
+    }
+    return hasReplayDiagnosticSignals(properties) || nonRecordingLib(properties) !== null
 }
 
 const pickSignals = (properties: Record<string, any>): Record<string, unknown> => {
@@ -113,6 +152,21 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
             reasons: [
                 'PostHog has a stored recording linked to this session.',
                 'If the replay still looks missing, refresh the page. It may still be processing.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
+    const serverSideLib = nonRecordingLib(properties)
+    if (serverSideLib && Object.keys(rawSignals).length === 0) {
+        return {
+            verdict: 'sdk_cannot_record',
+            headline: `This event came from ${serverSideLib}, which cannot record sessions`,
+            reasons: [
+                'Only the web and mobile SDKs record sessions. A server-side SDK sends events but never loads a recorder.',
+                'If this person has no events from the web or mobile SDK, no recording can exist for them.',
+                'Install posthog-js on the pages this person visits to record their sessions.',
             ],
             rawSignals,
             suggestedActions: [troubleshootingAction],
