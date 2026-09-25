@@ -74,7 +74,8 @@ Scan **every** destination before you decide. The endpoint is paginated and defa
 page, so a single default call misses older alerts on a project with hundreds of destinations.
 
 Call `posthog:error-tracking-alerts-list` with `type: ["internal_destination"]` and `limit: 1000`. If the
-response still carries a non-null `next`, keep paging with `offset` until `next` is null. Then filter the
+response still carries a non-null `next_offset`, send it back as `offset` and keep paging until
+`next_offset` is null. Then filter the
 collected rows client-side by `filters.events[].id` and by any per-issue scope in `filters.properties`.
 
 The list response carries no `inputs`, so it does not tell you which channel or URL a row delivers to.
@@ -170,7 +171,7 @@ the issue evolves.
 ## Token-economy rules
 
 - One complete `posthog:error-tracking-alerts-list` scan up front, not per candidate. The scan is
-  complete only when `next` is null — page through it once and reuse the collected rows for every
+  complete only when `next_offset` is null — page through it once and reuse the collected rows for every
   candidate.
 - Reuse a single integration lookup for multiple alerts going to the same workspace.
 - Confirm the channel / URL with the user **before** creating each alert. Never batch-create alerts to a
