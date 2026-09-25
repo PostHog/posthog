@@ -504,8 +504,7 @@ class SlackUserSerializer(serializers.Serializer):
     )
 
 
-# How long a fetched Slack channel list stays cached. A single-channel re-check writes its live
-# answer into that list, so it reads the same constant to keep the list's original expiry.
+# How long a fetched Slack channel list stays cached.
 SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
 
 # Cap on uncached per-id channel lookups per integration per minute; each one reaches Slack's
