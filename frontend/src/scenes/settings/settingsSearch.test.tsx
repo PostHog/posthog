@@ -121,4 +121,13 @@ describe('settingsSearch', () => {
 
         expect(searchSettingsIndex(fuse, term)[0]?.settingId).toBe('variables')
     })
+
+    // An admin who searches for the org-wide switch must reach it. The organization setting used
+    // to live on the Members page with no two-factor keyword, so only the personal one came back.
+    test.each(['2fa', 'two-factor', 'mfa'])('finds the organization 2FA setting for "%s"', (term) => {
+        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, {})
+        const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+
+        expect(searchSettingsIndex(fuse, term).map((entry) => entry.settingId)).toContain('enforce-2fa')
+    })
 })

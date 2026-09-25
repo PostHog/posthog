@@ -157,6 +157,7 @@ import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organiz
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
+import { Enforce2FA } from './organization/Enforce2FA'
 import { IdentityProviderFeatureSection } from './organization/IdentityProviderConfig/IdentityProviderFeatureSection'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
@@ -2005,6 +2006,13 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-authentication',
         title: 'Authentication',
         settings: [
+            {
+                id: 'enforce-2fa',
+                title: 'Enforce two-factor authentication',
+                description: 'Require every member of your organization to sign in with two-factor authentication.',
+                component: <Enforce2FA />,
+                keywords: ['2fa', 'two-factor', 'mfa', 'security', 'authenticator', 'totp', 'enforce'],
+            },
             {
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
