@@ -41,6 +41,7 @@ from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
 from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
+    RunReviewInSandboxInput,
     StamphogReviewInput,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -364,7 +365,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_a_final_gate_verdict_is_posted_without_a_sandbox(
+def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
     team,
     stamphog_chain: StamphogChain,
     files: list[dict],
@@ -400,11 +401,14 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox(
     run = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).latest("created_at")
     assert run.output["pregate_outcome"] == expect_pregate_outcome
     if expect_in_body is None:
-        assert stamphog_chain.sandbox_class.created_configs != []
+        assert any("review_local.py" in command for command in stamphog_chain.sandbox_class.executed_commands)
         assert "fast_path" not in run.output
         return
 
-    assert stamphog_chain.sandbox_class.created_configs == []
+    # The sandbox starts beside the context fetch, so it exists, but the release sends it away before
+    # the reviewer runs.
+    commands = stamphog_chain.sandbox_class.executed_commands
+    assert not any("review_local.py" in command for command in commands)
     assert run.status == ReviewRunStatus.GATED
     assert run.output["fast_path"] is True
     assert "pregate" in run.output["timings_ms"]
@@ -512,7 +516,7 @@ def test_a_second_attempt_never_provisions_a_second_sandbox(team, stamphog_chain
     # otherwise provision successfully and run the reviewer again.
     stamphog_chain.sandbox_class.create_error = None
     with pytest.raises(SandboxPhaseError):
-        _run_activity(run_review_in_sandbox, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+        _run_activity(run_review_in_sandbox, RunReviewInSandboxInput(review_run_id=str(run.id), team_id=team.id))
     assert len(stamphog_chain.sandbox_class.created_configs) == 1
 
 
@@ -2665,3 +2669,24 @@ def test_a_key_with_the_legacy_url_fails_before_the_mint(team, stamphog_chain: S
     assert "legacy stamphog route" in (run.error or "")
     mint.assert_not_called()
     assert not stamphog_chain.sandbox_class.created_configs
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_overlapping_activities_keep_each_others_output_keys(team, stamphog_chain: StamphogChain) -> None:
+    # The sandbox activity runs beside the context fetch, the pre-check and the bot polls. A write
+    # from a copy loaded before another activity's write must not drop that activity's keys, such as
+    # the sandbox claim that stops a retry from paying for a second sandbox.
+    repo_config = _repo_config(team.id)
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=130, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha="sha130", status=ReviewRunStatus.REVIEWING
+    )
+    stale_copy = ReviewRun.objects.for_team(team.id).get(id=run.id)
+
+    activities._merge_run_output(run, {"sandbox_started_at": "2026-09-25T10:00:00+00:00"})
+    activities._merge_run_output(stale_copy, {"pr_reactions": []})
+
+    stored = ReviewRun.objects.for_team(team.id).get(id=run.id).output
+    assert stored == {"sandbox_started_at": "2026-09-25T10:00:00+00:00", "pr_reactions": []}

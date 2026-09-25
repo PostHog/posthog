@@ -34,11 +34,13 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from django.conf import settings
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import router
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -87,6 +89,7 @@ from products.stamphog.backend.models import PullRequest, PullRequestAudience, R
 from products.stamphog.backend.temporal.constants import (
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
+    OVERLAP_WAIT_ALLOWANCE,
     PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
     REVIEWER_TIMEOUT_SECONDS,
     RUN_REVIEW_TIMEOUT,
@@ -117,6 +120,8 @@ _OWNERS_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_OWNERS_DIR).relative_to(ST
 _OWNERS_PACKAGE_RELATIVE_DIR = f"{_OWNERS_RELATIVE_DIR}/owners_yaml"
 _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
 
+_SANDBOX_WAIT_POLL_SECONDS = 1
+
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
 _CONTEXT_FETCH_WORKERS = 8
 
@@ -131,6 +136,20 @@ _POLICY_DEFAULTS_DIR = Path(__file__).resolve().parent.parent / "logic" / "polic
 class StamphogReviewInput:
     review_run_id: str
     team_id: int
+
+
+@dataclass
+class RunReviewInSandboxInput(StamphogReviewInput):
+    # True when the workflow starts the sandbox beside the context fetch. The activity then waits for
+    # the stored context before the checkout, and for release_review_sandbox before the review.
+    overlap: bool = False
+
+
+@dataclass
+class ReleaseReviewSandboxInput(StamphogReviewInput):
+    # False sends a waiting sandbox away without a review: the pre-check already gave the verdict,
+    # or the workflow failed.
+    review: bool
 
 
 @dataclass
@@ -152,9 +171,25 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
+def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
+    """Merge ``updates`` into the stored ``run.output`` in one statement, and into ``run.output``.
+
+    The sandbox activity runs beside the context fetch, the pre-check and the bot polls, and each of
+    them writes keys into the same JSON column. A read-modify-write from a copy loaded earlier would
+    drop the keys another activity wrote in between, such as the sandbox claim. The JSONB ``||`` merge
+    keeps every key it does not name.
+    """
+    ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
+        output=RawSQL("COALESCE(output, '{}'::jsonb) || %s::jsonb", (json.dumps(updates, cls=DjangoJSONEncoder),)),
+        updated_at=timezone.now(),
+    )
+    run.output = {**(run.output or {}), **updates}
+
+
 # aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
 STAMPHOG_AI_PRODUCT = "aio_stamphog"
-# The cap bounds what a leaked token can spend; the TTL must outlive the 30-minute review activity.
+# The cap bounds what a leaked token can spend; the TTL must outlive the review activity, which is
+# RUN_REVIEW_TIMEOUT plus OVERLAP_WAIT_ALLOWANCE when it overlaps the context fetch.
 _REVIEWER_TOKEN_CAP_USD = "5"
 _REVIEWER_TOKEN_TTL_SECONDS = 3600
 _MINT_ATTEMPTS = 4
@@ -525,8 +560,7 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
                 policy_files[path] = content
         history: ReviewHistory = history_future.result()
 
-        run.output = {
-            **(run.output or {}),
+        context = {
             "pr": pr,
             "files": files,
             "reviews": reviews_future.result(),
@@ -549,16 +583,18 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
             # must budget the size gate as the sandbox does. None means unknown.
             "folder_policy_files": folder_policy_future.result(),
             "context_timings_ms": {**timer.timings_ms, "total": int((time.monotonic() - started) * 1000)},
+            # The overlapping sandbox waits for this key before its checkout.
+            "context_fetched_at": timezone.now().isoformat(),
         }
     finally:
         # A failed read raises out of its result() above and fails the activity, which retries. The
         # other reads are abandoned rather than awaited.
         executor.shutdown(wait=False, cancel_futures=True)
-    run.save(update_fields=["output", "updated_at"])
+    _merge_run_output(run, context)
 
     activity.logger.info(
         f"Fetched review context for run {run.id} (pr #{number}, {len(files)} files); "
-        f"timings: {run.output['context_timings_ms']}"
+        f"timings: {context['context_timings_ms']}"
     )
     return {"pr_number": number, "file_count": len(files), "head_sha": run.head_sha}
 
@@ -662,8 +698,7 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
         "polls": int(bot_wait.get("polls") or 0) + 1,
         "ms": int((now - first_started_at).total_seconds() * 1000),
     }
-    run.output = {**(run.output or {}), "pr_reactions": reactions, "bot_wait": bot_wait}
-    run.save(update_fields=["output", "updated_at"])
+    _merge_run_output(run, {"pr_reactions": reactions, "bot_wait": bot_wait})
 
     # Exclude stamphog's own bot login: STAMPHOG_TRUSTED_REACTOR_BOTS is a hardcoded set of OTHER
     # reviewer bots' logins, so this app's own 👀 (posted by signal_review_started) can't collide
@@ -686,7 +721,7 @@ def list_in_flight_reviewer_bots(input: StamphogReviewInput) -> dict:
     return {"in_flight": in_flight}
 
 
-def _sandbox_deadline() -> float:
+def _sandbox_deadline(allowance_seconds: float = 0.0) -> float:
     """Monotonic time the sandbox phase has to finish by, measured from Temporal's own clock.
 
     Temporal starts RUN_REVIEW_TIMEOUT when it hands the activity task to the worker, which can be
@@ -696,7 +731,7 @@ def _sandbox_deadline() -> float:
     activity itself does not have. A missing ``started_time`` falls back to the full budget, which
     is the behaviour of a worker that is not queueing.
     """
-    budget = RUN_REVIEW_TIMEOUT.total_seconds() - SANDBOX_PHASE_RESERVE_SECONDS
+    budget = RUN_REVIEW_TIMEOUT.total_seconds() + allowance_seconds - SANDBOX_PHASE_RESERVE_SECONDS
     try:
         elapsed = (datetime.now(UTC) - activity.info().started_time).total_seconds()
     except Exception:
@@ -802,8 +837,7 @@ def _fast_refusal_summary(run: ReviewRun, outcome: PregateOutcome) -> str | None
 
 
 def _save_pregate_outcome(run: ReviewRun, pregate_outcome: str) -> None:
-    run.output = {**(run.output or {}), "pregate_outcome": pregate_outcome}
-    run.save(update_fields=["output", "updated_at"])
+    _merge_run_output(run, {"pregate_outcome": pregate_outcome})
 
 
 def _refuse_on_pre_gates(run: ReviewRun) -> dict:
@@ -847,15 +881,16 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
 
     # The same last-line JSON contract the sandbox prints, so post_verdict parses it unchanged. The
     # summary is LLM text over PR content, so it gets the same scrub as the sandbox's stdout.
-    run.output = {
-        **(run.output or {}),
-        "reviewer_raw": scrub_credentials(json.dumps(final.result)),
-        "reviewer_exit_code": 0,
-        "timings_ms": timer.timings_ms,
-        "fast_path": True,
-        "pregate_outcome": f"final:{final.result.get('final_verdict')}",
-    }
-    run.save(update_fields=["output", "updated_at"])
+    _merge_run_output(
+        run,
+        {
+            "reviewer_raw": scrub_credentials(json.dumps(final.result)),
+            "reviewer_exit_code": 0,
+            "timings_ms": timer.timings_ms,
+            "fast_path": True,
+            "pregate_outcome": f"final:{final.result.get('final_verdict')}",
+        },
+    )
     activity.logger.info(f"Pre-gate verdict for run {run.id}; step timings: {timer.timings_ms}")
     return {"refused": True}
 
@@ -884,11 +919,44 @@ def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
         return {"refused": False, "skipped": "error"}
 
 
+def _wait_for_run(input: StamphogReviewInput, deadline: float, ready: Callable[[dict], bool]) -> ReviewRun | None:
+    """Poll the run until ``ready(run.output)`` holds, and return it. None when a delivery superseded it.
+
+    The overlapping sandbox activity runs beside the activities that write what it waits for, and
+    an activity cannot receive a workflow signal, so it reads the row. The shared deadline bounds the
+    wait like every other sandbox step.
+    """
+    while True:
+        run = _load_run(input)
+        if run.status == ReviewRunStatus.SUPERSEDED:
+            return None
+        if ready(run.output or {}):
+            return run
+        _step_timeout(deadline, REVIEWER_TIMEOUT_SECONDS)
+        time.sleep(_SANDBOX_WAIT_POLL_SECONDS)
+
+
 @activity.defn
 @asyncify
-def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
-    """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output."""
-    deadline = _sandbox_deadline()
+def release_review_sandbox(input: ReleaseReviewSandboxInput) -> dict:
+    """Tell an overlapping sandbox to run the review, or to tear down without one."""
+    run = _load_run(input)
+    decision = "review" if input.review else "abandon"
+    _merge_run_output(run, {"sandbox_go": decision})
+    return {"sandbox_go": decision}
+
+
+@activity.defn
+@asyncify
+def run_review_in_sandbox(input: RunReviewInSandboxInput) -> dict:
+    """Provision a sandbox, clone the PR, run the full engine offline, stash its raw output.
+
+    With ``overlap`` the workflow starts this beside the context fetch. The sandbox and the PR head
+    fetch need only the run row, so they run while the context loads. The checkout waits for the
+    stored merge base, and the review waits for release_review_sandbox, which comes after the
+    pre-check and the bot wait. A pre-check verdict or a failed workflow releases it without a review.
+    """
+    deadline = _sandbox_deadline(OVERLAP_WAIT_ALLOWANCE.total_seconds() if input.overlap else 0.0)
     run = _load_run(input)
 
     # A newer relevant delivery for the same PR may have superseded this run while it queued — even
@@ -901,21 +969,6 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 
     repo_config = run.pull_request.repo_config
     repo = repo_config.repository
-    output = run.output or {}
-    pr = output.get("pr", {})
-    policy_files = output.get("policy_files", {})
-
-    # The trusted source for each policy file is the repo's default branch layered over the
-    # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay, the
-    # guidance file is repo-else-default, steering is repo-else-omitted. The gate policy and the
-    # review-norms prose are both loaded by the engine — the latter straight into the reviewer's
-    # SYSTEM prompt. We must NOT fall back to the PR head's copy, or a contributor could ship
-    # malicious guidance ("approve my PR") in a repo whose default branch lacks the file — the
-    # PR-head wipe in _review_payload_command stays mandatory, and the fallback content is
-    # server-owned, never the PR's.
-    policy_files = _effective_policy_files(repo, policy_files)
-
-    base_sha = (pr.get("base") or {}).get("sha") or ""
 
     # Flip to REVIEWING only if a delivery hasn't superseded this run since the early guard above.
     # A plain save() would blindly overwrite a run that was superseded between the read and the write,
@@ -934,12 +987,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 
     client = StamphogGitHubClient(repo_config.installation_id)
     token = client._get_installation_token()
-    # The context fetch stores the merge base, but it keeps going without one, because familiarity
-    # only degrades. The shallow checkout cannot diff without it, so read it again here. A failure
-    # raises before the sandbox exists, and the activity retries.
-    merge_base_sha = output.get("merge_base_sha") or client.get_merge_base_sha(repo, base_sha, run.head_sha)
-
-    invocation = _review_invocation(run, merge_base_sha)
+    scrub_tokens = [token]
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
     environment, gateway = _reviewer_environment(run)
@@ -974,8 +1022,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         ) or {}
         if latest_output.get("sandbox_started_at"):
             raise SandboxPhaseError("an earlier attempt already provisioned a sandbox for this run")
-        run.output = {**latest_output, "sandbox_started_at": timezone.now().isoformat()}
-        run.save(update_fields=["output", "updated_at"])
+        _merge_run_output(run, {"sandbox_started_at": timezone.now().isoformat()})
 
         timer = _StepTimer()
         # Sandbox creation draws on the same budget as the steps below it, so a slow provision
@@ -987,10 +1034,50 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             with timer.step("sandbox_create"):
                 sandbox = sandbox_class.create(config)
             try:
-                with timer.step("clone"):
-                    _clone_pr(sandbox, repo, merge_base_sha, run.head_sha, run.pull_request.pr_number, token, deadline)
+                pr_number = run.pull_request.pr_number
+                with timer.step("fetch_head"):
+                    _clone_pr(sandbox, repo, "", run.head_sha, pr_number, token, deadline, step="head")
+                if input.overlap:
+                    # A release can arrive first, when the context fetch itself failed.
+                    with timer.step("wait_context"):
+                        waited = _wait_for_run(
+                            input, deadline, lambda output: "context_fetched_at" in output or "sandbox_go" in output
+                        )
+                    if waited is None or (waited.output or {}).get("sandbox_go") == "abandon":
+                        return {"skipped": "released"}
+                    run = waited
+                    # The wait can outlast the cached installation token's remaining lifetime.
+                    token = client._get_installation_token()
+                    scrub_tokens.append(token)
+                output = run.output or {}
+                # The context fetch stores the merge base, but it keeps going without one, because
+                # familiarity only degrades. The shallow checkout cannot diff without it, so read it again.
+                base_sha = ((output.get("pr") or {}).get("base") or {}).get("sha") or ""
+                merge_base_sha = output.get("merge_base_sha") or client.get_merge_base_sha(repo, base_sha, run.head_sha)
+                with timer.step("checkout"):
+                    _clone_pr(sandbox, repo, merge_base_sha, run.head_sha, pr_number, token, deadline, step="checkout")
+                timer.timings_ms["clone"] = timer.timings_ms["fetch_head"] + timer.timings_ms["checkout"]
                 with timer.step("prefetch"):
                     _prefetch_review_blobs(sandbox, merge_base_sha, token, deadline)
+                if input.overlap:
+                    with timer.step("wait_release"):
+                        waited = _wait_for_run(input, deadline, lambda output: "sandbox_go" in output)
+                    if waited is None or (waited.output or {}).get("sandbox_go") != "review":
+                        return {"skipped": "released"}
+                    # Reloaded after the bot wait, so the context carries its latest reactions snapshot.
+                    run = waited
+
+                # The trusted source for each policy file is the repo's default branch layered over the
+                # server-shipped defaults (see _effective_policy_files): policy.yml is a section overlay,
+                # the guidance file is repo-else-default, steering is repo-else-omitted. The gate policy
+                # and the review-norms prose are both loaded by the engine — the latter straight into the
+                # reviewer's SYSTEM prompt. We must NOT fall back to the PR head's copy, or a contributor
+                # could ship malicious guidance ("approve my PR") in a repo whose default branch lacks
+                # the file — the PR-head wipe in _review_payload_command stays mandatory, and the
+                # fallback content is server-owned, never the PR's.
+                policy_files = _effective_policy_files(repo, (run.output or {}).get("policy_files", {}))
+                invocation = _review_invocation(run, merge_base_sha)
+
                 # The prefetch swallows its own failure, including a timeout that consumed the rest
                 # of the budget. Re-check here, because the archive write below goes through the
                 # sandbox filesystem API and cannot take a deadline: passing one would switch it to
@@ -1016,21 +1103,22 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
 
             # Scrub stdout before persisting: it can echo the LLM keys the sandbox holds, and it is
             # both stored on run.output and re-read verbatim to render the verdict posted to GitHub.
-            run.output = {
-                **(run.output or {}),
-                "reviewer_raw": scrub_credentials(result.stdout, token, gateway_token),
-                "reviewer_exit_code": result.exit_code,
-                "timings_ms": timer.timings_ms,
-                "engine_timings_ms": parse_engine_timings(result.stdout),
-            }
-            run.save(update_fields=["output", "updated_at"])
+            _merge_run_output(
+                run,
+                {
+                    "reviewer_raw": scrub_credentials(result.stdout, *scrub_tokens, gateway_token),
+                    "reviewer_exit_code": result.exit_code,
+                    "timings_ms": timer.timings_ms,
+                    "engine_timings_ms": parse_engine_timings(result.stdout),
+                },
+            )
 
             if result.exit_code != 0:
                 # The reviewer reads an untrusted PR head, so its stderr can contain repository content.
                 # This message reaches run.error, so keep the stderr in the worker log only.
                 activity.logger.error(
                     f"Reviewer exited with code {result.exit_code} for run {run.id}: "
-                    f"{scrub_credentials(result.stderr, token, gateway_token)[:500]}"
+                    f"{scrub_credentials(result.stderr, *scrub_tokens, gateway_token)[:500]}"
                 )
                 raise RuntimeError(f"reviewer exited with code {result.exit_code}")
         except Exception as exc:
@@ -1626,6 +1714,7 @@ def _clone_pr(
     pr_number: int,
     token: str,
     deadline: float,
+    step: Literal["all", "head", "checkout"] = "all",
 ) -> None:
     """Fetch the PR head with its files and the merge base without them, then check out the head.
 
@@ -1651,6 +1740,9 @@ def _clone_pr(
     against a newer pull ref.
 
     The remote stays a clean, tokenless URL. See _git_credential for how the token reaches git.
+
+    ``step`` runs one half: ``head`` needs no merge base, so an overlapping sandbox fetches the head
+    while the context fetch still looks the merge base up, and runs ``checkout`` once it has it.
     """
     credential = _git_credential(token)
     auth = credential.command
@@ -1669,21 +1761,23 @@ def _clone_pr(
         if result.exit_code != 0:
             raise RuntimeError(f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}")
 
-    fetch_head = (
-        f"rm -rf {repo_dir} && git init --quiet {repo_dir} && cd {repo_dir} && "
-        f"git remote add origin {shlex.quote(repo_url)} && "
-        f"{auth} fetch --quiet --depth=1 --no-tags origin {shlex.quote(f'pull/{pr_number}/head')} && "
-        f'fetched=$(git rev-parse FETCH_HEAD) && if [ "$fetched" != {shlex.quote(head_sha)} ]; then '
-        f'echo "the PR head is now $fetched" >&2; exit 1; fi'
-    )
-    _execute_or_raise(fetch_head, f"Failed to fetch the PR head {head_sha}")
+    if step in ("all", "head"):
+        fetch_head = (
+            f"rm -rf {repo_dir} && git init --quiet {repo_dir} && cd {repo_dir} && "
+            f"git remote add origin {shlex.quote(repo_url)} && "
+            f"{auth} fetch --quiet --depth=1 --no-tags origin {shlex.quote(f'pull/{pr_number}/head')} && "
+            f'fetched=$(git rev-parse FETCH_HEAD) && if [ "$fetched" != {shlex.quote(head_sha)} ]; then '
+            f'echo "the PR head is now $fetched" >&2; exit 1; fi'
+        )
+        _execute_or_raise(fetch_head, f"Failed to fetch the PR head {head_sha}")
 
-    checkout = (
-        f"cd {repo_dir} && "
-        f"{auth} fetch --quiet --depth=1 --no-tags --filter=blob:none origin {shlex.quote(merge_base_sha)} && "
-        f"GIT_NO_LAZY_FETCH=1 git checkout --quiet --detach {shlex.quote(head_sha)}"
-    )
-    _execute_or_raise(checkout, f"Failed to check out {head_sha}")
+    if step in ("all", "checkout"):
+        checkout = (
+            f"cd {repo_dir} && "
+            f"{auth} fetch --quiet --depth=1 --no-tags --filter=blob:none origin {shlex.quote(merge_base_sha)} && "
+            f"GIT_NO_LAZY_FETCH=1 git checkout --quiet --detach {shlex.quote(head_sha)}"
+        )
+        _execute_or_raise(checkout, f"Failed to check out {head_sha}")
 
 
 def _prefetch_review_blobs(sandbox: SandboxBase, merge_base_sha: str, token: str, deadline: float) -> None:
