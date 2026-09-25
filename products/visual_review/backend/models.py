@@ -198,7 +198,8 @@ class RunSnapshot(ProductTeamModel):
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots")
+    # No index of its own: every index on this table that starts with the run serves those lookups.
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="snapshots", db_index=False)
 
     identifier = models.CharField(max_length=512)
 
@@ -293,18 +294,18 @@ class RunSnapshot(ProductTeamModel):
         ]
         indexes = [
             # Covering, so the flakiness reads (a run's rows by result, filtered on reason, team and
-            # identifier) are index-only scans instead of reads of the whole table.
+            # identifier) are index-only scans instead of reads of the whole table. The reason is in
+            # the key so the absorbed-row read skips the exact matches, which are most of a run.
             models.Index(
-                fields=["run", "result"],
+                fields=["run", "result", "classification_reason"],
                 include=[
-                    "classification_reason",
                     "review_state",
                     "identifier",
                     "diff_percentage",
                     "tolerated_hash_match",
                     "team_id",
                 ],
-                name="snapshot_run_result_covering",
+                name="snapshot_run_result_reason",
             ),
             models.Index(fields=["run", "review_state"], name="snapshot_run_review_state"),
             models.Index(fields=["identifier"], name="snapshot_identifier"),

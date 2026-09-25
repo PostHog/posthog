@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -1903,7 +1903,10 @@ class InsightViewSet(
         if not order:
             if self.request.GET.get("search"):
                 return queryset
-            return queryset.order_by("order")
+            # `order` is a vestigial nullable column with no index, so sorting on it forces a full
+            # scan and sort of the project. `-last_modified_at` is covered by dashboarditem_team_lmod_idx.
+            # `-pk` breaks ties so paginated pages stay stable when timestamps collide.
+            return queryset.order_by("-last_modified_at", "-pk")
 
         if order == "-last_viewed_at":
             return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
@@ -2105,7 +2108,7 @@ class InsightViewSet(
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
                         queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]

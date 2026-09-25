@@ -24,7 +24,7 @@ from products.analytics_platform.backend.lazy_computation.stale_policy import re
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSION_READ_REACHBACK_DAYS,
     ensure_marketing_sessions_precomputed,
-    precompute_window_days,
+    precompute_window_start,
 )
 
 from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
@@ -114,9 +114,7 @@ def ineligible_reason(runner: "AttributionQueryRunnerBase", date_range: QueryDat
         return "test_account_filters"
 
     read = window(runner, date_range)
-    if (read.end - read.start).total_seconds() > (
-        precompute_window_days(runner.team) - SESSION_READ_REACHBACK_DAYS
-    ) * 86400:
+    if read.start - timedelta(days=SESSION_READ_REACHBACK_DAYS) < precompute_window_start(runner.team, read.end):
         return "window_over_max"
 
     return None
@@ -244,25 +242,20 @@ _EXCLUDED_BREAKDOWN = "excl_breakdown"
 
 
 def _exclusion_columns(runner: "AttributionQueryRunnerBase") -> list[ast.Expr]:
-    """The columns the exclusions read, collapsed per session by `computed_at`.
-
-    A session can hold rows under two job_ids, and a re-materialized row can carry different
-    dimensions. Filtering the raw rows would drop the current version and leave the superseded one
-    standing, so the exclusions have to judge what the collapse decided, not what any row says.
-    """
+    """Exclusions use the dimensions already resolved by the shared sessions CTE."""
     columns: list[ast.Expr] = []
     if runner.query.excludeDirectTraffic:
         columns.append(
             ast.Alias(
                 alias=_EXCLUDED_CHANNEL,
-                expr=ast.Call(name="argMax", args=[_field("channel_type"), _field("computed_at")]),
+                expr=_field("channel_type"),
             )
         )
     if runner.query.excludeUnattributed:
         columns.append(
             ast.Alias(
                 alias=_EXCLUDED_BREAKDOWN,
-                expr=ast.Call(name="argMax", args=[_field(BREAKDOWN_COLUMNS[runner.breakdown]), _field("computed_at")]),
+                expr=_field(BREAKDOWN_COLUMNS[runner.breakdown]),
             )
         )
     return columns
@@ -313,21 +306,18 @@ def build_reach(runner: "AttributionQueryRunnerBase", date_range: QueryDateRange
     if job_ids is None:
         return None
     read = window(runner, date_range)
-    # Collapsed per session first, for the reason in `build_person_arrays`. `uniq` already keeps a
-    # duplicated session from counting its person twice, but two rows can carry different dimensions,
-    # which puts one visitor in two breakdown rows.
+    # The shared CTE has one row per session and current person, including across overlapping jobs.
     per_session = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=_field("person_id")),
             ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Call(name="argMax", args=[_breakdown_expr(runner), _field("computed_at")]),
+                expr=_breakdown_expr(runner),
             ),
             *_exclusion_columns(runner),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=[_SESSIONS_CTE]), alias="cached_sessions"),
         where=ast.And(exprs=_scope(read)),
-        group_by=[_field("session_id_v7"), _field("person_id")],
     )
     exclusions = _exclusions(runner, table_alias="s")
     return ast.SelectQuery(
@@ -458,24 +448,20 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
     # after it is creditable either.
     upper = "last_conversion" if runner.allows_multiple_conversions_per_visitor else "first_conversion"
 
-    # One row per session before the array is built. A session can hold rows under two job_ids: its
-    # stored start is the earliest event seen so far, and a later event that predates it moves the
-    # start, which files the session under a different chunk while the first chunk's row survives.
-    # Both job_ids are in the read set, so without this collapse one session becomes two touchpoints
-    # and over-credits the person. The sibling conversion precompute deduplicates for the same reason.
+    # One conversion-bounds row per person preserves the CTE's unique session/person pairs.
     per_session = ast.SelectQuery(
         select=[
             ast.Alias(alias="person_id", expr=ast.Field(chain=["conv", "conv_person_id"])),
-            ast.Alias(alias="session_ts", expr=ast.Call(name="argMax", args=[session_start, _field("computed_at")])),
+            ast.Alias(alias="session_ts", expr=session_start),
             ast.Alias(
                 alias="session_dim",
-                expr=ast.Call(name="argMax", args=[_breakdown_expr(runner), _field("computed_at")]),
+                expr=_breakdown_expr(runner),
             ),
             ast.Alias(
                 alias="first_conversion",
-                expr=ast.Call(name="any", args=[ast.Field(chain=["conv", "first_conversion"])]),
+                expr=ast.Field(chain=["conv", "first_conversion"]),
             ),
-            ast.Alias(alias="upper_bound", expr=ast.Call(name="any", args=[ast.Field(chain=["conv", upper])])),
+            ast.Alias(alias="upper_bound", expr=ast.Field(chain=["conv", upper])),
             *_exclusion_columns(runner),
         ],
         select_from=ast.JoinExpr(
@@ -496,7 +482,6 @@ def build_person_arrays(runner: "AttributionQueryRunnerBase", date_range: QueryD
             ),
         ),
         where=ast.And(exprs=_scope(read)),
-        group_by=[ast.Field(chain=["conv", "conv_person_id"]), _field("session_id_v7")],
     )
 
     # Creditability is judged on the collapsed start, so a superseded row cannot decide it.

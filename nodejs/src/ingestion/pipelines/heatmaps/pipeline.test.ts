@@ -105,6 +105,7 @@ describe('HeatmapsPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -150,6 +151,7 @@ describe('HeatmapsPipeline', () => {
             }),
             topHog: createNoopTopHog(),
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager,
             cookielessManager: mockCookielessManager,

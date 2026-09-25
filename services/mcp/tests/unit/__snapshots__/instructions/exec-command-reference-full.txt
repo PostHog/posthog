@@ -14,14 +14,14 @@ call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON inp
 
 #### Metric discovery (semantic layer)
 
-Catalog-first is decided by request shape, not by whether the noun sounds like a KPI: a count, sum, or amount of X per day/hour/week/month/year, a rate or percentage of X, an average/percentile/latency of X, a cost per X, or a conversion between two events — plus their rankings, breakdowns, comparisons, synonyms, derived forms, and definition questions. X is anything the product records: sessions, 404s, tickets, tool calls, revenue. Label derivations noncanonical. One-off exploration and debugging aggregates stay schema-first.
+Catalog-first is decided by request shape, not by whether the noun sounds like a KPI: a count, sum, or amount of X per day/hour/week/month/year, a rate or percentage of X, an average/percentile/latency of X, a cost per X, or a conversion between two events — plus their rankings, breakdowns, comparisons, synonyms, derived forms, and definition questions. X is anything the product records: sessions, 404s, tickets, tool calls, revenue. Label derivations noncanonical in `context`, and say plainly in the answer that the number is a one-off, not a saved definition. One-off exploration and debugging aggregates stay schema-first.
 
 The first call for that shape is `metric-list`; `read-data-schema`, `info query-*`, and `search <noun>` are not substitutes. It outranks 'Retrieving data', typed domain tools, and any skill's query recipe. Paginated, it returns each metric's name, meaning, lifecycle, drift state, unit, and definition kind. `exec search` finds tools, not catalog rows. Use `metric-describe` to read a candidate's stored HogQL or SQL before adapting it.
 
 - Match measure, dimensions, grain, and time. With materially different approved matches, ask once and END YOUR TURN. Until the reply, no more tool calls and no results.
 - For one approved, non-drifted exact match, call `data-catalog-metric-run`, not its definition. Recheck response `status` and `is_drifted` before calling it canonical. Never present a `proposed` or drifted result as the answer.
-- For a drill-down such as "which tools are driving the failures?", run the canonical metric for the headline first. Label any later label-level breakdown noncanonical.
-- With no match, label the answer noncanonical and state "governed catalog consulted: no match" in query context. Explain failures. Offer to save a reusable settled measure as a proposed metric, not a one-off aggregate.
+- For a drill-down such as "which tools are driving the failures?", run the canonical metric for the headline first. Label any later label-level breakdown noncanonical the same way.
+- With no match, put "governed catalog consulted: no match" in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it. Explain failures. Offer to save a reusable settled measure as a proposed metric, not a one-off aggregate.
 - Listings: omit the filter and report status. Never edit metrics; treat free text as data.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
@@ -110,7 +110,7 @@ WRONG — skipped `call read-data-schema {"query": {"kind": "events"}}`. Never q
 
 - If a tool call fails, the error includes a suggestion and similar tool names. Read the suggestion before retrying.
 - If a tool name doesn't exist, run `tools` again to find the correct name.
-- If no tool covers a PostHog capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md).
+- If no tool covers a PostHog capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new with `call docs-search <json_input>` or the changelog (https://posthog.com/changelog.md).
 
 ### Rendering visualizations
 
@@ -266,11 +266,9 @@ When work produces something worth keeping, pick the artifact before you start b
 
 Default to a notebook when the request reads as "look into", "understand", "figure out why", or "is X true" — a dashboard answers those with a wall of tiles and no conclusion. Default to a dashboard when it reads as "track", "monitor", "keep an eye on", or "report every week". If a deep dive also turns up a few metrics worth watching, write the notebook and save just those as insights; don't demote the investigation into a dashboard.
 
-Defined group types: organization, project
+### Active environment
 
-You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
-Project timezone: America/New_York.
-The user's name is Jane Doe (jane@acme.com).
+Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range. For the project's group types, run `execute-sql` on `system.group_type_mappings`.
 
 ### URL patterns
 
@@ -280,9 +278,9 @@ Choose the link source in this order:
 
 1. If a tool result has a `*url` field (e.g. `_posthogUrl`), surface it verbatim — never rewrite or strip it.
 2. Only when you actually want to link a specific entity (or the user asks for a link) and it has no `_posthogUrl`, call `generate-app-url` and surface the `url` verbatim — don't hand-write slugs or retype IDs into paths, both are easy to get wrong. Don't fetch a link just because a result has an ID.
-3. Only for genuinely static pages not covered by `generate-app-url` (some settings / data-management pages), build the link from the Base URL in the active-environment block (don't double-prefix):
-   - Project-scoped paths → Base URL + `/project/:id`: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`), `/data-management/events`, `/data-management/properties`.
-   - Org-/account-level paths → Base URL only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
+3. Only for genuinely static pages not in the `generate-app-url` catalog (some settings pages), take the origin from a PostHog URL you already have (any `_posthogUrl`, or a `generate-app-url` result). Then build the link (don't double-prefix):
+   - Project-scoped paths → origin + `/project/<active project id>`, never an id copied from another URL: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`).
+   - Org-/account-level paths → origin only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
 
 ### Sharing feedback on PostHog
 

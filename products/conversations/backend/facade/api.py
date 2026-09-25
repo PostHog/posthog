@@ -55,6 +55,7 @@ from products.conversations.backend.models import (
     Status,
     Ticket,
 )
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack import get_support_slack_bot_token
@@ -461,6 +462,7 @@ def _support_ticket_last_message(ticket: Ticket, comment: Comment | None) -> Con
         "AI",
         "human",
         "support",
+        WORKFLOW_AUTHOR_TYPE,
     }
     context_name = _get_first_string(
         context,

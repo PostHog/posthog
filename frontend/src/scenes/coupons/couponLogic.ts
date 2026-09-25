@@ -163,6 +163,7 @@ export const couponLogic = kea<couponLogicType>([
                     if (values.isAdminOrOwner === false && values.currentOrganization) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     return await api.get('api/billing/coupons/overview')
                 },
             },
@@ -205,6 +206,7 @@ export const couponLogic = kea<couponLogicType>([
             },
             submit: async (formValues: CouponFormValues) => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsClaimCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const res = await api.create('api/billing/coupons/claim', {
                         code: formValues.code,
                     })

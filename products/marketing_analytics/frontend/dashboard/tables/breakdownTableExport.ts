@@ -1,11 +1,12 @@
 import { LemonMenuItem } from '@posthog/lemon-ui'
 
+import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { downloadTableDataAsCsv } from 'scenes/web-analytics/webAnalyticsExportUtils'
 
 import { copyTableData } from '~/queries/nodes/InsightViz/exportAdapters'
 import { ExporterFormat } from '~/types'
 
-import type { BreakdownTableColumn } from './breakdownTableColumn'
+import { BreakdownTableColumn, compareByCurrent } from './breakdownTableColumn'
 
 export interface ExportRowsOptions<Row> {
     columns: BreakdownTableColumn<Row>[]
@@ -13,6 +14,7 @@ export interface ExportRowsOptions<Row> {
     breakdownLabel: string
     breakdownValue: (row: Row) => string
     compare: boolean
+    sorting?: Sorting | null
 }
 
 /** Rows as `string[][]` with the header first, which is the shape the shared export helpers take. */
@@ -22,6 +24,7 @@ export function buildExportRows<Row>({
     breakdownLabel,
     breakdownValue,
     compare,
+    sorting,
 }: ExportRowsOptions<Row>): string[][] {
     if (!rows.length) {
         return []
@@ -37,7 +40,14 @@ export function buildExportRows<Row>({
         ),
     ]
 
-    const body = rows.map((row) => [
+    const sortColumn = sorting && columns.find((column) => column.key === sorting.columnKey)
+    let sortedRows = rows
+    if (sortColumn && sorting) {
+        const sorter = compareByCurrent(sortColumn, sorting.order)
+        sortedRows = rows.slice().sort((a, b) => sorting.order * sorter(a, b))
+    }
+
+    const body = sortedRows.map((row) => [
         breakdownValue(row),
         ...columns.flatMap((column) => {
             const value = column.value(row)

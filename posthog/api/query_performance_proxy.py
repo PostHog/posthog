@@ -61,6 +61,7 @@ class QueryPerformanceProxyViewSet(viewsets.ViewSet):
             "execution lands in a follow-up PR. Currently returns an empty response."
         ),
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["POST"], url_path="execute-test")
     def execute_test(self, request: Request) -> Response:
         serializer = ExecuteTestClusterRequestSerializer(data=request.data)

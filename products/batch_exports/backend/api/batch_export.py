@@ -1750,7 +1750,17 @@ class BatchExportSerializer(serializers.ModelSerializer):
         _set_default_parquet_extension(destination_data["type"], destination_data["config"])
 
         destination = BatchExportDestination(**destination_data)
-        batch_export = BatchExport(team_id=team_id, destination=destination, source=source, **validated_data)
+        user = self.context["request"].user
+        if not isinstance(user, User):
+            raise NotAuthenticated()
+
+        batch_export = BatchExport(
+            team_id=team_id,
+            destination=destination,
+            source=source,
+            last_modified_by=user,
+            **validated_data,
+        )
 
         sync_batch_export(batch_export, created=True)
 
@@ -1803,9 +1813,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         check_hogql_batch_exports_enabled(team)
 
         source = self.instance.source if self.instance is not None else None
-        if source is not None and "hogql_query" not in attrs:
-            return
-
         hogql_query = attrs.get("hogql_query", source.hogql_query if source is not None else None)
         if not hogql_query:
             raise serializers.ValidationError({"hogql_query": "'hogql_query' is required when 'model' is 'hogql'"})
@@ -1878,6 +1885,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
         destination_data = validated_data.pop("destination", None)
         hogql_query_provided = "hogql_query" in validated_data
         hogql_query = validated_data.pop("hogql_query", None)
+
+        user = self.context["request"].user
+        if not isinstance(user, User):
+            raise NotAuthenticated()
+
+        validated_data["last_modified_by"] = user
 
         with transaction.atomic():
             if destination_data:

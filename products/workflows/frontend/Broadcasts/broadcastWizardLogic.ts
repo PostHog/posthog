@@ -15,12 +15,14 @@ import { urls } from 'scenes/urls'
 import { AnyPropertyFilter, Breadcrumb, TeamPublicType, TeamType } from '~/types'
 
 import {
+    hogFlowsBatchJobsCancelCreate,
     hogFlowsBatchJobsCreate,
     hogFlowsBatchJobsList,
     hogFlowsCreate,
     hogFlowsPartialUpdate,
     hogFlowsRetrieve,
     hogFlowsSchedulesCreate,
+    hogFlowsSchedulesDestroy,
     hogFlowsUserBlastRadiusCreate,
 } from 'products/workflows/frontend/generated/api'
 import type {
@@ -41,6 +43,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import { StoppableBroadcast, canMoveToDraft } from './broadcastsLogic'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
@@ -109,6 +112,7 @@ export interface broadcastWizardLogicValues {
     broadcast: HogFlowApi | null
     broadcastId: string | null
     broadcastLoading: boolean
+    canMoveToDraft: boolean
     conversion: HogFlowConversionApi
     currentStep: BroadcastWizardStep
     currentStepHasErrors: boolean
@@ -118,8 +122,10 @@ export interface broadcastWizardLogicValues {
     firstInvalidStep: BroadcastWizardStep | null
     goalEnabled: boolean
     hasHydrated: boolean
+    hasLoadedBatchJobs: boolean
     isReadOnly: boolean
     launching: boolean
+    movingToDraft: boolean
     name: string
     rateLimitedSendDuration: string
     recurringRepeating: boolean
@@ -192,6 +198,12 @@ export interface broadcastWizardLogicActions {
         broadcast: HogFlowApi | null
         payload?: any
     }
+    moveToDraft: () => {
+        value: true
+    }
+    moveToDraftFinished: () => {
+        value: true
+    }
     nextStep: () => {
         value: true
     }
@@ -261,6 +273,11 @@ export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
+        canMoveToDraft: (
+            broadcast: HogFlowApi | null,
+            batchJobs: HogFlowBatchJobApi[],
+            hasLoadedBatchJobs: boolean
+        ) => boolean
         isReadOnly: (broadcast: HogFlowApi | null) => boolean
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
         stepValidationErrors: (
@@ -334,6 +351,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveBroadcastFinished: (broadcast: HogFlowApi | null) => ({ broadcast }),
         launchBroadcast: true,
         launchBroadcastFinished: true,
+        moveToDraft: true,
+        moveToDraftFinished: true,
     }),
 
     loaders(({ props, values }) => ({
@@ -520,6 +539,20 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 launchBroadcastFinished: () => false,
             },
         ],
+        hasLoadedBatchJobs: [
+            false,
+            {
+                loadBatchJobs: () => false,
+                loadBatchJobsSuccess: () => true,
+            },
+        ],
+        movingToDraft: [
+            false,
+            {
+                moveToDraft: () => true,
+                moveToDraftFinished: () => false,
+            },
+        ],
         // Set once the initial load of an existing draft has hydrated the reducers, so the wizard can
         // resume at the first incomplete step exactly once.
         hasHydrated: [
@@ -534,6 +567,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         broadcastId: [
             (s, p) => [s.broadcast, p.id],
             (broadcast: HogFlowApi | null, id: string): string | null => broadcast?.id ?? (id !== 'new' ? id : null),
+        ],
+        canMoveToDraft: [
+            (s) => [s.broadcast, s.batchJobs, s.hasLoadedBatchJobs],
+            (broadcast: HogFlowApi | null, batchJobs: HogFlowBatchJobApi[], hasLoadedBatchJobs: boolean): boolean =>
+                canMoveToDraft(broadcast as StoppableBroadcast | null, hasLoadedBatchJobs ? batchJobs : null),
         ],
         isReadOnly: [
             (s) => [s.broadcast],
@@ -790,9 +828,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     return
                 }
 
-                activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
-
+                // An old schedule would fire alongside the new one, and a paused one can't be resumed, so
+                // launch replaces them. The flow stays a draft until the swap is done, and the scheduler
+                // skips drafts, so a failure part way never leaves two live schedules or none.
+                const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
                 if (values.scheduleMode === 'now') {
+                    for (const id of oldScheduleIds) {
+                        await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+                    }
+                    activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
                     await hogFlowsBatchJobsCreate(projectId, broadcastId, {
                         hog_flow: broadcastId,
                         variables: {},
@@ -807,8 +851,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                                 : ONE_TIME_RRULE,
                         starts_at: (values.scheduleMode === 'recurring' ? values.recurringStartsAt : values.sendAt)!,
                         timezone: values.effectiveTimezone,
+                        // The wizard has no variables step, so keep any overrides the old schedule carried.
+                        ...(values.broadcast?.schedules?.[0]?.variables
+                            ? { variables: values.broadcast.schedules[0].variables }
+                            : {}),
                     }
                     await hogFlowsSchedulesCreate(projectId, broadcastId, schedule as any)
+                    for (const id of oldScheduleIds) {
+                        await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+                    }
+                    activated = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'active' })
                     lemonToast.success('Broadcast scheduled')
                 }
                 // Resuming a draft launches from the broadcast's own URL, so the router push below is a
@@ -831,6 +883,48 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.launchBroadcastFinished()
                 lemonToast.error(`Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
+        },
+        moveToDraft: async () => {
+            if (!values.currentProjectId || !values.broadcastId) {
+                actions.moveToDraftFinished()
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            const broadcastId = values.broadcastId
+            try {
+                // The scheduler skips a draft flow; the schedule stays so the wizard shows its timing.
+                const draft = await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'draft' })
+                actions.setStep('review')
+                actions.saveBroadcastFinished(draft)
+            } catch (error: any) {
+                lemonToast.error(
+                    `Couldn't move the broadcast to draft: ${error?.detail || error?.message || 'unknown error'}`
+                )
+                actions.moveToDraftFinished()
+                return
+            }
+            try {
+                // A run the scheduler started before the stop landed is still live, so stop it too.
+                const jobs = await hogFlowsBatchJobsList(projectId, broadcastId)
+                const started = jobs.filter((job) => ['waiting', 'queued', 'active'].includes(job.status ?? ''))
+                for (const job of started) {
+                    await hogFlowsBatchJobsCancelCreate(projectId, broadcastId, job.id)
+                }
+                if (started.length) {
+                    lemonToast.warning(
+                        'A send had just started, so it was cancelled. Any emails it already sent are not recalled.'
+                    )
+                } else {
+                    lemonToast.success('Broadcast moved to draft')
+                }
+            } catch (error: any) {
+                lemonToast.error(
+                    `The broadcast is a draft, but a send that had just started couldn't be cancelled: ${
+                        error?.detail || error?.message || 'unknown error'
+                    }`
+                )
+            }
+            actions.moveToDraftFinished()
         },
         loadBroadcastSuccess: ({ broadcast }) => {
             if (!broadcast || values.hasHydrated) {
@@ -863,14 +957,48 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
 // Serializes the wizard state into the HogFlow the broadcast is stored as: a batch trigger
 // (the audience), one email action, and an exit node.
-function buildBroadcastPayload(values: {
+export function buildBroadcastPayload(values: {
     name: string
     audienceProperties: AnyPropertyFilter[]
     goalEnabled: boolean
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    broadcast?: HogFlowApi | null
 }): Record<string, any> {
+    const existing = values.broadcast
+    if (existing && existing.origin_product !== 'broadcasts') {
+        // A workflow shaped like a broadcast keeps its own steps: its ids, names and any setting the
+        // wizard does not manage survive, and origin_product stays as it was created.
+        return {
+            name: values.name,
+            conversion: values.goalEnabled ? values.conversion : null,
+            email_sending_rate_limit: values.emailRateLimit,
+            actions: (existing.actions as Record<string, any>[]).map((action) =>
+                action.type === 'trigger'
+                    ? {
+                          ...action,
+                          config: {
+                              ...action.config,
+                              filters: { ...action.config?.filters, properties: values.audienceProperties },
+                          },
+                      }
+                    : action.type === 'function_email'
+                      ? {
+                            ...action,
+                            config: {
+                                ...action.config,
+                                inputs: {
+                                    ...action.config?.inputs,
+                                    email: { ...action.config?.inputs?.email, value: values.email },
+                                },
+                            },
+                        }
+                      : action
+            ),
+            edges: existing.edges,
+        }
+    }
     return {
         origin_product: 'broadcasts',
         status: 'draft',

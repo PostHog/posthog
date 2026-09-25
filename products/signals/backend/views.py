@@ -1025,8 +1025,7 @@ class SignalReportViewSet(
     scope_object = "task"
     queryset = SignalReport.objects.all()
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
-    # Requires `latest_actionability_value` annotation to be applied first.
-    _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability_value="not_actionable")
+    _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
     _INBOX_SORT_ORDERINGS = {
         "priority": "priority,status,-updated_at",
@@ -1067,7 +1066,6 @@ class SignalReportViewSet(
             qs = self._annotate_artefact_count(qs)
             qs = self._annotate_channel_id(qs)
             qs = self._apply_signal_report_status_filter(qs)
-            qs = self._annotate_latest_actionability(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
             return annotate_first_billable_pr_run_at(qs)
@@ -1094,9 +1092,6 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_inbox_scope_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
-        qs = self._annotate_latest_actionability(qs)
-        if self._needs_already_addressed_annotation():
-            qs = self._annotate_latest_already_addressed(qs)
         qs = self._apply_signal_report_actionability_filter(qs)
         qs = self._apply_signal_report_already_addressed_filter(qs)
         qs = self._apply_signal_report_inbox_view_filter(qs)
@@ -1497,13 +1492,12 @@ class SignalReportViewSet(
         return queryset.filter(priority_rank__in=values)
 
     def _apply_signal_report_actionability_filter(self, queryset):
-        # Filters on the `latest_actionability_value` annotation (the actionability
-        # choice from the latest actionability_judgment artefact), which must be
-        # annotated first. Powers the inbox's actionability-keyed tabs: the Reports
-        # tab passes the two actionable values, the staff-only Not-actionable tab
-        # passes `not_actionable`. Reports without an actionability judgment
-        # (annotation is NULL) are excluded when this filter is set. Absent or empty
-        # param leaves the list unchanged; an unrecognized value is a 400.
+        # Filters on `latest_actionability`, the column cached from the report's latest
+        # actionability_judgment artefact. Powers the inbox's actionability-keyed tabs: the
+        # Reports tab passes the two actionable values, the staff-only Not-actionable tab
+        # passes `not_actionable`. Reports without an actionability judgment (column is NULL)
+        # are excluded when this filter is set. Absent or empty param leaves the list
+        # unchanged; an unrecognized value is a 400.
         actionability_filter = self.request.query_params.get("actionability")
         if not actionability_filter:
             return queryset
@@ -1522,7 +1516,7 @@ class SignalReportViewSet(
                 }
             )
 
-        return queryset.filter(latest_actionability_value__in=values)
+        return queryset.filter(latest_actionability__in=values)
 
     def _apply_signal_report_already_addressed_filter(self, queryset):
         raw = self.request.query_params.get("already_addressed")
@@ -1530,9 +1524,11 @@ class SignalReportViewSet(
             return queryset
         value = raw.strip().lower()
         if value in ("1", "true", "yes"):
-            return queryset.filter(latest_already_addressed_value="true")
+            return queryset.filter(latest_already_addressed=True)
         if value in ("0", "false", "no"):
-            return queryset.exclude(latest_already_addressed_value="true")
+            # `=False`, not `exclude(=True)`: a report with no parseable judgment holds NULL, and
+            # "not already addressed" has never covered reports nobody judged.
+            return queryset.filter(latest_already_addressed=False)
         raise serializers.ValidationError({"already_addressed": f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _apply_signal_report_inbox_view_filter(self, queryset):
@@ -1545,12 +1541,13 @@ class SignalReportViewSet(
         if inbox_view == "actionable":
             return queryset.filter(
                 status=SignalReport.Status.READY,
-                latest_actionability_value=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
-            ).exclude(self._implementation_pr_report_filter() | Q(latest_already_addressed_value="true"))
+                latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                latest_already_addressed=False,
+            ).exclude(self._implementation_pr_report_filter())
         if inbox_view == "needs_input":
             return queryset.filter(
                 status=SignalReport.Status.PENDING_INPUT,
-                latest_actionability_value=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
+                latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
             )
         if inbox_view == "needs_decision":
             return queryset.filter(
@@ -1558,7 +1555,7 @@ class SignalReportViewSet(
                 | (
                     Q(
                         status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
-                        latest_actionability_value__in=[
+                        latest_actionability__in=[
                             ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
                             ActionabilityChoice.REQUIRES_HUMAN_INPUT.value,
                         ],
@@ -1573,12 +1570,12 @@ class SignalReportViewSet(
         if inbox_view == "dismissed":
             return queryset.filter(status=SignalReport.Status.SUPPRESSED)
         if inbox_view == "not_actionable":
-            return queryset.filter(latest_actionability_value=ActionabilityChoice.NOT_ACTIONABLE.value)
+            return queryset.filter(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
         return queryset
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
-        # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
+        # `status=ready` splits into two virtual stages:
         # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
         return queryset.annotate(
             pipeline_status_rank=Case(
@@ -1629,41 +1626,6 @@ class SignalReportViewSet(
                 output_field=IntegerField(),
             )
         )
-
-    def _latest_actionability_field(self, field: str):
-        return Subquery(
-            SignalReportArtefact.objects.filter(
-                report_id=OuterRef("id"),
-                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                content__startswith="{",
-            )
-            .order_by("-created_at")
-            .annotate(
-                _actionability_val=Func(
-                    Cast(F("content"), output_field=JSONField()),
-                    Value(field),
-                    function="jsonb_extract_path_text",
-                    output_field=CharField(),
-                ),
-            )
-            .values("_actionability_val")[:1],
-            output_field=CharField(),
-        )
-
-    def _annotate_latest_actionability(self, queryset):
-        return queryset.annotate(latest_actionability_value=self._latest_actionability_field("actionability"))
-
-    def _annotate_latest_already_addressed(self, queryset):
-        return queryset.annotate(latest_already_addressed_value=self._latest_actionability_field("already_addressed"))
-
-    def _needs_already_addressed_annotation(self) -> bool:
-        # A second correlated subquery over the same artefact row, so it is worth carrying only for
-        # the two request shapes that read it: the `already_addressed` filter, and the Actionable
-        # view, which hides reports whose issue is already being handled.
-        raw = self.request.query_params.get("already_addressed")
-        if raw is not None and raw.strip():
-            return True
-        return self.request.query_params.get("view") == "actionable"
 
     def _needs_priority_annotation(self) -> bool:
         # The priority value is a correlated subquery too, and the serializer renders priority from
@@ -3025,6 +2987,7 @@ class SignalReportViewSet(
         request=SignalReportBulkStateRequestSerializer,
         responses={200: SignalReportBulkStateResponseSerializer},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["post"], url_path="bulk-state", required_scopes=["task:write"])
     def bulk_state(self, request, **kwargs):
         """
@@ -3322,6 +3285,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_refund_summary_retrieve",
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
     def refund_summary(self, request: Request, **kwargs):
         # Two independent flags can each make this endpoint matter: refunds (the netting numbers)

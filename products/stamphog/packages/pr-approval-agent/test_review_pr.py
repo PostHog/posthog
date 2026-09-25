@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import reviewer  # noqa: E402
 import review_pr  # noqa: E402
 from familiarity import AuthorFamiliarity  # noqa: E402
 from github import CommitProvenance, PRData  # noqa: E402
@@ -134,7 +135,7 @@ def test_backend_failure_yields_error_except_when_gates_deny(
 ) -> None:
     """A failed LLM call must surface as ERROR (label retained) unless gates
     already DENIED — a deterministic denial outranks an unavailable reviewer."""
-    monkeypatch.setattr(review_pr, "Reviewer", _RaisingReviewer)
+    monkeypatch.setattr(reviewer, "Reviewer", _RaisingReviewer)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
     # _llm_review is called directly, so run()'s diff cleanup never happens — keep the scratch
@@ -178,7 +179,7 @@ def test_turn_limit_error_not_retried(
         call_count += 1
         return original_review(self, *args, **kwargs)
 
-    monkeypatch.setattr(review_pr, "Reviewer", _TurnLimitReviewer)
+    monkeypatch.setattr(reviewer, "Reviewer", _TurnLimitReviewer)
     monkeypatch.setattr(_TurnLimitReviewer, "review", counting_review)
     monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
@@ -406,7 +407,7 @@ def test_gate_denied_pr_skips_the_wait(monkeypatch: pytest.MonkeyPatch, tmp_path
         def review(self, *args: object, **kwargs: object) -> dict:
             return {"verdict": "REFUSE", "reasoning": "gates denied", "risk": "high", "issues": []}
 
-    monkeypatch.setattr(review_pr, "Reviewer", _RefusingReviewer)
+    monkeypatch.setattr(reviewer, "Reviewer", _RefusingReviewer)
 
     pr = _fake_pr(head_sha="abc123")
     pr.files = [{"filename": ".github/workflows/ci.yml", "additions": 2, "deletions": 1, "status": "M"}]
@@ -431,7 +432,7 @@ def test_wait_refetch_reclassifies_before_review(monkeypatch: pytest.MonkeyPatch
         def review(self, *args: object, **kwargs: object) -> dict:
             return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
 
-    monkeypatch.setattr(review_pr, "Reviewer", _ApprovingReviewer)
+    monkeypatch.setattr(reviewer, "Reviewer", _ApprovingReviewer)
 
     initial = _fake_pr(head_sha="abc123")
     initial.files = [{"filename": "docs/readme.md", "additions": 1, "deletions": 0, "status": "M"}]
@@ -666,7 +667,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", True)
     monkeypatch.setattr(review_pr, "posthoganalytics", fake_posthog, raising=False)
 
-    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog", review_trigger="manual" if populated else "")
     pipeline.pr = _fake_pr(head_sha="abc123")
     if populated:
         pipeline.classification = {
@@ -685,6 +686,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
             blame_incomplete_files=0,
             top_prior_authors=("Alice",),
         )
+        pipeline.familiarity_source = "server"
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
@@ -701,18 +703,22 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_familiarity_blame_overlap_pct"] == 12.3
         assert props["stamphog_familiarity_prior_prs_in_paths"] == 2
         assert props["stamphog_familiarity_days_since_last_touch"] == 30
+        assert props["stamphog_familiarity_source"] == "server"
         assert props["stamphog_agent_authored"] is True
         assert props["stamphog_agent_commit_count"] == 2
         assert props["stamphog_commit_count"] == 3
         assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
+        assert props["stamphog_review_trigger"] == "manual"
     else:
         assert props["stamphog_owner_teams"] == []
         assert props["stamphog_familiarity_band"] == ""
         assert props["stamphog_familiarity_blame_overlap_pct"] is None
+        assert props["stamphog_familiarity_source"] == "absent"
         assert props["stamphog_agent_authored"] is None
         assert props["stamphog_generated_by"] == []
         assert props["stamphog_task_ids"] == []
+        assert props["stamphog_review_trigger"] == ""
 
 
 def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -97,11 +97,10 @@ pnpm build-native
 
 PostHog auto-updates on macOS and Windows. Current builds use `electron-updater`, which reads the `latest-mac.yml` and `latest.yml` manifests published with each non-draft GitHub release and downloads the matching archive. Builds made by the old Electron Forge toolchain (`v0.55.x` and earlier) take a single bridge update through the public `update.electronjs.org` service, which serves the same GitHub releases to their built-in Squirrel client, and become `electron-updater` clients from the next launch. See [docs/UPDATES.md](../../docs/UPDATES.md) and [docs/AUTO-UPDATE-TESTING.md](../../docs/AUTO-UPDATE-TESTING.md).
 
-There are three ways a release can fire:
+There are two ways a release can fire:
 
-1. **Scheduled (default)** — automatic at 17:00 and 01:00 UTC.
-2. **Hotfix** — add the `desktop-release` label to a PR before it merges. On merge, the tag workflow runs immediately and ships whatever is on `master`.
-3. **Manual** — run `Tag PostHog Release` via `workflow_dispatch` from the Actions tab.
+1. **Scheduled (default)**: automatic at 17:00 and 01:00 UTC.
+2. **Manual**: for a hotfix, ask a `team-posthog-desktop` member to run `Desktop Tag Release` on `master` from the Actions tab.
 
 Local prep (only needed for one-off manual builds):
 

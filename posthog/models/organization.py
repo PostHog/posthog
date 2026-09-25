@@ -313,14 +313,6 @@ class Organization(ModelActivityMixin, UUIDTModel):
         choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
-    default_experiment_stats_method = models.CharField(
-        max_length=20,
-        choices=DefaultExperimentStatsMethod,
-        default=DefaultExperimentStatsMethod.BAYESIAN,
-        help_text="Default statistical method for new experiments in this organization.",
-        null=True,
-        blank=True,
-    )
     default_anonymize_ips = models.BooleanField(
         default=False,
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
