@@ -2,17 +2,20 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { DataModelingNode } from '~/types'
+import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { lineageDataLogic } from './lineageDataLogic'
 import { modelsLineageLogic } from './modelsLineageLogic'
 
 const NODES: DataModelingNode[] = [
-    { id: '1', name: 'website_leads', type: 'view' },
+    { id: '1', name: 'website_leads', type: 'table' },
     { id: '2', name: 'website_leads_daily', type: 'view' },
     { id: '3', name: 'app_onboarding_leads', type: 'view' },
     { id: '4', name: 'customers', type: 'view' },
 ] as DataModelingNode[]
+
+// customers feeds website_leads, so an upstream selector keeps a cone of two nodes rather than one.
+const EDGES: DataModelingEdge[] = [{ id: 'e1', source_id: '4', target_id: '1' }] as DataModelingEdge[]
 
 describe('modelsLineageLogic', () => {
     let logic: ReturnType<typeof modelsLineageLogic.build>
@@ -21,13 +24,13 @@ describe('modelsLineageLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/data_modeling_nodes/': () => [200, { results: NODES, next: null }],
-                '/api/environments/:team_id/data_modeling_edges/': () => [200, { results: [], next: null }],
+                '/api/environments/:team_id/data_modeling_edges/': () => [200, { results: EDGES, next: null }],
             },
         })
         initKeaTests()
         logic = modelsLineageLogic()
         logic.mount()
-        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess'])
+        await expectLogic(lineageDataLogic).toDispatchActions(['loadNodesSuccess', 'loadEdgesSuccess'])
     })
 
     afterEach(() => {
@@ -48,12 +51,21 @@ describe('modelsLineageLogic', () => {
         })
     })
 
+    it('skips a closest match the type filter hid, so the viewport still moves', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.setTypeFilter(['view'])
+            logic.actions.setDebouncedSearchTerm('website_leads')
+        }).toMatchValues({
+            focusNodeIds: new Set(['2']),
+        })
+    })
+
     it('fits the whole surviving cone for a lineage selector instead of one node', async () => {
         await expectLogic(logic, () => {
             logic.actions.setDebouncedSearchTerm('+website_leads')
         }).toMatchValues({
             highlightedNodeIds: new Set(),
-            focusNodeIds: new Set(['1']),
+            focusNodeIds: new Set(['1', '4']),
         })
     })
 })
