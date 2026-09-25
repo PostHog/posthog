@@ -4372,7 +4372,9 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_claude_plan_from_personal_api_key(self, mock_workflow):
+    def test_run_endpoint_accepts_claude_plan_from_personal_api_key(self, mock_workflow):
+        """Unattended automation has no Desktop to start from, but it can still relay the
+        token its own key's owner saved — so the key is allowed to make the choice."""
         task = self.create_task()
         api_key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -4385,6 +4387,23 @@ class TestTaskAPI(BaseTaskAPITest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
 
         response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"claude_model_access": "own-subscription"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        task_run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
+        assert task_run.state["claude_model_access"] == "own-subscription"
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_still_rejects_claude_plan_from_a_session(self, mock_workflow):
+        """The relaxation is for Desktop and personal API keys only. A browser session has
+        nothing that can answer the run's credential request."""
+        task = self.create_task()
+
+        response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {"claude_model_access": "own-subscription"},
             format="json",

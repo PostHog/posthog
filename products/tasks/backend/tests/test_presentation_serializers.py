@@ -9,7 +9,7 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_EU,
@@ -204,12 +204,14 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 (TaskRunBootstrapCreateRequestSerializer, False),
                 (TaskRunCreateRequestSerializer, True),
             ]
-            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session"]
+            for caller in ["desktop_us", "desktop_eu", "mobile", "sandbox", "session", "personal_api_key"]
         ]
     )
     def test_subscription_checks_oauth_origin(self, serializer_class, resume, caller) -> None:
         authenticator = None
-        if caller != "session":
+        if caller == "personal_api_key":
+            authenticator = PersonalAPIKeyAuthentication()
+        elif caller != "session":
             authenticator = OAuthAccessTokenAuthentication()
             authenticator.access_token = OAuthAccessToken(
                 application=OAuthApplication(
@@ -231,7 +233,9 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
                 "team": SimpleNamespace(id=1),
             },
         )
-        accepted = caller.startswith("desktop") and not resume
+        # A personal API key may select the plan outright, like Desktop. Resuming without
+        # naming the choice stays sandbox-only for every caller.
+        accepted = (caller.startswith("desktop") or caller == "personal_api_key") and not resume
         with patch.object(
             tasks_facade,
             "get_task_run_claude_model_access",
