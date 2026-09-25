@@ -875,10 +875,8 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
         if "replay_scanner:write" in write_scopes
         else ""
     )
-    # The only grant that reaches a person outside this project. Every other write stays in
-    # PostHog and can be undone; a message that is sent cannot.
     ticket_reach = (
-        "\n- **A ticket reply reaches the customer, and it cannot be taken back.** It goes out over the ticket's channel, which can be email, Slack, Teams, or GitHub. Post a private note (`is_private: true`) unless your skill body asks in plain words for a customer-facing reply. A status, priority, or assignee change can start a workflow that this project set up, and that workflow can also message the customer. You can edit and delete only notes you wrote yourself, and you cannot delete a ticket."
+        "\n- **Scouts can only add private notes to tickets.** Set `is_private: true` when you reply. You cannot send customer-facing replies, compose emails, edit or delete existing notes, or change customer identity fields. Use the ticket reply tool; the generic comments API refuses scout ticket writes. A status, priority, or assignee change can start a workflow that this project set up, and that workflow can also message the customer. You cannot delete a ticket."
         if "ticket:write" in write_scopes
         else ""
     )
