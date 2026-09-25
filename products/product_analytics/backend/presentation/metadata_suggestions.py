@@ -52,6 +52,8 @@ TAG_THRESHOLD = 0.6
 MAX_TAGS = 3 * MAX_QUESTIONS_PER_REQUEST
 # Jev answers a choice with one letter per option, so the current name and the generated titles share this cap.
 MAX_TEXT_CANDIDATES = MAX_OPTIONS_PER_QUESTION
+# Insight.name holds at most this many characters, so a longer picked title would fail to save.
+MAX_TITLE_CHARS = 400
 
 
 @frozen
@@ -431,9 +433,8 @@ def _dedupe(candidates: Iterable[str | None], limit: int = MAX_TEXT_CANDIDATES) 
     seen: dict[str, None] = {}
     for candidate in candidates:
         cleaned = " ".join((candidate or "").split())
-        # Truncate to 400 chars to match Insight.name field limit
-        if len(cleaned) > 400:
-            cleaned = cleaned[:397] + "..."
+        if len(cleaned) > MAX_TITLE_CHARS:
+            cleaned = cleaned[: MAX_TITLE_CHARS - 3] + "..."
         if cleaned and cleaned.lower() not in {key.lower() for key in seen}:
             seen[cleaned] = None
         if len(seen) >= limit:
