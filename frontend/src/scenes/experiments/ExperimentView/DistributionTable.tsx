@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconFlag, IconLock } from '@posthog/icons'
 import {
@@ -18,14 +18,15 @@ import { AuthorizedUrlList } from '~/lib/components/AuthorizedUrlList/Authorized
 import { AuthorizedUrlListType } from '~/lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { useFeatureFlag } from '~/lib/hooks/useFeatureFlag'
 import { IconOpenInApp } from '~/lib/lemon-ui/icons'
+import { getAccessControlDisabledReason } from '~/lib/utils/accessControlUtils'
 import {
     useVariantDistributionValidation,
     VariantDistributionEditor,
 } from '~/scenes/experiments/ExperimentForm/VariantDistributionEditor'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { modalsLogic } from '~/scenes/experiments/modalsLogic'
-import { getBaselineVariantKey, getExperimentVariants } from '~/scenes/experiments/utils'
-import { MultivariateFlagVariant } from '~/types'
+import { captureVariantsSaveBlocked, getBaselineVariantKey, getExperimentVariants } from '~/scenes/experiments/utils'
+import { AccessControlLevel, AccessControlResourceType, MultivariateFlagVariant } from '~/types'
 
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantNotes } from './VariantNotes'
@@ -33,7 +34,7 @@ import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './VariantTag'
 
 export function DistributionModal(): JSX.Element {
-    const { experiment, experimentLoading } = useValues(experimentLogic)
+    const { experiment, experimentLoading, experimentUpdateLoading } = useValues(experimentLogic)
     const { updateDistribution } = useActions(experimentLogic)
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
@@ -44,6 +45,14 @@ export function DistributionModal(): JSX.Element {
 
     const flagVariants = getExperimentVariants(experiment)
 
+    // The save PATCHes the experiment, so it needs editor access to it. Say so before the form
+    // is filled in rather than after the request fails.
+    const accessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Experiment,
+        AccessControlLevel.Editor,
+        experiment.user_access_level
+    )
+
     // Initialize local state only when the modal transitions from closed to open.
     // Intentionally omit experiment data from deps so auto-refresh doesn't clobber edits.
     useEffect(() => {
@@ -52,6 +61,17 @@ export function DistributionModal(): JSX.Element {
             setRolloutPercentage(experiment.feature_flag?.filters?.groups?.[0]?.rollout_percentage ?? 100)
         }
     }, [isDistributionModalOpen, flagVariants, experiment.feature_flag?.filters?.groups])
+
+    // Recorded once, because reopening the modal shows the user the same gate and must not count
+    // as another blocked save.
+    const saveBlockedCaptured = useRef(false)
+
+    useEffect(() => {
+        if (isDistributionModalOpen && accessDisabledReason && !saveBlockedCaptured.current) {
+            saveBlockedCaptured.current = true
+            captureVariantsSaveBlocked(experiment.id, 'distribution', 'form')
+        }
+    }, [isDistributionModalOpen, accessDisabledReason, experiment.id])
 
     const handleClose = (): void => {
         closeDistributionModal()
@@ -76,8 +96,14 @@ export function DistributionModal(): JSX.Element {
                     <LemonButton
                         onClick={handleSave}
                         type="primary"
-                        loading={experimentLoading}
-                        disabledReason={!areVariantRolloutsValid ? 'Percentage splits must sum to 100' : undefined}
+                        // `unmodifiedExperiment` is the baseline the save compares against, and it
+                        // only catches up when the update lands. Submitting before then would
+                        // compare against a stale baseline and skip the write.
+                        loading={experimentLoading || experimentUpdateLoading}
+                        disabledReason={
+                            accessDisabledReason ??
+                            (!areVariantRolloutsValid ? 'Percentage splits must sum to 100' : undefined)
+                        }
                     >
                         Save
                     </LemonButton>

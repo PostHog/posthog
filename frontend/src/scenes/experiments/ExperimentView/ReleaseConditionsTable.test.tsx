@@ -1,0 +1,146 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { BindLogic } from 'kea'
+import posthog from 'posthog-js'
+
+import { featureFlagLogic as enabledFlagsLogic } from 'lib/logic/featureFlagLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, FeatureFlagBasicType, FeatureFlagType } from '~/types'
+
+import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
+import { ReleaseConditionsModal } from './ReleaseConditionsTable'
+
+jest.mock('scenes/feature-flags/FeatureFlagReleaseConditions', () => ({
+    FeatureFlagReleaseConditions: () => <div data-attr="release-conditions-editor" />,
+}))
+
+const EXPERIMENT_ID = 123
+const FLAG_ID = 456
+
+function flagWithAccess(userAccessLevel: AccessControlLevel): Partial<FeatureFlagType> {
+    return {
+        id: FLAG_ID,
+        key: 'experiment-flag',
+        name: '',
+        filters: { groups: [{ properties: [], rollout_percentage: 100 }], payloads: {}, multivariate: null },
+        active: true,
+        deleted: false,
+        archived: false,
+        user_access_level: userAccessLevel,
+        can_edit: userAccessLevel === AccessControlLevel.Editor,
+    }
+}
+
+function mocksFor(userAccessLevel: AccessControlLevel, flagResponse?: [number, any]): Record<string, any> {
+    return {
+        get: {
+            [`/api/projects/:team/experiments/${EXPERIMENT_ID}`]: () => [200, { id: EXPERIMENT_ID }],
+            [`/api/projects/:team/feature_flags/${FLAG_ID}`]: () =>
+                flagResponse ?? [200, flagWithAccess(userAccessLevel)],
+            '/api/projects/:team/feature_flags': () => [200, { results: [], count: 0 }],
+            '/api/projects/:team/experiment_holdouts': () => [200, { results: [], count: 0 }],
+            '/api/projects/:team/experiment_saved_metrics': () => [200, { results: [], count: 0 }],
+        },
+    }
+}
+
+function renderModal(userAccessLevel: AccessControlLevel): void {
+    initKeaTests()
+    enabledFlagsLogic.mount()
+    const logic = experimentLogic({ experimentId: EXPERIMENT_ID })
+    logic.mount()
+    logic.actions.setExperiment({
+        feature_flag: { ...flagWithAccess(userAccessLevel), team_id: MOCK_TEAM_ID } as FeatureFlagBasicType,
+    })
+    modalsLogic.mount()
+    modalsLogic.actions.openReleaseConditionsModal()
+
+    render(
+        <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
+            <ReleaseConditionsModal />
+        </BindLogic>
+    )
+}
+
+function blockedSaveEvents(capture: jest.SpyInstance): unknown[][] {
+    return capture.mock.calls.filter(([event]) => event === 'experiment variants save blocked')
+}
+
+describe('ReleaseConditionsModal', () => {
+    afterEach(() => {
+        cleanup()
+        jest.restoreAllMocks()
+    })
+
+    // The save writes the feature flag directly, so editor access to the experiment says
+    // nothing about it.
+    it.each([
+        [AccessControlLevel.Viewer, true],
+        [AccessControlLevel.Editor, false],
+    ])('flag access %s blocks the save: %s', async (userAccessLevel, blocked) => {
+        useMocks(mocksFor(userAccessLevel))
+        renderModal(userAccessLevel)
+
+        await waitFor(() => {
+            const save = screen.getByText('Save').closest('button')
+            if (blocked) {
+                expect(save).toHaveAttribute('aria-disabled', 'true')
+            } else {
+                expect(save).not.toHaveAttribute('aria-disabled', 'true')
+            }
+        })
+    })
+
+    it('names the feature flag as the blocked resource', async () => {
+        useMocks(mocksFor(AccessControlLevel.Viewer))
+        renderModal(AccessControlLevel.Viewer)
+
+        await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled'))
+        await userEvent.hover(screen.getByText('Save'))
+
+        // The 403 the save used to return says only "this resource", which left the user with no
+        // way to tell the flag apart from the experiment they do have access to.
+        await waitFor(() => expect(screen.getByText(/permissions for this feature flag/)).toBeInTheDocument())
+    })
+
+    it('records the blocked save once when the modal is reopened', async () => {
+        useMocks(mocksFor(AccessControlLevel.Viewer))
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        renderModal(AccessControlLevel.Viewer)
+
+        await waitFor(() => expect(blockedSaveEvents(capture)).toHaveLength(1))
+
+        await act(async () => modalsLogic.actions.closeReleaseConditionsModal())
+        await waitFor(() => expect(screen.queryByText('Save')).not.toBeInTheDocument())
+        await act(async () => modalsLogic.actions.openReleaseConditionsModal())
+
+        await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
+        expect(blockedSaveEvents(capture)).toHaveLength(1)
+    })
+
+    // A failed flag load leaves the flag empty, which used to read as still loading forever.
+    it.each([
+        [
+            'refused',
+            [403, { type: 'authentication_error', code: 'permission_denied', detail: 'Not allowed' }],
+            /permissions for this feature flag/,
+        ],
+        ['missing', [404, { detail: 'Not found' }], /Couldn't load the feature flag/],
+    ])('a %s flag load explains itself instead of loading forever', async (_, flagResponse, expected) => {
+        useMocks(mocksFor(AccessControlLevel.Viewer, flagResponse as [number, any]))
+        renderModal(AccessControlLevel.Editor)
+
+        await waitFor(() => expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true'))
+        await userEvent.hover(screen.getByText('Save'))
+
+        await waitFor(() => expect(screen.getByText(expected as RegExp)).toBeInTheDocument())
+        expect(screen.queryByText('Loading the feature flag')).not.toBeInTheDocument()
+    })
+})
