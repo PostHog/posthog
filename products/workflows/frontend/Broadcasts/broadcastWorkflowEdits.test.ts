@@ -1,6 +1,6 @@
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { canEditInWizard } from './broadcastsLogic'
+import { canEditInWizard, canMoveToDraft } from './broadcastsLogic'
 import { DEFAULT_BROADCAST_CONVERSION, DEFAULT_BROADCAST_EMAIL, buildBroadcastPayload } from './broadcastWizardLogic'
 
 const trigger = (filters: Record<string, any> = { properties: [] }): Record<string, any> => ({
@@ -42,6 +42,19 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ],
     ])('opens %s in the wizard: %s', (_, actions, flowEdges, expected) => {
         expect(canEditInWizard(actions, flowEdges)).toBe(expected)
+    })
+
+    it.each([
+        ['a scheduled broadcast', 'broadcasts', 'active', undefined, undefined, true],
+        ['a broadcast whose last run finished', 'broadcasts', 'active', 'completed', undefined, true],
+        ['a broadcast mid-send', 'broadcasts', 'active', 'active', undefined, false],
+        ['a broadcast whose run is queued', 'broadcasts', 'active', 'queued', undefined, false],
+        ['a draft', 'broadcasts', 'draft', undefined, undefined, false],
+        ['an editable workflow', null, 'active', undefined, undefined, true],
+        ['a workflow the wizard cannot edit', null, 'active', undefined, '{{ inputs.owner }}', false],
+    ])('lets %s move to draft: %s', (_, origin, status, jobStatus, recipient, expected) => {
+        const broadcast = { status, origin_product: origin, actions: [trigger(), email(recipient), exit], edges }
+        expect(canMoveToDraft(broadcast as any, jobStatus ? ({ status: jobStatus } as any) : undefined)).toBe(expected)
     })
 
     it('saves the audience and email into the existing steps without replacing them', () => {

@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -26,8 +26,35 @@ const BATCH_JOB_STATUS_TAG: Record<string, 'success' | 'default' | 'warning' | '
 }
 
 export function BroadcastSummary(): JSX.Element {
-    const { broadcast, broadcastId, name, audienceProperties, email, scheduleSummary, batchJobs, batchJobsLoading } =
-        useValues(broadcastWizardLogic)
+    const {
+        broadcast,
+        broadcastId,
+        name,
+        audienceProperties,
+        email,
+        scheduleSummary,
+        batchJobs,
+        batchJobsLoading,
+        canMoveToDraft,
+        movingToDraft,
+    } = useValues(broadcastWizardLogic)
+    const { moveToDraft } = useActions(broadcastWizardLogic)
+    const hasActiveSchedule = !!broadcast?.schedules?.some((schedule) => schedule.status === 'active')
+
+    const confirmMoveToDraft = (): void => {
+        LemonDialog.open({
+            title: 'Move this broadcast to draft?',
+            description: hasActiveSchedule
+                ? 'The scheduled send stops. You can edit the broadcast, and nothing sends until you launch it again.'
+                : 'You can edit the broadcast. Nothing sends until you launch it again.',
+            primaryButton: {
+                children: 'Move to draft',
+                onClick: moveToDraft,
+                'data-attr': 'broadcast-move-to-draft-confirm',
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
 
     // Email metrics from a batch send are attributed to the batch job, not the flow (see
     // `parentRunId ?? functionId` in the plugin server's email service), so a flow-scoped query
@@ -80,10 +107,21 @@ export function BroadcastSummary(): JSX.Element {
     return (
         <div className="min-h-full w-full shrink-0 bg-bg-light">
             <div className="mx-auto max-w-4xl space-y-5 px-6 py-6">
-                <div className="flex items-center">
+                <div className="flex items-center justify-between gap-2">
                     <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.broadcasts()}>
                         Broadcasts
                     </LemonButton>
+                    {canMoveToDraft ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={confirmMoveToDraft}
+                            loading={movingToDraft}
+                            data-attr="broadcast-move-to-draft"
+                        >
+                            {hasActiveSchedule ? 'Stop and edit' : 'Move to draft'}
+                        </LemonButton>
+                    ) : null}
                 </div>
 
                 <div className="flex items-center gap-2">

@@ -12,6 +12,7 @@ import { TeamPublicType, TeamType } from '~/types'
 
 import { hogFlowsBatchJobsList, hogFlowsList } from 'products/workflows/frontend/generated/api'
 import type {
+    HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowMinimalApi,
     PaginatedHogFlowMinimalListApi,
@@ -69,6 +70,17 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
         paths.size === 2 &&
         paths.has(`${trigger[0].id}->${email[0].id}`) &&
         paths.has(`${email[0].id}->${exit[0].id}`)
+    )
+}
+
+export function canMoveToDraft(
+    broadcast: Pick<HogFlowApi, 'status' | 'origin_product' | 'actions' | 'edges'> | null,
+    latestBatchJob: Pick<HogFlowBatchJobApi, 'status'> | undefined
+): boolean {
+    return (
+        broadcast?.status === 'active' &&
+        !['waiting', 'queued', 'active'].includes(latestBatchJob?.status ?? '') &&
+        (broadcast.origin_product === 'broadcasts' || canEditInWizard(broadcast.actions as any, broadcast.edges as any))
     )
 }
 
