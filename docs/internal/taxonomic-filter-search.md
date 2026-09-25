@@ -39,7 +39,7 @@ Both implementations wait 500 ms after the last keystroke before they send a rem
 
 Remote categories load 100 rows per page. The legacy list loads the next page as the user scrolls. The rebuilt menu offers a "Show more" row until the loaded rows reach the reported count or a page comes back short.
 
-The definition endpoints stop counting at 10,000 rows on large projects and set `count_is_capped` when they do. Category badges, expansion labels and the data management tables show a capped count as `10,000+`.
+The event definitions endpoint stops counting at 10,000 rows on large projects and sets `count_is_capped` when it does. Category badges, expansion labels and the events table show a capped count as `10,000+`. Property definition counts are always exact.
 
 ## Event list pagination
 
