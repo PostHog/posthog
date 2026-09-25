@@ -1304,6 +1304,18 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def edit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
         data = request.validated_data
+        if ignored_fields := data[IGNORED_EDIT_FIELDS_KEY]:
+            # The response names these fields, but a caller that never reads them leaves a running
+            # deploy skew looking like a clean edit. Warn so the skew is measurable here too, and warn
+            # before the edit runs so one the judge or the service rejects still records it. The names
+            # only, never the values a scout sent with them.
+            logger.warning(
+                "signals_scout: edit_report ignored fields this backend does not declare",
+                team_id=run.team_id,
+                run_id=str(run.id),
+                skill_name=run.skill_name,
+                ignored_fields=ignored_fields,
+            )
         try:
             result = edit_report_sync(
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
@@ -1322,6 +1334,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 links=_to_report_links(data.get("links")),
                 supersedes_implementation=bool(data.get("supersedes_implementation")),
                 corroboration_only=bool(data.get("corroboration_only")),
+                ignored_fields=ignored_fields,
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1343,7 +1356,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "content_revision_count": result.content_revision_count,
                     "supersedes_implementation": result.supersedes_implementation,
                     "corroboration_collapsed": result.corroboration_collapsed,
-                    "ignored_fields": data[IGNORED_EDIT_FIELDS_KEY],
+                    "ignored_fields": ignored_fields,
                 }
             ).data,
             status=status.HTTP_200_OK,

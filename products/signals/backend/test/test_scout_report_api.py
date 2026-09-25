@@ -1577,7 +1577,7 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(
                 self._emit_url(str(run.id)), data=self._payload(repository="acme/widgets"), format="json"
             ).json()
-        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={
@@ -1592,6 +1592,12 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.json()["repository"] == "acme/widgets"
         note = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.NOTE)
         assert note is not None and "gadgets service" in note.content
+        # The call now answers 200, so the response is the only place the names reach the caller. An
+        # operator measuring how long a deploy skew lasted reads the event stream instead, which needs
+        # a partly applied edit to be separable from a clean one.
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        assert event.kwargs["properties"]["ignored_fields"] == ["repo"]
+        assert event.kwargs["properties"]["has_ignored_fields"] is True
 
     @parameterized.expand(
         [
@@ -1910,6 +1916,9 @@ class TestScoutReportAPI(APIBaseTest):
         # The edit event carries the content the edit applied; an untouched field (summary) stays None.
         assert props["title"] == "new title"
         assert props["note"] == "re-validated"
+        # The empty state, so "no ignored fields" is a fact on the event rather than an absent property.
+        assert props["ignored_fields"] == []
+        assert props["has_ignored_fields"] is False
         assert props["summary"] is None
         assert props["is_self_improvement_report"] is False
         # The edit also fans out to the team's own project, deep-linking the edited report.

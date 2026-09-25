@@ -1320,6 +1320,7 @@ def _capture_report_edited(
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
     links: list[ReportLink] | None = None,
+    ignored_fields: Sequence[str] = (),
 ) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
@@ -1356,6 +1357,12 @@ def _capture_report_edited(
         "corroboration_collapsed": result.corroboration_collapsed,
         "links_appended": result.links_appended,
         "link_kinds": sorted({link.kind.value for link in links or []}),
+        # The body fields the endpoint did not know, so a partly applied edit is separable from a fully
+        # applied one. Not in `_report_classification_props`: those dimensions are derived from the
+        # report and stamped on both events, while these come from the request and only an edit has them.
+        # `has_ignored_fields` is the filter-friendly half of the same pair the classification props use.
+        "ignored_fields": list(ignored_fields),
+        "has_ignored_fields": bool(ignored_fields),
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _forwarded_summary(summary),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
@@ -2376,8 +2383,13 @@ def edit_report_sync(
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
+    ignored_fields: Sequence[str] = (),
 ) -> EditReportResult:
-    """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
+    """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread.
+
+    `ignored_fields` names the body keys the request serializer does not declare. It rides here only to
+    reach the edit event: the field set is a property of the HTTP request, so the async entry never has
+    one."""
     _validate_edit_inputs(
         team,
         run,
@@ -2451,6 +2463,7 @@ def edit_report_sync(
         metrics=allowed_metrics,
         suggested_prompts=suggested_prompts,
         links=built_links,
+        ignored_fields=ignored_fields,
     )
     if forward is not None:
         _forward_report_event_to_team(team=team, forward=forward)
