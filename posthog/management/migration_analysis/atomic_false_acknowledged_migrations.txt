@@ -43,6 +43,9 @@ posthog.1370_backfill_taggeditem_generic_pointer
 # selects reports that still hold no cached judgment, and each value is recomputed from the
 # artefact log.
 signals.0154_backfill_report_actionability
+# Drops the 13 legacy tagged item foreign keys one per transaction, so each drop locks one busy parent and
+# the child instead of all 14 tables at once. Re-running is a no-op: DropForeignKey reads what is left from pg_constraint.
+posthog.1383_taggeditem_untrack_legacy_keys
 # Backfills the denormalized index columns on report runs in batches, so a long run does not
 # hold one transaction open. Re-running is a no-op: each batch only selects unfilled rows.
 ai_observability.0058_backfill_report_run_index_columns
