@@ -32,7 +32,7 @@ def is_test_file(module):
         return False
     if relative.parts[0].startswith("."):
         return False
-    return "tests" in relative.parts[:-1]
+    return bool({"test", "tests"} & set(relative.parts[:-1]))
 
 
 pulled = sorted(
