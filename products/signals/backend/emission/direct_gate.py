@@ -18,8 +18,7 @@ Two properties keep the gate cheap and predictable:
   pipeline applies whether or not a team has steered. So writing a first rule filters what that rule
   describes, and nothing else.
 
-The gate fails open when the traditional model is unavailable. In TypeSafe-only mode, a TypeSafe
-failure stops the decision.
+The gate fails open when its decision model is unavailable.
 """
 
 import asyncio
@@ -38,7 +37,6 @@ from products.signals.backend.emission.steering import (
     apply_steering,
     steering_from_config,
 )
-from products.signals.backend.typesafe_decision import SignalsDecisionError
 
 logger = structlog.get_logger(__name__)
 
@@ -115,8 +113,6 @@ async def steering_filters_signal(
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )
-    except SignalsDecisionError:
-        raise
     except Exception:
         logger.exception(
             "Source steering gate failed, keeping signal",

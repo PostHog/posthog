@@ -54,10 +54,12 @@ async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", ext
 
 class TestSteeringFiltersSignal:
     @pytest.mark.asyncio
-    async def test_typesafe_only_failure_stops_the_gate(self):
+    async def test_typesafe_only_failure_keeps_the_signal(self):
         with patch(f"{GATE_MODULE_PATH}.check_actionability", AsyncMock(side_effect=SignalsDecisionError("failed"))):
-            with pytest.raises(SignalsDecisionError):
-                await _run_gate({"steering": "Skip noise."})
+            dropped, _client, capture = await _run_gate({"steering": "Skip noise."})
+
+        assert dropped is False
+        capture.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

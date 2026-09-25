@@ -72,7 +72,7 @@ async def _run_actionability(
 async def test_safety_requests_category_through_the_shared_gateway_client() -> None:
     state: dict[str, JsonValue] = {"signal": "a finding"}
     with patch(
-        "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+        "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
         return_value=_safety_result(),
     ) as decide:
         result = await _query(7, "signal_safety", state, "Is it safe?")
@@ -100,7 +100,7 @@ async def test_typesafe_primary_safety_rejects_a_blocked_category_even_with_a_sa
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             return_value=_safety_result(probability=0.99),
         ),
         patch(
@@ -128,7 +128,7 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             return_value=_actionability_result(),
         ),
     ):
@@ -156,7 +156,7 @@ async def test_disabled_or_failed_shadow_does_not_change_primary_result(
     with (
         patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
-        patch("products.signals.backend.typesafe_decision.decision_api.decide_unchecked", decide),
+        patch("products.signals.backend.typesafe_decision.decision_api.decide_when_available", decide),
     ):
         result = await _run_actionability()
 
@@ -179,7 +179,7 @@ async def test_typesafe_primary_modes(mode: str, expected_traditional_calls: int
         patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             return_value=_actionability_result(),
         ),
     ):
@@ -278,7 +278,7 @@ async def test_traditional_shadow_falls_back_when_typesafe_fails() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             side_effect=RuntimeError("gateway unavailable"),
         ),
     ):
@@ -298,7 +298,7 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture"),
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             side_effect=DecisionGatewayError(422, "echoed signal description"),
         ),
     ):
@@ -312,7 +312,7 @@ async def test_typesafe_only_failure_does_not_run_traditional() -> None:
 
 
 @pytest.mark.asyncio
-async def test_typesafe_only_failure_stops_actionability_batch() -> None:
+async def test_typesafe_only_failure_keeps_actionability_batch() -> None:
     output = SignalEmitterOutput("test", "test", "record-1", "description", 1.0, {})
     with (
         patch("products.signals.backend.emission.pipeline.build_async_anthropic_client"),
@@ -322,10 +322,9 @@ async def test_typesafe_only_failure_stops_actionability_batch() -> None:
         ),
         patch("products.signals.backend.emission.pipeline.activity"),
     ):
-        with pytest.raises(ExceptionGroup) as exc_info:
-            await filter_actionable(MagicMock(id=1), [output], "prompt {description}", extra={})
+        result = await filter_actionable(MagicMock(id=1), [output], "prompt {description}", extra={})
 
-    assert any(isinstance(error, SignalsDecisionError) for error in exc_info.value.exceptions)
+    assert result == [output]
 
 
 @pytest.mark.asyncio
@@ -335,7 +334,7 @@ async def test_malformed_typesafe_response_keeps_pipeline_running(mode: str) -> 
         patch("products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag", return_value=mode),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             side_effect=DecisionGatewayError(200, "missing answer"),
         ),
     ):
@@ -357,7 +356,7 @@ async def test_typesafe_result_conversion_error_falls_back() -> None:
         ),
         patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
         patch(
-            "products.signals.backend.typesafe_decision.decision_api.decide_unchecked",
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
             return_value=_actionability_result(),
         ),
     ):

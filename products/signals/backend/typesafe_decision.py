@@ -93,7 +93,7 @@ class SignalsDecision:
     category_confidence: float | None
 
 
-async def _mode(team_id: int) -> ModelMode:
+async def model_mode(team_id: int) -> ModelMode:
     try:
         value = await asyncio.to_thread(
             posthoganalytics.get_feature_flag,
@@ -127,7 +127,7 @@ async def _query(team_id: int, stage: str, state: dict[str, JsonValue], instruct
             criteria=SAFETY_CATEGORIES,
         )
     result = await asyncio.to_thread(
-        decision_api.decide_unchecked,
+        decision_api.decide_when_available,
         DecisionRequest(
             team_id=team_id,
             state=state,
@@ -179,10 +179,11 @@ async def run_model_decision(
     verdict: Callable[[T], bool],
     typesafe_result: Callable[[bool, str | None], T],
     traditional_category: Callable[[T], str | None] | None = None,
+    mode_override: ModelMode | None = None,
 ) -> T:
     if team_id is None:
         return await traditional()
-    mode = await _mode(team_id)
+    mode = mode_override or await model_mode(team_id)
     if mode == "traditional-only":
         return await traditional()
 
