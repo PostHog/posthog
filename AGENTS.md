@@ -285,7 +285,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, and whenever a review of a branch is asked for; when the CLI is unavailable the PR opens without a local pass, never with `/code-review` or review subagents in its place
+- `/reviewing-with-coderabbit` — before `gh pr create`, or when a branch review is requested, first check `command -v cr >/dev/null 2>&1 && cr auth status --agent`. Invoke the skill only if the CLI exists and the JSON status is `authenticated`. Otherwise skip the local pass and open the PR without installing or signing in; never substitute `/code-review` or review subagents.
 
 **Invoke when in the area:**
 
