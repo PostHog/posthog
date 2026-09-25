@@ -150,35 +150,6 @@ impl EmbeddingModel {
         }
     }
 
-    pub fn api_limits(&self) -> ApiLimits {
-        // TODO - these are VERY conservative, but keep in mind each pod will max out at this.
-        match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                ApiLimits {
-                    requests_per_minute: 3_000,
-                    tokens_per_minute: 1_000_000,
-                }
-            }
-        }
-    }
-
-    // This takes a function ref as an argument to avoid taking a dep on reqwest
-    pub fn api_limits_from_response(
-        &self,
-        headers: &dyn Fn(&str) -> Option<String>,
-    ) -> Option<ApiLimits> {
-        match self {
-            EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
-                let rpm = headers("x-ratelimit-limit-requests")?.parse().ok()?;
-                let tpm = headers("x-ratelimit-limit-tokens")?.parse().ok()?;
-                Some(ApiLimits {
-                    requests_per_minute: rpm,
-                    tokens_per_minute: tpm,
-                })
-            }
-        }
-    }
-
     pub fn construct_request_body(&self, text: &str) -> Value {
         match self {
             EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {

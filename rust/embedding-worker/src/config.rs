@@ -37,6 +37,12 @@ pub struct Config {
 
     pub openai_api_key: String,
 
+    #[envconfig(default = "3000")]
+    pub embedding_requests_per_minute: usize,
+
+    #[envconfig(default = "1000000")]
+    pub embedding_tokens_per_minute: usize,
+
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,

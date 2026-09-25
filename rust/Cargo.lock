@@ -4297,7 +4297,8 @@ dependencies = [
  "envconfig",
  "futures",
  "health",
- "leaky-bucket",
+ "http 1.4.0",
+ "humantime",
  "metrics",
  "moka",
  "rand 0.8.5",
@@ -6984,17 +6985,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
  "spin 0.9.8",
-]
-
-[[package]]
-name = "leaky-bucket"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a396bb213c2d09ed6c5495fd082c991b6ab39c9daf4fff59e6727f85c73e4c5"
-dependencies = [
- "parking_lot",
- "pin-project-lite",
- "tokio",
 ]
 
 [[package]]
