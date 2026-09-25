@@ -210,7 +210,8 @@ Config/metadata updates do not re-fire either event.
 
 ## Delivery SLO
 
-Each successful/failed widget query in `_run_widget_query` emits **`dashboard_widget_delivery`** via `slo_operation` (`SloArea.ANALYTIC_PLATFORM`) with `widget_type`, `dashboard_id`, and `tile_id`. No per-type SLO wiring — shipping a new registry entry is enough. Access/validation failures before `query_fn` runs do not emit this SLO.
+Each successful/failed widget query in `_run_widget_query` emits **`dashboard_widget_delivery`** via `slo_operation` (`SloArea.ANALYTIC_PLATFORM`) with `widget_type`, `dashboard_id`, and `tile_id`. Failures also carry `error_type`, `error_message`, and `error_origin`, because the handler passes the caught exception to `slo.fail(exc)`.
+No per-type SLO wiring — shipping a new registry entry is enough. Access/validation failures before `query_fn` runs do not emit this SLO.
 
 ## Copy, move, duplicate
 

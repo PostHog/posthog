@@ -17,6 +17,14 @@ Intended usage patterns:
 
     def helper() -> None:
         tag_current_slo(cache_hit=True)
+
+4. Attribution for an exception the caller handles instead of re-raising:
+
+    with slo_operation(spec=spec) as slo:
+        try:
+            do_work()
+        except Exception as exc:
+            slo.fail(exc)
 """
 
 import random
@@ -59,6 +67,28 @@ class SloSpec:
             raise ValueError(f"SloSpec sample_rate must be between 0 and 1, got {self.sample_rate}")
 
 
+def _is_repo_frame(filename: str) -> bool:
+    normalized_filename = str(Path(filename).absolute())
+    return normalized_filename == SLO_REPO_ROOT_STR or normalized_filename.startswith(SLO_REPO_ROOT_PREFIX)
+
+
+def _build_error_origin(exc: Exception) -> str | None:
+    frames = traceback.extract_tb(exc.__traceback__)
+    if not frames:
+        return None
+
+    origin = next((frame for frame in reversed(frames) if _is_repo_frame(frame.filename)), frames[-1])
+    return f"{origin.filename}:{origin.lineno} in {origin.name}"
+
+
+def _error_properties(exc: Exception) -> dict[str, JsonValue]:
+    return {
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "error_origin": _build_error_origin(exc),
+    }
+
+
 @dataclasses.dataclass(frozen=False)
 class SloHandle:
     operation: SloOperation | None = None
@@ -76,8 +106,17 @@ class SloHandle:
         self.outcome_override = SloOutcome.SUCCESS
         self.tag(**props)
 
-    def fail(self, **props: JsonValue) -> None:
+    def record_error(self, exc: Exception) -> None:
+        # Tags set before the failure win, so a caller that already named the failure path keeps it.
+        for key, value in _error_properties(exc).items():
+            self.completion_properties.setdefault(key, value)
+
+    def fail(self, exc: Exception | None = None, **props: JsonValue) -> None:
+        # ``slo_operation`` records a propagating exception itself. Pass ``exc`` when the caller
+        # handles it instead, or the completed event names no failure path.
         self.outcome_override = SloOutcome.FAILURE
+        if exc is not None:
+            self.record_error(exc)
         self.tag(**props)
 
 
@@ -95,20 +134,6 @@ def tag_current_slo(**props: JsonValue) -> bool:
 
     slo.tag(**props)
     return True
-
-
-def _is_repo_frame(filename: str) -> bool:
-    normalized_filename = str(Path(filename).absolute())
-    return normalized_filename == SLO_REPO_ROOT_STR or normalized_filename.startswith(SLO_REPO_ROOT_PREFIX)
-
-
-def _build_error_origin(exc: Exception) -> str | None:
-    frames = traceback.extract_tb(exc.__traceback__)
-    if not frames:
-        return None
-
-    origin = next((frame for frame in reversed(frames) if _is_repo_frame(frame.filename)), frames[-1])
-    return f"{origin.filename}:{origin.lineno} in {origin.name}"
 
 
 @contextmanager
@@ -161,9 +186,7 @@ def slo_operation(
             # Skip the dict mutations + traceback walk on the sampled-out path —
             # nothing downstream consumes completion_properties when we don't emit.
             if should_emit:
-                handle.completion_properties.setdefault("error_type", type(exc).__name__)
-                handle.completion_properties.setdefault("error_message", str(exc))
-                handle.completion_properties.setdefault("error_origin", _build_error_origin(exc))
+                handle.record_error(exc)
             outcome = handle.outcome_override or SloOutcome.FAILURE
             raise
         finally:
