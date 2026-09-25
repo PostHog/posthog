@@ -76,6 +76,18 @@ def create_trunk_source(
     )
 
 
+def create_depot_source(team: Team, *, prefix: str = "depot_", repository: str = "") -> ExternalDataSource:
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id="depot-source",
+        connection_id="depot-source",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.DEPOT,
+        prefix=prefix,
+        job_inputs={"repository": repository} if repository else {},
+    )
+
+
 def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
     return {
         "file": file,
