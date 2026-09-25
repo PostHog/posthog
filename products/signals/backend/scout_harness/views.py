@@ -202,6 +202,7 @@ from products.signals.backend.scout_harness.tools.report import (
     ReportMetricComparisonInput,
     ReportMetricInput,
     ReviewerInput,
+    capture_edit_fields_ignored,
     edit_report_sync,
     emit_report_sync,
 )
@@ -1306,9 +1307,10 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         if ignored_fields := data[IGNORED_EDIT_FIELDS_KEY]:
             # The response names these fields, but a caller that never reads them leaves a running
-            # deploy skew looking like a clean edit. Warn so the skew is measurable here too, and warn
-            # before the edit runs so one the judge or the service rejects still records it. The names
-            # only, never the values a scout sent with them.
+            # deploy skew looking like a clean edit. Record it here, before the edit runs, so one the
+            # judge or the service rejects and one that restates what the report already holds both
+            # still count — neither writes an edited event. The names only, never the values a scout
+            # sent with them.
             logger.warning(
                 "signals_scout: edit_report ignored fields this backend does not declare",
                 team_id=run.team_id,
@@ -1316,6 +1318,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 skill_name=run.skill_name,
                 ignored_fields=ignored_fields,
             )
+            capture_edit_fields_ignored(team=run.team, run=run, ignored_fields=ignored_fields)
         try:
             result = edit_report_sync(
                 # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.

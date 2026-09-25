@@ -1305,6 +1305,28 @@ def _capture_report_emitted(
     )
 
 
+def capture_edit_fields_ignored(*, team: Team, run: SignalScoutRun, ignored_fields: Sequence[str]) -> None:
+    """Record that an edit request named body fields this backend does not declare.
+
+    Separate from the edited event, which carries the same names but only fires when the edit mutated
+    the report: a skew is a property of the request, so the calls it rides on include ones that
+    restate what the report already holds and ones the validation or the judge then rejects. Counting
+    it off the edited event would measure how long a skew lasted only among the calls that happened to
+    change something. Best-effort; never fails the edit."""
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_edit_fields_ignored",
+            distinct_id=str(team.uuid),
+            properties={**_report_event_base(run), "ignored_fields": list(ignored_fields)},
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture ignored-fields analytics event",
+            extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
+        )
+
+
 def _capture_report_edited(
     *,
     team: Team,

@@ -1617,6 +1617,35 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            # Restating the stored title applies cleanly and mutates nothing, so the edit is suppressed.
+            ("no_op_edit", "Checkout p99 regressed after 4.2", status.HTTP_200_OK),
+            # Nothing is left to apply once the ignored field is set aside, so the edit is rejected.
+            ("rejected_edit", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_skewed_request_records_the_ignored_fields_whatever_the_edit_does(
+        self, _name: str, title: str | None, expected_status: int
+    ) -> None:
+        # A skew belongs to the request, not to the edit, so it must not be counted off the edited
+        # event: neither of these writes one, and an operator measuring how long a skew lasted would
+        # see only the calls that happened to change something.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": title, "collapse_after_four": True},
+                format="json",
+            )
+        assert response.status_code == expected_status, response.json()
+        assert not [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited"]
+        skew = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_edit_fields_ignored")
+        assert skew.kwargs["properties"]["ignored_fields"] == ["collapse_after_four"]
+        assert skew.kwargs["properties"]["run_id"] == str(run.id)
+
+    @parameterized.expand(
+        [
             ("no_slash", "not-a-repo"),
             # A value with a slash and free prose after it: the judge never reads `repository`, and the
             # stored selection is rendered verbatim into the autonomous implementation task's
