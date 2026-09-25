@@ -2639,28 +2639,29 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 class TestCommandSearch(APIBaseTest):
     @parameterized.expand(
         [
-            (False, True, True, "US", 403),
+            (False, True, True, "US", 200),
             (True, False, True, "US", 403),
             (True, True, False, "US", 403),
             (True, True, True, "US", 200),
-            (True, True, True, "EU", 403),
+            (False, True, True, "EU", 200),
         ]
     )
     def test_experiment_gate(
-        self, staff: bool, allowlisted: bool, flag: bool, region: str, expected_status: int
+        self, staff: bool, configured: bool, flag: bool, region: str, expected_status: int
     ) -> None:
         self.user.is_staff = staff
         self.user.save()
         with (
             self.settings(
-                COMMAND_SEARCH_JEV_TEAM_IDS=[str(self.team.pk)] if allowlisted else [],
+                AI_GATEWAY_URL=f"https://ai-gateway.{region.lower()}.example.com/v1" if configured else "",
+                AI_GATEWAY_API_KEY="test-only-gateway-key" if configured else "",
                 DEBUG=False,
                 CLOUD_DEPLOYMENT=region,
             ),
             patch(
                 "posthog.helpers.command_search.posthoganalytics.feature_enabled", return_value=flag
             ) as evaluate_flag,
-            patch("posthog.helpers.command_search.system_one") as infer,
+            patch("posthog.helpers.command_search._transport.session.post") as infer,
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/file_system/command_search/",
@@ -2668,7 +2669,7 @@ class TestCommandSearch(APIBaseTest):
                 format="json",
             )
         self.assertEqual(response.status_code, expected_status)
-        self.assertEqual(evaluate_flag.called, staff and allowlisted and region == "US")
+        self.assertEqual(evaluate_flag.called, configured)
         infer.assert_not_called()
 
     @patch("posthog.helpers.command_search.CommandSearch.enabled", return_value=True)

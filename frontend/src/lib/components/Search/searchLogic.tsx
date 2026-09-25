@@ -485,7 +485,7 @@ export interface searchLogicMeta {
             featureFlags: FeatureFlagsSet,
             currentTeamId: number | null,
             rankedSearchDisabledTeams: number[],
-            fallbackSearchQuery: any,
+            fallbackSearchQuery: string | null,
             search: string,
             arg: string
         ) => boolean
@@ -552,7 +552,7 @@ export interface searchLogicMeta {
         peopleItems: (treeGroupItems: FileSystemImport[], sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         groupItems: (
             groupSearchResults: Partial<Record<GroupTypeIndex, GroupQueryResult[]>>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => SearchItem[]
         personItems: (personSearchResults: PersonType[]) => SearchItem[]
         accountItems: (accountSearchResults: AccountApi[]) => SearchItem[]

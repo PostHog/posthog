@@ -944,7 +944,6 @@ FIRECRAWL_EGRESS_HOURLY_BUDGET = get_from_env("FIRECRAWL_EGRESS_HOURLY_BUDGET", 
 ####
 # TypeSafe (System One judgments from the Jev model, see posthog/egress/typesafe/)
 TYPESAFE_API_KEY = get_from_env("TYPESAFE_API_KEY", "")
-COMMAND_SEARCH_JEV_TEAM_IDS = get_list(get_from_env("COMMAND_SEARCH_JEV_TEAM_IDS", ""))
 # Half of TypeSafe's published per-minute request limit, which can change without notice.
 TYPESAFE_EGRESS_PER_MINUTE_BUDGET = get_from_env("TYPESAFE_EGRESS_PER_MINUTE_BUDGET", 600, type_cast=int)
 # An operator ceiling on spend, since TypeSafe bills every input token.

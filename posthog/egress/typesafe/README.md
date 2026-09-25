@@ -44,15 +44,7 @@ Raise both settings when real traffic outgrows them.
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-Command palette search uses `NORMAL`, source `command_search`, and the `command-search-jev` flag.
-The server additionally requires a staff user and a team in `COMMAND_SEARCH_JEV_TEAM_IDS`; only PostHog-owned or synthetic projects belong in that allowlist.
-Each settled search sends one choice question with at most 254 candidates plus a no-match option.
-Candidate names and descriptions have length limits; file contents and arbitrary metadata are never sent.
-States larger than 60 KB use text matches without calling TypeSafe.
-The caller caches rankings for 30 seconds, coalesces identical in-flight requests, and caps each user at 120 requests per minute.
-Connection and read timeouts are 300 and 800 milliseconds.
-HTTP sessions are reused per Django thread to avoid repeating the TLS handshake on every keystroke.
-Provider failures open a 30-second shared cooldown; the palette returns text matches without retrying or later replacing them.
+No caller exists on master yet. Each new caller adds itself here with its lane and its feature flag.
 
 ## Rate-limit headers
 

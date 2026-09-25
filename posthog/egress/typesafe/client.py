@@ -15,20 +15,15 @@ PostHog staff only, and send no customer data. A launch that sends customer data
 opt-in from each customer and sign-off from leadership first.
 """
 
-from __future__ import annotations
-
 import math
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request
-
-if TYPE_CHECKING:
-    from requests import Session
 
 TYPESAFE_API_BASE = "https://api.typesafe.ai"
 SYSTEM_ONE_ENDPOINT = "/v1/systemone"
@@ -174,7 +169,6 @@ def system_one(
     model: str = JEV_LATEST,
     priority: Priority = Priority.NORMAL,
     timeout: float | tuple[float, float] = DEFAULT_TIMEOUT,
-    session: Session | None = None,
 ) -> SystemOneResult:
     """Evaluate ``state`` against every question in one call. TypeSafe answers the questions in
     parallel, so a caller asks everything it needs in one request.
@@ -198,7 +192,6 @@ def system_one(
         endpoint=SYSTEM_ONE_ENDPOINT,
         priority=priority,
         timeout=timeout,
-        session=session,
         allow_redirects=False,
         json={
             "model": model,
