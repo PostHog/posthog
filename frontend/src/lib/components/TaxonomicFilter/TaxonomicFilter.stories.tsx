@@ -913,7 +913,8 @@ export const SearchIntentSuggestsAnotherTabNarrow: Story = {
     decorators: [searchIntentPersonPropertiesMock],
     parameters: {
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'banner' },
-        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"]' },
+        // LemonBanner renders the action twice and hides the wide copy at this width, so wait for the narrow copy.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"].LemonButton--full-width' },
     },
 }
 
