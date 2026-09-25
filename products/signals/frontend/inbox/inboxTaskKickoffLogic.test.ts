@@ -190,6 +190,22 @@ describe('inboxTaskKickoffLogic', () => {
             }
         )
 
+        it('sends app-built instructions to the agent but only the reader text as the question', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(
+                    report,
+                    'https://example.com/report',
+                    'Fewer failed checkouts',
+                    "Propose a goal. The user's idea: Fewer failed checkouts"
+                )
+            ).toFinishAllListeners()
+
+            expect(createdTasks[0]).toMatchObject({
+                description: expect.stringContaining("Propose a goal. The user's idea: Fewer failed checkouts"),
+                signal_report_discussion_question: 'Fewer failed checkouts',
+            })
+        })
+
         it('warms a repo-less sandbox for the report when Ask AI opens, and only once per report', async () => {
             warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
 

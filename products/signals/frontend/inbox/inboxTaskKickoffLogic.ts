@@ -385,8 +385,10 @@ export interface inboxTaskKickoffLogicActions {
     discussReport: (
         report: SignalReport,
         reportUrl: string,
-        question: string
+        question: string,
+        agentQuestion?: string
     ) => {
+        agentQuestion: string | undefined
         question: string
         report: SignalReport
         reportUrl: string
@@ -485,7 +487,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             runId,
             streamKey,
         }),
-        discussReport: (report: SignalReport, reportUrl: string, question: string) => ({ report, reportUrl, question }),
+        // `question` is the reader's own text: the chat shows it and the report's scout receives it as
+        // reader feedback. `agentQuestion` replaces it in the agent prompt only, for app-built requests.
+        discussReport: (report: SignalReport, reportUrl: string, question: string, agentQuestion?: string) => ({
+            report,
+            reportUrl,
+            question,
+            agentQuestion,
+        }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
@@ -668,7 +677,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        discussReport: async ({ report, reportUrl, question }) => {
+        discussReport: async ({ report, reportUrl, question, agentQuestion }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
@@ -707,7 +716,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
             try {
                 const prompt = wrapWithPosthogContext(
-                    buildDiscussReportPrompt(currentReport, reportUrl, question),
+                    buildDiscussReportPrompt(currentReport, reportUrl, agentQuestion ?? question),
                     contextItems
                 )
                 const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null

@@ -29,9 +29,9 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
         if (!request) {
             return
         }
-        const question = `Update only the Expected impact section and proposed measurement on this report. Investigate which data is available, then use the inbox report edit tool to write a clear, testable success goal. Add or update a live report metric with a bounded query, goal_value, goal_direction, and a short decision_window_days or minimum_data_points justified by the expected volume. Count eligible opportunities, not failures, as data points. Keep the other report metrics and sections intact. If the data is not available, say what is missing; do not invent a chart or a threshold. Do not create a follow-up check, start monitoring, change the report status, or open a PR. The user's idea: ${request}`
+        const agentQuestion = `Update only the Expected impact section and proposed measurement on this report. Investigate which data is available, then use the inbox report edit tool to write a clear, testable success goal. Add or update a live report metric with a bounded query, goal_value, goal_direction, and a short decision_window_days or minimum_data_points justified by the expected volume. Count eligible opportunities, not failures, as data points. Keep the other report metrics and sections intact. If the data is not available, say what is missing; do not invent a chart or a threshold. Do not create a follow-up check, start monitoring, change the report status, or open a PR. The user's idea: ${request}`
         openReportDiscussion(report, reportUrl)
-        discussReport(report, reportUrl, question)
+        discussReport(report, reportUrl, request, agentQuestion)
         setModalOpen(false)
         setDescription('')
     }
