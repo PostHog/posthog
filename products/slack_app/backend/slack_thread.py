@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 from slack_sdk import WebClient
@@ -16,6 +17,8 @@ from products.slack_app.backend.services.slack_messages import (
     context_block,
     fork_menu_actions_block,
     fork_menu_element,
+    load_run_footer,
+    mentions_slack_user,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -26,6 +29,9 @@ from products.slack_app.backend.services.slack_messages import (
     turn_feedback_block,
     viewer_has_code_access,
 )
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
 
@@ -112,7 +118,7 @@ def _format_task_error(error: str) -> str:
     return error
 
 
-@dataclass
+@dataclass(frozen=False)
 class SlackThreadContext:
     """Context for posting messages to a Slack thread."""
 
@@ -144,6 +150,37 @@ class SlackThreadContext:
             mentioning_slack_user_id=data.get("mentioning_slack_user_id"),
         )
 
+    @classmethod
+    def from_mapping(
+        cls, mapping: "SlackThreadTaskMapping", user_message_ts: str | None = None
+    ) -> "SlackThreadContext":
+        return cls(
+            integration_id=mapping.integration_id,
+            channel=mapping.channel,
+            thread_ts=mapping.thread_ts,
+            user_message_ts=user_message_ts,
+            mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+        )
+
+
+def _pr_buttons(pr_url: str, task_url: str | None) -> list[dict[str, Any]]:
+    buttons: list[dict[str, Any]] = [
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View PR", "emoji": True},
+            "url": pr_url,
+        },
+    ]
+    if task_url:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Open in PostHog", "emoji": True},
+                "url": task_url,
+            }
+        )
+    return buttons
+
 
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
@@ -168,6 +205,27 @@ class SlackThreadHandler:
         self._bot_user_id: str | None = None
         self._fork_flag: bool | None = None
         self._code_access: bool | None = None
+
+    @classmethod
+    def for_run(
+        cls,
+        context: SlackThreadContext,
+        run_id: str | UUID | None,
+        *,
+        actor_slack_user_id: str | None = None,
+        turn_trace_id: str | None = None,
+    ) -> "SlackThreadHandler":
+        """A handler whose footer describes ``run_id``.
+
+        The footer's project segment is judged against the install this context posts through,
+        so the footer always loads with ``context.integration_id``.
+        """
+        return cls(
+            context,
+            load_run_footer(run_id, integration_id=context.integration_id),
+            actor_slack_user_id=actor_slack_user_id,
+            turn_trace_id=turn_trace_id,
+        )
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
@@ -434,9 +492,10 @@ class SlackThreadHandler:
         if final_markdown:
             for piece in _markdown_text_pieces(final_markdown):
                 final_chunks.append({"type": "markdown_text", "text": piece})
-        if self.context.mentioning_slack_user_id:
+        recipient = self.context.mentioning_slack_user_id
+        if recipient and not (final_markdown and mentions_slack_user(final_markdown, recipient)):
             # Newlines keep the mention off the tail of the last streamed prose chunk.
-            final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{self.context.mentioning_slack_user_id}>"})
+            final_chunks.append({"type": "markdown_text", "text": f"\n\n<@{recipient}>"})
         footer = self._footer_block()
         if footer:
             final_chunks.append({"type": "blocks", "blocks": [footer]})
@@ -538,38 +597,42 @@ class SlackThreadHandler:
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
         header = f"{mention_prefix}*Pull request opened* :rocket:"
 
-        buttons: list[dict[str, Any]] = [
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "View PR",
-                    "emoji": True,
-                },
-                "url": pr_url,
-            },
-        ]
-        if task_url:
-            buttons.append(
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Open in PostHog",
-                        "emoji": True,
-                    },
-                    "url": task_url,
-                }
-            )
-
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {"type": "actions", "elements": buttons},
+            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
         ]
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
         self._delete_progress_and_post(header, blocks)
+
+    def post_pr_closed(
+        self,
+        pr_url: str,
+        task_url: str | None,
+        reply_target_slack_user_id: str | None = None,
+        merged: bool = False,
+    ) -> bool:
+        """Post that the pull request ``post_pr_opened`` announced was merged or closed.
+
+        Without this card the thread keeps reading as if the work still waits for review.
+        It leaves any progress message alone, because the run can still be working.
+        Returns whether the card went out. A Slack failure is logged, never raised.
+        """
+        mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
+        outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
+        header = f"{mention_prefix}{outcome}"
+        blocks: list[dict[str, Any]] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": header}},
+            {"type": "actions", "elements": _pr_buttons(pr_url, task_url)},
+        ]
+        if not merged:
+            blocks.append(context_block("Reply in this thread to try a different approach."))
+        try:
+            return self._post_in_thread(text=header, blocks=blocks) is not None
+        except Exception as e:
+            logger.exception("slack_pr_closed_post_failed", error=str(e))
+            return False
 
     def _personal_github_hint(self) -> str:
         """One muted line telling the reader why the pull request isn't theirs.

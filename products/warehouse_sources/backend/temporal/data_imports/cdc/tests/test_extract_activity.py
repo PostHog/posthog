@@ -11,11 +11,12 @@ from django.db.utils import InterfaceError, OperationalError
 import pyarrow as pa
 import psycopg.errors
 from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
     CDC_BACKPRESSURE_STUCK_AGE,
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import cancel_running_sync
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
@@ -166,6 +168,10 @@ def _stub_sync_type_config_merge():
     """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
     with (
         patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+            return_value=None,
+        ),
+        patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_schema_running_unless_halted",
             side_effect=_fake_mark_schema_running_unless_halted,
         ),
@@ -212,7 +218,7 @@ def _setup_mocks(
     MockSourceModel.objects.get.return_value = source
     mock_get_schemas.return_value = schemas
 
-    mock_reader = MagicMock()
+    mock_reader = MagicMock(last_commit_end_lsn=None)
     mock_reader.read_changes.return_value = iter(events)
     mock_reader.truncated_tables = []
     # Below CDC_MAX_CHANGES_PER_READ so the bounded read loop treats this as a single drained pass.
@@ -1032,7 +1038,7 @@ class TestCDCExtractActivity:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.return_value = iter([])
         mock_reader.truncated_tables = []
         mock_reader.last_rows_consumed = 0
@@ -1176,7 +1182,7 @@ class TestCDCExtractActivity:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = RuntimeError("connection lost")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -1436,7 +1442,7 @@ class TestCDCExtractActivity:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.return_value = iter([])  # no DML events
         mock_reader.truncated_tables = ["users"]
         mock_reader.last_rows_consumed = 0
@@ -2195,7 +2201,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
             'password authentication failed for user "test"'
         )
@@ -2282,7 +2288,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = exc_cls(exc_message)
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -2349,7 +2355,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_adapter.is_slot_invalidation_error.return_value = False
@@ -2402,7 +2408,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
             'password authentication failed for user "test"'
         )
@@ -2450,7 +2456,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.OperationalError(
             'connection to server at "db" failed: Connection refused'
         )
@@ -2504,7 +2510,7 @@ class TestErrorClassification:
         mock_get_schemas.return_value = [schema]
 
         # A non-psycopg error the adapter can't classify falls back to retryable UNKNOWN.
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = RuntimeError("arrow merge blew up")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -2565,7 +2571,7 @@ class TestErrorClassification:
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         mock_get_schemas.return_value = [schema]
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = psycopg.errors.SyntaxError("invalid syntax")
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -2608,7 +2614,7 @@ class TestSlotInvalidationRecovery:
             'can no longer get changes from replication slot "posthog_slot"\n'
             "DETAIL:  This slot has been invalidated because it exceeded the maximum reserved size."
         )
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = invalidation_error
         mock_reader.truncated_tables = []
 
@@ -2899,7 +2905,7 @@ class TestFailureVisibilityJobs:
         MockSourceModel.objects.get.return_value = source
         mock_get_schemas.return_value = schemas
 
-        mock_reader = MagicMock()
+        mock_reader = MagicMock(last_commit_end_lsn=None)
         mock_reader.read_changes.side_effect = error
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
@@ -3678,8 +3684,22 @@ class TestBufferedIngressCapture:
     # keep today's transforms and sourcebatch dispatch, and a buffer failure must fail the run —
     # the slot is about to advance past those changes.
 
-    def _run(self, MockBufferWriter, events, schemas, source, capture: dict | None = None):
+    def _run(
+        self,
+        MockBufferWriter,
+        events,
+        schemas,
+        source,
+        capture: dict | None = None,
+        truncated=(),
+        snapshot_flag=True,
+        commit_end_lsn=None,
+    ):
         with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.is_buffered_snapshot_enabled",
+                return_value=snapshot_flag,
+            ),
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections"),
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob") as MockJob,
             patch(
@@ -3719,6 +3739,8 @@ class TestBufferedIngressCapture:
                 events,
             )
             mock_get_adapter.return_value.parse_cdc_config.return_value.ingest_mode = "buffered"
+            mock_reader.truncated_tables = list(truncated)
+            mock_reader.last_commit_end_lsn = commit_end_lsn
             if capture is not None:
                 capture["reader_ref"] = mock_reader
                 capture["complete_schema_run"] = mock_complete
@@ -3746,19 +3768,155 @@ class TestBufferedIngressCapture:
         # The point of the whole design: durable buffer releases the customer's WAL immediately.
         mock_reader.confirm_position.assert_called_once_with("0/200")
 
+    @parameterized.expand(
+        [
+            ("flag_on_starts_it_in_the_buffer", True, {}, True),
+            ("flag_off_keeps_it_on_deferred_runs", False, {}, False),
+            (
+                "a_snapshot_already_in_the_buffer_stays_there_when_the_flag_is_off",
+                False,
+                {CDC_SNAPSHOT_LANE_KEY: "buffer"},
+                True,
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
-    def test_an_ineligible_schema_on_a_flipped_source_keeps_the_legacy_path(self, MockBufferWriter):
+    def test_a_snapshotting_tables_changes_follow_its_snapshot_lane(
+        self, _name, snapshot_flag, config, buffered, MockBufferWriter, mock_purge
+    ):
         source = _make_source()
-        # No table yet, so the buffer has nothing to merge its changes into.
-        seeding = _make_schema("events", cdc_mode="streaming", source=source)
+        seeding = _make_schema("events", cdc_mode="snapshot", source=source)
         seeding.initial_sync_complete = False
+        seeding.sync_type_config.update(config)
         events = [_make_event(op="I", position="0/100", table="events", columns={"id": 1})]
 
-        _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, [seeding], source)
+        _reader, mock_s3, _producer = self._run(
+            MockBufferWriter, events, [seeding], source, snapshot_flag=snapshot_flag
+        )
 
+        assert MockBufferWriter.return_value.write_batch.called is buffered
+        assert mock_s3.write_batch.called is not buffered
+        assert (seeding.sync_type_config.get(CDC_SNAPSHOT_LANE_KEY) == "buffer") is buffered
+        # Only a snapshot starting in the buffer empties it: files from before a gap must not replay.
+        assert [c.kwargs["strict"] for c in mock_purge.call_args_list] == ([True] if buffered and not config else [])
+
+    def test_a_truncate_is_handled_before_the_slot_advances_past_it(self):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [schema]
+        act.schema_by_name = {"users": schema}
+        act._buffered_table_names = {"users"}
+        act.batcher = MagicMock(event_count=0)
+        act.reader = MagicMock(truncated_tables=["users"], last_commit_end_lsn="0/300")
+        order = MagicMock()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix",
+                side_effect=lambda *_a, **_k: order.purge(),
+            ),
+            patch.object(act, "_confirm_position", side_effect=lambda *_a: order.confirm()),
+            patch.object(act, "_unpause_schema_schedule"),
+        ):
+            act._drain_and_advance_page()
+
+        assert [call[0] for call in order.mock_calls] == ["purge", "confirm"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_truncate_drops_the_tables_pending_changes_and_purges_strictly(self, MockBufferWriter, mock_purge):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+
+        # The TRUNCATE commits after the last row event, in a transaction of its own.
+        reader, _s3, _producer = self._run(
+            MockBufferWriter, events, [schema], source, truncated=["users"], commit_end_lsn="0/300"
+        )
+
+        # Confirming only the last event's position would read the TRUNCATE again and reset the table
+        # a second time, dropping changes a snapshot started in between never saw.
+        assert reader.confirm_position.call_args_list[-1].args == ("0/300",)
         MockBufferWriter.return_value.write_batch.assert_not_called()
-        mock_s3.write_batch.assert_called_once()
-        mock_producer.send_batch_notification.assert_called_once()
+        assert mock_purge.call_args.kwargs["strict"] is True
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config[CDC_SNAPSHOT_LANE_KEY] == "buffer"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix",
+        side_effect=Exception("s3 down"),
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_a_failed_purge_after_a_truncate_leaves_the_table_unmarked(self, MockBufferWriter, _mock_purge):
+        # The hand-over keeps every file of a marked schema, so a marker left by a failed purge would
+        # replay the pre-TRUNCATE files over the re-snapshot.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
+        captured: dict = {}
+
+        with pytest.raises(Exception, match="s3 down"):
+            self._run(MockBufferWriter, events, [schema], source, capture=captured, truncated=["users"])
+
+        captured["reader_ref"].confirm_position.assert_not_called()
+        assert schema.sync_type_config["cdc_mode"] == "streaming"
+        assert CDC_SNAPSHOT_LANE_KEY not in schema.sync_type_config
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    def test_a_snapshot_that_hands_over_first_is_left_unmarked(self, mock_purge):
+        # The hand-over clears the marker when it flips the table. A marker set after the flip would
+        # outlive the snapshot, and the rollback command would refuse the source for good.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="snapshot", source=source)
+        act = _make_extract_activity(source)
+        mock_purge.side_effect = lambda *_a, **_k: schema.sync_type_config.update(cdc_mode="streaming")
+
+        with patch.object(act, "_buffered_snapshot_enabled", return_value=True):
+            assert act._start_snapshot_in_buffer(schema) is True
+
+        assert CDC_SNAPSHOT_LANE_KEY not in schema.sync_type_config
+
+    @parameterized.expand(
+        [
+            ("cancelled", None),
+            ("already_finished", RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
+    def test_a_reset_stops_the_tables_running_sync_first(self, _name, cancel_error, MockJob, mock_purge):
+        # A snapshot that started before a repeated reset missed the changes the reset drops, so it
+        # must not reach its hand-over.
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="snapshot", source=source)
+        act = _make_extract_activity(source)
+        running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
+        running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")
+        fails = cancel_error is not None and cancel_error.status != RPCStatusCode.NOT_FOUND
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
+                cancel_running_sync,
+            ),
+            patch(
+                "products.data_warehouse.backend.facade.api.cancel_external_data_workflow",
+                side_effect=cancel_error,
+            ) as cancel,
+        ):
+            if fails:
+                with pytest.raises(RPCError):
+                    act._reset_schema_to_snapshot(schema)
+            else:
+                act._reset_schema_to_snapshot(schema)
+
+        cancel.assert_called_once_with("users-snapshot")
+        # A cancel that did not go through fails the run before the reset, so the retry repeats both.
+        assert mock_purge.called is not fails
+        assert schema.sync_type_config.get("reset_pipeline") is (None if fails else True)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
     def test_a_buffer_write_failure_fails_the_run_and_leaves_the_slot(self, MockBufferWriter):
@@ -3838,15 +3996,9 @@ class TestBufferedIngressCapture:
         # tick would erase a failing consumer run within a minute and hide a buffer backlog.
         source = _make_source()
         buffered = _make_schema("users", cdc_mode="streaming", source=source)
-        legacy = _make_schema("events", cdc_mode="streaming", source=source)
-        legacy.initial_sync_complete = False
-        events = [
-            _make_event(op="I", position="0/100", columns={"id": 1}),
-            _make_event(op="I", position="0/100", table="events", columns={"id": 1}),
-        ]
+        events = [_make_event(op="I", position="0/100", columns={"id": 1})]
         captured: dict = {}
 
-        self._run(MockBufferWriter, events, [buffered, legacy], source, capture=captured)
+        self._run(MockBufferWriter, events, [buffered], source, capture=captured)
 
-        repainted = [call.args[0].name for call in captured["complete_schema_run"].call_args_list]
-        assert repainted == ["events"]
+        captured["complete_schema_run"].assert_not_called()

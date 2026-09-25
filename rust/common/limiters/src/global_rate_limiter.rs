@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use dashmap::DashSet;
+use siphasher::sip128::SipHasher13;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -357,14 +358,33 @@ pub fn epoch_key(prefix: &str, key: &str, epoch: i64) -> String {
     format!("{prefix}:{key}:{epoch}")
 }
 
+/// Salt that keeps the expiry offset independent of shard selection.
+const EXPIRY_HASH_DOMAIN: &str = "grl/expiry-offset";
+
 /// The absolute unix second at which an epoch key stops being readable, since
 /// a read consults only the current and previous epoch.
 ///
 /// TTL configured above the two-window minimum becomes clock-skew grace.
-pub fn epoch_expire_at(epoch: i64, window_interval: Duration, global_cache_ttl: Duration) -> i64 {
+pub fn epoch_expire_at(
+    key: &str,
+    epoch: i64,
+    window_interval: Duration,
+    global_cache_ttl: Duration,
+) -> i64 {
     let window_secs = window_interval.as_secs() as i64;
     let grace_secs = (global_cache_ttl.as_secs() as i64 - 2 * window_secs).max(0);
-    (epoch + 2) * window_secs + grace_secs
+    // Spread expiry over a window. Every key of one epoch shares a deadline, so
+    // without this the whole generation dies in one instant and that burst
+    // blocks Redis long enough to time out concurrent writes. The offset only
+    // ever adds time, so the key still outlives every read that consults it.
+    // Salted so this hash cannot correlate with `select_redis_client`, which
+    // hashes the same key. Sharing it would collapse the spread on any shard
+    // whose count shares a factor with the window.
+    let mut hasher = DefaultHasher::new();
+    EXPIRY_HASH_DOMAIN.hash(&mut hasher);
+    key.hash(&mut hasher);
+    let jitter_secs = (hasher.finish() % window_secs.max(1) as u64) as i64;
+    (epoch + 2) * window_secs + grace_secs + jitter_secs
 }
 
 /// Build the current and previous epoch Redis keys for a given entity
@@ -415,6 +435,11 @@ enum CheckMode {
 
 /// Select a Redis client from the pool based on consistent key hashing.
 /// Returns (client_ref, index) tuple for metric tagging.
+///
+/// Uses SipHash-1-3 rather than `DefaultHasher`, whose algorithm the standard
+/// library does not guarantee across releases. Every pod has to agree on the
+/// owner of a key, so a toolchain bump mid-rollout would otherwise split one
+/// entity's counter across two instances and under-enforce its limit.
 fn select_redis_client(
     key: &str,
     clients: &[Arc<dyn Client + Send + Sync>],
@@ -422,7 +447,7 @@ fn select_redis_client(
     if clients.len() == 1 {
         return (clients[0].clone(), 0);
     }
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = SipHasher13::new();
     key.hash(&mut hasher);
     let idx = (hasher.finish() as usize) % clients.len();
     (clients[idx].clone(), idx)
@@ -1168,7 +1193,7 @@ impl GlobalRateLimiterImpl {
             .map(|((key, epoch), count)| {
                 let redis_key = epoch_key(&config.redis_key_prefix, key, *epoch);
                 let expire_at =
-                    epoch_expire_at(*epoch, config.window_interval, config.global_cache_ttl);
+                    epoch_expire_at(key, *epoch, config.window_interval, config.global_cache_ttl);
                 (redis_key, *count as i64, expire_at)
             })
             .collect();
@@ -1593,40 +1618,131 @@ mod tests {
     }
 
     #[test]
-    fn test_epoch_expire_at_covers_exactly_the_readable_window() {
+    fn test_epoch_expire_at_never_expires_inside_the_readable_window() {
         let window = Duration::from_secs(120);
-        // The minimum cache TTL is two windows, which leaves no grace.
         let ttl = Duration::from_secs(240);
-
-        // A key written anywhere in epoch 10 is read while the clock sits in
-        // epoch 10 or epoch 11, so it must live to the end of epoch 11 and no
-        // longer. Epoch 11 ends at (10 + 2) * 120.
-        assert_eq!(epoch_expire_at(10, window, ttl), 1440);
-
+        // Epoch 10 is read while the clock sits in epoch 10 or 11, so the key
+        // must outlive the end of epoch 11 at (10 + 2) * 120.
         let last_readable_instant = 12 * 120 - 1;
-        assert!(epoch_expire_at(10, window, ttl) > last_readable_instant);
+        for key in ["a", "b", "phc_token:distinct", "", "zzzzzzzzzzzz"] {
+            let at = epoch_expire_at(key, 10, window, ttl);
+            assert!(
+                at > last_readable_instant,
+                "{key} expired at {at}, inside the readable window"
+            );
+        }
+    }
 
-        // The deadline follows the epoch, so consecutive epochs stay one
-        // window apart rather than drifting with write time.
-        assert_eq!(
-            epoch_expire_at(11, window, ttl) - epoch_expire_at(10, window, ttl),
-            120
+    #[test]
+    fn test_epoch_expire_at_spreads_keys_across_a_window() {
+        let window = Duration::from_secs(120);
+        let ttl = Duration::from_secs(240);
+        let base = 12 * 120;
+
+        // Without this spread a whole generation expires in one instant, and
+        // that burst blocks Redis long enough to time out concurrent writes.
+        let deadlines: std::collections::HashSet<i64> = (0..500)
+            .map(|i| epoch_expire_at(&format!("key{i}"), 10, window, ttl))
+            .collect();
+        assert!(
+            deadlines.len() > 100,
+            "expected keys to land on many distinct deadlines, got {}",
+            deadlines.len()
         );
+        assert!(deadlines.iter().all(|d| *d >= base && *d < base + 120));
+
+        // The offset is stable per key, so a repeat write cannot move a
+        // deadline and leave the key alive longer each time.
+        assert_eq!(
+            epoch_expire_at("k", 10, window, ttl),
+            epoch_expire_at("k", 10, window, ttl)
+        );
+    }
+
+    fn mock_pool(n: usize) -> Vec<Arc<dyn Client + Send + Sync>> {
+        (0..n)
+            .map(|_| Arc::new(MockRedisClient::new()) as Arc<dyn Client + Send + Sync>)
+            .collect()
+    }
+
+    #[test]
+    fn test_select_redis_client_assignment_is_pinned() {
+        // Golden assignments. Every pod must route a key to the same instance,
+        // so a change of hash algorithm splits one entity's counter across two
+        // instances and under-enforces its limit with nothing in the metrics to
+        // show it. Pin the mapping so such a change fails here instead.
+        let pool = mock_pool(4);
+        let got: Vec<usize> = ["team_1", "team_2", "team_3", "phc_tok:distinct"]
+            .iter()
+            .map(|k| select_redis_client(k, &pool).1)
+            .collect();
+        assert_eq!(got, vec![2, 2, 3, 1]);
+    }
+
+    #[test]
+    fn test_select_redis_client_spreads_across_the_pool() {
+        for n in [2usize, 3, 4, 8] {
+            let pool = mock_pool(n);
+            let mut counts = vec![0usize; n];
+            for i in 0..4000 {
+                counts[select_redis_client(&format!("key{i}"), &pool).1] += 1;
+            }
+            let ideal = 4000 / n;
+            for (shard, c) in counts.iter().enumerate() {
+                assert!(
+                    *c > ideal / 2 && *c < ideal * 2,
+                    "pool of {n}: shard {shard} got {c}, ideal {ideal}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_select_redis_client_single_instance_skips_hashing() {
+        let pool = mock_pool(1);
+        assert_eq!(select_redis_client("anything", &pool).1, 0);
+    }
+
+    #[test]
+    fn test_epoch_expire_at_spread_survives_sharding() {
+        // `select_redis_client` shards on `DefaultHasher` of the same key. If
+        // the expiry offset used that hash too, a shard count sharing a factor
+        // with the window would leave each shard only a fraction of the
+        // offsets, and the expiry burst would come back per shard.
+        let window = Duration::from_secs(120);
+        let ttl = Duration::from_secs(240);
+        for shards in [2usize, 3, 4, 8] {
+            let mut per_shard: std::collections::HashMap<usize, std::collections::HashSet<i64>> =
+                std::collections::HashMap::new();
+            for i in 0..4000 {
+                let key = format!("key{i}");
+                let mut h = DefaultHasher::new();
+                key.hash(&mut h);
+                let shard = (h.finish() as usize) % shards;
+                per_shard
+                    .entry(shard)
+                    .or_default()
+                    .insert(epoch_expire_at(&key, 10, window, ttl));
+            }
+            for (shard, offsets) in &per_shard {
+                assert!(
+                    offsets.len() > 100,
+                    "shard {shard} of {shards} saw only {} distinct deadlines",
+                    offsets.len()
+                );
+            }
+        }
     }
 
     #[test]
     fn test_epoch_expire_at_carries_configured_slack_as_grace() {
         let window = Duration::from_secs(120);
-
-        // TTL above the two-window minimum becomes clock-skew grace.
-        assert_eq!(
-            epoch_expire_at(10, window, Duration::from_secs(250)),
-            1440 + 10
-        );
-
-        // A TTL below the minimum cannot pull the deadline inside the readable
-        // window, which would expire a key that reads still consult.
-        assert_eq!(epoch_expire_at(10, window, Duration::from_secs(60)), 1440);
+        let base = 12 * 120;
+        // TTL above the two-window minimum becomes clock-skew grace, on top of
+        // the per-key spread.
+        assert!(epoch_expire_at("k", 10, window, Duration::from_secs(250)) >= base + 10);
+        // A TTL below the minimum cannot pull the deadline inside the window.
+        assert!(epoch_expire_at("k", 10, window, Duration::from_secs(60)) >= base);
     }
 
     // --- Weighted count estimation tests (parameterized) ---
@@ -2448,6 +2564,7 @@ mod tests {
             .collect();
         let live_key = epoch_key(&config.redis_key_prefix, "live", current_epoch);
         let live_expire_at = epoch_expire_at(
+            "live",
             current_epoch,
             config.window_interval,
             config.global_cache_ttl,

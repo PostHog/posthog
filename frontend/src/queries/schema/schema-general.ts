@@ -8394,6 +8394,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'BingAds',
     'SnapchatAds',
     'PinterestAds',
+    'AppleSearchAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8564,9 +8565,23 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         adTableName: 'ads' as const,
         adStatsTableName: 'ad_analytics' as const,
     },
+    AppleSearchAds: {
+        sourceType: 'AppleSearchAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        defaultSources: ['apple', 'apple_search_ads', 'apple_ads', 'asa'] as const,
+        primarySource: 'apple',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
+
+export type AppleSearchAdsDefaultSources =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
 
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
