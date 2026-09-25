@@ -190,6 +190,8 @@ Errors outside the query path, such as configuration failures, may have no query
 ## Marketing conversion details
 
 Ad performance and the legacy marketing dashboard share the conversion table.
+The `marketing-analytics-conversion-people` feature flag controls the people drill-down in both views.
+When the flag is off or unavailable, conversion values remain non-interactive.
 Click a positive conversion goal value to open the people list for that goal and row.
 The list retains the table's date range, filters, attribution settings, and breakdown, including the source for campaign rows.
 It shows distinct people, so its count can differ from event totals or fractional attribution credit.

@@ -57,6 +57,7 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
+    const hasConversionPeople = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_PEOPLE')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(query.source, insightProps)
 
@@ -115,6 +116,7 @@ export const MarketingAnalyticsTable = ({
                                 const actorsQuery =
                                     conversionGoal && currentValue !== null && currentValue > 0
                                         ? marketingAnalyticsActorsQuery({
+                                              enabled: hasConversionPeople,
                                               conversionGoalId: conversionGoal.conversion_goal_id,
                                               query: props.query as DataTableNode,
                                               record: props.record,
@@ -145,7 +147,7 @@ export const MarketingAnalyticsTable = ({
                 )
             })(),
         }),
-        [insightProps, query.source, searchTerm, conversion_goals]
+        [insightProps, query.source, searchTerm, conversion_goals, hasConversionPeople]
     )
 
     return (

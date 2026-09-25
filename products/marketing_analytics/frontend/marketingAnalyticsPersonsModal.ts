@@ -26,14 +26,20 @@ function rowValue(record: unknown, column: string): string | null {
 }
 
 export function marketingAnalyticsActorsQuery({
+    enabled,
     conversionGoalId,
     query,
     record,
 }: {
+    enabled: boolean
     conversionGoalId: string
     query: DataTableNode
     record: unknown
 }): MarketingAnalyticsActorsRequest | null {
+    if (!enabled) {
+        return null
+    }
+
     const source = query.source as MarketingAnalyticsTableQuery
     const level = source.drillDownLevel ?? MarketingAnalyticsDrillDownLevel.Campaign
     const breakdownValue = rowValue(record, MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[level].columnAlias)

@@ -19,8 +19,9 @@ describe('marketingAnalyticsActorsQuery', () => {
         } satisfies MarketingAnalyticsTableQuery,
     })
 
-    it('keeps the source when a campaign name is shared by multiple integrations', () => {
+    it.each([false, true])('only builds a scoped campaign query when conversion people is enabled (%s)', (enabled) => {
         const actorsQuery = marketingAnalyticsActorsQuery({
+            enabled,
             conversionGoalId: 'purchases',
             query: tableQuery(MarketingAnalyticsDrillDownLevel.Campaign),
             record: [
@@ -28,6 +29,11 @@ describe('marketingAnalyticsActorsQuery', () => {
                 { key: MarketingAnalyticsBaseColumns.Source, value: 'google' },
             ],
         })
+
+        if (!enabled) {
+            expect(actorsQuery).toBeNull()
+            return
+        }
 
         expect(actorsQuery?.source).toMatchObject({
             kind: NodeKind.MarketingAnalyticsActorsQuery,
@@ -43,6 +49,7 @@ describe('marketingAnalyticsActorsQuery', () => {
     ])('does not broaden %s drill-downs when Source is hidden', (level, column) => {
         expect(
             marketingAnalyticsActorsQuery({
+                enabled: true,
                 conversionGoalId: 'purchases',
                 query: tableQuery(level),
                 record: [{ key: column, value: 'winter-sale' }],
@@ -52,6 +59,7 @@ describe('marketingAnalyticsActorsQuery', () => {
 
     it('uses the selected UTM dimension without adding a source filter', () => {
         const actorsQuery = marketingAnalyticsActorsQuery({
+            enabled: true,
             conversionGoalId: 'signups',
             query: tableQuery(MarketingAnalyticsDrillDownLevel.Medium),
             record: [

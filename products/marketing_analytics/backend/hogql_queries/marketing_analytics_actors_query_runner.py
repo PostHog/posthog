@@ -109,7 +109,7 @@ class MarketingAnalyticsActorsQueryRunner(MarketingAnalyticsTableQueryRunner):
         ):
             breakdown_expr = field_exprs[processor._UTM_LEVEL_FIELD_MAP[level]]
         else:
-            campaign_expr, _ = ConversionGoalsAggregator([processor], self.config).apply_campaign_name_mappings(
+            campaign_expr = ConversionGoalsAggregator([processor], self.config).get_mapped_campaign_name(
                 field_exprs["campaign"], ast.Field(chain=[alias, "campaign_id"]), source_expr
             )
             breakdown_expr = campaign_expr

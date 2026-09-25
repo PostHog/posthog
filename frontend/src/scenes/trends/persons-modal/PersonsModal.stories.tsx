@@ -4,7 +4,7 @@ import { delay, HttpResponse } from 'msw'
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
@@ -17,6 +17,55 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+
+const conversionActorsQuery: ActorsQuery = {
+    kind: NodeKind.ActorsQuery,
+    orderBy: ['id'],
+    source: {
+        kind: NodeKind.MarketingAnalyticsActorsQuery,
+        source: {
+            kind: NodeKind.MarketingAnalyticsTableQuery,
+            properties: [],
+            dateRange: { date_from: '-7d' },
+        },
+        conversionGoalId: 'purchases',
+        breakdown: { value: 'winter-sale', source: 'google' },
+    },
+}
+
+export const ConversionDetailsWithResults: Story = {
+    render: () => {
+        useStorybookMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': {
+                    results: [
+                        { name: 'Alex Example', email: 'alex@example.com', country: 'US' },
+                        { name: 'Sam Example', email: 'sam@example.com', country: 'GB' },
+                        { name: 'Taylor Example', email: 'taylor@example.com', country: 'DE' },
+                        { name: 'Robin Example', email: 'robin@example.com', country: 'CA' },
+                    ].map(({ name, email, country }, index) => [
+                        {
+                            id: `00000000-0000-4000-8000-00000000000${index + 1}`,
+                            distinct_ids: [email],
+                            is_identified: true,
+                            created_at: '2023-01-01T12:00:00Z',
+                            properties: { name, email, $geoip_country_code: country },
+                        },
+                    ]),
+                    columns: ['actor'],
+                    hasMore: false,
+                },
+            },
+        })
+        return (
+            <PersonsModalComponent
+                title="Purchases: people attributed to winter-sale"
+                actorsQuery={conversionActorsQuery}
+                inline
+            />
+        )
+    },
+}
 
 export const ConversionDetailsPreparing: Story = {
     render: () => {
@@ -32,20 +81,7 @@ export const ConversionDetailsPreparing: Story = {
         return (
             <PersonsModalComponent
                 title="Purchases: people attributed to winter-sale"
-                actorsQuery={{
-                    kind: NodeKind.ActorsQuery,
-                    orderBy: ['id'],
-                    source: {
-                        kind: NodeKind.MarketingAnalyticsActorsQuery,
-                        source: {
-                            kind: NodeKind.MarketingAnalyticsTableQuery,
-                            properties: [],
-                            dateRange: { date_from: '-7d' },
-                        },
-                        conversionGoalId: 'purchases',
-                        breakdown: { value: 'winter-sale', source: 'google' },
-                    },
-                }}
+                actorsQuery={conversionActorsQuery}
                 inline
             />
         )

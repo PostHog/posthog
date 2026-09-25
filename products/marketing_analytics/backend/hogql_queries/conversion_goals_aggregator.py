@@ -343,10 +343,9 @@ class ConversionGoalsAggregator:
 
         return mapped_campaign_expr, mapped_id_expr
 
-    def apply_campaign_name_mappings(
-        self, campaign_expr: ast.Expr, id_expr: ast.Expr, source_expr: ast.Expr
-    ) -> tuple[ast.Expr, ast.Expr]:
-        return self._apply_campaign_name_mappings(campaign_expr, id_expr, source_expr)
+    def get_mapped_campaign_name(self, campaign_expr: ast.Expr, id_expr: ast.Expr, source_expr: ast.Expr) -> ast.Expr:
+        mapped_campaign_expr, _ = self._apply_campaign_name_mappings(campaign_expr, id_expr, source_expr)
+        return mapped_campaign_expr
 
     def get_conversion_goal_columns(self, include_cost_per: bool = True) -> dict[str, ast.Alias]:
         """Get the column mappings for accessing conversion goals from the unified CTE
