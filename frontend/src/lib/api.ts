@@ -442,6 +442,18 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     }
 }
 
+/**
+ * A list endpoint always sends JSON, so the null `getJSONFromSuccessResponse` returns for an empty
+ * body is a defect. Callers read `count`/`results` off the non-nullable return type at once, which
+ * turns that null into a `Cannot read properties of null` crash instead of a reportable failure.
+ */
+function requireListResponse<T>(response: T | null, endpoint: string): T {
+    if (response === null) {
+        throw new ApiError(`Empty response body [GET ${endpoint}]`)
+    }
+    return response
+}
+
 export class ApiConfig {
     private static _currentOrganizationId: OrganizationType['id'] | null = null
     private static _currentProjectId: ProjectType['id'] | null = null
@@ -3356,7 +3368,8 @@ const api = {
                 search?: string
             } = {}
         ): Promise<CountedPaginatedResponse<CohortType>> {
-            return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
+            const response = await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
+            return requireListResponse(response, 'cohorts')
         },
         async listBasic(
             params: {
@@ -3367,10 +3380,11 @@ const api = {
         ): Promise<CountedPaginatedResponse<BasicCohortType>> {
             // `?basic=true` returns a trimmed payload — the narrowed BasicCohortType return type
             // keeps callers from reading a field the serializer dropped (see CohortSerializer).
-            return await new ApiRequest()
+            const response = await new ApiRequest()
                 .cohorts()
                 .withQueryString(toParams({ ...params, basic: true }))
                 .get()
+            return requireListResponse(response, 'cohorts?basic=true')
         },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest()

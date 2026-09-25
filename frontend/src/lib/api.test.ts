@@ -428,6 +428,17 @@ describe('API helper', () => {
             await expect(api.get('api/projects/2/wizard/sessions/latest/')).resolves.toBeNull()
         })
 
+        it.each([
+            ['listPaginated', () => api.cohorts.listPaginated()],
+            ['listBasic', () => api.cohorts.listBasic()],
+        ])('rejects instead of handing cohorts.%s a null list', async (_desc, listCohorts) => {
+            ApiConfig.setCurrentProjectId(2)
+            fakeFetch.mockResolvedValue(fakeResponse({ status: 204, text: bodyOf('') }))
+            const error = await listCohorts().catch((e) => e)
+            expect(error).toBeInstanceOf(ApiError)
+            expect(error.message).toContain('cohorts')
+        })
+
         it('propagates an AbortError instead of masquerading as a null result', async () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
