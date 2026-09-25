@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from ee.billing.billing_response_cache import cache_billing_response, get_cached_billing_response
+from ee.billing.billing_response_cache import cache_billing_response, get_cached_billing_summary
 from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, BillingConsumer
 
 CONSUMER = "ee.billing.queue.BillingConsumer"
@@ -176,4 +176,4 @@ class TestBillingConsumerInvalidatesBillingCache(BaseTest):
 
         getattr(consumer, handler)({"organization_id": str(self.organization.id), **body})
 
-        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER) is None
+        assert get_cached_billing_summary(self.organization.id, OrganizationMembership.Level.MEMBER) is None

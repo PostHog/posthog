@@ -698,7 +698,6 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if account_url:
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
-        # Cached after the Vercel link is added, so the app context can serve this response as-is.
         if org and isinstance(request.user, User) and is_customer_billing_response(response):
             membership = self.user_permissions.organization_memberships.get(org.id)
             if membership is not None:

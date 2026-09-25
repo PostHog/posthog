@@ -46,41 +46,6 @@ def _all_cache_keys(organization_id: UUID | str) -> list[str]:
     ]
 
 
-def cache_billing_response(
-    organization_id: UUID | str,
-    membership_level: int,
-    include_forecasting: str | None,
-    response: dict[str, Any],
-) -> None:
-    # The billing service receives the caller's organization role in its token, so an entry is
-    # keyed on that role. A response built for an owner is then never served to a member.
-    variant = _FORECASTING_VARIANTS.get(include_forecasting)
-    if variant is None:
-        return
-    try:
-        cache.set(
-            _cache_key(organization_id, membership_level, variant),
-            response,
-            timeout=BILLING_RESPONSE_CACHE_TTL_SECONDS,
-        )
-    except Exception:
-        logger.warning("billing_response_cache_write_failed", exc_info=True)
-
-
-def get_cached_billing_response(organization_id: UUID | str, membership_level: int) -> dict[str, Any] | None:
-    keys = [_cache_key(organization_id, membership_level, variant) for variant in _FORECASTING_VARIANTS.values()]
-    try:
-        cached = cache.get_many(keys)
-    except Exception:
-        logger.warning("billing_response_cache_read_failed", exc_info=True)
-        return None
-    for key in keys:
-        value = cached.get(key)
-        if isinstance(value, dict):
-            return value
-    return None
-
-
 def invalidate_billing_cache(organization_id: UUID | str) -> None:
     try:
         cache.delete_many(_all_cache_keys(organization_id))
@@ -193,6 +158,41 @@ def summarize_billing_response(response: dict[str, Any]) -> BillingSummary:
     )
 
 
+def cache_billing_response(
+    organization_id: UUID | str,
+    membership_level: int,
+    include_forecasting: str | None,
+    response: dict[str, Any],
+) -> None:
+    # The billing service receives the caller's organization role in its token, so an entry is
+    # keyed on that role. A response built for an owner is then never served to a member.
+    variant = _FORECASTING_VARIANTS.get(include_forecasting)
+    if variant is None:
+        return
+    try:
+        cache.set(
+            _cache_key(organization_id, membership_level, variant),
+            summarize_billing_response(response),
+            timeout=BILLING_RESPONSE_CACHE_TTL_SECONDS,
+        )
+    except Exception:
+        logger.warning("billing_response_cache_write_failed", exc_info=True)
+
+
+def get_cached_billing_summary(organization_id: UUID | str, membership_level: int) -> BillingSummary | None:
+    keys = [_cache_key(organization_id, membership_level, variant) for variant in _FORECASTING_VARIANTS.values()]
+    try:
+        cached = cache.get_many(keys)
+    except Exception:
+        logger.warning("billing_response_cache_read_failed", exc_info=True)
+        return None
+    for key in keys:
+        value = cached.get(key)
+        if isinstance(value, BillingSummary):
+            return value
+    return None
+
+
 def get_billing_summary_for_app_context(
     request: HttpRequest, user: "User", user_permissions: "UserPermissions"
 ) -> BillingSummary | None:
@@ -215,8 +215,8 @@ def get_billing_summary_for_app_context(
     if user_permissions.current_team.effective_membership_level is None:
         return None
 
-    cached = get_cached_billing_response(team.organization_id, membership.level)
-    if cached is None:
+    summary = get_cached_billing_summary(team.organization_id, membership.level)
+    if summary is None:
         return None
 
     organization = team.organization
@@ -229,4 +229,4 @@ def get_billing_summary_for_app_context(
     ):
         return None
 
-    return summarize_billing_response(cached)
+    return summary

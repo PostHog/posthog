@@ -50,7 +50,7 @@ from ee.billing.billing_manager import (
 )
 from ee.billing.billing_response_cache import (
     cache_billing_response,
-    get_cached_billing_response,
+    get_cached_billing_summary,
     invalidate_billing_cache,
     summarize_billing_response,
 )
@@ -1937,7 +1937,7 @@ class TestBillingResponseCache(BaseTest):
         return [
             level
             for level in OrganizationMembership.Level
-            if get_cached_billing_response(self.organization.id, level) is not None
+            if get_cached_billing_summary(self.organization.id, level) is not None
         ]
 
     def _request(self) -> Any:

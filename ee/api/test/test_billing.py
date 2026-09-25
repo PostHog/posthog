@@ -50,7 +50,11 @@ from ee.api.billing import (
     _stream_chunks,
 )
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_response_cache import cache_billing_response, get_cached_billing_response
+from ee.billing.billing_response_cache import (
+    cache_billing_response,
+    get_cached_billing_summary,
+    summarize_billing_response,
+)
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
@@ -390,7 +394,9 @@ class TestBillingAPI(APILicensedTest):
         TEST_clear_instance_license_cache()
         response = self.client.get("/api/billing")
         assert response.status_code == status.HTTP_200_OK
-        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER) == response.json()
+        assert get_cached_billing_summary(
+            self.organization.id, OrganizationMembership.Level.MEMBER
+        ) == summarize_billing_response(response.json())
 
         assert response.json() == {
             "customer_id": "cus_123",
@@ -502,7 +508,7 @@ class TestBillingAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert "customer_id" not in response.json()
-        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.MEMBER) is None
+        assert get_cached_billing_summary(self.organization.id, OrganizationMembership.Level.MEMBER) is None
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_returns_if_doesnt_exist(self, mock_request):
@@ -657,7 +663,7 @@ class TestBillingAPI(APILicensedTest):
         assert license
         assert license.key == "test::test"
         assert license.plan == "scale"
-        assert get_cached_billing_response(self.organization.id, OrganizationMembership.Level.ADMIN) is None
+        assert get_cached_billing_summary(self.organization.id, OrganizationMembership.Level.ADMIN) is None
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_billing_ignores_invalid_license(self, mock_request):
