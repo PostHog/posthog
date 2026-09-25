@@ -8,7 +8,7 @@ import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { isEmptyObject, isObject, isString } from 'lib/utils/guards'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
@@ -737,8 +737,17 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
     return JSON.stringify({ query, timestamp })
 }
 
+function isQueryNodeShape(value: unknown): value is Node<Record<string, any>> {
+    if (!isObject(value) || !isString(value.kind)) {
+        return false
+    }
+    // A wrapper node such as InsightVizNode must carry a nested node, never a bare kind name
+    return !('source' in value) || isObject(value.source)
+}
+
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    return parseQuery(query)
+    const parsed = parseQuery<unknown>(query)
+    return isQueryNodeShape(parsed) ? parsed : null
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

@@ -9,6 +9,7 @@ import {
     getDisplayNameFromEntityNode,
     getTrendDatasetKey,
     NOT_IN_COHORT_ID,
+    parseDraftQueryFromURL,
 } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -895,5 +896,22 @@ describe('compareTopLevelSections()', () => {
             compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
         ).toEqual(['Insight type'])
         expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
+    })
+})
+
+describe('parseDraftQueryFromURL()', () => {
+    it('parses a valid query', () => {
+        const query = { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.FunnelsQuery, series: [] } }
+        expect(parseDraftQueryFromURL(JSON.stringify(query))).toEqual(query)
+    })
+
+    it.each([
+        ['a primitive', '"FunnelsQuery"'],
+        ['an array', '[{"kind":"FunnelsQuery"}]'],
+        ['a node without a kind', '{"source":{"kind":"FunnelsQuery"}}'],
+        ['a node whose source is a bare kind name', '{"kind":"InsightVizNode","source":"FunnelsQuery"}'],
+        ['a node with a null source', '{"kind":"InsightVizNode","source":null}'],
+    ])('rejects %s', (_, query) => {
+        expect(parseDraftQueryFromURL(query)).toBeNull()
     })
 })
