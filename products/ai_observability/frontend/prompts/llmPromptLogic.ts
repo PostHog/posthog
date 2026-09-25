@@ -52,6 +52,7 @@ import type {
 } from '../generated/api.schemas'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'
+import { extractPromptVariables } from './promptVariables'
 import { LLMPrompt, LLMPromptVersionSummary } from './types'
 import {
     getApiErrorDetail,
@@ -927,16 +928,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
 
         promptVariables: [
             (s) => [s.promptForm],
-            (promptForm: PromptFormValues): string[] => {
-                const matches = promptForm.prompt.match(/\{\{([^}]+)\}\}/g)
-
-                if (!matches) {
-                    return []
-                }
-
-                const variables = matches.map((match: string) => match.slice(2, -2).trim())
-                return [...new Set(variables)]
-            },
+            (promptForm: PromptFormValues): string[] => extractPromptVariables(promptForm.prompt),
         ],
 
         breadcrumbs: [
