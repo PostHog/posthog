@@ -20,11 +20,12 @@ import type {
     PaginatedHogFlowMinimalListApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived'
+export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived' | 'unknown'
 
 export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
-    totals: Record<string, number>
+    /** Null until the run's metrics load, or when they fail to. */
+    totals: Record<string, number> | null
 }
 
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
@@ -100,7 +101,10 @@ export function getBroadcastStatus(
     if (broadcast.status === 'archived') {
         return 'archived'
     }
-    const latestJob = details?.latestBatchJob
+    if (!details) {
+        return 'unknown'
+    }
+    const latestJob = details.latestBatchJob
     if (latestJob) {
         if (['waiting', 'queued', 'active'].includes(latestJob.status ?? '')) {
             return 'sending'
@@ -248,23 +252,29 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 return
             }
             // Best-effort per-row enrichment: batch jobs decide the status chip, metric totals fill
-            // the engagement counts. Rows without details just show their fallbacks.
+            // the engagement counts. The run is stored before its metrics load, so a slow or failed
+            // metrics query can't leave the status unknown.
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
+                    let latestBatchJob: HogFlowBatchJobApi | null
                     try {
                         const batchJobs =
                             broadcast.status === 'draft'
                                 ? ([] as HogFlowBatchJobApi[])
                                 : await hogFlowsBatchJobsList(String(projectId), broadcast.id)
-                        const latestBatchJob = batchJobs[0] ?? null
-                        actions.setRowDetails(broadcast.id, {
-                            latestBatchJob,
-                            totals: latestBatchJob
-                                ? await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
-                                : {},
-                        })
+                        latestBatchJob = batchJobs[0] ?? null
                     } catch {
-                        // Leave the row on its fallbacks; the list itself already loaded.
+                        return
+                    }
+                    actions.setRowDetails(broadcast.id, { latestBatchJob, totals: latestBatchJob ? null : {} })
+                    if (!latestBatchJob) {
+                        return
+                    }
+                    try {
+                        const totals = await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
+                        actions.setRowDetails(broadcast.id, { latestBatchJob, totals })
+                    } catch {
+                        // The counts stay unknown; the status already rendered from the run.
                     }
                 })()
             }

@@ -21,7 +21,7 @@ import {
     isEligibleWorkflow,
 } from './broadcastsLogic'
 
-const STATUS_CONFIG: Record<BroadcastStatus, { label: string; type: LemonTagType }> = {
+const STATUS_CONFIG: Record<Exclude<BroadcastStatus, 'unknown'>, { label: string; type: LemonTagType }> = {
     draft: { label: 'Draft', type: 'default' },
     scheduled: { label: 'Scheduled', type: 'warning' },
     sending: { label: 'Sending', type: 'completion' },
@@ -71,7 +71,11 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                const config = STATUS_CONFIG[getBroadcastStatus(item, rowDetailsById[item.id])]
+                const status = getBroadcastStatus(item, rowDetailsById[item.id])
+                if (status === 'unknown') {
+                    return <span className="text-muted">…</span>
+                }
+                const config = STATUS_CONFIG[status]
                 return <LemonTag type={config.type}>{config.label}</LemonTag>
             },
         },
@@ -84,7 +88,7 @@ export function BroadcastsTable(): JSX.Element {
                 if (item.status === 'draft') {
                     return <span className="text-muted">-</span>
                 }
-                if (!details) {
+                if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
                 return <span>{humanFriendlyNumber(details.totals[metricName] ?? 0)}</span>
