@@ -264,10 +264,10 @@ def get_api_team_rate_limiter():
             # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
             # the slot is free.
             retry=0.134,
-            # The default timeout for an API query on ClickHouse is 10s. p99 duration is 19s,
-            # 15 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
-            # the user should contact us about increasing the quota.
-            retry_timeout=15.0,
+            # The wait sleeps in a web worker that serves no other request meanwhile. A slot usually frees within
+            # seconds, and a longer wait usually means ClickHouse is saturated, where a fast 429 costs less than a
+            # held worker.
+            retry_timeout=5.0,
         )
     return __API_CONCURRENT_QUERY_PER_TEAM
 
@@ -386,7 +386,8 @@ def get_events_list_rate_limiter():
             ),
             ttl=600,
             retry=0.134,
-            retry_timeout=30.0,
+            # Same cap as the API limiter, because this wait also sleeps in a web worker.
+            retry_timeout=5.0,
         )
     return __EVENTS_LIST_CONCURRENT_QUERY_PER_TEAM
 
