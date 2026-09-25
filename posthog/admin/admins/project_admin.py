@@ -3,7 +3,6 @@ from typing import cast
 
 from django.conf import settings
 from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.template.loader import render_to_string
 from django.urls import path, reverse
@@ -11,10 +10,14 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 
-from posthog.admin.authorization import can_trigger_admin_deletion
+from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP, can_trigger_admin_deletion
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.models import Project
+
+NO_DELETION_PERMISSION_MESSAGE = (
+    f'You do not have permission to delete projects. Ask someone in the "{DELETION_AUTHORIZED_GROUP}" group to do it.'
+)
 
 
 @admin.register(Project)
@@ -76,6 +79,9 @@ class ProjectAdmin(admin.ModelAdmin):
         if not project.pk:
             return "-"
         request = getattr(self, "_current_request", None)
+        # Explain the gate instead of rendering a button that always fails.
+        if request is None or not can_trigger_admin_deletion(request):
+            return NO_DELETION_PERMISSION_MESSAGE
         # No csrf_token needed in the partial: the button posts the surrounding admin change
         # form (which carries the token) to the action URL via formaction.
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
@@ -107,6 +113,8 @@ class ProjectAdmin(admin.ModelAdmin):
         if not project.pk or not project.can_cancel_deletion():
             return "-"
         request = getattr(self, "_current_request", None)
+        if request is None or not can_trigger_admin_deletion(request):
+            return NO_DELETION_PERMISSION_MESSAGE
         # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
         return mark_safe(
             render_to_string(
@@ -170,7 +178,8 @@ class ProjectAdmin(admin.ModelAdmin):
             return redirect(change_url)
 
         if not can_trigger_admin_deletion(request):
-            raise PermissionDenied
+            messages.error(request, NO_DELETION_PERMISSION_MESSAGE)
+            return redirect(change_url)
 
         if settings.DISABLE_BULK_DELETES:
             messages.error(
@@ -273,7 +282,8 @@ class ProjectAdmin(admin.ModelAdmin):
             return redirect(change_url)
 
         if not can_trigger_admin_deletion(request):
-            raise PermissionDenied
+            messages.error(request, NO_DELETION_PERMISSION_MESSAGE)
+            return redirect(change_url)
 
         if settings.DISABLE_BULK_DELETES:
             messages.error(
