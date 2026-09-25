@@ -54184,7 +54184,7 @@
                     "type": "number"
                 }
             },
-            "required": ["dateRange", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "TraceSpansQueryResponse": {

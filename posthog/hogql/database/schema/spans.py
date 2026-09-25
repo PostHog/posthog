@@ -69,6 +69,9 @@ class TraceSpansTable(Table):
         "time_bucket": DateTimeDatabaseField(
             name="time_bucket", nullable=False, description="Coarse time bucket used for partitioning and filtering."
         ),
+        # internal fields for query optimization
+        "_part": StringDatabaseField(name="_part", nullable=True, hidden=True),
+        "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
     }
 
     def to_printed_clickhouse(self, context):

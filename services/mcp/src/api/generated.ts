@@ -51599,7 +51599,7 @@ export namespace Schemas {
     export interface TraceSpansQuery {
       /** Cursor for fetching the next page of results */
       after?: string | null;
-      dateRange: DateRange;
+      dateRange?: DateRange | null;
       /** Omit the per-span `attributes` map from results to keep payloads compact */
       excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
@@ -104134,7 +104134,7 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceRequest {
-      /** Date range for the query. Defaults to last 24 hours. */
+      /** Date range for the query. Omit it to search all retained spans for this trace. */
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;

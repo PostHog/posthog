@@ -57,6 +57,21 @@ describe('tracingViewerLogic', () => {
         expect(getTraceSpy.mock.calls.length > 0).toBe(shouldFetch)
     })
 
+    // Without a ts hint the lookup must not fall back to a date window, or a trace older than that
+    // window never loads. With a hint, the lookup stays bounded to the hint's narrow window.
+    it.each([
+        [
+            'a ts hint',
+            '2024-01-01T00:00:00Z',
+            { date_from: '2023-12-31T23:00:00.000Z', date_to: '2024-01-01T01:00:00.000Z' },
+        ],
+        ['no ts hint', undefined, undefined],
+    ])('openTrace with %s sends the matching date range', async (_name, ts, dateRange) => {
+        await expectLogic(logic, () => logic.actions.openTrace('trace-x', { ts })).toFinishAllListeners()
+
+        expect(getTraceSpy.mock.calls[0][1].dateRange).toEqual(dateRange)
+    })
+
     describe('identity resolution', () => {
         // The featureFlags reducer persists, so it survives initKeaTests. Each test sets the flag
         // it wants, otherwise a flag one test enables leaks into the next.
