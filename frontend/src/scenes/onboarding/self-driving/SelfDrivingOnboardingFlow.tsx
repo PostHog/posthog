@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -113,25 +113,20 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     const { isCompleting } = useValues(onboardingLogic)
     const { reportOnboardingStarted, reportOnboardingStepCompleted, reportOnboardingStepSkipped } =
         useActions(eventUsageLogic)
-    const { reportOnboardingStepViewed, reportOnboardingInstallVerified } = useActions(onboardingEventUsageLogic)
+    const { reportOnboardingStepViewed, reportOnboardingStepBack, reportOnboardingInstallVerified } =
+        useActions(onboardingEventUsageLogic)
     // The step list depends on the declared use case (persisted, so a refresh keeps the
     // conditional steps in place).
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
     const steps = useMemo(() => buildSteps(selectedUseCase), [selectedUseCase])
-    // Track the current step by id, not index, so use-case changes (which insert/remove steps)
-    // can't shift the user onto a different step. Initialize from the URL so a refresh — or an OAuth
-    // callback that lands back on ?step=install (e.g. the GitHub connect flow) — resumes where it
-    // left off instead of restarting at welcome.
-    const [stepId, setStepId] = useState<SelfDrivingOnboardingStepId>(() => {
-        const fromUrl = steps.find((s) => s.id === router.values.searchParams['step'])
-        return fromUrl?.id ?? 'welcome'
-    })
-
-    // If the current step left the list (e.g. the goal changed and removed it), fall back to the
-    // start rather than rendering nothing.
+    // The URL holds the current step, so the browser back and forward buttons move through the flow
+    // and a refresh resumes it. Tracked by step id, not index, so a use-case change (which inserts or
+    // removes steps) can't shift the user onto a different step. A step the list no longer has falls
+    // back to the start.
+    const { searchParams, location } = useValues(router)
     const stepIndex = Math.max(
         0,
-        steps.findIndex((s) => s.id === stepId)
+        steps.findIndex((s) => s.id === searchParams['step'])
     )
     const step = steps[stepIndex]
     const isFirst = stepIndex === 0
@@ -150,18 +145,26 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [step.id, reportOnboardingStepViewed])
 
-    // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
-    // (like the integration ids the GitHub callback appends).
+    // Steps this mount has pushed. A resume (refresh, OAuth callback) starts mid-flow with none
+    // behind it, which is what the back button needs to know.
+    const pushedSteps = useRef(0)
+
+    // Other params (like the integration ids the GitHub callback appends) carry over so the URL
+    // stays resumable.
+    const pushStep = (id: SelfDrivingOnboardingStepId): void => {
+        router.actions.push(location.pathname, { ...searchParams, step: id })
+    }
+
+    // Every move forward gets its own history entry, so back walks the flow. Replacing instead kept
+    // the flow in one entry, and back went out to the history from before sign-up - where the browser
+    // replays the consumed OAuth callback and the user lands on a login error.
     const goToStep = (index: number): void => {
         const target = steps[index]
         if (!target) {
             return
         }
-        setStepId(target.id)
-        router.actions.replace(router.values.location.pathname, {
-            ...router.values.searchParams,
-            step: target.id,
-        })
+        pushedSteps.current += 1
+        pushStep(target.id)
     }
 
     const advance = (): void => {
@@ -184,7 +187,18 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
         reportOnboardingStepSkipped(step.id, undefined, SELF_DRIVING_ONBOARDING_EVENT_PROPS)
         advance()
     }
-    const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))
+    // Walk history, so this button and the browser's do the same thing. With nothing pushed the entry
+    // behind is not a step of this flow, so move to the previous step instead of leaving onboarding.
+    const goBack = (): void => {
+        reportOnboardingStepBack(step.id)
+        if (pushedSteps.current > 0) {
+            pushedSteps.current -= 1
+            window.history.back()
+            return
+        }
+        // Not counted as pushed: the next back press must not turn round and walk forward again.
+        pushStep(steps[stepIndex - 1].id)
+    }
 
     return (
         // This div is the card: chrome + per-step width. On sm+ it's capped to the viewport so the middle

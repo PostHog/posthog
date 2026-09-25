@@ -25,7 +25,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 from social_core.backends.base import BaseAuth
-from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthAlreadyAssociated, AuthCanceled, AuthFailed, AuthMissingParameter
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -2261,6 +2261,21 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         error_detail = parse_qs(parsed.query).get("error_detail", [""])[0]
         if isinstance(exception, AuthFailed):
             self.assertFalse(error_detail.startswith("Authentication failed: "))
+
+    def test_signed_in_session_is_not_sent_to_the_login_page(self):
+        # A browser Back into a consumed OAuth callback replays it. The session is still signed in,
+        # and the frontend bounces a signed-in user off /login, dropping them at the start of
+        # onboarding with no error shown.
+        request = self.factory.get("/complete/google-oauth2/")
+        request.user = self.user
+
+        response = self.middleware.process_exception(
+            request, AuthAlreadyAssociated(_social_auth_backend(), "This account is already in use.")
+        )
+
+        assert isinstance(response, HttpResponseRedirect)
+        self.assertTrue(response.url.startswith("/?"))
+        self.assertIn("error_code=social_login_failure", response.url)
 
     @parameterized.expand(
         [

@@ -87,6 +87,9 @@ export interface onboardingEventUsageLogicActions {
     reportOnboardingSelfDrivingExplainerClicked: (stepKey: SelfDrivingOnboardingStepId) => {
         stepKey: SelfDrivingOnboardingStepId
     }
+    reportOnboardingStepBack: (stepId: SelfDrivingOnboardingStepId) => {
+        stepId: SelfDrivingOnboardingStepId
+    }
     reportOnboardingStepViewed: (stepId: SelfDrivingOnboardingStepId) => {
         stepId: SelfDrivingOnboardingStepId
     }
@@ -159,6 +162,7 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     })),
     actions({
         reportOnboardingStepViewed: (stepId: SelfDrivingOnboardingStepId) => ({ stepId }),
+        reportOnboardingStepBack: (stepId: SelfDrivingOnboardingStepId) => ({ stepId }),
         reportOnboardingGoalSelected: (goal: string) => ({ goal }),
         reportOnboardingUseCaseSelected: (
             useCase: string,
@@ -206,6 +210,14 @@ export const onboardingEventUsageLogic = kea<onboardingEventUsageLogicType>([
     listeners(({ values }) => ({
         reportOnboardingStepViewed: ({ stepId }) => {
             posthog.capture('onboarding step viewed', {
+                step_key: stepId,
+                ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
+            })
+        },
+        // `step viewed` alone cannot tell a step reached by going back from one reached by moving
+        // forward, so the rate of backward moves has no measure without this.
+        reportOnboardingStepBack: ({ stepId }) => {
+            posthog.capture('onboarding step back', {
                 step_key: stepId,
                 ...SELF_DRIVING_ONBOARDING_EVENT_PROPS,
             })
