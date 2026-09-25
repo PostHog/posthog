@@ -73,6 +73,7 @@ from ..marketplace.packaging import (
     render_skill_md,
 )
 from ..models.skills import LLMSkill, LLMSkillFile
+from .archive_guards import SkillArchiveRefused
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
@@ -1579,7 +1580,15 @@ class LLMSkillViewSet(
         result = self._marketplace_command_payload(request, issued.key, issued.token, issued.status)
         return Response(LLMSkillMarketplaceCommandSerializer(result).data)
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(
+        request=None,
+        responses={
+            204: None,
+            403: OpenApiResponse(
+                description="Another product owns what this skill runs and refuses this caller's archive."
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1598,7 +1607,10 @@ class LLMSkillViewSet(
             return access_error
 
         try:
-            skill_versions = archive_skill(self.team, skill_name)
+            skill_versions = archive_skill(self.team, skill_name, acting_user=cast(User, request.user))
+        except SkillArchiveRefused as err:
+            # A sibling product owns what this skill runs and says this caller may not remove it.
+            return Response({"detail": str(err)}, status=status.HTTP_403_FORBIDDEN)
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
 

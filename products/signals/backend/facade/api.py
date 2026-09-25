@@ -1135,7 +1135,9 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
         return False
     with transaction.atomic():
         try:
-            archive_skill(team, config.skill_name)
+            # No acting user: the owning product retires its own object's scout and has already
+            # authorized that against the object, so the per-scout lifecycle lock does not apply.
+            archive_skill(team, config.skill_name, acting_user=None)
         except LLMSkillNotFoundError:
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()

@@ -82,6 +82,12 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_origin,
 )
+from products.signals.backend.scout_harness.lifecycle_lock import (
+    lock_protected_changes,
+    record_lifecycle_refusal,
+    resolve_auth_kind,
+    user_holds_scout_lifecycle_claim,
+)
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -2602,6 +2608,21 @@ def create_scout_for_source(
                     added_scopes=_added_write_scopes(tunables["write_scopes"], current=current_scopes),
                     authored_by_requester=skill_created,
                 )
+        if not skill_created:
+            # Reusing a name adopts someone else's scout, and the tunables apply to its config as
+            # an edit — so a locked scout keeps its lifecycle gate on this route too. A scout
+            # authored in this request has no other owner to protect it from.
+            adopted_config = (
+                SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=name).first()
+            )
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=name,
+                config=adopted_config,
+                requested=tunables,
+                action="create_scout",
+            )
         if source_product and source_id:
             # Reusing a name adopts the existing config, and the source pair is what the owning
             # product's report route trusts — so adopting an unowned scout would expose everything it
@@ -2882,6 +2903,58 @@ def assert_can_grant_scout_write_scopes(
     raise exceptions.PermissionDenied(
         "Only the person who authored this scout or a project admin can change its write access."
     )
+
+
+def guard_scout_lifecycle_fields(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig | None,
+    requested: object,
+    action: str,
+) -> None:
+    """Apply the lock gate to a write body. A no-op unless the body changes a protected field."""
+    fields = lock_protected_changes(requested, config=config)
+    if config is None or not fields:
+        return
+    assert_can_change_scout_lifecycle(
+        request=request, team=team, skill_name=skill_name, config=config, action=action, fields=fields
+    )
+
+
+def assert_can_change_scout_lifecycle(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig,
+    action: str,
+    fields: list[str] | None = None,
+) -> None:
+    """Gate on pausing, silencing, deleting, or unlocking a scout that opted into the lock.
+
+    The claim it asks for, and why, is documented on `lifecycle_lock`. The lock is off by default
+    and guards only human write paths: a system transition keeps its own rules, so the inactivity
+    sweep and the failure breaker still pause a locked scout.
+    """
+    user = cast(User, request.user)
+    if user_holds_scout_lifecycle_claim(team=team, skill_name=skill_name, config=config, user=user):
+        return
+    record_lifecycle_refusal(
+        team=team,
+        skill_name=skill_name,
+        action=action,
+        auth_kind=resolve_auth_kind(request.successful_authenticator),
+        user_id=user.pk,
+        fields=fields,
+    )
+    if config.lifecycle_locked:
+        raise exceptions.PermissionDenied(
+            "This scout is locked, so only the person its runs act as or a project admin can "
+            "pause, resume, or delete it."
+        )
+    raise exceptions.PermissionDenied("Only the person this scout's runs act as or a project admin can lock it.")
 
 
 def scout_config_context(team: Team, skill_names: list[str], request: Request) -> dict[str, Any]:
@@ -3216,6 +3289,16 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     config=existing,
                     added_scopes=_added_write_scopes(request.data.get("write_scopes"), current=current_scopes),
                 )
+            # This endpoint upserts, so a create body lands on an existing row as an edit — and
+            # `enabled` / `emit` are among the fields it applies.
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=existing,
+                requested=request.data,
+                action="create",
+            )
             if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
                 raise exceptions.ValidationError(
                     {"skill_name": "No skill with this name exists on this project. Author the skill first."}
@@ -3283,6 +3366,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     config=config,
                     added_scopes=_added_write_scopes(request.data.get("write_scopes"), current=current_scopes),
                 )
+            # Read off the raw body, like the grant gate above, and under the same row lock: the
+            # serializer has not run yet, and a lock cleared between the check and the save would
+            # otherwise let the same request pause the scout.
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=config.skill_name,
+                config=config,
+                requested=request.data,
+                action="partial_update",
+            )
             serializer = SignalScoutConfigUpdateSerializer(
                 config,
                 data=request.data,
@@ -3461,6 +3555,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError(
                 "This scout watches the self-driving system itself, so it can't be deleted. "
                 "Switch it off in its settings if you need it to stop running."
+            )
+        if config.lifecycle_locked:
+            assert_can_change_scout_lifecycle(
+                request=request,
+                team=_canonical_team(self),
+                skill_name=config.skill_name,
+                config=config,
+                action="destroy",
             )
         # Delete on the instance (not the queryset) so ModelActivityMixin's delete hook fires —
         # config changes drive spend and are activity-logged, removals included.

@@ -755,6 +755,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -914,6 +917,9 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1735,6 +1741,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -1894,6 +1903,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',

@@ -481,7 +481,7 @@ class TestLLMSkillAPI(APIBaseTest):
                     self.team, user=self.user, skill_name="skill-a", path="notes.md", content="x"
                 ),
             ),
-            ("archive", lambda self: archive_skill(self.team, "skill-a")),
+            ("archive", lambda self: archive_skill(self.team, "skill-a", acting_user=None)),
             # Owners are keyed on the skill name, so an owner-only change touches no skill row. The
             # skills version alone cannot see it, and the list serializes owners.
             (
@@ -2183,7 +2183,7 @@ class TestLLMSkillAPI(APIBaseTest):
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
     def test_publish_to_community_rejects_a_recreated_skill_with_the_same_version(self, mock_publish, _mock_flag):
         reviewed_skill = self.create_skill(name="make-pr")
-        archive_skill(self.team, "make-pr")
+        archive_skill(self.team, "make-pr", acting_user=None)
         replacement_skill = self.create_skill(name="make-pr")
 
         response = self.client.post(
@@ -2813,7 +2813,7 @@ class TestLLMSkillOwners(APIBaseTest):
         create_skill(self.team, user=old_owner, name="reused", description="d", body="# v1")
         assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [old_owner.email]
 
-        archive_skill(self.team, "reused")
+        archive_skill(self.team, "reused", acting_user=None)
         create_skill(self.team, user=self.user, name="reused", description="d", body="# fresh")
 
         assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [self.user.email]

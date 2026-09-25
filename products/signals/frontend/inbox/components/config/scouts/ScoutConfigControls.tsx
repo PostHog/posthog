@@ -304,6 +304,25 @@ export function ScoutConfigForm({
                     aria-label={`${config.skill_name} opt out of auto-pause`}
                 />
             </div>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Only the owner can pause or delete</span>
+                    <span className="text-[11.5px] text-muted">
+                        Turn this on for a scout people rely on. Anyone with scout access can still change its other
+                        settings, but only the person it runs as, or a project admin, can pause it, put it in dry run,
+                        or delete it.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.lifecycle_locked}
+                    // Editable while the scout is disabled, because the lock decides who may resume
+                    // a paused scout.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    onChange={(checked) => onUpdate(config.id, { lifecycle_locked: checked })}
+                    aria-label={`${config.skill_name} only the owner can pause or delete`}
+                />
+            </div>
             <div className="flex flex-col gap-1">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Tags</span>
