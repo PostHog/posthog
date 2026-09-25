@@ -122,6 +122,7 @@ def create_user_claims(installation_id: str, user_id: str = "sso_user_123", emai
         user_avatar_url=None,
         user_email=resolved_email,
         user_name="SSO User",
+        user_email_verified=True,
     )
 
 
