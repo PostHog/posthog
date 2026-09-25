@@ -1,12 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -48,9 +50,9 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey } = useValues(onboardingLogic)
+    const { hasNextStep, hasPreviousStep, currentStepProductKey } = useValues(onboardingLogic)
 
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+    const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -75,6 +77,15 @@ export const OnboardingStep = ({
         reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
+    }
+
+    // The first step has no previous step in the flow, so Back returns to product selection.
+    const back = (): void => {
+        if (hasPreviousStep) {
+            goToPreviousStep()
+        } else {
+            router.actions.push(urls.onboarding())
+        }
     }
 
     const next = (): void => {
@@ -108,36 +119,47 @@ export const OnboardingStep = ({
                     </div>
                 )}
                 {children}
-                <div className="mt-8 flex justify-end gap-x-2">
-                    {showHelpButton && (
-                        <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
-                            Need help?
-                        </LemonButton>
-                    )}
-                    {showSkip && (
-                        <LemonButton
-                            type="secondary"
-                            onClick={skip}
-                            loading={pendingAdvance === 'skip'}
-                            disabledReason={pendingAdvance === 'continue' ? 'Completing…' : undefined}
-                            data-attr="onboarding-skip-button"
-                        >
-                            Skip {!hasNextStep ? 'and finish' : 'for now'}
-                        </LemonButton>
-                    )}
-                    {showContinue && (
-                        <LemonButton
-                            type="primary"
-                            status="alt"
-                            data-attr="onboarding-continue"
-                            onClick={next}
-                            loading={pendingAdvance === 'continue'}
-                            sideIcon={hasNextStep ? <IconArrowRight /> : null}
-                            disabledReason={pendingAdvance === 'skip' ? 'Completing…' : continueDisabledReason}
-                        >
-                            {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
-                        </LemonButton>
-                    )}
+                <div className="mt-8 flex flex-wrap justify-between gap-2">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconArrowLeft />}
+                        onClick={back}
+                        disabledReason={pendingAdvance ? 'Completing…' : undefined}
+                        data-attr="onboarding-back-button"
+                    >
+                        Back
+                    </LemonButton>
+                    <div className="flex flex-wrap justify-end gap-2">
+                        {showHelpButton && (
+                            <LemonButton type="secondary" onClick={() => openSupportForm({ kind: 'support' })}>
+                                Need help?
+                            </LemonButton>
+                        )}
+                        {showSkip && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={skip}
+                                loading={pendingAdvance === 'skip'}
+                                disabledReason={pendingAdvance === 'continue' ? 'Completing…' : undefined}
+                                data-attr="onboarding-skip-button"
+                            >
+                                Skip {!hasNextStep ? 'and finish' : 'for now'}
+                            </LemonButton>
+                        )}
+                        {showContinue && (
+                            <LemonButton
+                                type="primary"
+                                status="alt"
+                                data-attr="onboarding-continue"
+                                onClick={next}
+                                loading={pendingAdvance === 'continue'}
+                                sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                                disabledReason={pendingAdvance === 'skip' ? 'Completing…' : continueDisabledReason}
+                            >
+                                {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
             </div>
         </>

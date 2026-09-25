@@ -177,7 +177,7 @@ function WizardInstallShell({
             {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6 space-y-8">
                 {children}
-                <div className="text-center">
+                <div className="flex justify-center">
                     <LemonButton
                         type="tertiary"
                         size="small"
