@@ -40,7 +40,7 @@ export type ErrorTrackingLaneConfig = CommonIngestionConsumerConfig &
         | 'ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
         | 'INGESTION_OVERFLOW_MODE'
     > &
-    Pick<IngestionConsumerConfig, 'TEAMS_PREFETCH_ENABLED'> &
+    Pick<IngestionConsumerConfig, 'TEAMS_PREFETCH_ENABLED' | 'HOG_FUNCTIONS_PREFETCH_ENABLED'> &
     Pick<CommonConfig, 'PLUGIN_SERVER_MODE'>
 
 /**
@@ -137,6 +137,7 @@ export function createErrorTrackingConsumer(config: ErrorTrackingLaneConfig, sha
             topHog: container.topHog,
             createEventUsageBatch,
             teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED,
+            hogFunctionsPrefetchEnabled: config.HOG_FUNCTIONS_PREFETCH_ENABLED,
         })
     )
 }

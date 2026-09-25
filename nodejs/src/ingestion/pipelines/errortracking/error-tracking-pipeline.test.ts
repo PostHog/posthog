@@ -267,6 +267,7 @@ describe('ErrorTrackingPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         }
 
         mockCymbalClient = {
@@ -325,6 +326,7 @@ describe('ErrorTrackingPipeline', () => {
             promiseScheduler,
             teamManager: mockTeamManager,
             teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             personRepository: mockPersonRepository,
             hogTransformer: mockHogTransformer,
             cymbalClient: mockCymbalClient,

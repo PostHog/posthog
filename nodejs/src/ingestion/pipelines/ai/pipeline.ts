@@ -43,6 +43,7 @@ import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/e
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
+import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
@@ -89,6 +90,7 @@ export interface AiIngestionPipelineConfig {
     concurrentBatches: number
     eventSchemaEnforcementEnabled: boolean
     teamsPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     topHog: TopHogRegistry
     aiBlobStore: BlobStore | null
@@ -138,6 +140,7 @@ export function createAiIngestionPipeline<
         concurrentBatches,
         eventSchemaEnforcementEnabled,
         teamsPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
         eventSchemaEnforcementManager,
         topHog,
         aiBlobStore,
@@ -191,6 +194,7 @@ export function createAiIngestionPipeline<
             .gather()
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+            .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
             // Read-only batch person fetch (no person writes). The personhog
             // client retries transient gRPC errors for ~150ms; this outer
             // retry absorbs longer blips that would otherwise crash the

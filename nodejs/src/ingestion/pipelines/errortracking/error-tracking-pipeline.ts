@@ -32,6 +32,7 @@ import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
+import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
 import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import {
@@ -54,7 +55,7 @@ import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 /** The hog transformer methods the pipeline uses; lifecycle stays with the owning scope. */
 export type ErrorTrackingHogTransformer = Pick<
     HogTransformer,
-    'transformEventAndProduceMessages' | 'processInvocationResults'
+    'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
 >
 
 export interface ErrorTrackingPipelineInput {
@@ -110,6 +111,7 @@ export interface ErrorTrackingPipelineConfig {
     topHog: TopHogRegistry
     createEventUsageBatch: () => UsageRecordBatch
     teamsPrefetchEnabled: boolean
+    hogFunctionsPrefetchEnabled: boolean
 }
 
 /**
@@ -126,13 +128,14 @@ export interface ErrorTrackingPipelineConfig {
  *  7. Apply cookieless processing - Rewrite distinct_id for cookieless events
  *  8. Only-cookieless rate limit - Redirect cookieless rate-limited events to overflow
  *     using the hashed distinct_id from step 7
- *  9. Cymbal processing - Symbolicate, fingerprint, and link issues
- * 10. Person properties - Fetch person by distinct_id (read-only)
- * 11. Hog transformations - Run team transformations (including GeoIP if enabled)
- * 12. Prepare event - Convert to PreIngestionEvent format, track if person found
- * 13. Group type mapping - Map group types to indexes (read-only)
- * 14. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
- * 15. Emit event - Produce to output topic
+ *  9. Prefetch hog functions - Warm the transformation cache for the chunk's teams (HOG_FUNCTIONS_PREFETCH_ENABLED)
+ * 10. Cymbal processing - Symbolicate, fingerprint, and link issues
+ * 11. Person properties - Fetch person by distinct_id (read-only)
+ * 12. Hog transformations - Run team transformations (including GeoIP if enabled)
+ * 13. Prepare event - Convert to PreIngestionEvent format, track if person found
+ * 14. Group type mapping - Map group types to indexes (read-only)
+ * 15. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
+ * 16. Emit event - Produce to output topic
  *
  * Note: Cymbal runs before enrichment because it only needs the raw exception data
  * for symbolication and fingerprinting. This reduces payload size and avoids
@@ -156,6 +159,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         topHog,
         createEventUsageBatch,
         teamsPrefetchEnabled,
+        hogFunctionsPrefetchEnabled,
     } = config
 
     const preCymbal = newCommonIngestionPipeline<ErrorTrackingPipelineInput, { message: Message }, OverflowOutput>({
@@ -193,6 +197,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
         // Refresh TTLs for overflow lane events (keeps Redis flags alive)
         .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+        .pipeChunk(prefetchHogFunctionsStep(hogTransformer, hogFunctionsPrefetchEnabled))
 
     const afterCymbal = preCymbal
         // Process through Cymbal as a batch (before enrichment - Cymbal only

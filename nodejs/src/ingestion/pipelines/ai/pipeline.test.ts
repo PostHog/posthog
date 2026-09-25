@@ -40,7 +40,10 @@ describe('AiIngestionPipeline', () => {
     let mockEventFilterManager: { getFilter: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
-        Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
+        Pick<
+            HogTransformer,
+            'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
+        >
     >
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
@@ -125,8 +128,12 @@ describe('AiIngestionPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<
-            Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
+            Pick<
+                HogTransformer,
+                'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
+            >
         >
 
         mockPersonRepository = {
@@ -165,6 +172,7 @@ describe('AiIngestionPipeline', () => {
             }),
             teamManager: mockTeamManager,
             teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager as any,
             cookielessManager: mockCookielessManager,
