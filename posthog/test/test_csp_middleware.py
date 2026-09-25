@@ -125,6 +125,8 @@ class TestCSPMiddleware(APIBaseTest):
         _, report_endpoint = next(part for part in policy.split("; ") if part.startswith("report-uri ")).split()
         assert report_endpoint.startswith("https://us.i.posthog.com/report/")
         assert f"distinct_id={self.user.distinct_id}" in report_endpoint
+        # An enforced violation is a page that broke for someone, so dropping reports hides breakages.
+        assert "sample_rate" not in report_endpoint
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
         # renaming it silently stops crash ingestion.
         assert response["Reporting-Endpoints"] == f'default="{report_endpoint}"'
@@ -166,32 +168,10 @@ class TestCSPMiddleware(APIBaseTest):
         # An operator can point reporting at their own install, so nothing may hardcode ours.
         response = self.client.get("/")
         policy = response["Content-Security-Policy"]
-        assert "report-uri https://posthog.example.com/report/?sample_rate=0.1" in policy
+        assert "report-uri https://posthog.example.com/report/" in policy
         header = response["Reporting-Endpoints"]
         assert "us.i.posthog.com" not in header
         assert f"distinct_id={self.user.distinct_id}" in header
-
-    @parameterized.expand(
-        [
-            ("staff", True, "1", "0.1"),
-            ("not_staff", False, "0.1", "1"),
-        ]
-    )
-    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
-    def test_staff_report_every_violation_while_everyone_else_is_sampled(
-        self, _name, is_staff, expected_rate, other_rate
-    ):
-        # Staff reach new features before customers do, so a violation of theirs is usually the
-        # first sign of a page the policy breaks. At 0.1 nine in ten of those never arrive.
-        self.user.is_staff = is_staff
-        self.user.save()
-
-        response = self.client.get("/")
-
-        policy = response["Content-Security-Policy"]
-        assert f"report-uri https://posthog.example.com/report/?sample_rate={expected_rate}" in policy
-        assert f"sample_rate={expected_rate}&distinct_id={self.user.distinct_id}" in policy
-        assert f"sample_rate={other_rate}" not in policy
 
     @parameterized.expand(
         [
@@ -213,7 +193,7 @@ class TestCSPMiddleware(APIBaseTest):
 
         if expects_reporting:
             assert "report-uri https://us.i.posthog.com/report/" in policy
-            # Sampling the admin policy too would silently drop violations, so the branches diverge.
+            # Sampling would silently drop violations.
             assert "sample_rate" not in policy
             # Without it every admin report arrives under a freshly minted id, so one staff session
             # counts as many users.

@@ -389,24 +389,10 @@ class CSPMiddleware:
                     },
                 )
 
-            # Both values are read inside one narrowed block, so nothing below re-checks `user`.
             user = getattr(request, "user", None)
-            if user is not None and user.is_authenticated:
-                is_staff = bool(getattr(user, "is_staff", False))
-                distinct_id = getattr(user, "distinct_id", None)
-            else:
-                is_staff = False
-                distinct_id = None
+            distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
 
-            # Staff reach new features behind staff-only flags before customers do, so a violation a
-            # staff member reports is usually the first sign of a page the policy breaks. At 0.1 we
-            # would see one breakage in ten. The endpoint does the sampling, so browsers already send
-            # every report and taking staff to 1 costs ingestion rather than client traffic.
-            sample_rate = "1" if is_staff else "0.1"
-
-            report_params = {"sample_rate": sample_rate}
-            if narrowed:
-                report_params["v"] = NARROWED_APP_POLICY_REPORT_VERSION
+            report_params: dict[str, str] = {"v": NARROWED_APP_POLICY_REPORT_VERSION} if narrowed else {}
             report_uri = csp_report_endpoint(**report_params)
             if report_uri:
                 report_endpoint = report_uri
