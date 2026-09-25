@@ -2373,14 +2373,14 @@ Note: docs.decagon.ai is a fully client-rendered Mintlify site that returns the 
 
 ## Deel — **thin**
 
-Today (4): `contracts`, `invoice_adjustments`, `invoices`, `people`
+Today (11): `contracts`, `cost_centers`, `invoice_adjustments`, `invoices`, `legal_entities`, `payment_breakdowns`, `payments`, `people`, `time_off_events`, `time_offs`, `timesheets`
 
 Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 
-- [ ] `/timesheets (and /contracts/{contract_id}/timesheets)` — submitted time entries per contract — the core billable-hours fact table for contractor spend (high)
-- [ ] `/payments (+ /payments/{payment_id}/breakdown)` — actual payment transactions and their per-contract breakdown; today only invoices are synced, not what was paid (high)
-- [ ] `/legal-entities (+ /legal-entities/{id}/cost-centers)` — lookup that resolves the legal entity and cost center IDs carried on contracts and invoices (high)
-- [ ] `/time_offs (+ /time_offs/dailies, /time_offs/time-off-events)` — absence records and transition events per worker — headline HR analytics (high)
+- [x] `/timesheets (and /contracts/{contract_id}/timesheets)` — submitted time entries per contract — the core billable-hours fact table for contractor spend (high)
+- [x] `/payments (+ /payments/{payment_id}/breakdown)` — actual payment transactions and their per-contract breakdown; today only invoices are synced, not what was paid (high)
+- [x] `/legal-entities (+ /legal-entities/{id}/cost-centers)` — lookup that resolves the legal entity and cost center IDs carried on contracts and invoices (high)
+- [x] `/time_offs (+ /time_offs/dailies, /time_offs/time-off-events)` — absence records and transition events per worker — headline HR analytics (high)
 - [ ] `/departments, /teams, /groups` — org lookup tables that resolve the department/team IDs on people rows (high)
 - [ ] `/contracts/{contract_id}/adjustments` — per-contract bonuses, deductions and expenses; adjustments are only reachable one-by-one today (medium)
 - [ ] `/contracts/{contract_id}/milestones` — line items for milestone-based contracts, needed to explain invoice amounts (medium)
@@ -2390,7 +2390,8 @@ Diffed against: <https://api.letsdeel.com/openapi/rest/definitions>
 - [ ] `/lookups/countries, /lookups/currencies, /lookups/job-titles, /lookups/seniorities, /lookups/time-off-types` — reference tables that decode the coded fields on contracts, people and time off (medium)
 - [ ] `/ats/applications, /ats/candidates, /ats/job-postings` — recruiting funnel objects for orgs using Deel's ATS (low)
 
-Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has 329 paths / 207 GET operations across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the 4 synced tables cover a small slice.
+Note: The public spec is served from api.letsdeel.com (linked from developer.deel.com); it has hundreds of paths across ATS, EOR, payroll, HRIS, time tracking and IT modules, so the synced tables still cover a small slice.
+Two sub-endpoints of the ticked lines were deliberately not given their own table: `/contracts/{contract_id}/timesheets` returns the same rows as `/timesheets` filtered to one contract, and `/time_offs/dailies` is a date-range query for holidays and work schedules with no row identity, whose absence dailies already arrive nested on `/time_offs` rows.
 
 ## Deepgram — gaps
 
@@ -2468,16 +2469,19 @@ Diffed against: <https://docs.devin.ai/llms.txt>
 - [x] `/v3/organizations/{org_id}/consumption/daily (+ /daily/users, /daily/sessions, /daily/service-users, /consumption/cycles)` — ACU consumption per day, user and session — the headline cost metric for Devin (high) — added as `consumption_daily` and `consumption_daily_users`. `/daily/sessions/{id}` is redundant: every session row already carries `acus_consumed`. `/daily/service-users/{id}` has no org-scoped service-user listing to fan out from, and `/consumption/cycles` only exists at enterprise scope — both need an enterprise service user this source does not hold.
 - [x] `/v3/organizations/{org_id}/sessions/{session_id}/messages` — the conversation transcript inside a session; sessions alone carry no content (high) — added as `session_messages`, fanned out over `sessions`. Off by default: it costs one request per session in the org's history.
 - [x] `/v3/organizations/{org_id}/sessions/insights (and /sessions/{id}/insights)` — per-session outcome and quality insights, the vendor's own success measure (high) — added as `session_insights`. `/sessions/{id}/insights` returns the same record one session at a time, so the list endpoint covers it.
-- [ ] `/v3/organizations/{org_id}/pr-reviews` — PR review activity and outcomes, a primary Devin use case not represented at all today (high)
+- [x] `/v3/organizations/{org_id}/pr-reviews` — PR review activity and outcomes, a primary Devin use case not represented at all today (high) — not syncable: the only GET is a point lookup that requires a `pr_url` query param and returns the single latest review for that PR (404 when none exists). v3 has no list operation for reviews at either org or enterprise scope, so there is nothing to enumerate. The one enumerable set of PR URLs this source holds is `sessions.pull_requests`, which covers PRs Devin opened rather than PRs it reviewed, and fanning out over it would cost one request per PR per sync to produce rows with no stable id.
 - [ ] `/v3/organizations/{org_id}/audit-logs (and enterprise audit logs)` — who did what in the org — standard governance table (medium)
 - [ ] `/v3/organizations/{org_id}/metrics/sessions, /metrics/prs, /metrics/usage, /metrics/dau|wau|mau, /metrics/sessions-by-category` — pre-aggregated adoption and throughput metrics that avoid recomputing them from raw sessions (medium)
 - [ ] `/v3/organizations/{org_id}/repositories (+ indexed repositories and indexing status)` — repository lookup that resolves the repos sessions run against (medium)
-- [ ] `/v3/organizations/{org_id}/tags (and /sessions/{id}/tags)` — tag dimension for slicing sessions by team or workstream (medium)
-- [ ] `/v3/organizations` — organization lookup for enterprises with multiple orgs under one key (medium)
-- [ ] `/v3/organizations/{org_id}/guardrail-violations` — policy violations raised during sessions — compliance reporting (medium)
+- [x] `/v3/organizations/{org_id}/tags (and /sessions/{id}/tags)` — tag dimension for slicing sessions by team or workstream (medium) — `/v3/organizations/{org_id}/tags` does not exist; the allowed-tags listing is `/v3/enterprise/organizations/{org_id}/tags` and needs `ManageEnterpriseSettings` at enterprise level. `/sessions/{id}/tags` does exist at org scope, but it answers with the same `tags` array every row of the synced `sessions` table already carries, so a fan-out would spend one request per session to re-fetch a column we have.
+- [x] `/v3/organizations` — organization lookup for enterprises with multiple orgs under one key (medium) — does not exist at org scope. The listing is `/v3/enterprise/organizations` and needs `ViewOrganizations` at enterprise level, which this source's org-scoped service user does not hold.
+- [x] `/v3/organizations/{org_id}/guardrail-violations` — policy violations raised during sessions — compliance reporting (medium) — does not exist at org scope. The listing is `/v3beta1/enterprise/organizations/{org_id}/guardrail-violations` (beta) and needs both `ManageEnterpriseSettings` and `ViewAccountSessions` at enterprise level. It is otherwise a good fit — the standard `items`/`end_cursor` envelope, a `violation_id` key, and server-side `time_after`/`time_before` — so it becomes buildable if this source ever stores an enterprise service user.
 - [ ] `/v3/organizations/{org_id}/knowledge/folders` — folder lookup that gives the synced knowledge notes their hierarchy (low)
 
 Note: docs.devin.ai/llms.txt enumerates every v1/v2/v3 API reference page; v3 alone spans sessions, consumption, metrics, users, repositories, pr-reviews, audit-logs, code-scans, guardrails and more, so 9 synced tables (one of which, secrets, is plumbing) is still a small fraction.
+That page count overstates what this source can reach, though: checked against the v3 OpenAPI spec (<https://docs.devin.ai/v3-openapi.json>), a large share of v3 lives under `/v3/enterprise/` or `/v3beta1/enterprise/` and needs an enterprise-level service user, while this source stores an org-level one.
+Of the gaps left above, metrics, repositories and knowledge folders are org-scoped and worth re-checking on the next sweep.
+Audit logs are not: v3 places them at `/v3/enterprise/audit-logs` and `/v3/enterprise/organizations/{org_id}/audit-logs` only, so they need an enterprise service user too.
 
 ## DigitalOcean — gaps
 

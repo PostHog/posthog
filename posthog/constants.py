@@ -419,5 +419,5 @@ AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["
 
 
 # PostHog's own posthog-js instance on PostHog Cloud. The app's CSP names these by exact path.
-POSTHOG_JS_CLOUD_HOST = "https://internal-j.posthog.com"
+POSTHOG_JS_CLOUD_HOST = "https://internal-cf.posthog.com"
 POSTHOG_JS_CLOUD_TOKEN = "sTMFPsFhdP1Ssg"

@@ -66,6 +66,44 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
             )
 
 
+class TestRunStateModelAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, "posthog-gateway", None),
+            (
+                {"claude_model_access": "own-subscription", "claude_subscription_user_id": 12},
+                "own-subscription",
+                "claude",
+            ),
+            (
+                {
+                    "runtime_adapter": "codex",
+                    "codex_model_access": "own-subscription",
+                    "codex_subscription_user_id": 12,
+                },
+                "own-subscription",
+                "codex",
+            ),
+        ]
+    )
+    def test_decodes_legacy_fields(self, state: dict, kind: str, adapter: str | None) -> None:
+        access = RunState.model_validate(state).model_access
+        assert access.kind == kind
+        assert access.adapter == adapter
+        assert access.owner_id == (12 if adapter else None)
+
+    @parameterized.expand(
+        [
+            ({"claude_model_access": "own-subscription", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "claude", "codex_model_access": "own-subscription"},),
+            ({"runtime_adapter": "codex", "claude_model_access": "own-subscription"},),
+        ]
+    )
+    def test_rejects_incompatible_subscriptions(self, state: dict) -> None:
+        with self.assertRaises(ValueError):
+            _ = RunState.model_validate(state).model_access
+
+
 class TestRunStateResumeCompatibility(SimpleTestCase):
     @parameterized.expand(
         [

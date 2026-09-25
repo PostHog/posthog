@@ -709,9 +709,36 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     # below cover the surrounding activity wiring: Slack permalink, mapping, workflow
     # start, quota blocking, etc.
 
+    @parameterized.expand(
+        [
+            (
+                "text_on_the_event",
+                {"channel": "C123", "ts": "1234.5678", "user": "U_GEORGIY", "text": "<@BOT> do something"},
+                "do something",
+            ),
+            # A Slack workflow, or a client that posts rich text, leaves `text` empty and
+            # carries the words in `blocks`. Reading `text` alone hands the agent the
+            # "Task from Slack" fallback and loses the ask.
+            (
+                "words_only_in_blocks",
+                {
+                    "channel": "C123",
+                    "ts": "1234.5678",
+                    "user": "U_GEORGIY",
+                    "text": "",
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "<@BOT> look at the error spike"}}
+                    ],
+                },
+                "look at the error spike",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_description_is_wired_to_slack_thread_context_helper(self, mock_slack_cls, mock_execute_workflow):
+    def test_description_is_wired_to_slack_thread_context_helper(
+        self, _name, event, expected_prompt, mock_slack_cls, mock_execute_workflow
+    ):
         # Smoke-test that the activity calls into the helper and persists the result —
         # the helper's behaviour is exhaustively tested elsewhere; here we just ensure
         # the wrapper tag survives the round-trip through Task.create_and_run.
@@ -729,10 +756,10 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "1234.5678",
             "U_GEORGIY",
             self.user.id,
-            inputs.event,
+            event,
             [
                 SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="preamble", ts="1.000"),
-                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text=expected_prompt, ts="1234.5678"),
             ],
             None,
         )
@@ -740,7 +767,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.description.startswith("<slack_thread_context>")
         assert "</slack_thread_context>" in task.description
-        assert task.description.endswith("do something")
+        assert task.description.endswith(expected_prompt)
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")

@@ -12,6 +12,34 @@ Costs come from recorded gateway usage and include the same markup as PostHog AI
 Older versions and generations without available usage records do not show a cost.
 The estimate does not include separate failed or canceled generation jobs, or notebook compute.
 
+## Dashboard widgets
+
+Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.
+Both generated notebook widgets and dashboard widgets must be enabled.
+The selected widget version must have an available preview before the menu offers **Add to dashboard**.
+Notebook widgets are added from the notebook, rather than the dashboard's generic widget picker.
+Each snapshot holds up to 5,000 rows per dataframe and 8 MiB in total. Adding a widget fails if any required result has expired or cannot be fully captured within these limits.
+Opening a dashboard reads these saved rows without starting notebook compute. Each viewer still needs access to the source notebook, queries, and connected data sources, and must consent to the exact generated build before it reads data.
+Public dashboards show a placeholder instead of notebook results.
+The widget fills the dashboard tile below its header.
+Use the tile's **…** menu to open the notebook, refresh its results, view source, or check the saved time, automated review, and build ID.
+
+**Refresh from notebook** runs the saved notebook's data cells in document order through the backend notebook runner.
+Dashboard refresh opts into running prepared embedded insights alongside SQL and Python cells with `include_prepared_insights=true`.
+This option requires generated notebook widgets to be enabled. Ordinary **Run all** still runs SQL and Python cells only.
+Insights without a prepared dataframe query cannot supply widget inputs.
+Refresh keeps the existing results visible and replaces the snapshot only after every cell and the new capture succeed.
+The snapshot and dashboard tile are saved together. A refused dashboard save leaves no new snapshot, and a stale refresh cannot overwrite a newer snapshot.
+Refresh continues when the dashboard tab is hidden. Keep the dashboard open until the refresh finishes: closing it before publication leaves the previous snapshot in place and does not stop the backend notebook run.
+Dashboard refresh can execute up to 50 cells, including prepared insights. Display-only insights do not count toward this limit.
+If source runs were deleted, snapshot metadata remains available so the widget can be refreshed, but saved rows cannot be read until source authorization can be checked again.
+Snapshot creation allows 10 requests per hour per credential or user. Refresh publication uses a separate limit of 60 requests per hour.
+A daily cleanup removes snapshots created more than seven days ago if no active dashboard tile references them. Copies on other dashboards keep their shared snapshot.
+Dashboard date ranges and filters do not change notebook variables. Refresh uses the notebook's saved variables and can incur Python compute charges.
+The dashboard keeps the selected generated version; generating a new version in the notebook does not replace dashboard widgets.
+
+## Notebook previews
+
 - Generation runs as a durable background job. The notebook shows its phase, elapsed time, cancellation, and terminal errors. Queued jobs stop immediately when canceled.
 - Failed jobs expose a stable error code and the failed source-generation, security-review, or publishing phase. AI request logs include upstream status and request IDs when available.
 - Source generation and security review send Claude requests through the native Anthropic Messages format in both local and cloud environments.

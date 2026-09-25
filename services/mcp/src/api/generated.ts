@@ -6182,6 +6182,38 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
+    export type NotebookWidgetAddRequestOpenApiWidgetType = typeof NotebookWidgetAddRequestOpenApiWidgetType[keyof typeof NotebookWidgetAddRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetAddRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetConfig {
+      /** Source notebook short ID. */
+      notebookShortId?: string | null;
+      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+      snapshotId?: string | null;
+    }
+
+    export interface NotebookWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: NotebookWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the notebook widget widget. */
+      config: NotebookWidgetConfig;
+    }
+
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -6676,14 +6708,14 @@ export namespace Schemas {
       config: ConversationsRecentTicketsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -9619,7 +9651,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -11477,6 +11509,118 @@ export namespace Schemas {
       is_bot: boolean;
     }
 
+    /**
+     * * `ci` - CI
+     * * `review` - REVIEW
+     * * `queue` - QUEUE
+     * * `rework` - REWORK
+     */
+    export type FrictionGroupEnum = typeof FrictionGroupEnum[keyof typeof FrictionGroupEnum];
+
+
+    export const FrictionGroupEnum = {
+      Ci: 'ci',
+      Review: 'review',
+      Queue: 'queue',
+      Rework: 'rework',
+    } as const;
+
+    export interface FrictionGroupShare {
+      /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+       *
+       * * `ci` - CI
+       * * `review` - REVIEW
+       * * `queue` - QUEUE
+       * * `rework` - REWORK */
+      group: FrictionGroupEnum;
+      /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
+      score: number;
+    }
+
+    export interface AuthorFriction {
+      /** The score split by the kind of friction. */
+      groups: FrictionGroupShare[];
+      /** GitHub login. */
+      author: string;
+      /** The author's GitHub avatar, or empty when the pull requests carry none. */
+      avatar_url: string;
+      /** Friction as a multiple of the typical author: 1.0 is typical, 2.0 is twice as much. Counts only what happened to the author, never how much or how fast they ship. */
+      score: number;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+      /** Position by friction in the repository, 1 is the most. */
+      rank: number;
+      /** Low end of the rank band: the 10th percentile rank over resamples of the author's pull requests, and never above rank. */
+      rank_low: number;
+      /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
+      rank_high: number;
+      /** The author's GitHub teams. Empty when the membership table isn't synced. */
+      teams?: string[];
+    }
+
+    export interface TeamFriction {
+      /** GitHub team slug. */
+      github_team: string;
+      /** The median friction of the team's scored members, in 'x typical' units. */
+      median_score: number;
+      /** Members with enough merged pull requests to score. A team shows only above a floor, so one or two people never read as a team's figure. */
+      scored_author_count: number;
+    }
+
+    export interface PullRequestFrictionItem {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Pull request number. */
+      number: number;
+      /** Repository owner. */
+      repo_owner: string;
+      /** Repository name. */
+      repo_name: string;
+      /** Pull request title, empty when the snapshot has none. */
+      title: string;
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+    }
+
+    export interface AuthorFrictionDetail {
+      /** The author's score and rank. Null below 3 merged pull requests in the window. */
+      author: AuthorFriction | null;
+      /** The author's teams without the author, each only with at least 2 other scored members. */
+      teams: TeamFriction[];
+      /** The author's pull requests that added the most friction, most first. */
+      pull_requests: PullRequestFrictionItem[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors ranked in the repository: the denominator of rank. */
+      ranked_author_count: number;
+      /** False when the team membership table isn't synced. */
+      has_membership_data: boolean;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+    }
+
+    export interface AuthorFrictionList {
+      /** Authors by friction, most first. */
+      items: AuthorFriction[];
+      /** Teams with at least 3 scored members, by median member friction, most first. */
+      teams: TeamFriction[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors with at least 3 merged pull requests, all ranked together. A team list keeps these repository-wide ranks. */
+      ranked_author_count: number;
+      /**
+         * The team the list is filtered to, or null for every author.
+         * @nullable
+         */
+      github_team: string | null;
+      /** False when the team membership table isn't synced, so a team filter matches nobody. */
+      has_membership_data: boolean;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -12773,6 +12917,18 @@ export namespace Schemas {
     export const AzureBlobDestinationRequestTypeEnum = {
       AzureBlob: 'AzureBlob',
     } as const;
+
+    export interface BackfillCreate {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to now. */
+      window_end: string;
+      /**
+         * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
+         * @minimum 0
+         */
+      max_total_credits: number;
+    }
 
     export interface BackfillEstimateResponse {
       /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
@@ -19934,18 +20090,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `posthog-gateway` - posthog-gateway
-     * * `own-subscription` - own-subscription
-     */
-    export type ClaudeModelAccessEnum = typeof ClaudeModelAccessEnum[keyof typeof ClaudeModelAccessEnum];
-
-
-    export const ClaudeModelAccessEnum = {
-      PosthogGateway: 'posthog-gateway',
-      OwnSubscription: 'own-subscription',
-    } as const;
-
-    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -19993,6 +20137,18 @@ export namespace Schemas {
       /** @maxLength 64 */
       name: string;
     }
+
+    /**
+     * * `posthog-gateway` - posthog-gateway
+     * * `own-subscription` - own-subscription
+     */
+    export type ModelAccessEnum = typeof ModelAccessEnum[keyof typeof ModelAccessEnum];
+
+
+    export const ModelAccessEnum = {
+      PosthogGateway: 'posthog-gateway',
+      OwnSubscription: 'own-subscription',
+    } as const;
 
     /**
      * * `interactive` - interactive
@@ -20110,7 +20266,17 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -20474,6 +20640,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected
+     */
+    export type CodexIntegrationStatusEnum = typeof CodexIntegrationStatusEnum[keyof typeof CodexIntegrationStatusEnum];
+
+
+    export const CodexIntegrationStatusEnum = {
+      Connected: 'connected',
+      ReauthRequired: 'reauth_required',
+      NotConnected: 'not_connected',
+    } as const;
+
+    /**
      * * `codex` - codex
      */
     export type CodexRuntimeAdapterEnum = typeof CodexRuntimeAdapterEnum[keyof typeof CodexRuntimeAdapterEnum];
@@ -20527,7 +20707,17 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -24387,6 +24577,7 @@ export namespace Schemas {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results
      */
@@ -24400,6 +24591,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
@@ -24415,6 +24607,7 @@ export namespace Schemas {
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
        * * `logs_list` - logs_list
+       * * `notebook_widget` - notebook_widget
        * * `session_replay_list` - session_replay_list
        * * `survey_results` - survey_results */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
@@ -24949,6 +25142,137 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly created_by: UserBasic;
+    }
+
+    export interface DataDeletionConflict {
+      /** Reason the deletion request could not be created in the current state. */
+      readonly detail: string;
+    }
+
+    export interface DataDeletionPreview {
+      /** Number of event UUIDs selected when the preview ran. */
+      readonly count: number;
+    }
+
+    /**
+     * Submitted HogQL variable snapshot.
+     */
+    export type DataDeletionRequestVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    /**
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Draft: 'draft',
+      Pending: 'pending',
+      Approved: 'approved',
+      InProgress: 'in_progress',
+      Queued: 'queued',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface DataDeletionRequest {
+      /** Deletion request identifier. */
+      readonly id: string;
+      /** Current deletion workflow status.
+       *
+       * * `draft` - Draft
+       * * `pending` - Pending
+       * * `approved` - Approved
+       * * `in_progress` - In Progress
+       * * `queued` - Queued
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: RequestStatusEnum;
+      /** Submitted HogQL query snapshot. */
+      readonly query: string;
+      /** Submitted HogQL variable snapshot. */
+      readonly variables: DataDeletionRequestVariables;
+      /**
+         * Client-generated idempotency identifier.
+         * @nullable
+         */
+      readonly submission_id: string | null;
+      /**
+         * Number of selected events, when calculated.
+         * @nullable
+         */
+      readonly count: number | null;
+      /**
+         * Identifier of the user who submitted the request.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /**
+         * Whether the submitter was a PostHog staff user.
+         * @nullable
+         */
+      readonly created_by_staff: boolean | null;
+      /** Time when the request was submitted. */
+      readonly created_at: string;
+      /** Time when the request last changed. */
+      readonly updated_at: string;
+      /**
+         * Time when the request was approved, if approved.
+         * @nullable
+         */
+      readonly approved_at: string | null;
+      /**
+         * Time when selection statistics were calculated, if available.
+         * @nullable
+         */
+      readonly stats_calculated_at: string | null;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestCreateVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestCreate {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestCreateVariables;
+      /** Client-generated identifier that makes request submission idempotent. */
+      submission_id: string;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestInputVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestInput {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestInputVariables;
     }
 
     /**
@@ -37926,6 +38250,11 @@ export namespace Schemas {
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /**
+         * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+         * @nullable
+         */
+      readonly remaining_count: number | null;
       /** User who started the backfill. */
       readonly created_by: UserBasic | null;
       /** When the backfill was created. */
@@ -37940,6 +38269,8 @@ export namespace Schemas {
     export interface EvaluationBackfillEstimate {
       /** Units that would be evaluated. */
       total_units: number;
+      /** Units in the range this evaluation has already judged. They are excluded from total_units unless rerun_existing is set. */
+      already_evaluated_units: number;
       /** What one unit is: a generation, a trace, or a session.
        *
        * * `generation` - Generation
@@ -38793,6 +39124,8 @@ export namespace Schemas {
      * * `run_completed` - run_completed
      * * `run_failed` - run_failed
      * * `pr_created` - pr_created
+     * * `pr_merged` - pr_merged
+     * * `pr_closed` - pr_closed
      * * `needs_attention` - needs_attention
      */
     export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
@@ -38802,6 +39135,8 @@ export namespace Schemas {
       RunCompleted: 'run_completed',
       RunFailed: 'run_failed',
       PrCreated: 'pr_created',
+      PrMerged: 'pr_merged',
+      PrClosed: 'pr_closed',
       NeedsAttention: 'needs_attention',
     } as const;
 
@@ -46694,7 +47029,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -57020,7 +57355,7 @@ export namespace Schemas {
     export interface LoopNotificationChannel {
       /** Whether this channel is active. */
       enabled?: boolean;
-      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
       events?: EventsEnum[];
       /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
       params?: LoopNotificationChannelParams;
@@ -60197,6 +60532,8 @@ export namespace Schemas {
     }
 
     export interface NotebookRunStartRequest {
+      /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+      include_prepared_insights?: boolean;
       /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
       variables?: NotebookVariable[];
     }
@@ -60426,6 +60763,60 @@ export namespace Schemas {
       variables: NotebookVariable[];
       /** Every cell in document order, with its dependency edges and derived run state. */
       cells: NotebookCellState[];
+    }
+
+    export type NotebookWidgetCatalogEntryOpenApiWidgetType = typeof NotebookWidgetCatalogEntryOpenApiWidgetType[keyof typeof NotebookWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const NotebookWidgetCatalogEntryOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetCatalogEntryOpenApi {
+      widget_type: NotebookWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: NotebookWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `notebook_widget` - notebook_widget
+     */
+    export type NotebookWidgetTypeEnum = typeof NotebookWidgetTypeEnum[keyof typeof NotebookWidgetTypeEnum];
+
+
+    export const NotebookWidgetTypeEnum = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export type NotebookWidgetUpdateRequestOpenApiWidgetType = typeof NotebookWidgetUpdateRequestOpenApiWidgetType[keyof typeof NotebookWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetUpdateRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: NotebookWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+      config?: NotebookWidgetConfig;
     }
 
     /**
@@ -62556,6 +62947,15 @@ export namespace Schemas {
       results: DataColorTheme[];
     }
 
+    export interface PaginatedDataDeletionRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataDeletionRequest[];
+    }
+
     export interface PaginatedDataModelingJobList {
       count: number;
       /** @nullable */
@@ -63603,7 +64003,23 @@ export namespace Schemas {
       results: PauseStateResponse[];
     }
 
-    export interface PersonRecord {
+    /**
+     * * `distinct_id` - Distinct ID
+     * * `email` - Email
+     * * `name` - Name
+     * * `id` - Person ID
+     */
+    export type PersonSearchMatchFieldEnum = typeof PersonSearchMatchFieldEnum[keyof typeof PersonSearchMatchFieldEnum];
+
+
+    export const PersonSearchMatchFieldEnum = {
+      DistinctId: 'distinct_id',
+      Email: 'email',
+      Name: 'name',
+      Id: 'id',
+    } as const;
+
+    export interface PersonListRecord {
       /** Numeric person ID. */
       readonly id: number;
       /** Display name derived from person properties (email, name, or username). */
@@ -63620,15 +64036,17 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_seen_at: string | null;
+      /** Only on a search result with `include_matched_fields`: the searched fields the term was found in. */
+      matched_fields?: PersonSearchMatchFieldEnum[];
     }
 
-    export interface PaginatedPersonRecordList {
+    export interface PaginatedPersonListRecordList {
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
       count?: number;
-      results?: PersonRecord[];
+      results?: PersonListRecord[];
     }
 
     /**
@@ -65132,6 +65550,7 @@ export namespace Schemas {
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
+     * * `ranking_score` - Ranking Score
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -65166,6 +65585,7 @@ export namespace Schemas {
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
+      RankingScore: 'ranking_score',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -66127,7 +66547,7 @@ export namespace Schemas {
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
       /**
-         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.
          * @nullable
          */
       readonly user_access_level: string | null;
@@ -67124,6 +67544,11 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
+      /**
+         * Earliest start time in UTC. Null for runs without a schedule.
+         * @nullable
+         */
+      scheduled_at?: string | null;
       /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
       preview_available?: boolean;
     }
@@ -67918,6 +68343,41 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    export interface TracesRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version: number;
+      readonly created_by: number;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracesRetentionRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracesRetentionRule[];
+    }
+
     /**
      * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
      */
@@ -68303,6 +68763,11 @@ export namespace Schemas {
       readonly is_impersonated_reason: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at: string | null;
+      /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         * @nullable
+         */
+      readonly fresh_reauth_expires_at: string | null;
       readonly team: TeamBasic;
       readonly organization: Organization;
       readonly organizations: readonly OrganizationBasic[];
@@ -68583,7 +69048,8 @@ export namespace Schemas {
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -72370,7 +72836,7 @@ export namespace Schemas {
       type?: string;
       /**
          * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-         * @maxLength 100
+         * @maxLength 4000
          * @nullable
          */
       ref?: string | null;
@@ -77256,6 +77722,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       tracing_session_id_attribute_keys?: string[];
+      /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+      retention_days?: number;
+      /** @nullable */
+      readonly retention_last_updated?: string | null;
     }
 
     /**
@@ -77437,6 +77907,32 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface PatchedTracesRetentionRule {
+      /** Unique identifier for this retention rule. */
+      readonly id?: string;
+      /**
+         * User-visible label for this rule.
+         * @maxLength 255
+         */
+      name?: string;
+      /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+      enabled?: boolean;
+      /**
+         * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+         * @minimum 0
+         * @nullable
+         */
+      priority?: number | null;
+      /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+      config?: unknown;
+      /** Incremented on each update for worker cache coherency. */
+      readonly version?: number;
+      readonly created_by?: number;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     /**
      * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
      */
@@ -77518,7 +78014,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -77617,6 +78113,11 @@ export namespace Schemas {
       readonly is_impersonated_reason?: string | null;
       /** @nullable */
       readonly sensitive_session_expires_at?: string | null;
+      /**
+         * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+         * @nullable
+         */
+      readonly fresh_reauth_expires_at?: string | null;
       readonly team?: TeamBasic;
       readonly organization?: Organization;
       readonly organizations?: readonly OrganizationBasic[];
@@ -77943,7 +78444,8 @@ export namespace Schemas {
       readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by?: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -78122,7 +78624,7 @@ export namespace Schemas {
       events_queued_for_deletion: boolean;
       /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       recordings_queued_for_deletion: boolean;
-      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them, except entries whose step is 'log_activity': that person was deleted, but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
+      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
@@ -78190,6 +78692,25 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
+    }
+
+    export interface PersonRecord {
+      /** Numeric person ID. */
+      readonly id: number;
+      /** Display name derived from person properties (email, name, or username). */
+      readonly name: string;
+      readonly distinct_ids: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
+      properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
+      readonly created_at: string;
+      /** Unique identifier (UUID) for this person. */
+      readonly uuid: string;
+      /**
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
+      readonly last_seen_at: string | null;
     }
 
     export interface PersonSplitRequest {
@@ -80837,6 +81358,56 @@ export namespace Schemas {
      */
     export interface PullRequestCommentsResponse {
       readonly comments: readonly PullRequestComment[];
+    }
+
+    export interface PullRequestFrictionBreakdown {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+      /** Red stretches that a re-run of the same commit turned green. */
+      flake_red_count: number;
+      /** Red stretches where the same job failed on the default branch within 12 hours. */
+      master_red_count: number;
+      /** Red stretches with no provable cause. */
+      unknown_red_count: number;
+      /** Red stretches that a later push fixed. */
+      own_red_count: number;
+      /** Re-runs that failed again. */
+      futile_rerun_count: number;
+      /** Pushes that triggered CI. */
+      push_count: number;
+      /** CI running time of each push, oldest first. */
+      ci_wait_seconds: number[];
+      /**
+         * From ready for review to the first approval. Null when either is not observed.
+         * @nullable
+         */
+      first_approval_wait_seconds: number | null;
+      /**
+         * Pushes after the first approval. Null without an approval.
+         * @nullable
+         */
+      pushes_after_approval: number | null;
+      /**
+         * Time in the merge queue. Null when the pull request never entered it.
+         * @nullable
+         */
+      queue_seconds: number | null;
+      /**
+         * Times the merge queue removed the pull request. Null without queue data.
+         * @nullable
+         */
+      kickout_count: number | null;
+    }
+
+    export interface PullRequestFrictionDetail {
+      /** Null when the pull request did not merge in the window, or a bot authored it. */
+      pull_request: PullRequestFrictionBreakdown | null;
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
     }
 
     export interface PushCISample {
@@ -94409,6 +94980,26 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for turning reviews on for a repository from a connected installation.
+     */
+    export interface StamphogAddRepository {
+      /** Repository full name, e.g. 'PostHog/posthog'. It must be in one of the project's connected GitHub installations, as available_repositories lists them. A repository the project already has is turned back on. */
+      repository: string;
+    }
+
+    /**
+     * Repositories from the team's connected GitHub installations that are not added to stamphog yet.
+     */
+    export interface StamphogAvailableRepositories {
+      /** Repository full names the team can add, sorted by name and capped by limit. Only repositories a project member proved access to on GitHub are listed, and never one another project already holds under the same installation. */
+      readonly repositories: readonly string[];
+      /** How many repositories match the search in total, before limit applies. */
+      readonly total_count: number;
+      /** Whether a project member connected a GitHub installation yet. False means GitHub must be connected before any repository can be added. True with a total_count of 0 and no search means no repository is left to add. */
+      readonly has_installation: boolean;
+    }
+
+    /**
      * One installation of the App the authorizing user can reach, offered for an explicit pick.
      */
     export interface StamphogDiscoveredInstallation {
@@ -94479,13 +95070,15 @@ export namespace Schemas {
     }
 
     /**
-     * Result of syncing an installation: rows created/kept for this team, plus conflicting repos skipped.
+     * Result of syncing an installation: the team's rows bound to it, and what the team can add now.
      */
     export interface StamphogSyncInstallationResponse {
-      /** Repo configs now bound to this team for the installation (created this call or already present). */
+      /** Repo configs this team already had for the installation's repositories, now bound to it. A sync creates no repo config: use add_repository to turn reviews on for a repository. */
       readonly synced: readonly StamphogRepoConfig[];
       /** Repository full names skipped because another team already owns them under this installation. */
       readonly skipped: readonly string[];
+      /** How many repositories this team can add after the sync, across all its connected installations. List them with available_repositories. */
+      readonly available_count: number;
       /** True only on the discovery path (no installation_id) when the caller can reach no installation of this App — it isn't installed anywhere they can see. The frontend should route the user to the GitHub install page (install_url). Always false on the explicit installation_id path. */
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
@@ -95998,7 +96591,12 @@ export namespace Schemas {
          * @nullable
          */
       channel?: string | null;
-      /** Start the task's first cloud run immediately after creation. */
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**
          * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
@@ -96522,7 +97120,12 @@ export namespace Schemas {
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
-      claude_model_access?: ClaudeModelAccessEnum | null;
+      claude_model_access?: ModelAccessEnum | null;
+      /** How the Codex runtime pays for model use. 'own-subscription' makes the sandbox fetch a ChatGPT access token from the PostHog API, refreshed from the ChatGPT account the run owner connected in Desktop settings. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+       *
+       * * `posthog-gateway` - posthog-gateway
+       * * `own-subscription` - own-subscription */
+      codex_model_access?: ModelAccessEnum | null;
       /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
        *
        * * `local` - local
@@ -96696,6 +97299,13 @@ export namespace Schemas {
     }
 
     export interface TaskRunResumeRequestSchema {
+      /**
+         * Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.
+         * @nullable
+         */
+      scheduled_at?: string | null;
+      model?: string;
+      reasoning_effort?: ReasoningEffortEnum;
       /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
        *
        * * `interactive` - interactive
@@ -97227,6 +97837,29 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+    }
+
+    export interface TaskRunSubscriptionTokenRequest {
+      /**
+         * SHA-256 hex digest of the access token Codex rejected. The server refreshes only when this names its current token; otherwise it returns the newer token it already holds.
+         * @nullable
+         * @pattern ^[0-9a-f]{64}$
+         */
+      rejected_access_token_sha256?: string | null;
+    }
+
+    export interface TaskRunSubscriptionTokenResponse {
+      /** ChatGPT access token for the Codex app-server. It can stay valid for several days. */
+      access_token: string;
+      /** ChatGPT account the access token belongs to */
+      account_id: string;
+      /**
+         * ChatGPT plan of the account, when known
+         * @nullable
+         */
+      plan_type: string | null;
+      /** When the access token expires. Request a new one before this time. */
+      expires_at: string;
     }
 
     /**
@@ -97925,6 +98558,10 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       tracing_session_id_attribute_keys: string[];
+      /** How long spans are kept before they are deleted, in days. Applied at ingest, so a change only affects spans received after it. Can be changed at most once per 24 hours. Span retention rules override this period for the spans they match. */
+      retention_days?: number;
+      /** @nullable */
+      readonly retention_last_updated: string | null;
     }
 
     export interface TemplateInfo {
@@ -98829,6 +99466,47 @@ export namespace Schemas {
       total: number;
     }
 
+    export interface UserCodexAuthTokens {
+      /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+      access_token: string;
+      /** The single-use ChatGPT refresh token from the same `tokens` object. */
+      refresh_token: string;
+      /**
+         * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+         * @nullable
+         */
+      id_token?: string | null;
+    }
+
+    export interface UserCodexConnectRequest {
+      /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+      tokens: UserCodexAuthTokens;
+    }
+
+    export interface UserCodexIntegration {
+      /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+       *
+       * * `connected` - Connected
+       * * `reauth_required` - Reauth Required
+       * * `not_connected` - Not Connected */
+      status: CodexIntegrationStatusEnum;
+      /**
+         * The ChatGPT plan type OpenAI reports for the account.
+         * @nullable
+         */
+      plan_type?: string | null;
+      /**
+         * The email of the connected ChatGPT account.
+         * @nullable
+         */
+      email?: string | null;
+      /**
+         * When the account was connected.
+         * @nullable
+         */
+      connected_at?: string | null;
+    }
+
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
@@ -99298,20 +99976,147 @@ export namespace Schemas {
      * * `slack` - slack
      * * `webhook` - webhook
      */
-    export type VisionAlertCreateDestinationTypeEnum = typeof VisionAlertCreateDestinationTypeEnum[keyof typeof VisionAlertCreateDestinationTypeEnum];
+    export type VisionAlertDestinationTypeEnum = typeof VisionAlertDestinationTypeEnum[keyof typeof VisionAlertDestinationTypeEnum];
 
 
-    export const VisionAlertCreateDestinationTypeEnum = {
+    export const VisionAlertDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
+
+    export interface VisionAlertDestinationConfig {
+      /** HogFunctions backing the created destination, one per event kind. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook */
+      type: VisionAlertDestinationTypeEnum;
+      /** Whether every HogFunction in the group is enabled, so the destination notifies on every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace, for Slack destinations. */
+      slack_workspace_id?: number;
+      /** Slack channel ID, for Slack destinations. */
+      slack_channel_id?: string;
+      /** Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret. */
+      webhook_url?: string;
+    }
+
+    export interface VisionAlertConfigurationDetail {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind: VisionAlertKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed. */
+      readonly destinations: readonly VisionAlertDestinationConfig[];
+    }
 
     export interface VisionAlertCreateDestination {
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook */
-      type: VisionAlertCreateDestinationTypeEnum;
+      type: VisionAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -99985,7 +100790,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -100130,6 +100935,86 @@ export namespace Schemas {
       version_id: string;
       /** Current version used for optimistic concurrency. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * Frozen input mappings and Hog transforms.
+     */
+    export type WidgetSnapshotInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
+
+    export interface WidgetSnapshot {
+      /** Immutable snapshot containing the widget's saved dataframe results. */
+      id: string;
+      /** Source widget node in the notebook. */
+      node_id: string;
+      /** Pinned generated widget version. */
+      version_id: string;
+      /** When all dataframe results were saved. */
+      created_at: string;
+      /** Allowed dataframe slots. */
+      frame_names: string[];
+      /** Frozen input mappings and Hog transforms. */
+      input_bindings: WidgetSnapshotInputBindings;
+      /** Pinned widget input schemas. */
+      input_contract: WidgetInputContractItem[];
+      /**
+         * Short-lived URL for the pinned widget build.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /**
+         * Exact build hash used for execution consent.
+         * @nullable
+         */
+      build_hash: string | null;
+      /** Review of the pinned widget source. */
+      security_review: WidgetSecurityReview | null;
+    }
+
+    export interface WidgetSnapshotPublish {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
+      /**
+         * Dashboard to add the widget to.
+         * @minimum 1
+         */
+      dashboard_id?: number;
+      /**
+         * Existing dashboard tile to refresh.
+         * @minimum 1
+         */
+      tile_id?: number;
+      /**
+         * Title for a new dashboard widget.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
+    export interface WidgetSnapshotRequest {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
     }
 
     export interface WidgetSource {
@@ -103183,6 +104068,69 @@ export namespace Schemas {
     export interface _TracingSparklineResponse {
       /** One row per time bucket and service, ordered by time. */
       results: _TracingSparklineRow[];
+    }
+
+    export interface _TracingTraceAiEvent {
+      /** Event UUID. */
+      uuid: string;
+      /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+      event: string;
+      /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+      started_at: string;
+      /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+      ai_trace_id: string;
+      /**
+         * The `$ai_span_id` of the event.
+         * @nullable
+         */
+      ai_span_id: string | null;
+      /**
+         * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+         * @nullable
+         */
+      ai_parent_id: string | null;
+      /**
+         * The `$ai_span_name`, set on `$ai_span` events.
+         * @nullable
+         */
+      span_name: string | null;
+      /**
+         * How long the call took, in seconds.
+         * @nullable
+         */
+      latency_seconds: number | null;
+      /**
+         * The model the call used.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider the call went to.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Prompt tokens.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Completion tokens.
+         * @nullable
+         */
+      output_tokens: number | null;
+      /**
+         * Total cost of the call, in USD.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /** Whether the call failed. */
+      is_error: boolean;
+    }
+
+    export interface _TracingTraceAiEventsResponse {
+      /** AI events in the trace, earliest start first. */
+      results: _TracingTraceAiEvent[];
     }
 
     export interface _TracingTraceRequest {
@@ -106838,6 +107786,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataModelingDagsListParams = {
     /**
      * Number of results to return per page.
@@ -107428,6 +108387,36 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsAuthorFrictionParams = {
+    /**
+     * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsAuthorFrictionDetailParams = {
+    /**
+     * GitHub login of the author to show.
+     */
+    author: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     /**
      * GitHub handle whose CI spend to break down.
@@ -107729,6 +108718,21 @@ export namespace Schemas {
     export type EngineeringAnalyticsPrRunsParams = {
     /**
      * Pull request number whose runs to list.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestFrictionParams = {
+    /**
+     * Pull request number to show.
      */
     pr_number: number;
     /**
@@ -109777,6 +110781,10 @@ export namespace Schemas {
     };
 
     export type HogFlowsListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean;
     created_at?: string;
     /**
      * Filter to workflows created by the user with this uuid.
@@ -112620,6 +113628,28 @@ export namespace Schemas {
     user?: string;
     };
 
+    export type NotebooksWidgetSnapshotFrameParams = {
+    /**
+     * Maximum rows in this page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Completed run selected by the first page request.
+     */
+    run_id?: string;
+    /**
+     * Version requesting the data.
+     */
+    version_id?: string;
+    };
+
     export type NotebooksWidgetFrameParams = {
     limit?: number;
     offset?: number;
@@ -112707,6 +113737,10 @@ export namespace Schemas {
      */
     email?: string;
     format?: PersonsListFormat;
+    /**
+     * Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.
+     */
+    include_matched_fields?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -113999,6 +115033,19 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type StamphogRepoConfigsAvailableRepositoriesRetrieveParams = {
+    /**
+     * Maximum number of repositories to return. Defaults to 50, at most 200.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring to match against the repository full name, e.g. 'posthog'.
+     */
+    search?: string;
+    };
+
     export type StamphogReviewRunsListParams = {
     /**
      * Number of results to return per page.
@@ -114825,6 +115872,28 @@ export namespace Schemas {
       Json: 'json',
       Txt: 'txt',
     } as const;
+
+    export type TracingRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TracingRetentionRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type TracingSpansAttributesRetrieveParams = {
     /**

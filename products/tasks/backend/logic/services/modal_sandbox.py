@@ -357,7 +357,7 @@ LOCAL_MODAL_NOTEBOOK_KERNEL_MODULE = Path("products/notebooks/backend/kernel_pac
 LOCAL_MODAL_NOTEBOOK_KERNEL_DIR = Path("products/notebooks/backend/sandbox/kernel")
 LOCAL_MODAL_CPU_BILLING_SAMPLER = Path("products/tasks/backend/sandbox/images/cpu_billing_sampler.py")
 # The base image builds the agent-shadow observer from source in its first stage.
-LOCAL_MODAL_AGENT_SHADOW_DIR = Path("products/desktop/packages/agent-shadow")
+LOCAL_MODAL_AGENT_SHADOW_DIR = Path("packages/agent/agent-shadow")
 
 
 # One entry per registry-backed template, so a worker serving every template evicts nothing.
@@ -1822,6 +1822,22 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
+
+    def exit_reason(self) -> str | None:
+        returncode = self._sandbox.returncode
+        if returncode is None:
+            try:
+                returncode = self._sandbox.poll()
+            except Exception as e:
+                logger.warning(f"Failed to poll sandbox {self.id} for its exit code: {e}")
+                return None
+        if returncode is None:
+            return None
+        if returncode == 137:
+            return "killed with exit code 137, usually because it ran out of memory"
+        if returncode == 124:
+            return "timed out"
+        return f"exited with code {returncode}"
 
     @property
     def name(self) -> str:

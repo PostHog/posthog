@@ -9,7 +9,8 @@ Celery task and Temporal activity contexts alike, no request assumed.
 (all optional): ``title`` / ``body`` override the generated copy, ``url``
 links to the run or PR, ``task_id`` / ``task_run_id`` identify the run for
 push deep-linking and email idempotency, ``report`` is the run's final agent
-message, delivered in email and Slack bodies.
+message, delivered in email and Slack bodies. ``dedupe_key`` replaces the run id in the email
+idempotency key, for events that can happen more than once per run.
 """
 
 from typing import Any
@@ -22,6 +23,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.tasks.push_notifications import send_user_push
 
 from products.notifications.backend.facade.api import (
@@ -48,6 +50,8 @@ _EVENT_DEFAULTS: dict[str, tuple[str, str]] = {
     "run_completed": ("finished", "The run finished successfully."),
     "run_failed": ("failed", "The run failed. Check the run for details."),
     "pr_created": ("opened a PR", "A new pull request was opened."),
+    "pr_merged": ("had a PR merged", "A pull request from this loop was merged."),
+    "pr_closed": ("had a PR closed", "A pull request from this loop was closed without merging."),
     "needs_attention": ("needs attention", "This loop needs your attention."),
 }
 
@@ -154,7 +158,8 @@ def _send_email(
     if not is_email_available():
         return
     try:
-        campaign_key = f"loop_run_summary:{loop.id}:{payload.get('task_run_id') or payload.get('fire_key') or event}"
+        dedupe_key = payload.get("dedupe_key") or payload.get("task_run_id") or payload.get("fire_key") or event
+        campaign_key = f"loop_run_summary:{loop.id}:{dedupe_key}"
         template_context = {
             "loop_name": loop.name,
             "event_title": title,
@@ -195,7 +200,7 @@ def _send_slack(
             return
         report = payload.get("report")
         slack_body = str(report) if report else body
-        text = _truncate(f"*{_escape_slack_mrkdwn(title)}*\n{_escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
+        text = _truncate(f"*{escape_slack_mrkdwn(title)}*\n{escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
         SlackIntegration(integration, source="loop_notifications").client.chat_postMessage(
             channel=channel, text=text, unfurl_links=False, unfurl_media=False
         )
@@ -250,7 +255,3 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
-
-
-def _escape_slack_mrkdwn(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

@@ -256,6 +256,7 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             cache.disposables.add(() => {
                 cache.batch = []
                 const controller = new AbortController()
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 void api.stream(url.toString(), {
                     headers: {
                         Authorization: `Bearer ${values.currentTeam?.live_events_token}`,

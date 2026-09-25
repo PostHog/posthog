@@ -26,6 +26,8 @@ from rest_framework import status
 
 from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
@@ -102,6 +104,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
+
         # Auth/team/membership/instance-setting lookups, plus the HogQL pipeline's per-probe
         # access-control checks (the progressive-window loop probes several windows on this
         # sparse dataset; the schema is built once and shared). Group-type-mapping is read via
@@ -134,6 +140,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Safari"},
         )
         flush_persons_and_events()
+
+        # The HogQL database build creates the revenue analytics row on a team's first query.
+        # Create it here so the count below covers only the queries every request makes.
+        get_or_create_team_extension(self.team, TeamRevenueAnalyticsConfig)
 
         # Auth/team/membership/access-control/instance-setting lookups, plus the HogQL
         # pipeline's per-probe access-control checks. The progressive-window loop probes several

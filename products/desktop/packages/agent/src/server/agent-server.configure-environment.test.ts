@@ -2,7 +2,8 @@ import { type SpanContext, TraceFlags } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
-import { AgentServer, codexAuthFromGatewayEnv } from "./agent-server";
+import { AgentServer } from "./agent-server";
+import { codexAuthFromGatewayEnv } from "./gateway-env";
 
 interface TestableServer {
   configureEnvironment(args?: {
