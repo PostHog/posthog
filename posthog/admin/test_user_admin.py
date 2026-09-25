@@ -2,7 +2,7 @@ import re
 import html
 import uuid
 from importlib import import_module
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -199,6 +199,19 @@ class TestUserAdminTicketParam(BaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["cl"].result_count, 1)
+
+    @parameterized.expand([("send_verification",), ("revoke_sessions",), ("send_2fa_reset",), ("send_password_reset",)])
+    @patch("posthog.admin.admins.user_admin.send_password_reset")
+    @patch("posthog.admin.admins.user_admin.email_verification_code_verifier")
+    def test_a_support_action_keeps_the_ticket(self, action: str, *_mocks) -> None:
+        target = self._make_user("only-match@example.com")
+        change_url = reverse("admin:posthog_user_change", args=[target.pk])
+        query = urlencode({"ticket": self.ticket, "_changelist_filters": "q=only-match%40example.com"})
+
+        response = self.client.post(f"{change_url}?{query}", {action: "1"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], f"{change_url}?{query}")
 
 
 class TestUserChangeFormPasswordField(BaseTest):

@@ -289,7 +289,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send verification email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         if request.POST.get("revoke_sessions") == "1":
             try:
@@ -303,7 +303,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to revoke sessions: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         if request.POST.get("send_password_reset") == "1":
             try:
@@ -324,7 +324,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send password reset email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         if request.POST.get("send_2fa_reset") == "1":
             try:
@@ -355,7 +355,7 @@ class UserAdmin(DjangoUserAdmin):
                 messages.error(request, f"Failed to send 2FA reset email: {str(e)}")
 
             # Redirect back to the change form
-            return HttpResponseRedirect(reverse("admin:posthog_user_change", args=[object_id]))
+            return HttpResponseRedirect(request.get_full_path())
 
         return super().change_view(request, object_id, form_url, extra_context)
 
