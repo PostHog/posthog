@@ -540,6 +540,41 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "'from'" in response.json()["detail"], response.json()
 
+    def test_web_editor_template_link_survives_stage_draft_and_publish(self):
+        # The web editor copies a Library template's body into the step and keeps its id in
+        # template_uuid. The body the user then edits must win, and the id must reach live intact.
+        template = self._create_library_template()
+        create = self._post_flow(_email_action()["config"], mcp=False)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+
+        linked_step = _email_action()
+        linked_step["config"]["template_uuid"] = str(template.id)
+        linked_step["config"]["inputs"]["email"]["value"]["subject"] = "Edited after insert"
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), linked_step], "stage_draft": True},
+        )
+        assert staged.status_code == 200, staged.json()
+
+        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+            mock_count.side_effect = Exception("count service down")
+            preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert preview.status_code == 200, preview.json()
+        publish = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+        )
+        assert publish.status_code == 200, publish.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is None
+        live_config = next(a for a in flow.actions if a["id"] == "email_1")["config"]
+        assert live_config["template_uuid"] == str(template.id)
+        assert live_config["inputs"]["email"]["value"]["subject"] == "Edited after insert"
+
     def test_lenient_web_save_skips_unresolvable_template_reference(self):
         # Web drafts (and internal re-saves) stay storable mid-edit: a dangling reference is
         # only an error on the strict programmatic path.

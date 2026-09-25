@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
+
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
     EditorRef,
@@ -28,6 +30,21 @@ function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplate
         onChange: jest.fn(),
         type: 'native_email',
         ...overrides,
+    }
+}
+
+function makeLibraryTemplate(id: string, subject: string): MessageTemplate {
+    return {
+        id,
+        name: `Library template ${id}`,
+        description: '',
+        content: {
+            templating: 'liquid',
+            email: { from: '', to: '', subject, html: `<p>${subject}</p>`, text: subject, design: null },
+        },
+        created_at: null,
+        updated_at: null,
+        created_by: null,
     }
 }
 
@@ -169,6 +186,39 @@ describe('emailTemplaterLogic', () => {
 
             logic.actions.setIsModalOpen(false)
             await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
+        })
+
+        it.each([
+            { description: 'reports the template id to a host that tracks it', tracksLink: true },
+            { description: 'still applies the content for a host that does not track it', tracksLink: false },
+        ])('applying a template $description', async ({ tracksLink }) => {
+            const onChange = jest.fn()
+            const onTemplateApplied = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ onChange, ...(tracksLink ? { onTemplateApplied } : {}) }))
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate(makeLibraryTemplate('template-a', 'Subject A'))
+            }).toFinishAllListeners()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ subject: 'Subject A' }))
+            expect(onTemplateApplied.mock.calls).toEqual(tracksLink ? [['template-a']] : [])
+        })
+
+        it('a second template replaces the reported link, and a later field edit leaves it alone', async () => {
+            const onChange = jest.fn()
+            const onTemplateApplied = jest.fn()
+            logic = emailTemplaterLogic(makeProps({ onChange, onTemplateApplied }))
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate(makeLibraryTemplate('template-a', 'Subject A'))
+                logic.actions.applyTemplate(makeLibraryTemplate('template-b', 'Subject B'))
+                logic.actions.setEmailTemplateValue('subject', 'Edited subject')
+            }).toFinishAllListeners()
+
+            expect(onTemplateApplied.mock.calls).toEqual([['template-a'], ['template-b']])
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ subject: 'Edited subject' }))
         })
     })
 
