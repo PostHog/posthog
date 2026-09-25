@@ -152,7 +152,7 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     assert result["total_tokens"] == 130
     if allows_na:
         assert result["applicable"] is (applicability >= 0.5)
-    properties = build_evaluation_event_properties(evaluation, result, datetime.now(UTC))
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
     assert properties["$ai_evaluation_probability"] == probability
     assert properties["$ai_model"] == "jev-1.13.0"
     assert properties["$ai_evaluation_key_type"] == "byok"
@@ -217,7 +217,7 @@ def test_system_one_numeric_scores_keep_the_rubric_scale(
     assert result["total_tokens"] == 130
     assert "verdict" not in result
     assert "probability" not in result
-    properties = build_evaluation_event_properties(evaluation, result, datetime.now(UTC))
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
     assert properties["$ai_evaluation_result_type"] == "numeric"
     assert properties.get("$ai_evaluation_numeric_result") == expected
     assert "$ai_evaluation_result" not in properties
