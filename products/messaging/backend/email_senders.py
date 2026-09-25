@@ -1,4 +1,5 @@
 from collections.abc import Iterable, Mapping
+from email.utils import parseaddr
 from typing import Any, Final
 
 from django.db import models
@@ -41,14 +42,24 @@ def load_email_sender_integrations(team_id: int, integration_ids: Iterable[int])
     return senders
 
 
+def _resolve_string_sender(from_value: str) -> ResolvedEmailSender:
+    # A plain-string sender can be "Name <address>". The row lists bare addresses so a `from:` filter
+    # on the address matches. A string that does not parse to an address, such as a Liquid
+    # expression, is kept as written.
+    name, address = parseaddr(from_value)
+    if "@" not in address:
+        return ResolvedEmailSender(addresses=(from_value,) if from_value else (), name=None, integration_ids=())
+    return ResolvedEmailSender(addresses=(address,), name=name or None, integration_ids=())
+
+
 def resolve_email_sender(from_value: Any, integrations: Mapping[int, EmailSenderIntegration]) -> ResolvedEmailSender:
     """Every address an email can go out from, by the rule the send path uses.
 
     An override address wins. Otherwise each integration the send can pick resolves to its address, in
-    order, skipping ids that no longer resolve. A legacy plain-string `from` is the address itself.
+    order, skipping ids that no longer resolve. A plain-string `from` gives its address and display name.
     """
     if isinstance(from_value, str):
-        return ResolvedEmailSender(addresses=(from_value,) if from_value else (), name=None, integration_ids=())
+        return _resolve_string_sender(from_value)
     if not isinstance(from_value, dict):
         return ResolvedEmailSender(addresses=(), name=None, integration_ids=())
 

@@ -111,6 +111,19 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert rows[1]["subject"] == "Test Subject"
         assert rows[1]["from_addresses"] == []
 
+    @parameterized.expand(
+        [
+            ("address_only", "team@example.com", ["team@example.com"]),
+            ("display_name_and_address", "Acme Team <team@example.com>", ["team@example.com"]),
+        ]
+    )
+    def test_summaries_string_sender_gives_the_bare_address(self, _name, from_value, expected):
+        self.message_template.content = {"email": {"subject": "Hi", "from": from_value}}
+        self.message_template.save()
+
+        (row,) = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/summaries/").json()["results"]
+        assert row["from_addresses"] == expected
+
     def test_summaries_page_past_the_first_hundred(self):
         MessageTemplate.objects.bulk_create(
             [MessageTemplate(team=self.team, name=f"Template {index}", content={}) for index in range(150)]

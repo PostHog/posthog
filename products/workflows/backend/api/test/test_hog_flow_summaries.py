@@ -285,6 +285,7 @@ class TestHogFlowSummaries(APIBaseTest):
             ("empty_rotation_uses_primary", "empty_rotation", ["news@example.com"], "Acme News", ["news"]),
             ("deleted_integration_is_skipped", "deleted", ["updates@example.com"], "Acme Updates", ["gone", "updates"]),
             ("legacy_string_from", "legacy", ["legacy@example.com"], None, []),
+            ("legacy_named_string_from", "legacy_named", ["team@example.com"], "Acme Team", []),
             ("other_team_integration_never_resolves", "other_team", [], None, ["foreign"]),
         ]
     )
@@ -307,6 +308,7 @@ class TestHogFlowSummaries(APIBaseTest):
             "empty_rotation": {"integrationId": self.news_sender.id, "integrationIds": []},
             "deleted": {"integrationIds": [deleted_id, self.updates_sender.id]},
             "legacy": "legacy@example.com",
+            "legacy_named": "Acme Team <team@example.com>",
             "other_team": {"integrationId": foreign.id},
         }[sender]
         HogFlow.objects.create(team=self.team, name="Sender", actions=[_email("email_1", "Email", from_value)])

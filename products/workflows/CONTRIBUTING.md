@@ -320,7 +320,7 @@ Filters live in `apply_list_filters` in `backend/api/hog_flow_list.py`:
 Things to keep in mind when you change them:
 
 - **A row field and its filter share one rule.** `workflow_type_of` and `workflow_type_q` decide the type. `_trigger_type` and `annotate_trigger_type` both read the first trigger step, and the legacy `trigger` column only when there is no trigger step. Change each pair together, or the list's facet counts disagree with what API and MCP callers get back.
-- **Senders follow the send path.** A step's senders are its `integrationIds` rotation when that is set, otherwise its `integrationId`, the same rule as `selectEmailSenderIntegrationId` in the CDP worker. `parse_email_sender_ids` in `posthog/cdp/validation.py` is the one reader of those keys.
+- **Senders follow the send path.** A step's senders are its `integrationIds` rotation when that is set, otherwise its `integrationId`, the same rule as `selectEmailSenderIntegrationId` in the CDP worker. `parse_email_sender_ids` in `posthog/cdp/validation.py` is the one reader of those keys. A plain-string sender such as `Name <address>` lists the bare address, so a filter on the address matches it.
 - **Row fields come from `summarize_hog_flow`.** It reads the live `actions` only, never the draft, so the list shows what runs. Adding a field there adds it to the summaries and the MCP list at once.
 - **Only the `summaries` paths are gzipped.** The full list carries step config next to the reflected `search` input in its `next` link, which is the shape `ScopedGZipMiddleware` warns about.
 - **`summaries` filters by access level itself.** `_filter_queryset_by_access_level` only runs for `list`, so a new custom list action needs the same explicit call.
