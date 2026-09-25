@@ -1,7 +1,7 @@
 import { CSS_LOAD_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
 
 import { BOOT_ENTRIES, ENTRY } from './bootEntries.mjs'
-import { chunkIdentity, shortHash } from './stableChunkNames.mjs'
+import { alphanumericStem, chunkIdentity, shortHash } from './stableChunkNames.mjs'
 
 /**
  * Split stylesheets for the stable build.
@@ -20,6 +20,10 @@ import { chunkIdentity, shortHash } from './stableChunkNames.mjs'
  */
 
 export const CSS_SPECIFIER_PREFIX = '@css/'
+
+export function cssGroupFileStem(groupName) {
+    return alphanumericStem(`styles-${groupName}`)
+}
 
 const isStylesheet = (file) => /\.(css|scss|sass)$/.test(file)
 

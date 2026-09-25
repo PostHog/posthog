@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import {
     ConversionGoalFilter,
     DatabaseSchemaDataWarehouseTable,
@@ -25,10 +27,15 @@ import {
 } from './utils'
 
 describe('marketing analytics utils', () => {
-    describe('getEnabledNativeMarketingSources', () => {
-        it('returns every native source when no source is flag-gated', () => {
-            const result = getEnabledNativeMarketingSources({})
-            expect([...result]).toEqual([...VALID_NATIVE_MARKETING_SOURCES])
+    describe.each([
+        ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS, FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
+        ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS, FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
+    ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag, otherFlag) => {
+        it.each([undefined, false, true, 'test'])('gates the source when its flag is %s', (enabled) => {
+            const flags = { [otherFlag]: true, ...(enabled === undefined ? {} : { [flag]: enabled }) }
+            expect(getEnabledNativeMarketingSources(flags)).toEqual(
+                VALID_NATIVE_MARKETING_SOURCES.filter((source) => source !== sourceType || enabled === true)
+            )
         })
     })
 
@@ -271,6 +278,8 @@ describe('marketing analytics utils', () => {
 
         // All fields each source could reference, so the mock table has them all
         const sourceFields: Record<NativeMarketingSource, string[]> = {
+            AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
+            OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: [
                 'metrics_cost_micros',
                 'metrics_impressions',
@@ -322,6 +331,8 @@ describe('marketing analytics utils', () => {
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
+            AppleSearchAds: ['local_spend', 'impressions', 'taps'],
+            OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
             LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],
@@ -362,6 +373,39 @@ describe('marketing analytics utils', () => {
                 ],
             }
         }
+
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves AppleSearchAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('AppleSearchAds', sourceFields.AppleSearchAds)
+            source.tables[0].name = `${prefix}applesearchads_${MARKETING_INTEGRATION_CONFIGS.AppleSearchAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
+
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves OpenAIAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('OpenAIAds', sourceFields.OpenAIAds)
+            source.tables[0].name = `${prefix}openaiads_${MARKETING_INTEGRATION_CONFIGS.OpenAIAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
+
+        it.each(['currency_code', 'start_time', 'spend', 'campaign_id', 'clicks', 'impressions'])(
+            'omits OpenAI Ads cost tiles missing %s',
+            (field) => {
+                const source = makeMockSource(
+                    'OpenAIAds',
+                    sourceFields.OpenAIAds.filter((name) => name !== field)
+                )
+                expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')).toBeNull()
+            }
+        )
+
+        it('keeps OpenAI Ads impressions available without currency', () => {
+            const source = makeMockSource(
+                'OpenAIAds',
+                sourceFields.OpenAIAds.filter((name) => name !== 'currency_code')
+            )
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Impressions, 'EUR')).not.toBeNull()
+        })
 
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(

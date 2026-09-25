@@ -199,7 +199,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
                         <p className="text-secondary text-xs mt-2">
                             Answered by {decision.model} from {decision.input_tokens} input tokens
                             {decision.latency_ms !== null && decision.latency_ms !== undefined
-                                ? ` in ${decision.latency_ms} ms`
+                                ? ` in ${Math.round(decision.latency_ms)} ms`
                                 : ''}
                             .
                         </p>

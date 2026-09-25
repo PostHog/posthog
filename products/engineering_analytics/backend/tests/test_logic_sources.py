@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
+    DEPOT_JOB_ATTEMPTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
@@ -22,12 +23,14 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_job_source_tables,
     resolve_team_membership_table,
 )
+from products.engineering_analytics.backend.logic.views.depot_ci import DepotJobAttempts
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    create_depot_source,
     create_warehouse_table_row,
     link_schema,
 )
@@ -477,7 +480,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
     def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
         # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
         # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
-        self._multi_repo_source(
+        source = self._multi_repo_source(
             prefix="cost",
             legacy_repository="PostHog/posthog",
             repos={
@@ -487,6 +490,14 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
             },
         )
+        # A Depot source joins only the repository it syncs, matched case-insensitively.
+        depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
+        link_schema(
+            self.team,
+            depot,
+            name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+            table=create_warehouse_table_row(self.team, name="cidepot_job_attempts", source=depot),
+        )
         # pull_requests stays None here: these views qualify on jobs + runs, so a repo reaches them
         # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
         assert set(resolve_job_source_tables(self.team)) == {
@@ -494,11 +505,14 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
                 workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
+                depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
             ),
             JobSourceTables(
                 workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
                 workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
             ),
         }
 

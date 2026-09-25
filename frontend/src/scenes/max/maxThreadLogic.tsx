@@ -354,8 +354,16 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
+    ) => {
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true

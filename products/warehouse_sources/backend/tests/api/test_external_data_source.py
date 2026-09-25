@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, Mock, PropertyMock, patch
+from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
 from django.db import connection
@@ -1217,6 +1217,33 @@ class TestExternalDataSource(APIBaseTest):
         for schema in schemas:
             schema.refresh_from_db()
             assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_sets_full_refresh_interval(self, _mock_workflow_exists):
+        source = self._create_external_data_source()
+        schema = ExternalDataSchema.objects.create(
+            name="Customers",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "datetime"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+            data={"schemas": [{"id": str(schema.id), "full_refresh_interval_days": 7}]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["full_refresh_interval_days"] == 7
+        schema.refresh_from_db()
+        assert schema.full_refresh_interval_days == 7
+        assert schema.next_full_refresh_at is not None
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -3105,6 +3132,8 @@ class TestExternalDataSource(APIBaseTest):
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
+                    "full_refresh_interval_days": None,
+                    "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
@@ -11236,7 +11265,14 @@ class TestDisableCDC(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
     )
-    def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, _cleanup) -> None:
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.is_external_data_schedule_paused",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.pause_external_data_schedule"
+    )
+    def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, mock_pause_schedule, _is_paused, _cleanup) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
 
         cdc_schema = ExternalDataSchema.objects.create(
@@ -11276,6 +11312,92 @@ class TestDisableCDC(APIBaseTest):
         non_cdc_schema.refresh_from_db()
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
+        mock_pause_schedule.assert_called_once_with(str(cdc_schema.id))
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.unpause_external_data_schedule"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.is_external_data_schedule_paused",
+        return_value=False,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.pause_external_data_schedule",
+        side_effect=RuntimeError("temporal unavailable"),
+    )
+    def test_disable_cdc_changes_nothing_when_a_table_schedule_cannot_be_paused(
+        self, _pause, _is_paused, mock_unpause, cleanup
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+
+        assert response.status_code == 503, response.content
+        cleanup.assert_not_called()
+        source.refresh_from_db()
+        assert "cdc_enabled" in (source.job_inputs or {})
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert cdc_schema.should_sync is True
+        # No pause succeeded, so there is nothing to resume.
+        mock_unpause.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture.unpause_external_data_schedule"
+    )
+    def test_disable_cdc_resumes_only_the_schedules_it_paused_when_a_later_pause_fails(
+        self, mock_unpause, _cleanup
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        for name in ("cdc_one", "cdc_two", "cdc_three"):
+            ExternalDataSchema.objects.create(
+                name=name,
+                team_id=self.team.pk,
+                source_id=source.pk,
+                sync_type=ExternalDataSchema.SyncType.CDC,
+                should_sync=True,
+            )
+
+        pause_attempts: list[str] = []
+
+        def fake_is_paused(schedule_id: str) -> bool:
+            # The first table reached stands in for a schedule that was paused before the request.
+            return not pause_attempts
+
+        def fake_pause(schedule_id: str) -> None:
+            pause_attempts.append(schedule_id)
+            if len(pause_attempts) == 3:
+                raise RuntimeError("temporal unavailable")
+
+        view = "products.warehouse_sources.backend.presentation.views.external_data_source.change_data_capture"
+        with (
+            patch(f"{view}.is_external_data_schedule_paused", side_effect=fake_is_paused),
+            patch(f"{view}.pause_external_data_schedule", side_effect=fake_pause),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+            )
+
+        assert response.status_code == 503, response.content
+        # The first table was already paused and the third never paused, so only the second resumes.
+        assert mock_unpause.call_args_list == [call(pause_attempts[1])]
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.purge_buffer_prefix")
     @patch(
@@ -11539,6 +11661,17 @@ BROKEN_MARKER = {"reason": "slot_missing", "at": "2026-06-29T10:40:00+00:00"}
 
 
 class TestRepairCDC(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The load queue lives in the warehouse-sources database, which these tests do not create.
+        # Left real, the probe raises and repair hands every reset to capture instead of doing it.
+        queue_probe = patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches",
+            return_value=False,
+        )
+        queue_probe.start()
+        self.addCleanup(queue_probe.stop)
+
     def _repair(self, source: ExternalDataSource):
         return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/repair_cdc/",
@@ -11816,6 +11949,7 @@ class TestRepairCDC(APIBaseTest):
         assert "cdc_broken" not in schema.sync_type_config
         assert mock_recreate.call_count == 2
 
+    @patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule")
     @patch("products.data_warehouse.backend.logic.data_load.service.cancel_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_cdc_extraction_schedule")
@@ -11826,7 +11960,14 @@ class TestRepairCDC(APIBaseTest):
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     def test_repair_cdc_cancels_running_cdc_jobs(
-        self, _mock_recreate, _unpause, _trigger, _unpause_ext, _sync_ext, mock_cancel
+        self,
+        _mock_recreate,
+        mock_unpause_schedule,
+        mock_trigger,
+        mock_unpause_extraction,
+        _sync_extraction,
+        mock_cancel,
+        mock_pause_schedule,
     ) -> None:
         # A run still holding the slot fails pg_drop_replication_slot, and a wedged Running
         # workflow would block the resumed SKIP-overlap schedules — repair must cancel them.
@@ -11866,7 +12007,21 @@ class TestRepairCDC(APIBaseTest):
         response = self._repair(source)
         assert response.status_code == 200, response.content
         # Only the CDC schema's run is cancelled — unrelated incremental syncs keep running.
-        mock_cancel.assert_called_once_with("cdc-workflow-1")
+        assert {c.args[0] for c in mock_cancel.call_args_list} == {"cdc-workflow-1"}
+        cdc_schema.refresh_from_db()
+        # `awaiting_slot`: the slot this table would snapshot against is gone until repair
+        # recreates it, so a capture run firing meanwhile must hold the reset instead of starting.
+        assert cdc_schema.sync_type_config["cdc_reset_pending"] == {
+            "clear_deferred_runs": True,
+            "trigger": True,
+            "awaiting_slot": True,
+            "generation": 1,
+        }
+        assert "reset_pipeline" not in cdc_schema.sync_type_config
+        mock_pause_schedule.assert_called_once_with(str(cdc_schema.id))
+        mock_unpause_schedule.assert_not_called()
+        mock_trigger.assert_not_called()
+        mock_unpause_extraction.assert_called_once_with(str(source.id))
 
     def test_repair_cdc_conflicts_while_another_repair_holds_the_lock(self) -> None:
         from posthog.redis import get_client
@@ -14206,15 +14361,20 @@ class TestGithubMultiRepoPatch(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={
-                "job_inputs": {
-                    "auth_method": {"selection": "pat"},
-                    "repositories": ["org/repo", "new/repo"],
-                }
-            },
-        )
+        # Retiring a removed repo's rows finishes after the commit, so run the callbacks.
+        with (
+            patch("products.data_warehouse.backend.facade.api.pause_external_data_schedule"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "auth_method": {"selection": "pat"},
+                        "repositories": ["org/repo", "new/repo"],
+                    }
+                },
+            )
         assert response.status_code == 200, response.json()
 
         # New repo's hooks are pinned to the source's existing secret; removed repo's hook deleted.

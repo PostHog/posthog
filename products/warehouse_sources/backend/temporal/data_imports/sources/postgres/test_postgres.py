@@ -540,6 +540,21 @@ class TestPostgresSourceNonRetryableErrors:
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
 
+    def test_ssh_gateway_session_failure_tells_the_customer_to_re_enable(self, source):
+        # This entry is non-retryable, so matching it switches the schema off. Without the
+        # re-enable step the customer fixes the bastion and the sync stays silently stopped.
+        # Mirror the finalizer's first-match selection so a reorder that shadows it with an
+        # earlier None-valued key is caught.
+        error_msg = "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway"
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "an unreachable SSH gateway must be classified non-retryable"
+        assert matches[0] is not None, "an unreachable SSH gateway must surface an actionable message"
+        assert "re-enable the sync" in matches[0].lower()
+
     @pytest.mark.parametrize(
         ("error_msg", "reason_code", "expected_word"),
         [
@@ -1146,6 +1161,35 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "IP-not-in-allow-list error should surface an actionable message"
         assert "allow list" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg,expected_fragment",
+        [
+            (
+                'connection failed: connection to server at "203.0.113.30", port 5432 failed: ERROR:  This IP '
+                "address 198.51.100.7 is not allowed to connect to this endpoint.\n"
+                'connection to server at "203.0.113.30", port 5432 failed: ERROR:  connection is insecure',
+                "allow list",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.31", port 5432 failed: ERROR:  This '
+                "connection is trying to access this endpoint from a blocked network.\n"
+                'connection to server at "203.0.113.31", port 5432 failed: ERROR:  connection is insecure',
+                "public access",
+            ),
+        ],
+    )
+    def test_neon_network_policy_rejection_is_non_retryable_with_friendly_message(
+        self, source, error_msg, expected_fragment
+    ):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, f"Network policy rejection should be non-retryable with an actionable message: {error_msg}"
+        assert expected_fragment in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",

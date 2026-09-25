@@ -74,14 +74,12 @@ def exclude_archived_unless_requested(queryset: QuerySet, *, requested: bool) ->
 # test runs before the array function; the planner is free to reorder the arms of `AND` and `OR`.
 # Both predicates below interpolate these, so they are f-strings and every literal `{}` in their
 # SQL is written `{{}}`.
-_GROUPS_ARRAY = (
-    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'groups') = 'array' "
-    "THEN posthog_featureflag.filters->'groups' ELSE '[]'::jsonb END"
-)
-_VARIANTS_ARRAY = (
-    "CASE WHEN jsonb_typeof(posthog_featureflag.filters->'multivariate'->'variants') = 'array' "
-    "THEN posthog_featureflag.filters->'multivariate'->'variants' ELSE '[]'::jsonb END"
-)
+def jsonb_array_or_empty(expr: str) -> str:
+    return f"CASE WHEN jsonb_typeof({expr}) = 'array' THEN {expr} ELSE '[]'::jsonb END"
+
+
+_GROUPS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'groups'")
+_VARIANTS_ARRAY = jsonb_array_or_empty("posthog_featureflag.filters->'multivariate'->'variants'")
 # A release condition carries no targeting when `properties` is `[]`, absent, or JSON null, which
 # is how `is_group_fully_rolled_out` and `is_boolean_flag_fully_rolled_out` read it. Postgres `->`
 # returns SQL NULL for the absent key and the jsonb scalar `null` for the stored null, so each

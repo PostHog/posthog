@@ -64,7 +64,8 @@ const GRID_COMPACTION_OPTIONS: {
 ]
 
 export function DashboardCustomizeMenu(): JSX.Element | null {
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, canEditDashboard, currentLayoutSize } = useValues(dashboardLogic)
+    const layoutAvailable = currentLayoutSize !== 'xs'
     const { changeDashboardGridCompaction, setDashboardTileSpacing, saveDashboardTileSpacing } =
         useActions(dashboardLogic)
     if (!dashboard || !canEditDashboard) {
@@ -89,29 +90,33 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
     }
 
     return (
-        <div className="space-y-2 p-2">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className={layoutAvailable ? 'space-y-2 p-2' : 'w-[min(20rem,calc(100vw-2rem))] space-y-2 p-2'}>
+            <div className={layoutAvailable ? 'flex flex-wrap items-center gap-x-3 gap-y-1' : 'flex flex-col gap-2'}>
                 <span className="text-xs text-muted whitespace-nowrap">Tile density</span>
                 <LemonRadio<DashboardTileSpacing>
                     value={tileSpacing}
                     onChange={setTileSpacing}
                     options={TILE_SPACING_OPTIONS}
                     orientation="horizontal"
-                    className="flex-1 flex-wrap gap-x-3 gap-y-1"
+                    className={layoutAvailable ? 'flex-1 flex-wrap gap-x-3 gap-y-1' : 'flex-wrap gap-x-3 gap-y-1'}
                     aria-label="Tile density"
                 />
             </div>
-            <div className="flex gap-x-3 border-t pt-2">
-                <span className="pt-3 text-xs text-muted whitespace-nowrap">When you move a tile</span>
-                <LemonRadio<DashboardGridCompactionType>
-                    value={layoutCompaction}
-                    onChange={setGridCompaction}
-                    options={GRID_COMPACTION_OPTIONS}
-                    radioPosition="top"
-                    className="flex-1"
-                    aria-label="How moving a tile rearranges other tiles"
-                />
-            </div>
+            {layoutAvailable ? (
+                <div className="flex gap-x-3 border-t pt-2">
+                    <span className="pt-3 text-xs text-muted whitespace-nowrap">When you move a tile</span>
+                    <LemonRadio<DashboardGridCompactionType>
+                        value={layoutCompaction}
+                        onChange={setGridCompaction}
+                        options={GRID_COMPACTION_OPTIONS}
+                        radioPosition="top"
+                        className="flex-1"
+                        aria-label="How moving a tile rearranges other tiles"
+                    />
+                </div>
+            ) : (
+                <p className="border-t pt-2 text-xs text-muted">Use a larger screen to move or resize tiles.</p>
+            )}
         </div>
     )
 }

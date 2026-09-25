@@ -1018,6 +1018,32 @@ Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migr
         )
 
 
+class DropColumnConstraintsAnalyzer(OperationAnalyzer):
+    """The check and unique rules that go with a retiring column.
+
+    Every drop is a catalog change on one table, taken under one bounded lock phase, so it
+    scores with DropForeignKey. LockPhaseTransactionPolicy checks the rest of the transaction.
+    """
+
+    operation_type = "DropColumnConstraints"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT and DROP INDEX for retiring columns are catalog changes (bounded lock phase, no table scan)",
+            details={"table": getattr(op, "table", None), "columns": getattr(op, "columns", None)},
+            guidance=f"""Finds every check and unique rule on the columns in the catalog, so it also drops rules no migration file names any more. Run it before the release that stops writing the columns, because a check that requires them then rejects every insert.
+
+The transaction holds the table lock until COMMIT. Keep this op alone in its migration, next to state-only operations at most.
+
+Irreversible. Add a rule back in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
+
+
 class AddConstraintNotValidAnalyzer(OperationAnalyzer):
     """Phase 1 of the NOT VALID pattern - mirrors the score the RunSQL analyzer
     gives a hand-written `ADD CONSTRAINT ... NOT VALID` (safe: brief lock, no
