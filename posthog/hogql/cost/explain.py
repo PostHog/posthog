@@ -124,7 +124,13 @@ def _filter_step(predicate: PredicateIndexEligibility, table: TableScanEstimate)
     modelled = _modelled_filter(predicate, table)
     if modelled is not None and modelled.granules_read is not None:
         skipped = 1 - modelled.granules_read
-        effect = f"skips about {skipped:.0%} of the scan" if skipped >= 0.005 else "skips almost nothing"
+        if skipped >= 0.995:
+            # A rounded 100% would claim the filter reads nothing at all.
+            effect = "skips over 99% of the scan"
+        elif skipped >= 0.005:
+            effect = f"skips about {skipped:.0%} of the scan"
+        else:
+            effect = "skips almost nothing"
     elif predicate.verdict == PredicateIndexVerdict.INDEXED:
         effect = "has an index, how much it skips is not estimated"
     elif predicate.verdict == PredicateIndexVerdict.BLOCKED:

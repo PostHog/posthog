@@ -37,6 +37,17 @@ class TestExplainSQLMCPTool(NonAtomicBaseTest):
         assert estimate["rows"] == 700_000
         assert [step["kind"] for step in plan if isinstance(step, dict)] == ["scan"]
 
+    async def test_headline_names_the_tables_it_could_not_estimate(self):
+        with (
+            patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=True),
+            patch("posthog.hogql.metadata.ClickHouseStatisticsProvider", return_value=self.provider),
+        ):
+            result = await self.tool.execute(
+                ExplainSQLMCPToolArgs(query="SELECT count() FROM events e JOIN persons p ON p.id = e.person_id")
+            )
+
+        assert result.content.startswith("Reads about 36,500,000 rows from 1 of 2 tables. Not estimated: persons.")
+
     async def test_says_when_no_estimate_is_available(self):
         with patch("posthog.hogql.metadata.feature_enabled_or_false", return_value=False):
             result = await self.tool.execute(ExplainSQLMCPToolArgs(query="SELECT 1"))

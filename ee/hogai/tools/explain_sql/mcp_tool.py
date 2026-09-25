@@ -70,7 +70,15 @@ def _format_plan(response: HogQLMetadataResponse) -> str:
     if estimate is None or not response.cost_plan:
         return "No estimate is available for this query. It is valid and can be run."
     qualifier = "up to" if estimate.upper_bound else "about"
-    lines = [f"Reads {qualifier} {estimate.rows:,} rows across {len(estimate.tables)} table(s).", ""]
+    not_estimated = [table.name for table in estimate.tables if table.rows is None]
+    if not_estimated:
+        coverage = (
+            f"from {len(estimate.tables) - len(not_estimated)} of {len(estimate.tables)} tables. "
+            f"Not estimated: {', '.join(not_estimated)}."
+        )
+    else:
+        coverage = f"across {len(estimate.tables)} table(s)."
+    lines = [f"Reads {qualifier} {estimate.rows:,} rows {coverage}", ""]
     for step in response.cost_plan:
         lines.append(_format_step(step))
     lines.append("")

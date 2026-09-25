@@ -72,7 +72,7 @@ class TestBuildCostPlan(SimpleTestCase):
 
         assert [(step.kind, step.table, step.message) for step in steps] == [
             ("scan", "events", "Scan events, about 41M rows (30 days)"),
-            ("filter", "events", "Filter order_id = … skips about 100% of the scan"),
+            ("filter", "events", "Filter order_id = … skips over 99% of the scan"),
             ("filter", "events", "Filter plan = … skips almost nothing"),
             ("filter", "events", "Filter uncounted = … has an index, how much it skips is not estimated"),
             ("filter", "events", "Filter $browser = … reads every row"),
