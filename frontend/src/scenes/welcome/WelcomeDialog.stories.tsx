@@ -4,6 +4,8 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
+import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -205,3 +207,43 @@ Provisioned.decorators = [
         },
     }),
 ]
+
+export const LoadFailed: StoryFn = () => <Template />
+LoadFailed.decorators = [
+    mswDecorator({
+        get: { '/api/organizations/@current/welcome/current/': () => [500, { detail: 'Internal server error' }] },
+    }),
+]
+
+// What a newly invited member of an organization that enforces 2FA lands on. The welcome payload is
+// gated behind the same 2FA check, so the dialog has to stay out of the way and leave the screen to
+// the forced setup modal.
+function TwoFactorGateTemplate(): JSX.Element {
+    useMountedLogic(userLogic)
+    useMountedLogic(twoFactorLogic)
+    useEffect(() => {
+        welcomeDialogLogic.mount()
+        twoFactorLogic.actions.openTwoFactorSetupModal(true)
+    }, [])
+    return (
+        <>
+            <TwoFactorSetupModal />
+            <WelcomeDialog />
+        </>
+    )
+}
+
+export const TwoFactorSetupRequired: StoryFn = () => <TwoFactorGateTemplate />
+TwoFactorSetupRequired.decorators = [
+    mswDecorator({
+        get: {
+            '/api/users/@me/two_factor_start_setup/': { secret: 'JBSWY3DPEHPK3PXP', success: true },
+            '/api/organizations/@current/welcome/current/': () => [403, { code: 'two_factor_setup_required' }],
+        },
+    }),
+]
+TwoFactorSetupRequired.parameters = {
+    // The QR code comes from a Django route that Storybook does not serve, so that one image never
+    // resolves here. The rest of the modal is what this story is for.
+    testOptions: { allowImagesWithoutWidth: true },
+}
