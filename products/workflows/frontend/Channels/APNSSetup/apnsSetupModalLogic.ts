@@ -10,11 +10,12 @@ import { IntegrationType } from '~/types'
 
 import {
     PushIdentityVerificationMode,
+    pushIdentityPublicKeyError,
     pushIdentityPublicKeysPayload,
     pushIdentityVerificationPayload,
     resolvePushIdentityPublicKey,
     resolvePushIdentityVerification,
-} from '../PushIdentityVerificationField'
+} from '../pushIdentityVerification'
 
 export interface APNSSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -257,11 +258,12 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                 identityVerification: resolvePushIdentityVerification(props.integration),
                 identityPublicKey: resolvePushIdentityPublicKey(props.integration),
             },
-            errors: ({ signingKey, keyId, teamId, bundleId }) => ({
+            errors: ({ signingKey, keyId, teamId, bundleId, identityVerification, identityPublicKey }) => ({
                 signingKey: signingKey.trim() ? undefined : 'Signing key is required',
                 keyId: keyId.trim() ? undefined : 'Key ID is required',
                 teamId: teamId.trim() ? undefined : 'Team ID is required',
                 bundleId: bundleId.trim() ? undefined : 'Bundle ID is required',
+                identityPublicKey: pushIdentityPublicKeyError(identityVerification, identityPublicKey),
             }),
             submit: async () => {
                 try {

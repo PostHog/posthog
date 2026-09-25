@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 // Mirrors `logs_retention_days_error` in `posthog/models/team/logs_retention.py`.
 export const LOGS_RETENTION_DEFAULT_DAYS = 14
 export const LOGS_RETENTION_MONTH_DAYS = 30
@@ -45,4 +47,16 @@ export function logsRetentionDaysLabel(days: number): string {
         return `${months} months (${days} days)`
     }
     return `${days} days`
+}
+
+export function retentionThrottleReason(lastUpdated: string | null | undefined): string | null {
+    if (!lastUpdated) {
+        return null
+    }
+    const hoursSinceUpdate = dayjs().diff(dayjs(lastUpdated), 'hours')
+    if (hoursSinceUpdate < 24) {
+        const hoursRemaining = Math.max(1, 24 - hoursSinceUpdate)
+        return `You can update retention again in ${hoursRemaining} hour${hoursRemaining !== 1 ? 's' : ''}`
+    }
+    return null
 }

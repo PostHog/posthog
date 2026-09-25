@@ -14,7 +14,7 @@
 //! and `AiOverflow` is the opt-in overflow valve — unset means routing never
 //! selects it.
 
-use crate::config::KafkaConfig;
+use crate::config::KafkaTopicsConfig;
 
 /// Which configured output a routing decision selects, named **pipeline +
 /// lane** — the vocabulary the refactor converges on (typed per-pipeline
@@ -179,19 +179,19 @@ impl TopicTable {
     }
 }
 
-impl From<&KafkaConfig> for TopicTable {
-    fn from(config: &KafkaConfig) -> Self {
+impl From<&KafkaTopicsConfig> for TopicTable {
+    fn from(config: &KafkaTopicsConfig) -> Self {
         Self {
-            main: config.kafka_topic.clone(),
-            overflow: config.kafka_overflow_topic.clone(),
-            historical: config.kafka_historical_topic.clone(),
-            client_ingestion_warning: config.kafka_client_ingestion_warning_topic.clone(),
-            heatmaps: config.kafka_heatmaps_topic.clone(),
-            replay_overflow: config.kafka_replay_overflow_topic.clone(),
-            dlq: config.kafka_dlq_topic.clone(),
-            error_tracking: config.kafka_error_tracking_topic.clone(),
-            ai_events: config.capture_analytics_ai_events_topic.clone(),
-            ai_events_overflow: config.capture_analytics_ai_events_overflow_topic.clone(),
+            main: config.main.clone(),
+            overflow: config.overflow.clone(),
+            historical: config.historical.clone(),
+            client_ingestion_warning: config.client_ingestion_warning.clone(),
+            heatmaps: config.heatmaps.clone(),
+            replay_overflow: config.replay_overflow.clone(),
+            dlq: config.dlq.clone(),
+            error_tracking: config.error_tracking.clone(),
+            ai_events: config.ai_events.clone(),
+            ai_events_overflow: config.ai_events_overflow.clone(),
         }
     }
 }

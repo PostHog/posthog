@@ -411,7 +411,7 @@ class TestPgOutputDecoder:
         decoder.decode_message(rel1, "0/50")
 
         decoder.decode_message(_make_begin(), "0/100")
-        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
         events1 = list(decoder.decode_message(_make_commit(), "0/200"))
 
         assert events1[0].columns == {"id": 1, "name": "Alice"}
@@ -431,13 +431,20 @@ class TestPgOutputDecoder:
 
         assert events2[0].columns == {"id": 2, "name": "Bob", "email": "bob@example.com"}
 
-    def test_truncate_marks_table(self):
-        decoder = self._setup_decoder_with_relation(relation_id=1, table="users")
+    @parameterized.expand([("in_memory", 100), ("spilled", 1)])
+    def test_a_truncate_shows_only_once_its_transactions_changes_are_consumed(self, _name, chunk):
+        with patch(f"{_DECODER_MODULE}.TX_SPILL_CHUNK_EVENTS", chunk):
+            decoder = self._setup_decoder_with_relation(relation_id=1, table="users")
+            decoder.decode_message(_make_begin(), "0/100")
+            decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
+            decoder.decode_message(_make_insert(1, [("t", "2"), ("t", "Bob"), None]), "0/120")
+            decoder.decode_message(_make_truncate([1]), "0/130")
+            events = iter(decoder.decode_message(_make_commit(), "0/200"))
 
-        truncate = _make_truncate([1])
-        decoder.decode_message(truncate, "0/100")
-
-        assert decoder.truncated_tables == ["public.users"]
+            next(events)
+            assert decoder.truncated_tables == []
+            assert len(list(events)) == 1
+            assert decoder.truncated_tables == ["public.users"]
 
         decoder.clear_truncated_tables()
         assert decoder.truncated_tables == []
@@ -505,7 +512,7 @@ class TestPgOutputDecoder:
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("name", _OID_TEXT, -1)])
 
         decoder.decode_message(_make_begin(), "0/100")
-        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice")]), "0/110")
+        decoder.decode_message(_make_insert(1, [("t", "1"), ("t", "Alice"), None]), "0/110")
         decoder.decode_message(_make_update(1, [("t", "1"), ("t", "Alice Updated")]), "0/120")
         decoder.decode_message(_make_delete(1, [("t", "2"), None]), "0/130")
         events = list(decoder.decode_message(_make_commit(), "0/200"))

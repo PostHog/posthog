@@ -127,6 +127,7 @@ export const createDraftExperimentFromFlagLogic = kea<createDraftExperimentFromF
             }
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsCreate() from 'products/experiments/frontend/generated/api' instead.
                 const experiment: Experiment = await api.create(
                     `api/projects/${values.currentProjectId}/experiments`,
                     payload

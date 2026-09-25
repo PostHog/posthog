@@ -43,6 +43,7 @@ import type {
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
+import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
 import {
     ActionType,
@@ -155,6 +156,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
     '/engineering-analytics/tests': ['EngineeringAnalytics', 'engineeringAnalyticsTests'],
     '/engineering-analytics/teams': ['EngineeringAnalytics', 'engineeringAnalyticsTeams'],
+    '/engineering-analytics/authors': ['EngineeringAnalytics', 'engineeringAnalyticsAuthors'],
     '/engineering-analytics/deploys': ['EngineeringAnalytics', 'engineeringAnalyticsDeploys'],
     '/engineering-analytics/teams/:ownerTeam': ['EngineeringAnalyticsTeam', 'engineeringAnalyticsTeam'],
     '/engineering-analytics/repos/:repoOwner/:repoName/pull-requests/:number': [
@@ -265,6 +267,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
+    '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
+    '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -294,6 +298,11 @@ export const productRoutes: Record<string, [string, string]> = {
         'workflowsLibraryTemplateFromMessage',
     ],
     '/broadcasts': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/library': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/channels': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -433,7 +442,6 @@ export const productRedirects: Record<
         combineUrl(urls.engineeringAnalyticsTests(), searchParams, hashParams).url,
     '/engineering-analytics/health': (_params, searchParams, hashParams): string =>
         combineUrl(urls.engineeringAnalyticsDeploys(), searchParams, hashParams).url,
-    '/engineering-analytics/authors': '/engineering-analytics/overview',
     '/error_tracking/:id/fingerprints': (params) =>
         combineUrl(`/error_tracking/${params.id}`, { manageFingerprints: 'true' }).url,
     '/error_tracking/configuration': (_params, searchParams, hashParams) =>
@@ -1047,6 +1055,20 @@ export const productConfiguration: Record<string, any> = {
         description: 'Latency distribution and sample traces for a single operation.',
         iconType: 'tracing',
     },
+    TracingRetentionNew: {
+        name: 'New retention rule',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        iconType: 'tracing',
+    },
+    TracingRetentionDetail: {
+        name: 'Retention rule',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        iconType: 'tracing',
+    },
     UserInterviews: {
         name: 'User research',
         projectBased: true,
@@ -1348,6 +1370,7 @@ export const productUrls = {
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
     engineeringAnalyticsTests: (): string => '/engineering-analytics/tests',
     engineeringAnalyticsTeams: (): string => '/engineering-analytics/teams',
+    engineeringAnalyticsAuthors: (): string => '/engineering-analytics/authors',
     engineeringAnalyticsDeploys: (): string => '/engineering-analytics/deploys',
     engineeringAnalyticsTeam: (ownerTeam: string): string =>
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
@@ -1640,6 +1663,8 @@ export const productUrls = {
             name: spanName,
             ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
         }).url,
+    tracingRetentionNew: (): string => '/tracing/retention-rules/new',
+    tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -1675,7 +1700,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (): string => '/broadcasts',
+    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
 }
@@ -1817,12 +1842,7 @@ export const productSetupProbes: ProductSetupProbe[] = [
         staleAfterDays: 90,
     },
     { productKey: ProductKey.ERROR_TRACKING, hasDataEvents: ['$exception'] },
-    {
-        productKey: ProductKey.MCP_ANALYTICS,
-        hasDataEvents: ['$mcp_tool_call'],
-        waitingEvents: ['$mcp_initialize'],
-        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
-    },
+    { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
     { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$web_vitals'] },
 ]
 
@@ -2474,7 +2494,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'var(--color-product-mcp-analytics-dark)',
         ] as FileSystemIconColor,
         href: urls.mcpAnalytics(),
-        flag: FEATURE_FLAGS.MCP_ANALYTICS,
         tags: ['beta'],
         sceneKey: 'MCPAnalytics',
         sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
@@ -2747,7 +2766,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing', 'TracingOperation'],
+        sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
         path: 'User research',

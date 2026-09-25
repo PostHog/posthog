@@ -92,9 +92,10 @@ def _attempt(
     succeeded: bool | None = None,
     attempt: int = 1,
     jobs: tuple[str, ...] = (),
+    run_id: int = 1,
 ) -> RunAttempt:
     return RunAttempt(
-        run_id=1,
+        run_id=run_id,
         workflow_name=workflow,
         head_sha=sha,
         attempt=attempt,
@@ -156,6 +157,12 @@ class TestPRTimelineBuilder(SimpleTestCase):
                     (Kind.WAITING_FOR_REVIEW, 4, 5),
                     (Kind.APPROVED_NOT_ENQUEUED, 5, 6),
                 ],
+            ),
+            (
+                "same_second_runs_break_the_tie_by_run_id",
+                _pr(3, [_attempt("a", 0, None, run_id=2), _attempt("a", 0, 1, run_id=1)]),
+                [],
+                [(Kind.CI_RUNNING, 0, 3)],
             ),
             (
                 "cancelled_rerun_is_not_a_pass",

@@ -75,7 +75,6 @@ export {
 } from "./cloud-prompt";
 export {
   adapterForModelId,
-  BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
   buildProviderModelGroups,
   type CloudTaskConfigOption,
@@ -93,7 +92,6 @@ export {
   isAnthropicModel,
   isAnthropicModelId,
   isBasetenModel,
-  isBlockedModelId,
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
@@ -233,14 +231,18 @@ export {
   formatMention,
   splitMentionSegments,
 } from "./mentions";
-export { supports1MContext, supportsFastMode } from "./model-catalog";
+export {
+  isOfferedModel,
+  isRetiredModel,
+  supports1MContext,
+  supportsFastMode,
+} from "./model-catalog";
 export {
   customModelMeta,
   DEFAULT_OPTION_META_KEY,
   defaultEligibleModel,
   isCustomModelOption,
   isDefaultSelectOption,
-  isHiddenPiModelId,
   isRestrictedModelOption,
   modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,

@@ -118,7 +118,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                               ? { main_distinct_id: values.selectedPersonToAssignSplit }
                               : {}
                     // personsSplitCreate needs a project id that this logic does not hold.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const splitAction = await api.create('api/person/' + values.person.id + '/split/', payload)
                     if (splitAction.success) {
                         lemonToast.success(
