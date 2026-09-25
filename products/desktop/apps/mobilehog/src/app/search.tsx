@@ -1,4 +1,5 @@
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import {
   FlatList,
@@ -15,21 +16,58 @@ import { Glass, GlassCircleButton } from "@/components/Glass";
 import { SearchIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
 import { TaskListRow } from "@/components/TaskListRow";
+import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { useTasks } from "@/lib/queries";
 import { colors, fonts, radius } from "@/lib/theme";
+
+const RECENT_SEARCHES_KEY = "mobilehog_recent_searches";
 
 export default function SearchScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const session = useAuth((state) => state.session);
+  const identity = sessionIdentity();
+
+  useEffect(() => {
+    if (!session) return;
+    let active = true;
+    setRecentSearches([]);
+    SecureStore.getItemAsync(accountStorageKey(RECENT_SEARCHES_KEY))
+      .then((raw) => {
+        if (active && sessionIdentity() === identity)
+          setRecentSearches(raw ? (JSON.parse(raw) as string[]) : []);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [identity, session]);
+
+  const saveSearch = (value: string): void => {
+    const term = value.trim();
+    if (!term || !session) return;
+    const next = [
+      term,
+      ...recentSearches.filter(
+        (item) => item.toLowerCase() !== term.toLowerCase(),
+      ),
+    ].slice(0, 8);
+    setRecentSearches(next);
+    SecureStore.setItemAsync(
+      accountStorageKey(RECENT_SEARCHES_KEY),
+      JSON.stringify(next),
+    ).catch(() => {});
+  };
   useEffect(() => {
     const timeout = setTimeout(() => setSearch(query.trim()), 300);
     return () => clearTimeout(timeout);
   }, [query]);
-  const tasks = useTasks(search);
+  const tasks = useTasks(search, !!search);
   const waiting = query.trim() !== search;
-  const loading = waiting || tasks.isLoading;
+  const loading = !!query.trim() && (waiting || tasks.isLoading);
 
   const close = (): void => {
     Keyboard.dismiss();
@@ -44,12 +82,12 @@ export default function SearchScreen() {
     >
       <View style={styles.header}>
         <Text style={styles.heading}>
-          {query.trim() ? "Search results" : "Recent Tasks"}
+          {query.trim() ? "Search results" : "Recent searches"}
         </Text>
         <Text style={styles.caption}>Search your tasks</Text>
       </View>
       <FlatList
-        data={waiting ? [] : tasks.data}
+        data={waiting || !query.trim() ? [] : tasks.data}
         keyExtractor={(task) => task.id}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -59,6 +97,7 @@ export default function SearchScreen() {
             task={item}
             preview={!!search}
             onPress={() => {
+              saveSearch(query);
               Keyboard.dismiss();
               router.dismissTo({
                 pathname: "/(drawer)/task/[id]",
@@ -68,7 +107,10 @@ export default function SearchScreen() {
           />
         )}
         ListHeaderComponent={
-          tasks.isError && tasks.data.length > 0 && !waiting ? (
+          !!query.trim() &&
+          tasks.isError &&
+          tasks.data.length > 0 &&
+          !waiting ? (
             <Pressable
               accessibilityRole="button"
               disabled={tasks.isFetching}
@@ -82,11 +124,36 @@ export default function SearchScreen() {
           ) : null
         }
         ListEmptyComponent={
-          loading ? (
-            <ListState
-              title={query.trim() ? "Searching" : "Loading tasks"}
-              loading
-            />
+          !query.trim() ? (
+            recentSearches.length ? (
+              <View style={styles.recent}>
+                {recentSearches.map((term) => (
+                  <Pressable
+                    key={term}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setQuery(term);
+                      setSearch(term);
+                      saveSearch(term);
+                    }}
+                    style={styles.recentRow}
+                  >
+                    <SearchIcon color={colors.inkSoft} />
+                    <Text style={styles.recentText} numberOfLines={1}>
+                      {term}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <ListState
+                title="No recent searches"
+                description="Search for a task to get started."
+                icon={<SearchIcon />}
+              />
+            )
+          ) : loading ? (
+            <ListState title="Searching" loading />
           ) : tasks.isError ? (
             <ListState
               title="Could not load tasks"
@@ -105,18 +172,14 @@ export default function SearchScreen() {
             />
           ) : (
             <ListState
-              title={search ? "No matching tasks" : "No tasks yet"}
-              description={
-                search
-                  ? "Try another title, description, or task number."
-                  : "Your cloud tasks will appear here when you start one."
-              }
+              title="No matching tasks"
+              description="Try another title, description, or task number."
               icon={<SearchIcon />}
             />
           )
         }
         ListFooterComponent={
-          tasks.hasNextPage && !waiting ? (
+          !!query.trim() && tasks.hasNextPage && !waiting ? (
             <Pressable
               accessibilityRole="button"
               disabled={tasks.isFetching}
@@ -144,7 +207,10 @@ export default function SearchScreen() {
             autoCorrect={false}
             clearButtonMode="while-editing"
             returnKeyType="search"
-            onSubmitEditing={() => setSearch(query.trim())}
+            onSubmitEditing={() => {
+              setSearch(query.trim());
+              saveSearch(query);
+            }}
             style={styles.input}
           />
         </Glass>
@@ -166,6 +232,20 @@ const styles = StyleSheet.create({
   heading: { fontFamily: fonts.sansSemi, fontSize: 22, color: colors.ink },
   caption: { fontFamily: fonts.sans, fontSize: 14, color: colors.inkSoft },
   results: { flexGrow: 1, paddingHorizontal: 18, paddingBottom: 16 },
+  recent: { gap: 4 },
+  recentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+  },
+  recentText: {
+    flex: 1,
+    fontFamily: fonts.sans,
+    fontSize: 16,
+    color: colors.ink,
+  },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",

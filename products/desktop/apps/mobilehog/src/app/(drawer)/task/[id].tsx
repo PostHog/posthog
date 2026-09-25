@@ -191,8 +191,6 @@ const styles = StyleSheet.create({
   composer: {
     paddingHorizontal: 12,
     paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
     backgroundColor: colors.bg,
   },
 });

@@ -23,7 +23,11 @@ import { FadeScrim } from "@/components/FadeScrim";
 import { GlassCircleButton } from "@/components/Glass";
 import { MenuIcon, SteeringIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
-import { PriorityChip } from "@/components/ReportCard";
+import {
+  CardButton,
+  PriorityChip,
+  ReportDetail,
+} from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
 import {
   useDismissReport,
@@ -46,6 +50,7 @@ export default function SelfDrivingScreen() {
   // Locally swiped ids, so a card leaves the deck before the server catches up.
   const [handled, setHandled] = useState<Set<string>>(new Set());
   const [deck, setDeck] = useState<string[] | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [markingRead, setMarkingRead] = useState(false);
@@ -71,6 +76,7 @@ export default function SelfDrivingScreen() {
         .filter((report): report is SignalReport => !!report),
     [deck, all],
   );
+  const selectedReport = all.find((report) => report.id === selectedReportId);
 
   // Whatever surfaces at the top of the deck counts as seen.
   const topId = deckReports[0]?.id;
@@ -101,6 +107,7 @@ export default function SelfDrivingScreen() {
   const onDismiss = (report: SignalReport): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
     finish(report);
+    setSelectedReportId(null);
     dismiss.mutate(report.id, {
       onError: (error) => {
         restore(report);
@@ -116,6 +123,7 @@ export default function SelfDrivingScreen() {
       () => {},
     );
     finish(report);
+    setSelectedReportId(null);
     const tempId = `new-${Date.now()}`;
     const prompt = buildCreatePrReportPrompt({ reportId: report.id });
     const { startPending, adopt, failPending } = useSessions.getState();
@@ -164,7 +172,11 @@ export default function SelfDrivingScreen() {
   return (
     <DrawerScene>
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        {showDeck ? (
+        {selectedReport ? (
+          <GlassCircleButton onPress={() => setSelectedReportId(null)}>
+            <Text style={styles.headerGlyph}>‹</Text>
+          </GlassCircleButton>
+        ) : showDeck ? (
           <GlassCircleButton onPress={() => setDeck([])}>
             <Text style={styles.headerGlyph}>×</Text>
           </GlassCircleButton>
@@ -174,12 +186,37 @@ export default function SelfDrivingScreen() {
           </GlassCircleButton>
         )}
         <Text style={styles.title}>
-          {showDeck ? "Report" : "Self-driving inbox"}
+          {selectedReport
+            ? "Report"
+            : showDeck
+              ? "Triage"
+              : "Self-driving inbox"}
         </Text>
         <View style={{ width: 46 }} />
       </View>
 
-      {showDeck ? (
+      {selectedReport ? (
+        <View style={styles.reportPage}>
+          <ReportDetail report={selectedReport} />
+          <View
+            style={[
+              styles.reportActions,
+              { paddingBottom: insets.bottom + 12 },
+            ]}
+          >
+            <CardButton
+              label="Dismiss"
+              onPress={() => onDismiss(selectedReport)}
+            />
+            <CardButton
+              label="Start task"
+              primary
+              disabled={start.isPending}
+              onPress={() => onStart(selectedReport)}
+            />
+          </View>
+        </View>
+      ) : showDeck ? (
         <Animated.View
           key="deck"
           exiting={FadeOutDown.duration(200)}
@@ -259,7 +296,14 @@ export default function SelfDrivingScreen() {
           {all.map((report) => (
             <Pressable
               key={report.id}
-              onPress={() => setDeck([report.id])}
+              accessibilityRole="button"
+              onPress={() => {
+                setSelectedReportId(report.id);
+                if (!seen.has(report.id))
+                  markSeen([report.id]).catch(() =>
+                    setNotice("Could not mark the report as read."),
+                  );
+              }}
               style={({ pressed }) => [styles.row, pressed && { opacity: 0.5 }]}
             >
               {report.priority ? (
@@ -302,7 +346,7 @@ export default function SelfDrivingScreen() {
           <Text style={styles.notice}>{notice}</Text>
         </Animated.View>
       ) : null}
-      {!showDeck && all.length > 0 ? (
+      {!showDeck && !selectedReport && all.length > 0 ? (
         <Animated.View
           entering={FadeInDown.duration(260)}
           exiting={FadeOutDown.duration(180)}
@@ -331,6 +375,17 @@ export default function SelfDrivingScreen() {
 }
 
 const styles = StyleSheet.create({
+  reportPage: {
+    flex: 1,
+    paddingHorizontal: 18,
+    backgroundColor: colors.bgRaised,
+  },
+  reportActions: {
+    flexDirection: "row",
+    gap: 8,
+    paddingTop: 12,
+    backgroundColor: colors.bgRaised,
+  },
   readAction: { paddingVertical: 12 },
   actionText: {
     fontFamily: fonts.sansMedium,
