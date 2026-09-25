@@ -46,10 +46,14 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
-import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { PermissionRequestRecord, StagedAttachment } from '../types/streamTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../utils/attachmentPreviews'
+import type { PendingAttachment } from '../utils/attachments'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
+import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
@@ -122,6 +126,11 @@ const EFFORT_CONFIG_ID = 'effort'
 // `set_config_option { configId: 'mode' }` is how `/code` applies a live shift+tab mode change.
 const MODE_CONFIG_ID = 'mode'
 
+/** Hands the echo each file's name plus a handle to its bytes, so the message can draw it right away. */
+function stageAttachmentPreviews(attachments: PendingAttachment[]): StagedAttachment[] {
+    return attachments.map(({ file }) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+}
+
 /** Matches a bare `/clear` invocation, not a longer command that starts with it. */
 function isClearCommand(content: string): boolean {
     return /^\/clear(?:\s|$)/.test(content)
@@ -156,6 +165,8 @@ export interface runInteractionLogicValues {
     contextItems: AttachedContextItem[] // attachedContextLogic
     seenContextLinesByTask: Record<string, string[]> // attachedContextLogic
     sentContextKeysByTask: Record<string, string[]> // attachedContextLogic
+    queuedAttachments: PendingAttachment[] // composerAttachmentsLogic
+    stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
     catalogue: ModelChoiceApi[] // modelCatalogueLogic
     currentProjectId: number | null // projectLogic
     cancellationState: CancellationState // runCancellationLogic
@@ -237,6 +248,18 @@ export interface runInteractionLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    claimAttachmentsForQueue: () => {
+        value: true
+    } // composerAttachmentsLogic
+    releaseQueuedAttachments: () => {
+        value: true
+    } // composerAttachmentsLogic
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
     requestCancellation: () => {
         value: true
     } // runCancellationLogic
@@ -299,8 +322,12 @@ export interface runInteractionLogicActions {
     pushConversationCleared: () => {
         value: true
     } // runStreamLogic
-    pushHumanMessage: (content: string) => {
+    pushHumanMessage: (
+        content: string,
+        stagedAttachments?: StagedAttachment[] | undefined
+    ) => {
         content: string
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     resetStream: () => {
         value: true
@@ -322,8 +349,12 @@ export interface runInteractionLogicActions {
     setCurrentMode: (mode: string) => {
         mode: string
     } // runStreamLogic
-    startOptimisticResume: (message: string) => {
+    startOptimisticResume: (
+        message: string,
+        stagedAttachments?: StagedAttachment[] | undefined
+    ) => {
         message: string
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     claimApplyBackTargets: (streamKey: string) => {
         streamKey: string
@@ -622,6 +653,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['defaultModel', 'defaultEffort'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
             ['cancellationState'],
+            composerAttachmentsLogic({ attachmentsKey: props.interactionKey ?? props.runId }),
+            ['stagedAttachments', 'queuedAttachments'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.streamKey ?? props.runId }),
@@ -650,6 +683,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['claimApplyBackTargets', 'releaseApplyBackTargets'],
             runCancellationLogic({ streamKey: props.streamKey ?? props.runId }),
             ['requestCancellation'],
+            composerAttachmentsLogic({ attachmentsKey: props.interactionKey ?? props.runId }),
+            ['removeAttachments', 'setUploading', 'claimAttachmentsForQueue', 'releaseQueuedAttachments'],
         ],
     })),
 
@@ -918,6 +953,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     values.queuedMessages.length > 0
                 ) {
                     actions.enqueueMessage(content)
+                    actions.claimAttachmentsForQueue()
                     actions.resetComposerForm()
                     actions.flushQueue()
                 } else {
@@ -1233,14 +1269,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 }
                 actions.flushQueue(steer)
             },
+            // An emptied queue hands its files back rather than deleting them for the user.
             removeQueuedMessage: () => {
                 if (!values.queuedMessages.length) {
                     actions.clearQueue()
+                    actions.releaseQueuedAttachments()
                 }
             },
             updateQueuedMessage: () => {
                 if (!values.queuedMessages.length) {
                     actions.clearQueue()
+                    actions.releaseQueuedAttachments()
                 }
             },
             // A turn that ended while a row was open skipped the drain, and an idle agent sends no further
@@ -1345,6 +1384,21 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         }
                     }
                     actions.setSentMode(values.selectedMode)
+                    // A drain carries the files queued with its text, not whatever the composer holds now.
+                    const sending = source === 'queue' ? values.queuedAttachments : values.stagedAttachments
+                    let artifactIds: string[] = []
+                    if (sending.length > 0) {
+                        actions.setUploading(true)
+                        artifactIds = await uploadRunAttachments(
+                            String(projectId),
+                            taskId,
+                            runId,
+                            sending.map((attachment) => attachment.file)
+                        )
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
                     // Wrap the outgoing content with the on-screen context block (invisible to the user —
                     // `runStreamLogic.unwrapUserMessageContent` strips it on replay, and the echo below is raw).
                     if (!isCurrent() || values.hasUnresolvedApproval) {
@@ -1356,6 +1410,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         params: {
                             content: wrapWithPosthogContext(content, pendingContext),
                             ...(steer ? { steer: true } : {}),
+                            ...(artifactIds.length > 0 ? { artifact_ids: artifactIds } : {}),
                         },
                     })
                     if (!isCurrent()) {
@@ -1373,8 +1428,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         throw new Error('The agent did not confirm this message')
                     }
                     // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
-                    actions.pushHumanMessage(content)
+                    // The names ride along so the chips show on send, not when the turn echoes back.
+                    actions.pushHumanMessage(content, stageAttachmentPreviews(sending))
                     markPendingContextSent(pendingContext)
+                    // One attached while this send was in flight belongs to the next message.
+                    actions.removeAttachments(sending.map((attachment) => attachment.id))
                     actions.finishTaskDraftDelivery()
                 } catch {
                     if (!isCurrent()) {
@@ -1400,6 +1458,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (isCurrent()) {
                         actions.setSending(false)
                     }
+                    // Drops the spinners off chips that outlived a failed send.
+                    actions.setUploading(false)
                 }
             },
 
@@ -1485,14 +1545,38 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }
                     )
+                    // The task already exists here, so staged artifacts hold the files whether this request
+                    // activates a warm run or cold-boots one.
+                    // The queue rides along into the run this send starts, so its files come too.
+                    const sending = [...values.queuedAttachments, ...values.stagedAttachments]
+                    let stagedArtifactIds: string[] = []
+                    if (sending.length > 0) {
+                        actions.setUploading(true)
+                        stagedArtifactIds = await uploadStagedTaskAttachments(
+                            projectId,
+                            taskId,
+                            sending.map((attachment) => attachment.file)
+                        )
+                        if (!isCurrent()) {
+                            return
+                        }
+                    }
                     const warmSubmission: WarmSubmission = { projectId, lease: null }
                     getWarmLogic()?.actions.prepareSubmit(warmSubmission)
                     actions.beginTaskDraftDelivery(content)
                     actions.resetComposerForm()
-                    actions.startOptimisticResume(content)
+                    actions.startOptimisticResume(content, stageAttachmentPreviews(sending))
                     optimisticStarted = true
                     const result = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, taskId, createRequest, options),
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                taskId,
+                                stagedArtifactIds.length > 0
+                                    ? { ...createRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : createRequest,
+                                options
+                            ),
                         disposables
                     )
                     if (!isCurrent()) {
@@ -1506,6 +1590,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     accepted = true
                     actions.finishTaskDraftDelivery()
                     markPendingContextSent(pendingContext)
+                    // A failure leaves them staged for the retry.
+                    actions.removeAttachments(sending.map((attachment) => attachment.id))
                     props.flushDraft?.()
                     const handoff = { run, streamKey, draft: values.composerForm.draft }
                     actions.attachOptimisticResume(taskId, run)
@@ -1535,6 +1621,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (isCurrent()) {
                         actions.setStartingRun(false)
                     }
+                    // Drops the spinners off chips that outlived a failed start.
+                    actions.setUploading(false)
                 }
             },
 

@@ -235,7 +235,7 @@ def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, 
         "sandbox_jwt_kid": "fake-key",
         "sandbox_backend": "modal",
     }
-    accounting_state = {"unprocessed_request_ids": [], "token_spend": {}}
+    accounting_state: dict[str, object] = {"unprocessed_request_ids": [], "token_spend": {}}
     test_task_run.state = {"other": "preserved", **connection, **accounting_state}
     test_task_run.save(update_fields=["state"])
     if refresh_fails:

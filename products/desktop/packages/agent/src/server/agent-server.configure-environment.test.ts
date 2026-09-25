@@ -527,13 +527,21 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("leaves an unlisted product on the Python gateway, slug and all", () => {
     process.env.AI_GATEWAY_PRODUCTS = "signals_scout";
-    const env = buildServer().configureEnvironment({ isInternal: false });
+    const env = buildServer({ serviceTier: "flex" }).configureEnvironment({
+      isInternal: false,
+    });
 
     expect(env.anthropicBaseUrl).toBe(
       "https://gateway.us.posthog.com/posthog_code",
     );
     expect(env.anthropicCustomHeaders).toContain(
       "x-posthog-property-task_internal",
+    );
+    expect(env.openaiCustomHeaders).not.toHaveProperty(
+      "X-PostHog-Service-Tier",
+    );
+    expect(env.openaiCustomHeaders).not.toHaveProperty(
+      "X-PostHog-Flex-Fallback",
     );
   });
 
@@ -609,15 +617,33 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   // The gateway writes the tier into the OpenAI body from this header, so a
   // run that loses it silently runs on the standard queue and a flex trial
   // measures nothing. Codex-only: the Claude header lines never carry it.
-  it("sends a configured service tier as X-PostHog-Service-Tier on the OpenAI record", () => {
-    const env = buildServer({ serviceTier: "flex" }).configureEnvironment({
-      originProduct: "signal_report",
-      aiStage: "scout",
-    });
+  it.each([
+    { serviceTier: "flex", fallback: "standard" },
+    { serviceTier: "default", fallback: undefined },
+    { serviceTier: "priority", fallback: undefined },
+    { serviceTier: undefined, fallback: undefined },
+  ] as const)(
+    "sends service tier $serviceTier with fallback $fallback on the OpenAI record",
+    ({ serviceTier, fallback }) => {
+      const env = buildServer({ serviceTier }).configureEnvironment({
+        originProduct: "signal_report",
+        aiStage: "scout",
+      });
 
-    expect(env.openaiCustomHeaders?.["X-PostHog-Service-Tier"]).toBe("flex");
-    expect(env.anthropicCustomHeaders).not.toContain("X-PostHog-Service-Tier");
-  });
+      expect(env.openaiCustomHeaders?.["X-PostHog-Service-Tier"]).toBe(
+        serviceTier,
+      );
+      expect(env.openaiCustomHeaders?.["X-PostHog-Flex-Fallback"]).toBe(
+        fallback,
+      );
+      expect(env.anthropicCustomHeaders).not.toContain(
+        "X-PostHog-Service-Tier",
+      );
+      expect(env.anthropicCustomHeaders).not.toContain(
+        "X-PostHog-Flex-Fallback",
+      );
+    },
+  );
 
   // The header outranks `traceparent`, so giving it to Claude would replace the
   // per-turn ids its CLI mints with one id for the whole run.
