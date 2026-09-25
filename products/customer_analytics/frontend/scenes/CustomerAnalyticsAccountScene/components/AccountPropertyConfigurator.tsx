@@ -2,7 +2,9 @@ import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 
-import { LemonButton, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonModal, Link } from '@posthog/lemon-ui'
+
+import { urls } from 'scenes/urls'
 
 import { AccountPropertyConfiguratorItem } from './AccountPropertyConfiguratorItem'
 import { AccountPropertyOption, MAX_PINNED_ACCOUNT_PROPERTIES } from './accountPropertyTypes'
@@ -39,6 +41,7 @@ export function AccountPropertyConfigurator({
     )
     const availableOptions = options.filter((option) => !pinnedPropertyKeys.includes(option.key))
     const pinLimitReached = pinnedPropertyKeys.length >= MAX_PINNED_ACCOUNT_PROPERTIES
+    const hasDefinitions = options.length > 0
 
     const addPinnedProperty = (keys: string[]): void => {
         const key = keys[0]
@@ -82,9 +85,23 @@ export function AccountPropertyConfigurator({
             }
         >
             <div className="flex flex-col gap-2 min-w-80">
-                <p className="text-sm text-secondary mb-0">
-                    Choose up to {MAX_PINNED_ACCOUNT_PROPERTIES} properties. Drag selected properties to reorder them.
-                </p>
+                {hasDefinitions ? (
+                    <p className="text-sm text-secondary mb-0">
+                        Choose up to {MAX_PINNED_ACCOUNT_PROPERTIES} properties. Drag selected properties to reorder
+                        them.
+                    </p>
+                ) : (
+                    <p className="text-sm text-secondary mb-0">
+                        This project has no account properties yet. Add a custom property or a relationship in{' '}
+                        <Link
+                            to={urls.customerAnalyticsConfiguration('customer-analytics-accounts')}
+                            data-attr="account-pinned-properties-configuration"
+                        >
+                            account configuration
+                        </Link>{' '}
+                        to pin it here.
+                    </p>
+                )}
                 {selectedOptions.length > 0 ? (
                     <DndContext
                         onDragEnd={({ active, over }) => {
@@ -112,38 +129,40 @@ export function AccountPropertyConfigurator({
                             </div>
                         </SortableContext>
                     </DndContext>
-                ) : (
+                ) : hasDefinitions ? (
                     <span className="text-sm text-muted">No properties pinned.</span>
-                )}
-                <LemonInputSelect
-                    mode="single"
-                    limit={1}
-                    value={[]}
-                    onChange={addPinnedProperty}
-                    options={availableOptions.map((option) => ({
-                        key: option.key,
-                        label: option.label,
-                        labelComponent: (
-                            <span className="flex w-full items-center justify-between gap-2">
-                                <span className="truncate">{option.label}</span>
-                                <span className="text-xs text-secondary">
-                                    {option.kind === 'custom' ? 'Custom property' : 'Relationship'}
+                ) : null}
+                {hasDefinitions ? (
+                    <LemonInputSelect
+                        mode="single"
+                        limit={1}
+                        value={[]}
+                        onChange={addPinnedProperty}
+                        options={availableOptions.map((option) => ({
+                            key: option.key,
+                            label: option.label,
+                            labelComponent: (
+                                <span className="flex w-full items-center justify-between gap-2">
+                                    <span className="truncate">{option.label}</span>
+                                    <span className="text-xs text-secondary">
+                                        {option.kind === 'custom' ? 'Custom property' : 'Relationship'}
+                                    </span>
                                 </span>
-                            </span>
-                        ),
-                    }))}
-                    placeholder="Add a property"
-                    title="Available properties"
-                    fullWidth
-                    disabledReason={
-                        saving
-                            ? 'Saving'
-                            : pinLimitReached
-                              ? `You can pin up to ${MAX_PINNED_ACCOUNT_PROPERTIES} properties`
-                              : undefined
-                    }
-                    data-attr="account-pinned-property-selector"
-                />
+                            ),
+                        }))}
+                        placeholder="Add a property"
+                        title="Available properties"
+                        fullWidth
+                        disabledReason={
+                            saving
+                                ? 'Saving'
+                                : pinLimitReached
+                                  ? `You can pin up to ${MAX_PINNED_ACCOUNT_PROPERTIES} properties`
+                                  : undefined
+                        }
+                        data-attr="account-pinned-property-selector"
+                    />
+                ) : null}
             </div>
         </LemonModal>
     )

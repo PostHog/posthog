@@ -39,6 +39,23 @@ describe('AccountPropertyConfigurator', () => {
         expect(onSave).toHaveBeenCalledWith(['custom:plan'])
     })
 
+    it('points at account configuration when the project defines no properties', () => {
+        render(
+            <AccountPropertyConfigurator
+                isOpen
+                options={[]}
+                pinnedPropertyKeys={[]}
+                onChange={jest.fn()}
+                onSave={jest.fn()}
+                onCancel={jest.fn()}
+            />
+        )
+        expect(screen.getByText('account configuration').getAttribute('href')).toContain(
+            '/customer_analytics/configuration?tab=customer-analytics-accounts'
+        )
+        expect(screen.queryByPlaceholderText('Add a property')).not.toBeInTheDocument()
+    })
+
     it('issues no writes while a save is in flight', () => {
         const { onSave, onChange } = renderConfigurator(true)
         fireEvent.click(screen.getByText('Save'))
