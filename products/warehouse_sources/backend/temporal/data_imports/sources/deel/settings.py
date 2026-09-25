@@ -223,8 +223,9 @@ DEEL_ENDPOINTS: dict[str, DeelEndpointConfig] = {
         cursor_path=("next_cursor",),
         cursor_param="cursor",
         has_more_path=("has_more",),
-        # One row per contract in a payroll cycle.
-        primary_keys=["cycle_id", "contract_oid"],
+        # One row per contract in a payroll cycle. The cycle is only unique within its legal
+        # entity, so the entity leads the key here the same way it does on payroll_cycles.
+        primary_keys=["legal_entity_id", "cycle_id", "contract_oid"],
     ),
     "countries": DeelEndpointConfig(
         name="countries",

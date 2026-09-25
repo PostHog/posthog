@@ -438,6 +438,8 @@ def _gross_to_net_items(
     cycle_config = DEEL_ENDPOINTS[GROSS_TO_NET_PARENT]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # Keyed by legal entity and cycle together, because a cycle id is only unique within its
+    # entity — the same reason payroll_cycles takes a composite primary key.
     completed: list[str] = list(resume.completed) if resume is not None and resume.completed else []
     done = set(completed)
 
@@ -453,16 +455,19 @@ def _gross_to_net_items(
             for cycle_page in _iter_cursor_pages(session, cycles_url, cycle_config, headers, ignore_statuses=(404,)):
                 for cycle in cycle_page:
                     cycle_id = cycle.get("id")
+                    if cycle_id is None:
+                        continue
+                    cycle_key = f"{legal_entity_id}:{cycle_id}"
                     # Deel only publishes a report for a cycle it flags; the rest 404.
-                    if cycle_id is None or not cycle.get("has_g2n_report") or str(cycle_id) in done:
+                    if not cycle.get("has_g2n_report") or cycle_key in done:
                         continue
                     report_url = f"{DEEL_BASE_URL}{config.path.replace('{cycle_id}', str(cycle_id))}"
                     for rows in _iter_cursor_pages(session, report_url, config, headers, ignore_statuses=(404,)):
                         yield [
                             {**row, "cycle_id": str(cycle_id), "legal_entity_id": str(legal_entity_id)} for row in rows
                         ]
-                    completed.append(str(cycle_id))
-                    done.add(str(cycle_id))
+                    completed.append(cycle_key)
+                    done.add(cycle_key)
                     resumable_source_manager.save_state(DeelResumeConfig(completed=list(completed)))
 
 

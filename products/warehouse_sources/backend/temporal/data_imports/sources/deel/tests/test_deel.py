@@ -567,8 +567,10 @@ class TestGrossToNet:
             "https://api.letsdeel.com/rest/v2/reports/payroll/cycles/cy_1/gross-to-net",
         ]
         assert rows == [{"contract_oid": "con_1", "cycle_id": "cy_1", "legal_entity_id": "le_1"}]
-        # The cycle is checkpointed once its rows are out, so a resume skips it.
-        manager.save_state.assert_called_once_with(DeelResumeConfig(completed=["cy_1"]))
+        assert rows[0]["legal_entity_id"] == "le_1"
+        # The cycle is checkpointed once its rows are out, so a resume skips it. A cycle id is
+        # only unique within its legal entity, so the checkpoint carries both.
+        manager.save_state.assert_called_once_with(DeelResumeConfig(completed=["le_1:cy_1"]))
 
     @mock.patch(DEEL_SESSION_PATCH)
     def test_resume_skips_cycles_already_emitted(self, MockSession):
@@ -579,14 +581,14 @@ class TestGrossToNet:
             _payroll_response([{"contract_oid": "con_2"}]),
         ]
 
-        manager = _make_manager(DeelResumeConfig(completed=["cy_1"]))
+        manager = _make_manager(DeelResumeConfig(completed=["le_1:cy_1"]))
         rows = _rows(_source("payroll_gross_to_net", manager))
 
         assert [call.args[0] for call in session.get.call_args_list][-1] == (
             "https://api.letsdeel.com/rest/v2/reports/payroll/cycles/cy_2/gross-to-net"
         )
         assert [r["cycle_id"] for r in rows] == ["cy_2"]
-        assert manager.save_state.call_args.args[0] == DeelResumeConfig(completed=["cy_1", "cy_2"])
+        assert manager.save_state.call_args.args[0] == DeelResumeConfig(completed=["le_1:cy_1", "le_1:cy_2"])
 
     @mock.patch(DEEL_SESSION_PATCH)
     def test_skips_a_cycle_whose_report_went_away(self, MockSession):
