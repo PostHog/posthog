@@ -261,11 +261,6 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         return event
     }
 
-    // System One endpoints can be self-hosted, so model names do not establish prices.
-    if (event.event === '$ai_evaluation' && event.properties['$ai_provider'] === 'typesafe') {
-        return event
-    }
-
     if (!event.properties['$ai_model']) {
         return event
     }

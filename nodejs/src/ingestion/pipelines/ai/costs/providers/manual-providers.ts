@@ -2,6 +2,10 @@ import type { ModelCostRow } from './types'
 
 const manualProviderCosts: ModelCostRow[] = [
     {
+        model: 'jev-1.13.0',
+        cost: { default: { prompt_token: 0.000000042, completion_token: 0 } },
+    },
+    {
         model: 'gpt-4.5',
         cost: {
             default: {

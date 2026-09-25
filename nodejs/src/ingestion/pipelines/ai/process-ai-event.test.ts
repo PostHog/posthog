@@ -823,28 +823,6 @@ describe('processAiEvent()', () => {
     })
 
     describe('cost optimization bypass', () => {
-        it.each([
-            ['gpt-4', 'typesafe', undefined],
-            ['claude-2', 'typesafe', undefined],
-            ['gpt-4', 'openai', 30],
-        ])('prices evaluations using %s through %s', (model, provider, total) => {
-            event.event = '$ai_evaluation'
-            event.properties!.$ai_model = model
-            event.properties!.$ai_provider = provider
-
-            const result = processAiEvent(event)
-
-            expect(result.properties!.$ai_total_cost_usd).toBe(total)
-            expect(result.properties!.$ai_model).toBe(model)
-            expect(result.properties!.$ai_input_tokens).toBe(100)
-            expect(result.properties!.$ai_output_tokens).toBe(50)
-            if (total === undefined) {
-                expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
-                expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
-                expect(result.properties!.$ai_model_cost_used).toBeUndefined()
-            }
-        })
-
         it('skips calculation when costs are pre-calculated', () => {
             event.properties!.$ai_input_cost_usd = 10.5
             event.properties!.$ai_output_cost_usd = 5.5

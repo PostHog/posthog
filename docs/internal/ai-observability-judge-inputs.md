@@ -70,8 +70,9 @@ Compare results on representative inputs when changing models.
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
 The raw probability is stored in `$ai_evaluation_probability`, with token usage and the resolved model version.
-Automatic cost estimates are deferred for all System One evaluations, including official TypeSafe connections.
-Events retain their model name and token usage, with cost left unknown.
+Ingestion estimates cost from the reported model and token usage using the existing pricing catalog, including Jev 1.13.0.
+Models without a catalog match retain their usage with cost left unknown.
+A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
 
 Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
 Uncertainty alone does not produce N/A.
