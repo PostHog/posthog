@@ -43,14 +43,24 @@ FAILURE_KIND_EXCEPTIONS: dict[FailureKind, type[APIException]] = {
 SHAREABLE_FAILURE_CATEGORIES = frozenset({QueryErrorCategory.USER_ERROR, QueryErrorCategory.QUERY_PERFORMANCE_ERROR})
 
 
+def mark_reported_by_product(error: BaseException) -> None:
+    """Record that the product owning this query already handled and reported the failure: the user
+    has an actionable message, and the product's own analytics carry the failure with its type. The
+    boundaries above must then leave it alone, or a condition the product closed out mints an error
+    tracking issue against that product team."""
+    error.reported_by_product = True  # type: ignore[attr-defined]
+
+
 def captured_elsewhere(error: BaseException) -> bool:
     """Whether error tracking already holds this failure or has nothing to learn from it: a breaker
-    replay, a follower's rebuild of its leader's failure, or a follower whose leader left it nothing
-    to serve, which the leader's own capture and the flight metrics account for."""
+    replay, a follower's rebuild of its leader's failure, a follower whose leader left it nothing
+    to serve, which the leader's own capture and the flight metrics account for, or a failure the
+    product already handled and reported itself."""
     return bool(
         isinstance(error, QueryRanConcurrently)
         or getattr(error, "served_from_query_failure_cache", False)
         or getattr(error, "served_from_query_single_flight", False)
+        or getattr(error, "reported_by_product", False)
     )
 
 

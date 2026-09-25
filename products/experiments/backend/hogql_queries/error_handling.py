@@ -28,6 +28,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_failure_handling import mark_reported_by_product
 from posthog.ph_client import ph_scoped_capture
 
 from products.experiments.stats.shared.statistics import StatisticError
@@ -36,9 +37,12 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
 
-# Map error types to their error codes for the API response
+# Map error types to their error codes for the API response. The code is the exception's own DRF
+# code, so an experiment failure carries the same machine-readable code as the rest of the app and
+# the frontend routes on the shared CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE constant, not on a code only
+# experiments emits.
 ERROR_TYPE_TO_CODE: dict[type, str] = {
-    ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
+    ClickHouseQueryMemoryLimitExceeded: ClickHouseQueryMemoryLimitExceeded.default_code,
 }
 
 _MAX_ERROR_EVENT_MESSAGE_LENGTH = 500
@@ -98,6 +102,30 @@ def get_user_friendly_message(error: Exception) -> str | None:
             return message
 
     return None
+
+
+def get_error_code(error: Exception) -> str | None:
+    """The machine-readable code for an error type, or None when the type has no code.
+
+    Matched by isinstance so a subclass (e.g. the cluster-wide memory limit) carries the code of
+    the class it refines.
+    """
+    for registered_type, code in ERROR_TYPE_TO_CODE.items():
+        if isinstance(error, registered_type):
+            return code
+    return None
+
+
+def is_handled_user_facing_error(error: Exception) -> bool:
+    """Whether the product already closed this failure out: the user gets copy telling them what
+    to do, and the frontend gets a code to route on.
+
+    Both experiment surfaces finish the job for these — the interactive caller receives the
+    message, the recalculation worker stores a FAILED metric result — and each one emits
+    `experiment metric error` with the failure type. Capturing on top of that mints an error
+    tracking issue nobody can act on from the stack trace, so error tracking skips them.
+    """
+    return get_error_code(error) is not None and get_user_friendly_message(error) is not None
 
 
 def classify_experiment_query_error(error: Exception) -> str:
@@ -286,16 +314,21 @@ def experiment_error_handler(method: F) -> F:
                 exc_info=True,
             )
 
-            # Capture exception for error tracking
-            capture_exception(
-                e,
-                additional_properties={
-                    "experiment_id": experiment_id,
-                    "metric_type": metric_type,
-                    "query_runner": query_runner,
-                    "method": method.__name__,
-                },
-            )
+            handled = is_handled_user_facing_error(e)
+            if handled:
+                # Keep the boundaries above from capturing the error this handler is about to
+                # convert, which would report the same handled failure under a second name.
+                mark_reported_by_product(e)
+            else:
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "experiment_id": experiment_id,
+                        "metric_type": metric_type,
+                        "query_runner": query_runner,
+                        "method": method.__name__,
+                    },
+                )
 
             _emit_runner_terminal_error_event(self, e)
 
@@ -314,7 +347,9 @@ def experiment_error_handler(method: F) -> F:
 
             # Get error code if available. Chain the original explicitly: the query SLO
             # classifier reads __cause__ to keep converted technical errors counted as failures.
-            error_code = ERROR_TYPE_TO_CODE.get(type(e))
-            raise ValidationError(user_message, code=error_code) from e
+            user_error = ValidationError(user_message, code=get_error_code(e))
+            if handled:
+                mark_reported_by_product(user_error)
+            raise user_error from e
 
     return cast(F, wrapper)
