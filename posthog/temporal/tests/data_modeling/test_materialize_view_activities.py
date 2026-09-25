@@ -1662,7 +1662,9 @@ class TestHogqlTableModifiers:
             (
                 "SELECT properties.plan FROM events LIMIT 1",
                 {"propertyGroupsMode": "optimized"},
-                "properties_group_custom",
+                "events.properties.plan"
+                if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+                else "properties_group_custom",
             ),
         ],
     )
