@@ -34,6 +34,7 @@ from products.feature_flags.backend.person_sampling import (
     build_person_count_query,
     count_matching_persons,
     count_settings,
+    read_person_count,
 )
 
 
@@ -82,9 +83,15 @@ def sampled_person_blast_radius(team: Team, filter: Filter, query_type: str) -> 
     if len(filter.property_groups.flat) == 0:
         return BlastRadiusResult(affected=total, total=total)
 
-    affected = count_matching_persons(
-        team, filter, database, query_type=query_type, weight=_flag_dependency_weight(team, filter)
-    )
+    weight = _flag_dependency_weight(team, filter)
+    try:
+        affected = count_matching_persons(team, filter, database, query_type=query_type, weight=weight)
+    except InternalCHQueryError as e:
+        if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
+        # the caller's input, so the dependency sizes neutrally instead of failing the request.
+        affected = count_matching_persons(team, filter, database, query_type=query_type)
     return BlastRadiusResult(affected=min(affected, total), total=total)
 
 
@@ -223,16 +230,31 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
         total_users = team.persons_seen_so_far
         return BlastRadiusResult(affected=total_users, total=total_users)
 
-    # Build the SELECT query - property_to_expr handles all properties including cohorts
-    weight = _flag_dependency_weight(team, filter)
-    select_query = build_person_count_query(team, filter, sample_modulus=None, weight=weight)
-
-    # Execute the query
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
     # Build the team's HogQL database once and share it between the two counts below.
     # Each execute_hogql_query call would otherwise build its own, and the build cost
     # scales with the team's warehouse size.
     database = Database.create_for(team=team)
+    weight = _flag_dependency_weight(team, filter)
+    try:
+        estimate = _run_exact_person_count(team, filter, database, weight)
+    except InternalCHQueryError as e:
+        if weight is None or e.code not in _VALUE_PARSE_CH_ERROR_CODES:
+            raise
+        # A dependency's stored targeting failed a cast in ClickHouse. Its configuration is not
+        # the caller's input, so the dependency sizes neutrally instead of failing the request.
+        estimate = _run_exact_person_count(team, filter, database, weight=None)
+    # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
+    total_count = int(round(estimate))
+    total_users = team.count_persons_seen_so_far(database=database)
+    blast_radius = min(total_count, total_users)
+
+    return BlastRadiusResult(affected=blast_radius, total=total_users)
+
+
+def _run_exact_person_count(team: Team, filter: Filter, database: Database, weight: Optional[ast.Expr]) -> float:
+    # property_to_expr handles all properties including cohorts
+    select_query = build_person_count_query(team, filter, sample_modulus=None, weight=weight)
     response = execute_hogql_query(
         query=select_query,
         team=team,
@@ -241,19 +263,7 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> BlastRadiusResult:
         # stream in id order and spill to disk. The plain count keeps its historical defaults.
         settings=count_settings(None) if weight is not None else None,
     )
-
-    row = response.results[0] if response.results else None
-    if row is None:
-        total_count = 0
-    elif weight is not None:
-        # A condition with a flag dependency sums per-person match probabilities, so the count is a float.
-        total_count = int(round(row[1] or 0))
-    else:
-        total_count = row[0]
-    total_users = team.count_persons_seen_so_far(database=database)
-    blast_radius = min(total_count, total_users)
-
-    return BlastRadiusResult(affected=blast_radius, total=total_users)
+    return read_person_count(response.results, weighted=weight is not None)[1]
 
 
 def _flag_dependency_weight(team: Team, filter: Filter) -> Optional[ast.Expr]:

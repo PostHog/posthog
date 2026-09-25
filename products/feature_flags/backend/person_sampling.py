@@ -134,10 +134,15 @@ def _run_person_count(
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
     )
-    if not response.results:
+    return read_person_count(response.results, weighted=weight is not None)
+
+
+def read_person_count(results: list, weighted: bool) -> tuple[int, float]:
+    """The matched persons and the estimate from a `build_person_count_query` result row."""
+    if not results:
         return 0, 0.0
-    matched = response.results[0][0]
-    return matched, (response.results[0][1] if weight is not None else matched)
+    matched = results[0][0]
+    return matched, ((results[0][1] or 0.0) if weighted else matched)
 
 
 def build_person_count_query(
@@ -159,16 +164,15 @@ def build_person_count_query(
     if filter is not None:
         where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
 
-    # A filter can add a one-to-many join: a `distinct_id` person property resolves through
-    # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
-    # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
-    # avoids a uniqExact state over every person on the team.
-    if filter is None:
-        count_expr: ast.Expr = ast.Call(name="count", args=[])
-    else:
-        count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
-
     if weight is None:
+        # A filter can add a one-to-many join: a `distinct_id` person property resolves through
+        # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
+        # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
+        # avoids a uniqExact state over every person on the team.
+        if filter is None:
+            count_expr: ast.Expr = ast.Call(name="count", args=[])
+        else:
+            count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
         return ast.SelectQuery(
             select=[count_expr],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
