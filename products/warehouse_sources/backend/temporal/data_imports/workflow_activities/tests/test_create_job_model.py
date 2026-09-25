@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 
 
@@ -305,14 +306,15 @@ class TestCreateJobActivityStatusOrdering:
 class TestCreateJobActivityScheduledFullRefresh:
     @parameterized.expand(
         [
-            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), {}, True),
-            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), {}, False),
-            ("not_yet_due", True, dt.timedelta(days=1), {}, False),
+            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), {}, False, True),
+            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), {}, False, False),
+            ("not_yet_due", True, dt.timedelta(days=1), {}, False, False),
             (
                 "due_with_a_staged_repartition_swap",
                 True,
                 dt.timedelta(days=-1),
                 {"repartition_swap": {"state": "ready", "temp_uri": "s3://temp", "live_uri": "s3://live"}},
+                False,
                 False,
             ),
             (
@@ -320,13 +322,23 @@ class TestCreateJobActivityScheduledFullRefresh:
                 True,
                 dt.timedelta(days=-1),
                 {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                True,
                 False,
+            ),
+            (
+                "due_with_a_rewrite_while_the_hold_flag_is_off",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                False,
+                True,
             ),
             (
                 "due_with_a_queued_repartition",
                 True,
                 dt.timedelta(days=-1),
                 {"repartition_pending": {"partition_mode": "datetime", "partition_keys": ["created_at"]}},
+                False,
                 True,
             ),
         ]
@@ -339,6 +351,7 @@ class TestCreateJobActivityScheduledFullRefresh:
         started_by_schedule: bool,
         due_in: dt.timedelta,
         repartition_config: dict,
+        hold_flag_enabled: bool,
         expect_refresh: bool,
         mock_activity: MagicMock,
         _mock_close_connections: MagicMock,
@@ -356,15 +369,16 @@ class TestCreateJobActivityScheduledFullRefresh:
         schema.sync_type_config = config
         schema.save()
 
-        result = create_external_data_job_model_activity(
-            CreateExternalDataJobModelActivityInputs(
-                team_id=team.id,
-                schema_id=schema.id,
-                source_id=schema.source_id,
-                billable=True,
-                started_by_schedule=started_by_schedule,
+        with patch(f"{CONTROLLER_MODULE}.is_repartition_hold_enabled", return_value=hold_flag_enabled):
+            result = create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id,
+                    schema_id=schema.id,
+                    source_id=schema.source_id,
+                    billable=True,
+                    started_by_schedule=started_by_schedule,
+                )
             )
-        )
 
         schema.refresh_from_db()
         snapshot = ExternalDataJob.objects.get(schema_id=schema.id).schema_snapshot

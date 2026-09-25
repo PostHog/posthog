@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    repartition_import_hold_reason,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
@@ -355,15 +358,14 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type
         ):
             destination_ids = destination_ids_for_run(schema)
-        # A refresh run skips the repartition activity, and only that activity resolves a staged swap
-        # or advances a held rewrite. Both hold the import, so the wipe would never run and the clock
-        # would never restart. Wait one sync for the repartition to finish instead.
-        repartition_holds_import = schema.repartition_swap is not None or schema.repartition_holds_import
+        # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
+        # the import. A refresh while the import is held never wipes the table or restarts the clock,
+        # so the refresh waits until the repartition resolves.
         scheduled_full_refresh = (
             inputs.started_by_schedule
             and not schema.reset_pipeline
-            and not repartition_holds_import
             and schema.scheduled_full_refresh_due()
+            and repartition_import_hold_reason(schema, logger) is None
         )
         schema_snapshot = _build_schema_snapshot(schema)
         if scheduled_full_refresh:

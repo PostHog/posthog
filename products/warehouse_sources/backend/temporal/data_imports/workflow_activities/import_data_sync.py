@@ -51,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     capture_repartition_event,
-    is_repartition_hold_enabled,
+    repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
@@ -236,28 +236,13 @@ async def _warehouse_parent_reuse_available(
 
 
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
-    """Whether an in-flight repartition should pause this schema's import for one run.
-
-    Two situations hold the import. A staged swap holds it unconditionally, because the table's
-    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
-    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
-    be worth waiting for; the flag is checked second so a schema without it never pays for the
-    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
-    ingestion is the more expensive way to be wrong.
-    """
+    """Whether an in-flight repartition should pause this schema's import for one run."""
     if schema is None:
         return False
 
-    swap = schema.repartition_swap
-    if swap and swap.get("state") == "ready":
-        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
-        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
-        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
-        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
-        # lookback window duplicated, with the job still reporting Completed. The repartition activity
-        # runs ahead of this one on every sync and resolves the marker, so waiting costs one run's
-        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
-        # can finish, and this trades it for not corrupting the table.
+    reason = repartition_import_hold_reason(schema, logger)
+    if reason == "swap_staged":
+        swap = schema.repartition_swap or {}
         logger.warning(
             "Holding import: a repartition swap is staged, so the table's partition layout is mid-change",
             schema_id=str(schema.id),
@@ -274,34 +259,28 @@ def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: Filt
         )
         return True
 
-    if not schema.repartition_holds_import:
-        return False
-    try:
-        if not is_repartition_hold_enabled(schema):
-            return False
-    except Exception:
-        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
-        return False
+    if reason == "rewrite_converging":
+        rewrite = schema.repartition_rewrite or {}
+        logger.info(
+            "Holding import: a repartition rewrite is converging on this table",
+            schema_id=str(schema.id),
+            rows_written=rewrite.get("rows_written"),
+            held_at=rewrite.get("held_at"),
+        )
+        capture_repartition_event(
+            "warehouse_repartition_import_held",
+            {
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "resource_name": schema.name,
+                "reason": "rewrite_converging",
+                "rows_written": rewrite.get("rows_written"),
+                "held_at": rewrite.get("held_at"),
+            },
+        )
+        return True
 
-    rewrite = schema.repartition_rewrite or {}
-    logger.info(
-        "Holding import: a repartition rewrite is converging on this table",
-        schema_id=str(schema.id),
-        rows_written=rewrite.get("rows_written"),
-        held_at=rewrite.get("held_at"),
-    )
-    capture_repartition_event(
-        "warehouse_repartition_import_held",
-        {
-            "team_id": schema.team_id,
-            "schema_id": str(schema.id),
-            "resource_name": schema.name,
-            "reason": "rewrite_converging",
-            "rows_written": rewrite.get("rows_written"),
-            "held_at": rewrite.get("held_at"),
-        },
-    )
-    return True
+    return False
 
 
 async def _probe_found_new_data(

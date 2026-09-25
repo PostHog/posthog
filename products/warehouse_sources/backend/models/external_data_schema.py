@@ -1138,6 +1138,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
+        # This copy still holds the due time, and a later full save of it would wipe the table again.
+        self.restart_full_refresh_clock()
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -1510,6 +1512,9 @@ def update_sync_type_config_keys(
     `extra_model_fields` saves additional model fields in the same transaction and row lock — use
     when a reset must flip both `sync_type_config` and another field (e.g. `initial_sync_complete`)
     atomically so no reader can observe the half-written state.
+
+    `restart_full_refresh_clock` sets `next_full_refresh_at` from the locked row's interval, which may
+    be newer than the caller's copy. The returned dict does not carry it.
 
     Saves with `skip_activity_log=True`: `sync_type_config` is excluded from the schema's audit
     diff anyway, and the bypass skips the extra `_get_before_update` SELECT that can fail when the

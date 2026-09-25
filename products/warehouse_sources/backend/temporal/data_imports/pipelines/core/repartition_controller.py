@@ -9,7 +9,7 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.utils import timezone
@@ -120,6 +120,45 @@ def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
+
+
+def repartition_import_hold_reason(
+    schema: ExternalDataSchema, logger: FilteringBoundLogger
+) -> Literal["swap_staged", "rewrite_converging"] | None:
+    """Why an in-flight repartition holds this schema's import, or None when it does not.
+
+    Two situations hold the import. A staged swap holds it unconditionally, because the table's
+    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
+    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
+    be worth waiting for; the flag is checked second so a schema without it never pays for the
+    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    ingestion is the more expensive way to be wrong.
+
+    Side-effect free, because the scheduled full refresh defers on the same answer. The two must not
+    drift: a refresh run skips the repartition activity, so a refresh that proceeds while the import
+    is held never wipes the table.
+    """
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready":
+        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
+        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
+        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
+        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
+        # lookback window duplicated, with the job still reporting Completed. The repartition activity
+        # runs ahead of the import on every sync and resolves the marker, so waiting costs one run's
+        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
+        # can finish, and this trades it for not corrupting the table.
+        return "swap_staged"
+
+    if not schema.repartition_holds_import:
+        return None
+    try:
+        if not is_repartition_hold_enabled(schema):
+            return None
+    except Exception:
+        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
+        return None
+    return "rewrite_converging"
 
 
 def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job_id: str | None) -> dict[str, Any]:

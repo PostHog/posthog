@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     NEW_TABLE_NOT_READY_MESSAGE,
     _transient_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -1358,7 +1359,7 @@ def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_sa
 
     with (
         mock.patch.object(module, "capture_repartition_event"),
-        mock.patch.object(module, "is_repartition_hold_enabled", return_value=False) as flag,
+        mock.patch.object(repartition_controller, "is_repartition_hold_enabled", return_value=False) as flag,
     ):
         held = module._import_held_for_repartition(schema, mock.MagicMock())
 

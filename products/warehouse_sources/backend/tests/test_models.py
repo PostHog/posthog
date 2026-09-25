@@ -1140,6 +1140,7 @@ class TestRunSavesKeepTheFullRefreshInterval(BaseTest):
 
         with time_machine.travel(datetime(2026, 9, 22, 3, 10, tzinfo=UTC), tick=False):
             run_copy.update_sync_type_config_for_reset_pipeline()
+            assert run_copy.scheduled_full_refresh_due() is False
 
         created.refresh_from_db()
         assert (created.full_refresh_interval_days, created.next_full_refresh_at) == (
