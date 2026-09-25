@@ -11,11 +11,14 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     const contentEl = document.querySelector('.PlayerFrame__content') as HTMLElement
 
     const setup = await createReplayer(config, contentEl, bridge)
-    if (!setup) {
+    if (setup === 'no_snapshots' || setup === 'no_full_snapshot') {
+        // Blocks can still be landing when nothing loaded, so that stays retryable. Loaded snapshots without a full
+        // snapshot never gain one on a retry, and each attempt would render the same blank video.
+        const noFullSnapshot = setup === 'no_full_snapshot'
         bridge.setError({
             code: 'NO_SNAPSHOTS',
-            message: 'No snapshots after processing',
-            retryable: true,
+            message: noFullSnapshot ? 'No window has a full snapshot to render' : 'No snapshots after processing',
+            retryable: !noFullSnapshot,
         })
         bridge.signalEnded()
         return

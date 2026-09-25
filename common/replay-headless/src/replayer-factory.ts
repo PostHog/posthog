@@ -30,6 +30,9 @@ export interface ReplayerWindow extends PlaybackWindow {
     initialURL: string
 }
 
+/** Why no replayer could be built: nothing loaded yet, or snapshots that no window can be drawn from. */
+export type ReplayerSetupFailure = 'no_snapshots' | 'no_full_snapshot'
+
 export interface ReplayerSetup {
     /** Ordered by when each window first appears in the recording. */
     windows: ReplayerWindow[]
@@ -68,13 +71,13 @@ function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => Vi
  * Load recording data, process snapshots, build segments, and create
  * one rrweb Replayer per recorded window — but don't start playback.
  *
- * Returns null if no snapshots are available after processing.
+ * Returns why not when there are no snapshots, or no window has a full snapshot to build a page from.
  */
 export async function createReplayer(
     config: PlayerConfig,
     rootEl: HTMLElement,
     bridge: HostBridge
-): Promise<ReplayerSetup | null> {
+): Promise<ReplayerSetup | ReplayerSetupFailure> {
     const { sources, snapshotsBySource } = await loadAllSources(config, (loaded, total) =>
         bridge.reportLoadingProgress(loaded, total)
     )
@@ -92,7 +95,7 @@ export async function createReplayer(
     )
 
     if (!snapshots.length) {
-        return null
+        return 'no_snapshots'
     }
 
     const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
@@ -137,7 +140,7 @@ export async function createReplayer(
         })
     }
     if (!windows.length) {
-        return null
+        return 'no_full_snapshot'
     }
     windows.sort((a, b) => a.firstTimestamp - b.firstTimestamp)
 

@@ -30,8 +30,8 @@ function toActivityError(err: unknown): Error {
     if (rasterizationError) {
         // The code travels as the failure type either way, so a caller can tell a recording that can never render
         // (NO_SNAPSHOTS) from one that merely ran out of retries. Retryability stays the player's call: NO_SNAPSHOTS is
-        // retryable while a recording is still being ingested, so the code is only conclusive once Temporal has spent
-        // the attempts.
+        // retryable while nothing has loaded, as the recording may still be ingesting, and final when no window has a
+        // full snapshot to draw from.
         return rasterizationError.retryable
             ? ApplicationFailure.retryable(rasterizationError.message, rasterizationError.code, rasterizationError)
             : ApplicationFailure.nonRetryable(rasterizationError.message, rasterizationError.code, rasterizationError)
