@@ -45,10 +45,11 @@ write goes through `transition_status_by_system`, whose writer-scoped ownership 
 sweep and the failure breaker (`repeated_failures`) from touching each other's pauses (the sweep
 owns both of its reasons, so it may reclassify its own warning in either direction: a `no_output`
 warning becomes `ignored` when report evidence establishes, and an `ignored` warning downgrades
-to `no_output` when its evidence ages out, so a pause never lands on stale grounds), and
-whose `evaluated_at` check makes a racing human edit win over a sweep decision made on stale
-reads. There is no half-open probe on this axis: an inactivity pause never runs again on its
-own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
+to `no_output` when its evidence ages out, so a pause never lands on stale grounds; a downgrade
+cancels a pause instead of scheduling one, so it is reported apart from the new warnings and
+never spends their budget), and whose `evaluated_at` check makes a racing human edit win over a
+sweep decision made on stale reads. There is no half-open probe on this axis: an inactivity
+pause never runs again on its own; a human re-enable is the only exit. A resume re-anchors `in_cold_start_grace`, so the
 sweep waits a full fresh window and re-derives its verdict before judging the scout again;
 permanent immunity is the explicit `auto_pause_exempt` flag's job, never a side effect of the
 resume.
@@ -144,6 +145,11 @@ class SweepOutcome:
     warned: list[SignalScoutConfig] = field(default_factory=list)
     paused: list[SignalScoutConfig] = field(default_factory=list)
     recovered: int = 0
+    # Warnings corrected down from `ignored` to `no_output` because the evidence behind the
+    # scheduled pause aged out. Kept apart from `warned`: the scout was counted when it first
+    # picked the warning up, and the correction cancels a pause rather than scheduling one, so
+    # counting it again would both double the reported blast radius and spend cap budget.
+    downgraded: list[SignalScoutConfig] = field(default_factory=list)
     # Scouts that qualified for a warning after the per-sweep cap was already spent. They stay
     # active and are re-derived by the next sweep — counted so a capped sweep is visibly partial.
     deferred: int = 0
@@ -247,15 +253,14 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
         # The evidence behind the scheduled pause is gone (the touching runs aged past the
         # lookback, or the scout was re-routed to Slack since the warning), so the pause must not
         # land on stale grounds. Downgrade to the badge-only warning. Deliberately not capped:
-        # deferring a downgrade would leave the scout scheduled to pause. Appended to `warned` so
-        # the analytics event re-fires with the corrected reason.
+        # deferring a downgrade would leave the scout scheduled to pause.
         if _transition(
             config, SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.PauseReason.NO_OUTPUT, evaluated_at=now
         ):
-            outcome.warned.append(config)
+            outcome.downgraded.append(config)
             outcome.had_output[config.pk] = False
             logger.info(
-                "signals_scout inactivity sweep: warned",
+                "signals_scout inactivity sweep: downgraded",
                 team_id=config.team_id,
                 skill_name=config.skill_name,
                 reason=config.pause_reason,

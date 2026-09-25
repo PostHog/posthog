@@ -987,13 +987,14 @@ def pause_inactive_signal_scouts() -> None:
         warned=len(outcome.warned),
         paused=len(outcome.paused),
         recovered=outcome.recovered,
+        downgraded=len(outcome.downgraded),
         deferred=outcome.deferred,
     )
-    if not outcome.warned and not outcome.paused:
+    if not outcome.warned and not outcome.paused and not outcome.downgraded:
         return
     # The fleet's spend was measured from analytics in the first place, so report the sweep the same
     # way — it's how we'll tell whether the pauses are landing on the scouts we meant.
-    touched = outcome.warned + outcome.paused
+    touched = outcome.warned + outcome.paused + outcome.downgraded
     organizations = {
         team.id: team.organization
         for team in Team.objects.filter(id__in={config.team_id for config in touched}).select_related("organization")
@@ -1002,6 +1003,9 @@ def pause_inactive_signal_scouts() -> None:
         for event, configs in (
             ("signals_scout_auto_pause_warned", outcome.warned),
             ("signals_scout_auto_paused", outcome.paused),
+            # A correction, not a new warning: the scout keeps the badge but loses its scheduled
+            # pause. Its own event so the warned series stays a count of fresh warnings.
+            ("signals_scout_auto_pause_downgraded", outcome.downgraded),
         ):
             for config in configs:
                 organization = organizations.get(config.team_id)

@@ -188,7 +188,10 @@ class TestScoutInactivitySweep(BaseTest):
 
         downgraded = self._reload()
         assert outcome.paused == []
-        assert [c.pk for c in outcome.warned] == [self.config.pk]
+        # A correction, not a fresh warning: counting it as one doubles the reported blast radius
+        # of a sweep already at its cap.
+        assert outcome.warned == []
+        assert [c.pk for c in outcome.downgraded] == [self.config.pk]
         assert downgraded.status == SignalScoutConfig.Status.PENDING_PAUSE
         assert downgraded.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
         assert sweep_inactive_scouts(now=self._pause_time).paused == []
@@ -442,6 +445,25 @@ class TestScoutInactivitySweep(BaseTest):
 
         assert len(outcome.warned) == 1
         assert outcome.deferred == 1
+
+    def test_a_downgrade_does_not_spend_the_warning_budget(self) -> None:
+        # A downgrade cancels a pause instead of scheduling one, so it must not push a genuinely
+        # new warning over the cap and out of the sweep.
+        other = self._config(skill_name="signals-scout-also-quiet")
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.IGNORED,
+            status_changed_at=self.now - WARNING_GRACE - timedelta(days=1),
+        )
+        self._silent_runs()
+        self._silent_runs(config=other)
+
+        with patch("products.signals.backend.scout_harness.inactivity.MAX_WARNS_PER_SWEEP", 1):
+            outcome = sweep_inactive_scouts(now=self.now)
+
+        assert [c.pk for c in outcome.downgraded] == [self.config.pk]
+        assert [c.pk for c in outcome.warned] == [other.pk]
+        assert outcome.deferred == 0
 
     def test_pause_survives_lazy_seed_reconciliation(self) -> None:
         # Configs are re-reconciled on every coordinator tick; a pause that gets quietly re-enabled
