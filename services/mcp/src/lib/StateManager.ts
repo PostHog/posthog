@@ -137,8 +137,18 @@ export class StateManager {
         organizationId?: string
         projectId?: number
     }> {
-        const [{ scoped_organizations, scoped_teams }, user] = await Promise.all([this.getApiKey(), this.getUser()])
-        const { organization: activeOrganization, team: activeTeam } = user
+        // A transient API failure here must not fail the whole request: the caller
+        // turns an empty default into a recoverable missing-context error, and the
+        // agent picks a project with `switch-project`.
+        const identity = await Promise.all([this.getApiKey(), this.getUser()]).catch((error: unknown) => {
+            this._reportException(error, 'default_org_project_identity_lookup_failed')
+            return undefined
+        })
+        if (!identity) {
+            return {}
+        }
+        const [{ scoped_organizations, scoped_teams }, { organization: activeOrganization, team: activeTeam }] =
+            identity
 
         // Team-scoped key: prefer the active team if the scope allows it,
         // otherwise pick the first scoped team deterministically. The org is
