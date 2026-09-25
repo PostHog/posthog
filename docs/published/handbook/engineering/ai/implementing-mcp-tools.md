@@ -335,6 +335,9 @@ Product teams own their definitions and control which operations are exposed as 
          action_label: Short action label # optional, defaults to tool title
    ```
 
+   For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
+   The MCP tool then requires the field, even when the generated PATCH body marks it optional.
+
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the

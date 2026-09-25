@@ -185,7 +185,7 @@ class ReadSignalsFromS3Output:
     signals: list["EmitSignalInputs"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 
@@ -194,6 +194,9 @@ class SignalReportSummaryWorkflowInputs:
     # Seconds to wait before the first cycle, so a burst of signals is researched in one run rather
     # than one run each. Defaults to 0 so histories written before this field replay unchanged.
     debounce_seconds: int = 0
+    requested_implementation_user_id: int | None = None
+    requested_implementation_task_id: str | None = None
+    requested_after_run_count: int | None = None
 
 
 @dataclass
