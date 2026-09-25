@@ -4,24 +4,36 @@
 <!-- Favicons & OS-theme configurations -->
 <link rel="apple-touch-icon"
       sizes="180x180"
-      href="/static/icons/apple-touch-icon.png?v=2026-07-07">
+      href="/static/icons/apple-touch-icon.png?v=2026-09-16">
 <link rel="icon"
       type="image/png"
       sizes="32x32"
-      href="/static/icons/favicon-32x32.png?v=2026-07-07">
+      href="/static/icons/favicon-32x32.png?v=2026-09-16">
 <link rel="icon"
       type="image/png"
       sizes="16x16"
-      href="/static/icons/favicon-16x16.png?v=2026-07-07">
+      href="/static/icons/favicon-16x16.png?v=2026-09-16">
 {% if not debug %}
-    <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2026-07-07">
+    {# The size is declared so Chrome does not read a sizeless .ico as "any size" and prefer #}
+    {# it over the SVG below. The .ico itself is unchanged, and still holds every size. #}
+    <link rel="shortcut icon"
+          sizes="32x32"
+          href="/static/icons/favicon.ico?v=2026-09-16">
 {% else %}
-    <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2026-07-07">
+    <link rel="shortcut icon"
+          sizes="32x32"
+          href="/static/icons/favicon-dev.ico?v=2026-09-16">
 {% endif %}
+{# Declared last, after the raster icons: a browser that can render an SVG favicon takes this #}
+{# one, and it is the only icon that follows the reader's color scheme. The rasters cannot, so #}
+{# they keep their plate, which is what makes the near-black head visible on any background. #}
+<link rel="icon"
+      type="image/svg+xml"
+      href="/static/icons/favicon.svg?v=2026-09-16">
 <link rel="mask-icon"
-      href="/static/icons/safari-pinned-tab.svg?v=2026-07-07"
+      href="/static/icons/safari-pinned-tab.svg?v=2026-09-16"
       color="#F54E00">
-<link rel="manifest" href="/static/site.webmanifest?v=2026-07-07">
+<link rel="manifest" href="/static/site.webmanifest?v=2026-09-16">
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 {% if not opt_out_capture and js_posthog_api_key %}
