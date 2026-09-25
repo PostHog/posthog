@@ -484,17 +484,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         properties = self.event_properties + [p for entity in self.entities for p in entity.properties or []]
         return all(isinstance(prop, EventPropertyFilter) and not is_negative_prop(prop) for prop in properties)
 
+    def _emitted_event_properties(self) -> list[AnyPropertyFilter]:
+        # With operand AND, _negative_guard_query handles the negative event properties.
+        if self._query.operand == "AND":
+            return [p for p in self.event_properties if not is_negative_prop(p)]
+        return self.event_properties
+
     def _property_filter_count(self) -> int:
-        # Match `_gathered_exprs`: with operand AND it drops negative top-level event
-        # properties (they're handled by the negative-guard query instead), so a filter
-        # that never reaches the emitted query shouldn't count as one that did.
-        skip_negative_properties = self._query.operand == "AND"
-        counted_event_properties = (
-            sum(1 for p in self.event_properties if not is_negative_prop(p))
-            if skip_negative_properties
-            else len(self.event_properties)
-        )
-        return counted_event_properties + sum(1 for entity in self.entities if entity.properties)
+        return len(self._emitted_event_properties()) + sum(1 for entity in self.entities if entity.properties)
 
     def _combined_filters_enabled(self) -> bool:
         return (
@@ -557,13 +554,10 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 else event_where_exprs
             )
 
-        # Skip event properties with negative operators since they're handled by _negative_guard_query
+        # Skip group properties with negative operators since they're handled by _negative_guard_query
         skip_negative_properties = self._query.operand == "AND"
 
-        for p in self.event_properties:
-            if skip_negative_properties and is_negative_prop(p):
-                continue
-
+        for p in self._emitted_event_properties():
             if self._allow_event_property_expansion:
                 events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
                 gathered_exprs.append(
