@@ -72,6 +72,7 @@ class TestTypesafeSuggestionCandidates(SimpleTestCase):
         assert titles[0] == "Total pageviews per user"
         assert "Pageviews and pageviews" not in titles
         assert "Total pageviews and unique users for pageviews" in titles
+        assert not any(candidate.startswith("Unique users for total pageviews") for candidate in titles)
         assert any(
             candidate.startswith("Divides total pageviews by the number of unique users")
             for candidate in description_candidates(context)
