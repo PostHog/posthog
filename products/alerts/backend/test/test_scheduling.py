@@ -1,5 +1,6 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -8,6 +9,7 @@ from parameterized import parameterized
 from products.alerts.backend.facade.scheduling import (
     BlockedWindow,
     CalendarInterval,
+    alert_check_offset,
     is_weekend,
     next_calendar_check_time,
     parse_blocked_windows_tuples,
@@ -19,6 +21,7 @@ from products.alerts.backend.facade.scheduling import (
 # Wednesday 2026-03-18 12:00 UTC
 NOW = datetime(2026, 3, 18, 12, 0, tzinfo=UTC)
 PREV_CHECK = datetime(2026, 3, 18, 11, 47, tzinfo=UTC)
+ALERT_ID = UUID("0193f3c6-2a4b-7d2e-8f00-3c1b5d7e9a10")
 
 
 class TestValidateAndNormalizeScheduleRestriction:
@@ -134,6 +137,7 @@ class TestScheduleStartTime:
             now=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
             tz_name="UTC",
             next_check_at=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
+            alert_id=ALERT_ID,
             schedule_start_time="22:30",
         ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
 
@@ -143,6 +147,7 @@ class TestScheduleStartTime:
             now=datetime(2026, 4, 6, 23, 50, tzinfo=UTC),
             tz_name="UTC",
             next_check_at=None,
+            alert_id=ALERT_ID,
             schedule_start_time="09:35",
         ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC)
 
@@ -169,6 +174,7 @@ class TestScheduleStartTime:
                 now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
                 tz_name="UTC",
                 next_check_at=None,
+                alert_id=ALERT_ID,
                 schedule_start_time=schedule_start_time,
             )
             == expected
@@ -226,6 +232,7 @@ class TestScheduleStartTime:
             now=now,
             tz_name="UTC",
             next_check_at=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+            alert_id=ALERT_ID,
             schedule_start_time="09:35",
         )
         assert result == expected
@@ -234,46 +241,84 @@ class TestScheduleStartTime:
 class TestNextCalendarCheckTime:
     @parameterized.expand(
         [
-            # Sub-daily intervals preserve their schedule phase and skip missed evaluations.
+            # Sub-daily intervals keep one check per interval and skip missed evaluations. Real time keeps
+            # its phase; the others run at the alert's offset into the interval after the previous check.
             ("real_time_from_prev", CalendarInterval.REAL_TIME, PREV_CHECK, datetime(2026, 3, 18, 12, 1, tzinfo=UTC)),
             ("real_time_first_check", CalendarInterval.REAL_TIME, None, datetime(2026, 3, 18, 12, 2, tzinfo=UTC)),
             (
                 "15min_from_prev",
                 CalendarInterval.EVERY_15_MINUTES,
                 PREV_CHECK,
-                datetime(2026, 3, 18, 12, 2, tzinfo=UTC),
+                datetime(2026, 3, 18, 12, 0, tzinfo=UTC),
             ),
-            ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 47, tzinfo=UTC)),
+            ("hourly_from_prev", CalendarInterval.HOURLY, PREV_CHECK, datetime(2026, 3, 18, 12, 0, tzinfo=UTC)),
             (
                 "hourly_skips_backlog",
                 CalendarInterval.HOURLY,
                 datetime(2026, 3, 18, 5, 47, tzinfo=UTC),
-                datetime(2026, 3, 18, 12, 47, tzinfo=UTC),
+                datetime(2026, 3, 18, 12, 0, tzinfo=UTC),
             ),
         ]
     )
     def test_sub_daily_advances_from_previous(
         self, _name: str, interval: CalendarInterval, next_check_at: datetime | None, expected: datetime
     ) -> None:
-        result = next_calendar_check_time(interval, now=NOW, tz_name="UTC", next_check_at=next_check_at)
-        assert result == expected
+        result = next_calendar_check_time(
+            interval, now=NOW, tz_name="UTC", next_check_at=next_check_at, alert_id=ALERT_ID
+        )
+        assert result == expected + alert_check_offset(interval, ALERT_ID)
 
     @parameterized.expand(
         [
-            # Daily anchors to ~1am local tomorrow; minute preserved for spread. US/Pacific is UTC-7 on this date.
-            ("daily_pacific", CalendarInterval.DAILY, "US/Pacific", (2026, 3, 19, 8, 0)),
-            # Weekly anchors to ~3am next Monday local (Mon 2026-03-23), 3am PDT = 10:00 UTC
-            ("weekly_pacific", CalendarInterval.WEEKLY, "US/Pacific", (2026, 3, 23, 10, 0)),
-            # Monthly anchors to ~4am on the 1st of next month, 4am PDT = 11:00 UTC
-            ("monthly_pacific", CalendarInterval.MONTHLY, "US/Pacific", (2026, 4, 1, 11, 0)),
+            # name, interval, cadence, first minute of the window, first minute after it
+            ("every_15_minutes", CalendarInterval.EVERY_15_MINUTES, timedelta(minutes=15), 1, 4),
+            ("hourly", CalendarInterval.HOURLY, timedelta(hours=1), 2, 14),
+            ("daily", CalendarInterval.DAILY, timedelta(days=1), 2, 60),
+            ("weekly", CalendarInterval.WEEKLY, timedelta(weeks=1), 2, 60),
+        ]
+    )
+    def test_each_alert_checks_at_its_own_minute_inside_the_window(
+        self, _name: str, interval: CalendarInterval, cadence: timedelta, first_minute: int, end_minute: int
+    ) -> None:
+        minute_period = int(min(cadence, timedelta(hours=1)).total_seconds() // 60)
+        minutes_used: set[int] = set()
+        for index in range(600):
+            alert_id = UUID(int=index)
+            check = next_calendar_check_time(interval, now=NOW, tz_name="UTC", next_check_at=None, alert_id=alert_id)
+            following = next_calendar_check_time(
+                interval, now=check, tz_name="UTC", next_check_at=check, alert_id=alert_id
+            )
+            late_now = check + cadence * 2.5
+            late = next_calendar_check_time(
+                interval, now=late_now, tz_name="UTC", next_check_at=check, alert_id=alert_id
+            )
+
+            minute = check.minute % minute_period
+            assert first_minute <= minute < end_minute
+            assert following - check == cadence
+            assert late > late_now
+            assert (late.minute % minute_period, late.second) == (minute, check.second)
+            minutes_used.add(minute)
+
+        assert minutes_used == set(range(first_minute, end_minute))
+
+    @parameterized.expand(
+        [
+            # Daily anchors to the 1am hour local tomorrow. US/Pacific is UTC-7 on this date.
+            ("daily_pacific", CalendarInterval.DAILY, "US/Pacific", datetime(2026, 3, 19, 8, 0, tzinfo=UTC)),
+            # Weekly anchors to the 3am hour next Monday local (Mon 2026-03-23), 3am PDT = 10:00 UTC
+            ("weekly_pacific", CalendarInterval.WEEKLY, "US/Pacific", datetime(2026, 3, 23, 10, 0, tzinfo=UTC)),
+            # Monthly anchors to the 4am hour on the 1st of next month, 4am PDT = 11:00 UTC
+            ("monthly_pacific", CalendarInterval.MONTHLY, "US/Pacific", datetime(2026, 4, 1, 11, 0, tzinfo=UTC)),
         ]
     )
     def test_calendar_anchors_in_team_timezone(
-        self, _name: str, interval: CalendarInterval, tz_name: str, expected_utc: tuple
+        self, _name: str, interval: CalendarInterval, tz_name: str, anchor: datetime
     ) -> None:
-        result = next_calendar_check_time(interval, now=NOW, tz_name=tz_name, next_check_at=PREV_CHECK)
-        assert (result.year, result.month, result.day, result.hour, result.minute) == expected_utc
-        assert result.tzinfo is not None
+        result = next_calendar_check_time(
+            interval, now=NOW, tz_name=tz_name, next_check_at=PREV_CHECK, alert_id=ALERT_ID
+        )
+        assert result == anchor + alert_check_offset(interval, ALERT_ID)
 
     def test_daily_across_dst_spring_forward(self) -> None:
         # US spring-forward was 2026-03-08: local 1am tomorrow maps PST(-8) -> PDT(-7),
@@ -283,12 +328,14 @@ class TestNextCalendarCheckTime:
             now=datetime(2026, 3, 7, 12, 0, tzinfo=UTC),
             tz_name="US/Pacific",
             next_check_at=None,
+            alert_id=ALERT_ID,
         )
         after = next_calendar_check_time(
             CalendarInterval.DAILY,
             now=datetime(2026, 3, 8, 12, 0, tzinfo=UTC),
             tz_name="US/Pacific",
             next_check_at=None,
+            alert_id=ALERT_ID,
         )
         assert before.hour == 9
         assert after.hour == 8
@@ -312,7 +359,9 @@ class TestNextCalendarCheckTime:
     def test_calendar_anchors_keep_local_wall_time_across_dst(
         self, _name: str, interval: CalendarInterval, now: datetime, expected: datetime
     ) -> None:
-        assert next_calendar_check_time(interval, now=now, tz_name="America/New_York", next_check_at=None) == expected
+        assert next_calendar_check_time(
+            interval, now=now, tz_name="America/New_York", next_check_at=None, alert_id=ALERT_ID
+        ) == expected + alert_check_offset(interval, ALERT_ID)
 
 
 class TestIsWeekend:

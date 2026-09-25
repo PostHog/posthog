@@ -222,7 +222,10 @@ async def create_upgrade_queries_schedule(client: Client):
             id="upgrade-queries-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=6))]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(hours=6), offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=30),
+        ),
     )
 
     if await a_schedule_exists(client, "upgrade-queries-schedule"):

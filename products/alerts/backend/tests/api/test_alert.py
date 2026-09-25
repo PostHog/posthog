@@ -27,6 +27,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
+from products.alerts.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
@@ -1445,7 +1446,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_200_OK, response.content
             nxt = response.json()["next_check_at"]
-            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(2026, 4, 6, 16, 0, 0, tzinfo=UTC)
+            assert datetime.fromisoformat(nxt.replace("Z", "+00:00")) == datetime(
+                2026, 4, 6, 16, 0, 0, tzinfo=UTC
+            ) + alert_check_offset(CalendarInterval.HOURLY, alert["id"])
 
     def test_patch_schedule_restriction_empty_normalizes_to_null(self) -> None:
         creation_request = {

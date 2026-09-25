@@ -37,7 +37,10 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
-from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
+from posthog.tasks.alerts.schedule_restriction import (
+    is_utc_datetime_blocked,
+    snap_candidate_utc_to_schedule_restriction,
+)
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
     add_alert_check,
@@ -538,7 +541,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 "Skipping alert check because of schedule restriction (quiet hours)",
                 alert_id=alert.id,
             )
-            alert.next_check_at = next_unblocked_utc(alert, now)
+            alert.next_check_at = snap_candidate_utc_to_schedule_restriction(alert, now)
             alert.save(update_fields=["next_check_at"])
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.QUIET_HOURS)
 
