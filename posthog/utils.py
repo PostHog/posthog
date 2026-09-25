@@ -746,7 +746,7 @@ def _build_template_context(
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )
-        stable_chunks = stable_chunks_for_request(request)
+        stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
         if stable_chunks:
             context["stable_chunks"] = True
             context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
