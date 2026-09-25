@@ -115,8 +115,9 @@ def _channel_of(action: dict[str, Any]) -> Optional[HogFlowChannel]:
     action_type = action.get("type")
     if action_type in _CHANNEL_ACTION_TYPES:
         return _CHANNEL_ACTION_TYPES[action_type]
-    if action_type == "function":
-        return _CHANNEL_FUNCTION_TEMPLATES.get(_config(action).get("template_id"))
+    template_id = _config(action).get("template_id")
+    if action_type == "function" and isinstance(template_id, str):
+        return _CHANNEL_FUNCTION_TEMPLATES.get(template_id)
     return None
 
 

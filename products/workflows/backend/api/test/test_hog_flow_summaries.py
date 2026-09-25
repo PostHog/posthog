@@ -79,7 +79,7 @@ class TestHogFlowSummaries(APIBaseTest):
         self.fetch_totals = totals_patcher.start()
         self.addCleanup(totals_patcher.stop)
 
-    def _summaries(self, query: str = "", **headers: str) -> Any:
+    def _summaries(self, query: str = "", **headers: Any) -> Any:
         return self.client.get(f"/api/projects/{self.team.id}/hog_flows/summaries/{query}", **headers)
 
     def _mixed_flow(self) -> HogFlow:
