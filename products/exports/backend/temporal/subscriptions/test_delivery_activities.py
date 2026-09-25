@@ -16,6 +16,7 @@ from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -27,15 +28,18 @@ from products.exports.backend.temporal.subscriptions.activities import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_slack
+from products.exports.backend.temporal.subscriptions.delivery_milestones import FIRST_DELIVERY_COMPLETED_EVENT
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
+    DeliveryStatus,
     GenerateAIReportResult,
     SnapshotInsightsResult,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
+    UpdateDeliveryRecordInputs,
 )
 from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessAISubscriptionWorkflow,
@@ -281,3 +285,26 @@ async def test_schedule_update_failure_preserves_primary_failure(
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["failure_stage"] == "delivery"
     assert inputs.slo.completion_properties["failure_component"] == "subscription_delivery"
+
+
+async def test_update_delivery_record_stamps_the_creator_on_a_completed_delivery(team, user, fake_ph_client) -> None:
+    insight = await sync_to_async(Insight.objects.create)(team=team, name="Pageviews", created_by=user)
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user, insight=insight)
+    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
+        subscription=subscription,
+        team=team,
+        status=SubscriptionDelivery.Status.STARTING,
+        idempotency_key=str(uuid.uuid4()),
+    )
+
+    await ActivityEnvironment().run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery.id,
+            status=DeliveryStatus.COMPLETED,
+            recipient_results=[{"recipient": "test1@posthog.com", "status": "success", "error": None}],
+            finished=True,
+        ),
+    )
+
+    assert [captured["event"] for captured in fake_ph_client.captured] == [FIRST_DELIVERY_COMPLETED_EVENT]
