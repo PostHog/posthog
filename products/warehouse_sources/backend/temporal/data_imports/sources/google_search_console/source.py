@@ -119,6 +119,10 @@ class GoogleSearchConsoleSource(
             # (app access revoked, password change, long inactivity). It never recovers on retry,
             # so stop the sync and ask the user to reconnect rather than burning activity retries.
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
+            # `RefreshError: access_not_configured` comes from the same refresh, but means the
+            # user's Google Workspace admin has not approved this app for their organization.
+            # No retry can recover it — an admin must grant access before the user reconnects.
+            "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your account.",
         }
 
     def get_retryable_errors(self) -> set[str]:

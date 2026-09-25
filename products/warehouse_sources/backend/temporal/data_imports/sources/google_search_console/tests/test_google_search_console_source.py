@@ -171,16 +171,37 @@ def test_canonical_descriptions_cover_every_schema(config):
 
 
 @pytest.mark.parametrize(
-    "error_message",
+    "error_message,expected_substring",
     [
-        "invalid_grant",
+        ("invalid_grant", "reconnect"),
         # The real RefreshError raised when AuthorizedSession refreshes a revoked/expired token.
-        "RefreshError: ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+        (
+            "RefreshError: ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+            "reconnect",
+        ),
+        # Both Google wordings for an app a Workspace admin has not approved. The same refresh
+        # raises them, so they reach the activity as a bare RefreshError with no HTTP status.
+        (
+            "RefreshError: ('access_not_configured: Access to your account data (which may include HIPAA and "
+            "PHI data) is restricted by policies within your organization. Please contact the administrator of "
+            "your organization for more information regarding API access from third-party applications.', "
+            "{'error': 'access_not_configured'})",
+            "admin",
+        ),
+        (
+            "RefreshError: (\"access_not_configured: You can't access this app until an admin at your "
+            'institution reviews and configures access for it. If you need access to this app,", '
+            "{'error': 'access_not_configured'})",
+            "admin",
+        ),
     ],
 )
-def test_invalid_grant_is_non_retryable(error_message):
+def test_refresh_error_codes_are_non_retryable(error_message: str, expected_substring: str) -> None:
     non_retryable_errors = GoogleSearchConsoleSource().get_non_retryable_errors()
     assert any(key in error_message for key in non_retryable_errors)
+
+    message = next(message for pattern, message in non_retryable_errors.items() if pattern in error_message)
+    assert expected_substring in (message or "").lower()
 
 
 def test_missing_integration_is_non_retryable():

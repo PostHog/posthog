@@ -296,14 +296,47 @@ def test_validate_credentials_succeeds_when_metadata_readable():
     assert message is None
 
 
-def test_non_retryable_errors_matches_revoked_refresh_token():
+@pytest.mark.parametrize(
+    "observed_error,expected_substring",
+    [
+        (
+            str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"})),
+            "reconnect",
+        ),
+        # Both Google wordings for an app a Workspace admin has not approved.
+        (
+            str(
+                RefreshError(
+                    "access_not_configured: Access to your account data (which may include HIPAA and PHI data) "
+                    "is restricted by policies within your organization. Please contact the administrator of "
+                    "your organization for more information regarding API access from third-party applications.",
+                    {"error": "access_not_configured"},
+                )
+            ),
+            "admin",
+        ),
+        (
+            str(
+                RefreshError(
+                    "access_not_configured: You can't access this app until an admin at your institution "
+                    "reviews and configures access for it. If you need access to this app,",
+                    {"error": "access_not_configured"},
+                )
+            ),
+            "admin",
+        ),
+    ],
+)
+def test_non_retryable_errors_cover_refresh_error_codes(observed_error: str, expected_substring: str) -> None:
     # `_run_report` refreshes credentials via `session.post()` before any HTTP status is
-    # available, so a revoked/expired refresh token surfaces as a bare `RefreshError` whose
-    # `str()` is the raw (message, response_dict) tuple repr, e.g.:
+    # available, so these failures surface as a bare `RefreshError` whose `str()` is the raw
+    # (message, response_dict) tuple repr, e.g.:
     # ('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})
-    observed_error = str(RefreshError("invalid_grant: Bad Request", {"error": "invalid_grant"}))
     non_retryable_errors = GoogleAnalyticsSource().get_non_retryable_errors()
     assert error_message_matches(observed_error, non_retryable_errors)
+
+    message = next(message for pattern, message in non_retryable_errors.items() if pattern in observed_error)
+    assert expected_substring in (message or "").lower()
 
 
 def test_retryable_errors_cover_exhausted_quota_retries():
