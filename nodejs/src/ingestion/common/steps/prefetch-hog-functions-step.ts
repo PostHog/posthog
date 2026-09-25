@@ -1,5 +1,5 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
+import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { Team } from '~/types'
 
 type PrefetchHogFunctionsStepInput = { team: Pick<Team, 'id'> }

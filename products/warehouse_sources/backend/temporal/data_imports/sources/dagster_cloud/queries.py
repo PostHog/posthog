@@ -329,3 +329,194 @@ query AssetObservations(
 }"""
     + _METADATA_ENTRY_FRAGMENT
 )
+
+_DEPLOYMENT_FIELDS_FRAGMENT = """
+fragment DeploymentFields on DagsterCloudDeployment {
+    organizationId
+    organizationName
+    deploymentId
+    deploymentName
+    deploymentStatus
+    deploymentType
+    isBranchDeployment
+    agentType
+    parentDeployment { deploymentId deploymentName }
+    branchDeploymentGitMetadata {
+        branchName
+        repoName
+        branchUrl
+        pullRequestUrl
+        pullRequestStatus
+        pullRequestNumber
+    }
+    latestCommit { timestamp commitHash commitMessage commitUrl authorName authorEmail }
+}"""
+
+# `deployments` returns only the subset the caller can reach, so the table is built from
+# `fullDeployments` plus `branchDeployments` instead, because together they cover every deployment
+# the organization has. Each row carries `isBranchDeployment` to tell the two apart.
+DEPLOYMENTS_QUERY = (
+    """
+query Deployments($branchDeploymentLimit: Int!) {
+    fullDeployments { ...DeploymentFields }
+    branchDeployments(limit: $branchDeploymentLimit) {
+        nodes { ...DeploymentFields }
+    }
+}"""
+    + _DEPLOYMENT_FIELDS_FRAGMENT
+)
+
+# Every member of the DagsterRunEvent union implements MessageEvent, so the interface fragment
+# alone gives every row its identity and timing; the rest add the step-timing markers and the
+# error payload that make a failure readable.
+RUN_LOGS_QUERY = """
+query RunLogs($runId: ID!, $limit: Int!, $afterCursor: String) {
+    logsForRun(runId: $runId, limit: $limit, afterCursor: $afterCursor) {
+        __typename
+        ... on EventConnection {
+            cursor
+            hasMore
+            events {
+                eventTypename: __typename
+                ... on MessageEvent {
+                    runId
+                    message
+                    timestamp
+                    level
+                    stepKey
+                    solidHandleID
+                    eventType
+                }
+                ... on RunEvent { pipelineName }
+                ... on MarkerEvent { markerStart markerEnd }
+                ... on ErrorEvent { error { message className } }
+            }
+        }
+        ... on RunNotFoundError { message }
+        ... on PythonError { message }
+    }
+}"""
+
+_PERMISSION_GRANT_FRAGMENT = """
+fragment PermissionGrantFields on DagsterCloudScopedPermissionGrant {
+    id
+    organizationId
+    deploymentId
+    grant
+    customRoleId
+    deploymentScope
+    locationGrants { locationName grant customRoleId }
+}"""
+
+USERS_QUERY = (
+    """
+query OrganizationUsers {
+    usersOrError {
+        __typename
+        ... on DagsterCloudUsersWithScopedPermissionGrants {
+            users {
+                id
+                licensedRole
+                user { id userId email name firstName lastName isScimProvisioned }
+                organizationPermissionGrant { ...PermissionGrantFields }
+                allBranchDeploymentsPermissionGrant { ...PermissionGrantFields }
+                deploymentPermissionGrants { ...PermissionGrantFields }
+            }
+        }
+        ... on UnauthorizedError { message }
+        ... on PythonError { message }
+    }
+}"""
+    + _PERMISSION_GRANT_FRAGMENT
+)
+
+TEAM_PERMISSIONS_QUERY = (
+    """
+query TeamPermissions {
+    teamPermissions {
+        id
+        team { id name members { id userId email name } }
+        organizationPermissionGrant { ...PermissionGrantFields }
+        allBranchDeploymentsPermissionGrant { ...PermissionGrantFields }
+        deploymentPermissionGrants { ...PermissionGrantFields }
+    }
+}"""
+    + _PERMISSION_GRANT_FRAGMENT
+)
+
+CUSTOM_ROLES_QUERY = """
+query CustomRoles {
+    customRoles {
+        id
+        name
+        description
+        iconName
+        permissions
+        deploymentScope
+    }
+}"""
+
+
+def _metric_types_query(operation: str, field: str) -> str:
+    return f"""
+query {operation} {{
+    {field} {{
+        __typename
+        ... on MetricTypeList {{
+            metricTypes {{ metricName displayName unitType category costMultiplier }}
+        }}
+        ... on UnauthorizedError {{ message }}
+        ... on PythonError {{ message }}
+    }}
+}}"""
+
+
+# reportingMetricsBy* takes one required metricName per request, so the sync reads the
+# deployment's metric catalog first and walks it.
+METRIC_TYPES_FOR_JOB_QUERY = _metric_types_query("MetricTypesForJob", "metricTypesForJob")
+METRIC_TYPES_FOR_ASSET_QUERY = _metric_types_query("MetricTypesForAsset", "metricTypesForAsset")
+METRIC_TYPES_FOR_DEPLOYMENT_QUERY = _metric_types_query("MetricTypesForDeployment", "metricTypesForDeployment")
+
+
+def _reporting_metrics_query(operation: str, field: str, filter_type: str, entity_fragment: str) -> str:
+    return f"""
+query {operation}($metricsSelector: ReportingMetricsSelector!, $metricsFilter: {filter_type}) {{
+    {field}(metricsSelector: $metricsSelector, metricsFilter: $metricsFilter) {{
+        __typename
+        ... on ReportingMetrics {{
+            timestamps
+            metrics {{
+                values
+                entity {{
+                    __typename
+                    {entity_fragment}
+                }}
+            }}
+        }}
+        ... on UnauthorizedError {{ message }}
+        ... on ReportingInputError {{ message }}
+        ... on PythonError {{ message }}
+    }}
+}}"""
+
+
+REPORTING_METRICS_BY_JOB_QUERY = _reporting_metrics_query(
+    "ReportingMetricsByJob",
+    "reportingMetricsByJob",
+    "JobReportingMetricsFilter",
+    "... on ReportingJob { jobName codeLocationName repositoryName }",
+)
+
+REPORTING_METRICS_BY_ASSET_QUERY = _reporting_metrics_query(
+    "ReportingMetricsByAsset",
+    "reportingMetricsByAsset",
+    "AssetReportingMetricsFilter",
+    "... on ReportingAsset { assetKey { path } assetGroup codeLocationName repositoryName }",
+)
+
+REPORTING_METRICS_BY_DEPLOYMENT_QUERY = _reporting_metrics_query(
+    "ReportingMetricsByDeployment",
+    "reportingMetricsByDeployment",
+    "DeploymentReportingMetricsFilter",
+    "... on DagsterCloudDeployment { deploymentId deploymentName deploymentType isBranchDeployment }",
+)

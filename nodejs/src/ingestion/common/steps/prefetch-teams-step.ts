@@ -1,5 +1,5 @@
 import { TeamManager } from '~/common/utils/team-manager'
-import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
+import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { EventHeaders } from '~/types'
 
 type PrefetchTeamsStepInput = { headers: Pick<EventHeaders, 'token'> }

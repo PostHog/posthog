@@ -649,6 +649,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 'its configured allow list ("address not in tenant allow_list"). Add PostHog\'s egress IP '
                 "addresses to your database provider's IP allow list, then re-enable the sync."
             ),
+            # Neon words its own IP allow list rejection differently from the Supavisor key above
+            # ("This IP address <ip> is not allowed to connect to this endpoint"), and rejects a
+            # project that blocks public access with "... from a blocked network". Both are the
+            # customer's network policy, so every retry re-hits them until they change it.
+            "is not allowed to connect to this endpoint": (
+                "Your database provider rejected the connection because PostHog's IP address isn't on its "
+                "IP allow list. Add PostHog's egress IP addresses to that allow list, then re-enable the sync."
+            ),
+            "access this endpoint from a blocked network": (
+                "Your database provider blocks connections from the public internet, so PostHog can't "
+                "connect. Allow public access for PostHog's IP addresses, then re-enable the sync."
+            ),
             # A Neon-style proxy rejects the connection for a specific branch/compute endpoint —
             # observed when the branch is archived, suspended, or otherwise restricted from external
             # connections. Deterministic until the customer changes the branch's connection settings.
