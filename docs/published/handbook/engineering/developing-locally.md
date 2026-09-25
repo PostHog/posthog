@@ -266,6 +266,11 @@ The first time you run typegen, it may get stuck. Cancel it (`Ctrl+C`), run `git
 **"layout.html is not defined" error**
 This happens on first startup. Wait for the frontend to finish compiling and try accessing the app again.
 
+**Vite cannot resolve an installed Tiptap package**
+Files under `products/*/frontend` cannot resolve packages installed only in `frontend/node_modules` through their parent directories.
+Shared Tiptap packages, including `@tiptap/extension-image`, have individual aliases in `frontend/vite.config.mts`.
+Check those aliases if an installed package fails to resolve from a product directory.
+
 **Kafka segfaults on ARM**
 Kafka is an x86 container and may segfault randomly on ARM machines. Simply restart it when that happens.
 

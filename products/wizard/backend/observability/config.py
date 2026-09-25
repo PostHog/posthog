@@ -1,11 +1,9 @@
-WIZARD_RUN_CREATED_EVENT = "wizard run created"
+WIZARD_RUN_STARTED_EVENT = "wizard run started"
 WIZARD_RUN_DISPATCH_FINISHED_EVENT = "wizard run dispatch finished"
 WIZARD_RUN_STAGE_ENTERED_EVENT = "wizard run stage entered"
-WIZARD_RUN_COMPLETED_EVENT = "wizard run completed"
-WIZARD_RUN_FAILED_EVENT = "wizard run failed"
-WIZARD_RUN_CANCELLED_EVENT = "wizard run cancelled"
+WIZARD_RUN_FINISHED_EVENT = "wizard run finished"
 WIZARD_WORKER_USAGE_RECORDED_EVENT = "wizard worker usage recorded"
-WIZARD_PULL_REQUEST_CREATED_EVENT = "wizard pull request created"
+WIZARD_RUN_ARTIFACT_CREATED_EVENT = "wizard run artifact created"
 
 WIZARD_RUN_DURATION_BUCKETS = (30, 60, 120, 300, 600, 1200, 1800, 3600, 7200)
 WIZARD_WORKER_LIFETIME_BUCKETS = (30, 60, 120, 300, 600, 1200, 1800, 2700, 3600, 4500)

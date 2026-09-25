@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { projectLogic } from 'scenes/projectLogic'
@@ -33,6 +34,9 @@ export interface wizardRunsLogicActions {
     loadRunsFailure: (error: string, errorObject?: unknown) => { error: string; errorObject?: unknown }
     loadRunsSuccess: (runs: WizardRunApi[]) => { runs: WizardRunApi[] }
     refreshRuns: () => { value: true }
+    refreshRun: (run: WizardRunApi) => { run: WizardRunApi }
+    trackPagination: (page: number, nextPage: number) => { page: number; nextPage: number }
+    openWorkspace: (run: WizardRunApi, url: string) => { run: WizardRunApi; url: string }
     scheduleNextRunPoll: () => { value: true }
     setEnvironment: (environment: RunEnvironmentEnumApi | 'all') => { environment: RunEnvironmentEnumApi | 'all' }
     setSearch: (search: string) => { search: string }
@@ -68,6 +72,9 @@ export const wizardRunsLogic = kea<wizardRunsLogicType>([
     connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
     actions({
         refreshRuns: true,
+        refreshRun: (run: WizardRunApi) => ({ run }),
+        trackPagination: (page: number, nextPage: number) => ({ page, nextPage }),
+        openWorkspace: (run: WizardRunApi, url: string) => ({ run, url }),
         scheduleNextRunPoll: true,
         clearRunFilters: true,
         setSearch: (search: string) => ({ search }),
@@ -211,8 +218,33 @@ export const wizardRunsLogic = kea<wizardRunsLogicType>([
                 !runsLoaded || (runsLoading && runs.length === 0),
         ],
     }),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, values }) => ({
         refreshRuns: () => actions.loadRuns({ poll: false }),
+        refreshRun: ({ run }) => {
+            posthog.capture('wizard run refreshed', { wizard_run_id: run.id, location: 'wizard_datatable' })
+            actions.refreshRuns()
+        },
+        setSearch: ({ search }) => {
+            posthog.capture('wizard run datatable searched', { query: search })
+        },
+        setEnvironment: ({ environment }) => {
+            posthog.capture('wizard run datatable filters changed', { environment, status: values.status })
+        },
+        setStatus: ({ status }) => {
+            posthog.capture('wizard run datatable filters changed', { environment: values.environment, status })
+        },
+        clearRunFilters: () => {
+            posthog.capture('wizard run datatable filters changed', { environment: 'all', status: 'all' })
+        },
+        trackPagination: ({ page, nextPage }) => {
+            posthog.capture('wizard run datatable paginated', { page, next_page: nextPage })
+        },
+        openWorkspace: ({ run, url }) => {
+            posthog.capture('wizard run datatable workspace opened', {
+                workspace_type: run.workspace.type,
+                url,
+            })
+        },
         loadRunsSuccess: () => actions.scheduleNextRunPoll(),
         loadRunsFailure: () => actions.scheduleNextRunPoll(),
         // Each poll starts only after the previous load settles, so a slow load can never be

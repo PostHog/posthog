@@ -241,6 +241,8 @@ export const OAUTH_SCOPES_HIDDEN = [
     'batch_import_support:write',
     'query_performance:read',
     'query_performance:write',
+    'wizard_run:read',
+    'wizard_run:write',
     'wizard_session:read',
     'wizard_session:write',
 ] as const

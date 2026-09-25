@@ -1,9 +1,11 @@
 import logging
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 from uuid import UUID
 
 from django.db import transaction as database_transaction
+from django.utils import timezone
 
 from posthog.models import Team, User
 
@@ -13,15 +15,18 @@ from products.wizard.backend.facade.contracts import (
     GitRepositoryWorkspace,
     ListWizardRunsInput,
     LocalFolderWorkspace,
+    UpdateWizardRunTaskInput,
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunPage,
+    WizardRunTaskDTO,
 )
 from products.wizard.backend.facade.enums import (
     WizardRunEnvironment,
     WizardRunErrorCode,
     WizardRunStage,
     WizardRunStatus,
+    WizardTaskStatus,
 )
 from products.wizard.backend.facade.errors import (
     IllegalStatusTransitionError,
@@ -236,3 +241,45 @@ def transition_run(
 
     run_observability.run_transitioned(previous, run)
     return run
+
+
+def _compute_task_list_derived_fields(
+    tasks: tuple[UpdateWizardRunTaskInput, ...],
+    previous_tasks: tuple[WizardRunTaskDTO, ...],
+    snapshot_timestamp: datetime,
+) -> tuple[WizardRunTaskDTO, ...]:
+    previous_by_title = {task.title: task for task in previous_tasks}
+    updated_tasks = []
+    for task in tasks:
+        previous = previous_by_title.get(task.title)
+        current = previous or WizardRunTaskDTO(
+            title=task.title,
+            status=task.status,
+            created_at=snapshot_timestamp,
+            started_at=None,
+            completed_at=None,
+            failed_at=None,
+            error_message=None,
+        )
+        updated_tasks.append(
+            replace(
+                current,
+                status=task.status,
+                started_at=current.started_at
+                or (snapshot_timestamp if task.status == WizardTaskStatus.RUNNING else None),
+                completed_at=current.completed_at
+                or (snapshot_timestamp if task.status == WizardTaskStatus.COMPLETED else None),
+                failed_at=current.failed_at or (snapshot_timestamp if task.status == WizardTaskStatus.FAILED else None),
+            )
+        )
+    return tuple(updated_tasks)
+
+
+def update_run_task_list(
+    team_id: int, run_id: UUID, tasks: tuple[UpdateWizardRunTaskInput, ...]
+) -> tuple[WizardRunTaskDTO, ...]:
+    with database_transaction.atomic():
+        current_run = store.get_run_for_update(team_id, run_id)
+        updated_tasks = _compute_task_list_derived_fields(tasks, current_run.tasks, timezone.now())
+        updated_run = store.update_run_task_list(team_id, run_id, updated_tasks)
+    return updated_run.tasks

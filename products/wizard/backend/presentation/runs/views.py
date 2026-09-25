@@ -2,15 +2,19 @@ from typing import cast
 from uuid import UUID
 
 from django.conf import settings
+from django.http import HttpResponse
+from django.http.response import HttpResponseBase
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import SessionAuthentication
+from posthog.api.streaming import sse_streaming_response
+from posthog.api.utils import action
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions import Conflict
 
 from products.wizard.backend.facade import api as wizard_facade
@@ -25,23 +29,38 @@ from products.wizard.backend.presentation.runs.errors import (
 )
 from products.wizard.backend.presentation.runs.pagination import WizardRunPagination
 from products.wizard.backend.presentation.runs.serializers import (
+    UpdateWizardRunTaskListSerializer,
     WizardRunCreateRequestSerializer,
     WizardRunErrorSerializer,
     WizardRunSerializer,
     WizardRunStatusUpdateRequestSerializer,
+    WizardRunTaskListSerializer,
 )
+from products.wizard.backend.presentation.runs.stream import wizard_run_event_stream
+from products.wizard.backend.presentation.sessions.views import EventStreamRenderer, _wizard_sync_killswitch_enabled
 from products.wizard.backend.presentation.throttles import WizardRunCreateThrottle, WizardRunReadThrottle
 
 
 class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API endpoints for managing Wizard runs. For browser–based access.
+    """
+
     permission_classes = [WizardRunSessionAuthenticationRequired]
     scope_object = "wizard_session"
-    scope_object_read_actions = ["list", "retrieve"]
+    scope_object_read_actions = ["list", "retrieve", "stream"]
     scope_object_write_actions = ["create", "partial_update"]
     http_method_names = ["get", "post", "patch", "head", "options"]
     lookup_field = "run_id"
     lookup_value_regex = "[0-9a-fA-F-]{36}"
     pagination_class = WizardRunPagination
+
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action in ("create", "partial_update") and isinstance(
+            request.successful_authenticator, OAuthAccessTokenAuthentication
+        ):
+            return ["wizard_run:write"]
+        return None
 
     def get_throttles(self) -> list:
         if self.action == "create":
@@ -50,6 +69,17 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         responses={200: WizardRunSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                name="status",
+                type=str,
+                enum=[status.value for status in WizardRunStatus],
+                many=True,
+                style="form",
+                explode=False,
+                description="Filter by one or more comma-separated run statuses.",
+            )
+        ],
         description="List Wizard runs for this project, ordered from newest to oldest.",
     )
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -73,8 +103,13 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = WizardRunCreateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         params = serializer.to_contract(team_id=self.team_id, created_by_id=cast(int, request.user.id))
+
+        # TODO: if creating a local run, only allow the Wizard's client ID.
+        # Users should not be allowed to create local runs.
+
         if params.environment == WizardRunEnvironment.CLOUD:
             self._validate_cloud_creation(request)
+
         try:
             result = wizard_facade.create_run_with_result(params)
         except WIZARD_RUN_CREATION_ERRORS as error:
@@ -102,6 +137,19 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
         run = self._get_run()
         return Response(WizardRunSerializer(run).data)
+
+    @extend_schema(
+        description="Stream the current run state and subsequent updates. Use EventSource to consume this endpoint.",
+        responses={(200, "text/event-stream"): {"type": "string"}, 204: None},
+    )
+    @action(detail=True, methods=["get"], pagination_class=None, renderer_classes=[EventStreamRenderer])
+    def stream(self, request: Request, *args: object, **kwargs: object) -> HttpResponseBase:
+        if _wizard_sync_killswitch_enabled(str(getattr(request.user, "distinct_id", self.team_id))):
+            return HttpResponse(status=204)
+        run = self._get_run()
+        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
+            raise RuntimeError("wizard_runs.stream requires ASGI.")
+        return sse_streaming_response(wizard_run_event_stream(self.team_id, run.id), endpoint="wizard_run")
 
     @extend_schema(
         request=WizardRunStatusUpdateRequestSerializer,
@@ -167,3 +215,48 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("Only the user who started this Wizard run can update it.")
 
         return run
+
+
+class WizardRunTasksViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API endpoints for managing Wizard run tasks. Access is scoped to the Wizard only.
+
+    The Wizard should be the only client that can update the tasks of a run.
+    """
+
+    scope_object = "wizard_run"
+    scope_object_read_actions = ["get_tasks"]
+    scope_object_write_actions = ["tasks"]
+    http_method_names = ["get", "put", "head", "options"]
+    pagination_class = None
+    lookup_field = "run_id"
+    lookup_value_regex = "[0-9a-fA-F-]{36}"
+
+    def get_throttles(self) -> list:
+        return [WizardRunReadThrottle()]
+
+    # PUT /projects/:projectId/wizard/runs/:runId/tasks
+    @extend_schema(request=UpdateWizardRunTaskListSerializer, responses={204: None})
+    @action(detail=True, methods=["put"], url_path="tasks")
+    def tasks(self, request: Request, *args: object, **kwargs: object) -> Response:
+        if not isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            raise PermissionDenied("Use the setup agent's OAuth credentials to update run tasks.")
+        run = self._get_run()
+        if run.created_by_id != request.user.id:
+            raise PermissionDenied("Only the user who started this Wizard run can update it.")
+
+        serializer = UpdateWizardRunTaskListSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        wizard_facade.update_run_task_list(self.team_id, run.id, serializer.to_contract())
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: WizardRunTaskListSerializer})
+    @tasks.mapping.get
+    def get_tasks(self, request: Request, *args: object, **kwargs: object) -> Response:
+        return Response(WizardRunTaskListSerializer(self._get_run()).data)
+
+    def _get_run(self) -> WizardRunDTO:
+        try:
+            return wizard_facade.get_run(self.team_id, UUID(cast(str, self.kwargs["run_id"])))
+        except WizardRunNotFoundError:
+            raise NotFound("No Wizard run was found for this project.")
