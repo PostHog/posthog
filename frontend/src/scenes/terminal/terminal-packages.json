@@ -85,19 +85,6 @@
             "commands": {
                 "nyancat": "/opt/posthog-packages/nyancat-1.5.2-r1/bin/nyancat"
             }
-        },
-        "neovim": {
-            "name": "Neovim",
-            "version": "0.11.1-r1",
-            "file": "archives/neovim-0.11.1-r1-linux-i386.tar.gz",
-            "sha256": "afa616ab23afac13f33f8a1a45a0025e5892f49be879aca05ec3fa1db25e09b6",
-            "size": 9490313,
-            "archiveSize": 33024000,
-            "dependencies": [],
-            "commands": {
-                "nvim": "/opt/posthog-packages/neovim-0.11.1-r1/bin/nvim"
-            },
-            "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/b6267668fd1f5cfbb431f19f6b834b79a75265c4"
         }
     },
     "baseUrl": "https://raw.githubusercontent.com/PostHog/terminal-assets/745b60735f92fd480ff3aaf712b28c99ddd3221d",
