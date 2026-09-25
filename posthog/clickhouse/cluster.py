@@ -11,7 +11,7 @@ from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoo
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException
@@ -697,17 +697,6 @@ class Query:
         else:
             params_repr = f"{_redact_parameters(self.parameters)!r}"
         return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
-
-
-@dataclass
-class ExponentialBackoff:
-    delay: float
-    max_delay: Optional[float] = None
-    exp: float = 2.0
-
-    def __call__(self, attempt: int) -> float:
-        delay = self.delay * (attempt**self.exp)
-        return min(delay, self.max_delay) if self.max_delay is not None else delay
 
 
 @dataclass
