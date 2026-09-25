@@ -63,7 +63,7 @@ from posthog.models.person.bulk_delete import (
     resolve_persons_for_deletion,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
-from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.missing_person import MissingPerson, uuidFromDistinctId
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
     get_person_by_distinct_id,
@@ -1336,6 +1336,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             unknown = set(distinct_ids_to_split) - set(distinct_ids)
             if unknown:
                 raise ValidationError({"distinct_ids_to_split": f"not on this person: {sorted(unknown)}"})
+
+        creator_distinct_id = next(
+            (did for did in distinct_ids if uuidFromDistinctId(person.team_id, did) == person.uuid), None
+        )
+        if creator_distinct_id is not None:
+            if distinct_ids_to_split is not None:
+                moves_creator = creator_distinct_id in distinct_ids_to_split
+            else:
+                kept_id = main_distinct_id or distinct_ids[0]
+                moves_creator = kept_id != creator_distinct_id
+                if not moves_creator and not main_distinct_id:
+                    main_distinct_id = creator_distinct_id
+            if moves_creator:
+                raise ValidationError(
+                    "This distinct ID created the person and must stay with them. Choose another ID to split."
+                )
 
         split_person.delay(
             person.id,
