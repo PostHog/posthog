@@ -351,7 +351,7 @@ jobs:
               uses: ./.github/actions/wait-for-check
               with:
                   token: ${{ steps.app-token.outputs.token }}
-                  checkName: Sandbox Base Image Pass
+                  checkName: Sandbox Base Image Smoke
                   ref: ${{ steps.commit.outputs.commit-hash }}
                   timeoutSeconds: '4500'
                   intervalSeconds: '30'
@@ -363,7 +363,7 @@ jobs:
                   SHA: ${{ steps.commit.outputs.commit-hash }}
                   PR: ${{ steps.pr.outputs.number }}
               run: |
-                  echo "::error::Sandbox Base Image Pass concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
+                  echo "::error::Sandbox Base Image Smoke concluded $CONCLUSION on $SHA, so PR #$PR waits for a person"
                   exit 1
 
             - name: Smoke the agent on the Go ai-gateway
@@ -476,7 +476,7 @@ jobs:
                       if [ "$ENQUEUE" = "success" ]; then
                         text=":white_check_mark: The image built from ${pr} passed the smoke on amd64 and arm64 and on the Go ai-gateway. Approved and added to the merge queue."
                       elif [ -n "$SMOKE" ] && [ "$SMOKE" != "success" ]; then
-                        text=":red_circle: Sandbox Base Image Pass concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
+                        text=":red_circle: Sandbox Base Image Smoke concluded \`${SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
                       elif [ -n "$GATEWAY_SMOKE" ] && [ "$GATEWAY_SMOKE" != "pass" ]; then
                         text=":red_circle: The Go ai-gateway smoke reported \`${GATEWAY_SMOKE}\` on ${pr}, so it waits for a person. <${RUN_URL}|View run>"
                       elif [ -n "$PR_NUMBER" ]; then
