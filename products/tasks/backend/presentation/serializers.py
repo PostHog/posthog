@@ -123,7 +123,7 @@ def _may_select_claude_plan(request: Request) -> bool:
     Sandbox tokens are excluded by both checks — the agent's own code must never be able to
     put a run on its owner's plan.
     """
-    return _is_desktop_app_grant(request) or is_api_key_request(request)
+    return _is_desktop_app_grant(request) or is_api_key_request(getattr(request, "successful_authenticator", None))
 
 
 def _validate_subscription_caller(attrs: dict[str, Any], context: dict[str, Any]) -> None:

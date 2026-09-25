@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from rest_framework import authentication
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -208,7 +209,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         ]
     )
     def test_subscription_checks_oauth_origin(self, serializer_class, resume, caller) -> None:
-        authenticator = None
+        authenticator: authentication.BaseAuthentication | None = None
         if caller == "api_key":
             authenticator = PersonalAPIKeyAuthentication()
         elif caller != "session":

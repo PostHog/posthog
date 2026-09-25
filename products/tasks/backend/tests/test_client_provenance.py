@@ -131,8 +131,5 @@ class TestIsApiKeyRequest:
     def test_only_user_bound_api_keys_qualify(
         self, _name: str, authenticator_type: type | None, expected: bool
     ) -> None:
-        request = cast(
-            Request,
-            SimpleNamespace(successful_authenticator=authenticator_type() if authenticator_type else None),
-        )
-        assert is_api_key_request(request) is expected
+        authenticator = authenticator_type() if authenticator_type else None
+        assert is_api_key_request(authenticator) is expected

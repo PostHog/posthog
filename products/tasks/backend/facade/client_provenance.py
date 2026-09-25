@@ -9,14 +9,19 @@ from posthog.oauth_provenance import (
 from products.tasks.backend.models import TaskClientProvenance
 
 
-def is_api_key_request(request: Request) -> bool:
-    """Whether this request authenticated with a long-lived API key acting as a user.
+def is_api_key_request(authenticator: object) -> bool:
+    """Whether ``authenticator`` — a request's ``successful_authenticator`` — is a
+    long-lived API key acting as a user.
 
     "As a user" is the load-bearing half. Callers use this to decide things that are
     charged or attributed to a person, so a key that resolves to a team or a project
     rather than a user — ``TeamSecretTokenAuthentication`` hands back a synthetic
     ``TeamSecretTokenUser``, ``ProjectSecretAPIKeyAuthentication`` is project-scoped —
     must not qualify, however server-to-server it looks.
+
+    Takes the authenticator rather than the request itself: the facade boundary must not
+    put a DRF type on its signature (products/architecture.md § Facades: The Public
+    Interface), and the authenticator is the only part of the request this needs.
 
     Personal API keys are the only kind that qualifies today; ``isinstance`` also covers
     the delegated variant. A future key type (BYOK, say) belongs in the tuple below once
@@ -28,7 +33,7 @@ def is_api_key_request(request: Request) -> bool:
     from posthog.auth import PersonalAPIKeyAuthentication  # noqa: PLC0415 — circular at module level
 
     user_api_key_authenticators: tuple[type, ...] = (PersonalAPIKeyAuthentication,)
-    return isinstance(getattr(request, "successful_authenticator", None), user_api_key_authenticators)
+    return isinstance(authenticator, user_api_key_authenticators)
 
 
 def get_task_client_provenance(request: Request) -> TaskClientProvenance | None:
