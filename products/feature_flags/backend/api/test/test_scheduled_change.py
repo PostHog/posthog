@@ -89,6 +89,27 @@ class TestScheduledChange(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == "unsupported_config_version"
 
+    @parameterized.expand(
+        [("null_groups", {"operation": "add_release_condition", "value": {"groups": None}}), ("list", [])]
+    )
+    def test_a_v1_target_leaves_payload_shape_errors_to_the_applier(self, _name, payload):
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="v1", filters={"groups": [{"properties": []}]}
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={
+                "record_id": str(flag.id),
+                "model_name": "FeatureFlag",
+                "scheduled_at": "2030-01-01T00:00:00Z",
+                "payload": payload,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
     def test_cannot_create_scheduled_change_without_feature_flag_edit_permission(self):
         """Test that users without edit permissions cannot create scheduled changes for feature flags"""
         # Create a feature flag

@@ -4269,6 +4269,10 @@ class ExperimentService:
         should_check_existing = is_cross_project or feature_flag_key != source_experiment.feature_flag.key
         if should_check_existing:
             existing_flag = FeatureFlag.objects.filter(key=feature_flag_key, team_id=target.id).first()
+            if existing_flag:
+                # The same adoption check create_experiment applies, taken before the variants are
+                # read so a flag this product cannot use surfaces as a validation error here too.
+                assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
             if existing_flag and existing_flag.variants:
                 clone_variants = deepcopy(existing_flag.variants)
 

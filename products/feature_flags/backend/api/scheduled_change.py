@@ -16,8 +16,8 @@ from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.serializers import ChangeRequestSummarySerializer
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
-from products.feature_flags.backend.facade.config import ConfigFormatError
-from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
+from products.feature_flags.backend.facade.config import detect_config_format
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
 
@@ -131,12 +131,14 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return obj.formatted_failure_reason
 
     @staticmethod
-    def _reject_unsupported_target(feature_flag: FeatureFlag, payload: dict) -> None:
-        # Shaping the payload reads the flag's document the way the applier will, so a target in
-        # another config format fails closed when scheduled rather than when fired.
-        try:
-            build_scheduled_change_serializer_data(feature_flag, payload)
-        except ConfigFormatError:
+    def _reject_unsupported_target(feature_flag: FeatureFlag, payload: object) -> None:
+        # A status change never reads the document; every other operation merges into it as v1
+        # (build_scheduled_change_serializer_data), so a target in another config format fails
+        # closed when scheduled rather than when fired. Payload shape stays the applier's business.
+        operation = payload.get("operation") if isinstance(payload, dict) else None
+        if operation == ScheduledChange.OperationType.UPDATE_STATUS:
+            return
+        if detect_config_format(feature_flag.filters).kind != "v1":
             raise serializers.ValidationError(
                 {"payload": "This flag uses a configuration format that scheduled changes cannot modify."},
                 code="unsupported_config_version",
