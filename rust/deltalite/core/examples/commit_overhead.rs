@@ -384,8 +384,8 @@ async fn main() {
 
     // Benchmark-only fixture cache keyed by run parameters; not a security-sensitive
     // temp file, so a predictable name under the system temp dir is intentional here.
-    // nosemgrep: rust.lang.security.temp-dir.temp-dir
     let dir = args.dir.clone().unwrap_or_else(|| {
+        // nosemgrep: rust.lang.security.temp-dir.temp-dir
         std::env::temp_dir().join(format!(
             "deltalite-commit-overhead-v{}-r{}-p{}-nn{}",
             args.versions, args.rows, args.partitions, args.non_nullable_pk as u8
