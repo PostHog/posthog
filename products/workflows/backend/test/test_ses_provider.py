@@ -79,18 +79,31 @@ class TestSESProvider(TestCase):
 
     @parameterized.expand(
         [
-            ("rejected credentials", "InvalidClientTokenId", EmailProviderUnavailable),
-            ("missing permission", "AccessDenied", EmailProviderUnavailable),
-            ("provider fault", "ServiceFailure", ClientError),
+            ("identity setup", "verify_domain_identity", "InvalidClientTokenId"),
+            ("dkim setup", "verify_domain_dkim", "AccessDenied"),
+            ("mail from setup", "set_identity_mail_from_domain", "SignatureDoesNotMatch"),
         ]
     )
-    def test_verify_email_domain_reports_credential_failures_as_unavailable(self, _name, error_code, expected_error):
+    def test_verify_email_domain_reports_credential_failures_as_unavailable(self, _name, failing_operation, error_code):
+        provider = SESProvider()
+        with patch.object(provider, "ses_client") as mock_ses_client:
+            getattr(mock_ses_client, failing_operation).side_effect = ClientError(
+                {"Error": {"Code": error_code, "Message": "the security token is invalid"}}, failing_operation
+            )
+            with pytest.raises(EmailProviderUnavailable) as raised:
+                provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
+
+        assert raised.value.status_code == 503
+        assert "the security token is invalid" not in str(raised.value.detail)
+        assert "contact support" in str(raised.value.detail)
+
+    def test_verify_email_domain_propagates_a_failure_that_is_not_about_credentials(self):
         provider = SESProvider()
         with patch.object(provider, "ses_client") as mock_ses_client:
             mock_ses_client.verify_domain_identity.side_effect = ClientError(
-                {"Error": {"Code": error_code, "Message": "rejected"}}, "VerifyDomainIdentity"
+                {"Error": {"Code": "ServiceFailure", "Message": "ses is down"}}, "VerifyDomainIdentity"
             )
-            with pytest.raises(expected_error):
+            with pytest.raises(ClientError):
                 provider.verify_email_domain(TEST_DOMAIN, mail_from_subdomain="mail", team_id=1)
 
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
