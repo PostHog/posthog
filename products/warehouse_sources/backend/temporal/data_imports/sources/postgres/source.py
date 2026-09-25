@@ -371,12 +371,12 @@ class PostgresSource(
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
 
-    def resume_covers_run(self, *, incremental_or_append: bool) -> bool:
-        # Nothing yet. The seek that carries the checkpoint is still the read-replica retry fallback,
-        # so almost no run reaches it, and handing the resumable retry allowance to every Postgres
-        # full load would let one that cannot seek redo a multi-hour read 20 times over rather than
-        # 3. Widen this to `not incremental_or_append` with the gate that makes seeking the default.
-        return False
+    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+        # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
+        # its watermark and keeps the incremental budget. And a full load only resumes once the flag
+        # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
+        # and would cost a whole re-read on each extra attempt.
+        return not incremental_or_append and keyset_full_load_enabled
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
         return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
@@ -1984,6 +1984,7 @@ class PostgresSource(
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,
+                keyset_full_load_enabled=inputs.keyset_full_load,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the

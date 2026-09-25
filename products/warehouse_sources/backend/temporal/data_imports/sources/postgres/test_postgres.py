@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _resolve_hostaddr_with_timeout,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import batching
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -102,6 +103,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _build_count_query,
     _build_query,
     _capture_xmin_ceiling,
+    _check_keyset_page_plan,
     _connect_to_postgres,
     _connect_with_dropped_retry,
     _fetch_rows_for,
@@ -4261,6 +4263,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
+        keyset_full_load_enabled: bool = False,
     ) -> list[int]:
         @contextmanager
         def fake_tunnel():
@@ -4318,6 +4321,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 xmin_last_value=self._XMIN_BOUNDS.lower if is_xmin else None,
                 activity_attempt=activity_attempt,
                 resumable_source_manager=resumable_source_manager,
+                keyset_full_load_enabled=keyset_full_load_enabled,
             )
             self.last_response = response
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
@@ -4524,6 +4528,115 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         assert self.last_response.supports_resume is False
         assert manager.save_state.call_count == 0
+
+    def test_the_flag_makes_the_first_attempt_seek_and_resume(self):
+        # What the flag buys: the first attempt pages and checkpoints, so a drained worker resumes
+        # rather than restarting. Without it the seek waits for a second attempt against a replica,
+        # which is a slice too small to matter.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=1,
+            resumable_source_manager=manager,
+            keyset_full_load_enabled=True,
+        )
+
+        assert self.last_response.supports_resume is True
+        assert manager.save_state.call_count > 0
+
+    def test_the_first_attempt_does_not_seek_with_the_flag_off(self):
+        # The regression guard for the rollout: a flag-off deploy has to read exactly as it does now,
+        # so nothing changes for the fleet until the flag reaches a team.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=1,
+            resumable_source_manager=manager,
+            keyset_full_load_enabled=False,
+        )
+
+        assert self.last_response.supports_resume is False
+        assert manager.save_state.call_count == 0
+
+    def test_the_flag_does_not_make_an_incremental_run_seek(self):
+        # The flag widens the full-load path only. An incremental run already resumes from its
+        # watermark, and seeking it would read the table twice.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        self._read_ids(
+            should_use_incremental_field=True,
+            rows_before_conflict=2,
+            primary_keys=["id"],
+            activity_attempt=1,
+            resumable_source_manager=manager,
+            keyset_full_load_enabled=True,
+        )
+
+        assert self.last_response.supports_resume is False
+
+    def test_a_resumed_run_seeks_past_the_persisted_checkpoint(self):
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = KeysetResumeState(last_key=2, last_keys=[2])
+
+        ids = self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            activity_attempt=1,
+            resumable_source_manager=manager,
+            keyset_full_load_enabled=True,
+        )
+
+        # Rows at or below the checkpoint are never re-read, which is what makes a resumed load
+        # append-safe: the pipeline appends after batch 0 rather than overwriting.
+        assert ids and min(ids) > 2
+
+
+class TestCheckKeysetPagePlan:
+    """The signal that says whether widening the seek is safe for a table."""
+
+    @pytest.mark.parametrize(
+        "plan,warns",
+        [
+            ("Limit  (cost=0.29..8.31 rows=2)\n  ->  Index Scan using companies_pkey on companies", False),
+            ("Limit\n  ->  Index Only Scan using companies_pkey on companies", False),
+            # A row filter pulled the planner onto another index, so the page cannot read in key
+            # order and sorts the matched set — once per page, not once per load.
+            ("Limit\n  ->  Sort  (cost=1.0..2.0)\n        ->  Index Scan using idx_status", True),
+            ("Limit\n  ->  Incremental Sort\n        ->  Index Scan using idx_status", True),
+            # The key's index was not used at all.
+            ("Limit\n  ->  Seq Scan on companies  (cost=0.00..1.00)", True),
+        ],
+        ids=["index_scan", "index_only_scan", "sort", "incremental_sort", "seq_scan"],
+    )
+    def test_warns_only_when_the_page_is_not_an_index_scan_in_key_order(self, plan, warns):
+        cursor = mock.MagicMock()
+        cursor.fetchall.return_value = [(line,) for line in plan.split("\n")]
+        logger = mock.MagicMock()
+
+        _check_keyset_page_plan(cursor, sql.SQL("SELECT 1"), logger)  # type: ignore[arg-type]
+
+        assert logger.warning.called is warns
+
+    def test_swallows_an_explain_failure(self):
+        # Diagnostics must never fail the page that follows.
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.InsufficientPrivilege("nope")
+        logger = mock.MagicMock()
+
+        _check_keyset_page_plan(cursor, sql.SQL("SELECT 1"), logger)  # type: ignore[arg-type]
+
+        assert logger.warning.called is False
 
 
 class TestSafeCloseConnection:

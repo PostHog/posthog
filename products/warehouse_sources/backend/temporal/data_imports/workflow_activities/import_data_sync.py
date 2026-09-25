@@ -78,6 +78,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.his
     history_start_for_schema,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.keyset_full_load_flag import (
+    is_keyset_full_load_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import TemporaryHostResolutionError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -514,6 +517,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             byte_bounded_extraction = await database_sync_to_async_pool(is_byte_bounded_extraction_enabled)(
                 inputs.team_id, str(source_type)
             )
+            keyset_full_load = await database_sync_to_async_pool(is_keyset_full_load_enabled)(
+                inputs.team_id, str(source_type)
+            )
             # INFO so it's visible without DEBUG: confirms which parent-source path a fan-out
             # child took, and doubles as rollout-adoption telemetry. Only fan-out children
             # (schemas with required parents) log it; every other schema stays quiet.
@@ -555,6 +561,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                keyset_full_load=keyset_full_load,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
             )
 
