@@ -100,7 +100,7 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 | `DeltaLiteTable.is_deltatable(uri, storage_options=None)` | `True` if a Delta table exists at `uri`. |
 | `.upsert(data, primary_keys, partition_key=None, **opts)` | Insert-or-replace `data` by key. Returns `UpsertStats`. See knobs below. |
 | `.version()` | Current table version (`int`). |
-| `.reload()` | Reload the table state from the log. |
+| `.reload()` | Bring the table state up to date with the log (incremental; falls back to a full re-open). |
 | `.schema_arrow()` | Table schema as a pyarrow `Schema`. |
 | `.partition_columns()` | Partition column names (`list[str]`). |
 | `.file_uris()` | URIs of the table's active data files. |
@@ -111,9 +111,13 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 Returned by `upsert`. Counts: `version`, `partitions_touched`, `files_added`,
 `files_removed`, `files_carried_over`, `files_probed`, `rows_updated`,
 `rows_inserted`, `rows_copied`, `source_rows`, `null_pk_rows`. Per-phase
-wall-clock timings (milliseconds): `plan_ms` (listing + pruning files),
-`rewrite_ms` (reading + rewriting the touched partitions), `commit_ms`
-(committing to the Delta log).
+wall-clock timings (milliseconds): `ingest_ms` (importing the pyarrow source),
+`open_ms` (snapshot refreshes around the upsert), `relax_ms` (nullability-relax
+check), `plan_ms` (listing + pruning files), `rewrite_ms` (reading + rewriting
+the touched partitions), `commit_ms` (committing to the Delta log),
+`maintenance_ms` (checkpoint/log cleanup, non-zero only on checkpoint-boundary
+commits). `columns_relaxed` counts non-nullable columns flipped to nullable
+before the write.
 
 ### Exceptions
 

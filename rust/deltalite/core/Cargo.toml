@@ -53,3 +53,8 @@ thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+
+[dev-dependencies]
+# For the commit_overhead example (counted:// store registration) and table-fixture tests.
+tempfile = "3"
+url = { workspace = true }
