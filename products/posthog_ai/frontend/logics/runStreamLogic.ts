@@ -1454,6 +1454,9 @@ function invocationFromToolCallUpdate(
 
 // Log entries are append-only, so a frame's params object is stable across folds; caching on it keeps
 // the offer's identity stable and the memoized trailer rows from re-rendering on every streamed frame.
+const TURN_SUGGESTION_LEDGER_ATTEMPTS = 3
+const TURN_SUGGESTION_LEDGER_RETRY_MS = 1000
+
 const parsedTurnSuggestions = new WeakMap<object, TurnSuggestion | null>()
 function parseTurnSuggestionFrame(params: object): TurnSuggestion | null {
     if (!parsedTurnSuggestions.has(params)) {
@@ -2367,6 +2370,13 @@ export interface runStreamLogicActions {
     setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => {
         ledger: TurnSuggestionLedger
     }
+    loadTurnSuggestionLedger: (
+        taskId: string,
+        attempt?: number
+    ) => {
+        taskId: string
+        attempt: number
+    }
     sseConnecting: () => {
         value: true
     }
@@ -2662,6 +2672,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
         setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => ({ ledger }),
+        loadTurnSuggestionLedger: (taskId: string, attempt: number = 0) => ({ taskId, attempt }),
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
@@ -3181,6 +3192,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 s.turnSuggestionOutcomesHere,
                 s.turnSuggestionAcceptedHere,
                 s.turnSuggestionsMuted,
+                s.bootstrappedTaskId,
             ],
             (
                 foldedThread: FoldedThread,
@@ -3188,7 +3200,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 ledger: TurnSuggestionLedger | null,
                 outcomesHere: Record<number, string>,
                 acceptedHere: number | null,
-                muted: boolean
+                muted: boolean,
+                taskId: string | null
             ): TurnSuggestion | null => {
                 const offer = foldedThread.turnSuggestions.latest
                 // The classifier runs after the answer, so an offer can land once the user already sent
@@ -3200,10 +3213,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (acceptedHere === offer.turnIndex) {
                     return offer
                 }
+                // Resolutions reach the log only while a tab is open, so a replayed offer waits for the ledger.
+                if (!ledger || (taskId !== null && ledger.taskId !== taskId)) {
+                    return null
+                }
                 const resolved =
                     foldedThread.turnSuggestions.outcomes.has(offer.turnIndex) ||
                     offer.turnIndex in outcomesHere ||
-                    !!ledger?.resolvedTurns.includes(offer.turnIndex)
+                    ledger.resolvedTurns.includes(offer.turnIndex)
                 return muted || resolved ? null : offer
             },
         ],
@@ -3734,6 +3751,33 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.resetRecoveryBudget()
                 cache.recoveryStartedAt = Date.now()
                 actions.bootstrapRun({ taskId: previous.taskId, runId: previous.runId })
+            },
+            loadTurnSuggestionLedger: async ({ taskId, attempt }) => {
+                const projectId = values.currentProjectId
+                if (!projectId || values.bootstrappedTaskId !== taskId) {
+                    return
+                }
+                try {
+                    const state = await turnSuggestionsStateRetrieve(String(projectId), { task_id: taskId })
+                    if (values.bootstrappedTaskId === taskId) {
+                        actions.setTurnSuggestionLedger({
+                            taskId,
+                            muted: state.muted,
+                            resolvedTurns: state.resolved_turns,
+                        })
+                    }
+                } catch {
+                    // The card stays hidden while the ledger is unknown, so a failed read retries a few times.
+                    if (attempt + 1 < TURN_SUGGESTION_LEDGER_ATTEMPTS && values.bootstrappedTaskId === taskId) {
+                        cache.disposables.add(() => {
+                            const timer = setTimeout(
+                                () => actions.loadTurnSuggestionLedger(taskId, attempt + 1),
+                                TURN_SUGGESTION_LEDGER_RETRY_MS * 2 ** attempt
+                            )
+                            return () => clearTimeout(timer)
+                        }, 'turnSuggestionLedgerRetry')
+                    }
+                }
             },
             openSseForRun: ({ taskId, runId }) => {
                 if (props.replayOnly) {
@@ -4395,6 +4439,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 // per-frame invocation tracker mirrors the log, so it must clear alongside it.
                 cache.trackedToolInvocations = undefined
                 cache.turnSuggestionLedgerTaskId = null
+                cache.disposables.dispose('turnSuggestionLedgerRetry')
                 cache.permissionRunId = undefined
                 cache.activeRun = undefined
                 cache.turnStartedAtMs = undefined
@@ -4605,22 +4650,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
                     // no tab of this conversation was open. Read once per task, when it first has an offer.
                     const taskId = values.bootstrappedTaskId
-                    const projectId = values.currentProjectId
-                    if (taskId && projectId && cache.turnSuggestionLedgerTaskId !== taskId) {
+                    if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
                         cache.turnSuggestionLedgerTaskId = taskId
-                        void turnSuggestionsStateRetrieve(String(projectId), { task_id: taskId })
-                            .then((state) => {
-                                if (values.bootstrappedTaskId === taskId) {
-                                    actions.setTurnSuggestionLedger({
-                                        taskId,
-                                        muted: state.muted,
-                                        resolvedTurns: state.resolved_turns,
-                                    })
-                                }
-                            })
-                            .catch(() => {
-                                cache.turnSuggestionLedgerTaskId = null
-                            })
+                        actions.loadTurnSuggestionLedger(taskId)
                     }
                     return
                 }

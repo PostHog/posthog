@@ -4728,6 +4728,7 @@ describe('runStreamLogic', () => {
             scout: { displayName: 'Weekly signups', description: '', body: '# Weekly signups', cadence: 'weekly' },
         }
         const askAndOffer = (): void => {
+            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'How many signups?' }))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_suggestion', suggestionParams))
         }
@@ -4825,7 +4826,6 @@ describe('runStreamLogic', () => {
 
         it('reads the server ledger once per task when the first offer arrives', async () => {
             jest.mocked(turnSuggestionsStateRetrieve).mockResolvedValue({ muted: false, resolved_turns: [0] })
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
 
             await expectLogic(logic, () => {
                 askAndOffer()
@@ -4835,6 +4835,24 @@ describe('runStreamLogic', () => {
             expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(1)
             expect(turnSuggestionsStateRetrieve).toHaveBeenCalledWith('997', { task_id: 'task-1' })
             expect(logic.values.turnSuggestion).toBeNull()
+        })
+
+        it('keeps the offer hidden until the ledger loads, and retries a failed read', async () => {
+            jest.useFakeTimers()
+            try {
+                jest.mocked(turnSuggestionsStateRetrieve).mockRejectedValueOnce(new Error('offline'))
+
+                askAndOffer()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.turnSuggestion).toBeNull()
+
+                await jest.advanceTimersByTimeAsync(1000)
+
+                expect(turnSuggestionsStateRetrieve).toHaveBeenCalledTimes(2)
+                expect(logic.values.turnSuggestion).toMatchObject({ kind: 'scout', turnIndex: 0 })
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
