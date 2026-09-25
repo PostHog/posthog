@@ -4298,14 +4298,18 @@ jobs:
         steps:
             # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              id: checkout
               if: github.run_attempt == '1'
+              continue-on-error: true
               with:
                   sparse-checkout: .github/scripts/capture_depot_running_time.py
                   sparse-checkout-cone-mode: false
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
-              if: github.run_attempt == '1'
+              id: setup-depot
+              if: github.run_attempt == '1' && steps.checkout.outcome == 'success'
+              continue-on-error: true
             - name: Capture running time to PostHog and DevEx PostHog
-              if: github.run_attempt == '1'
+              if: github.run_attempt == '1' && steps.setup-depot.outcome == 'success'
               continue-on-error: true
               env:
                   DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
