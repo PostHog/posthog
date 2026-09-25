@@ -37,7 +37,9 @@ def execute_trino_shadow_materialization(
     schema_name = ducklake_data_modeling_schema(team_id)
     query_id = UUID(str(saved_query_id))
     table_name = get_data_modeling_table_names(team_id, [query_id])[query_id]
-    with connect_managed_warehouse_trino(organization_id) as connection:
+    with connect_managed_warehouse_trino(
+        organization_id, principal=f"posthog:trino-materialization:team:{team_id}:view:{saved_query_id}"
+    ) as connection:
         schema = f"{escape_trino_identifier(connection.catalog)}.{escape_trino_identifier(schema_name)}"
         table = f"{schema}.{escape_trino_identifier(table_name)}"
         cursor = connection.cursor()

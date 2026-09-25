@@ -226,7 +226,9 @@ def reconcile_trino_model_aliases(
     if not enabled:
         return ModelAliasReconciliation(active=False)
     models = _load_models(team_id, saved_query_ids)
-    with connect_managed_warehouse_trino(str(organization_id)) as connection:
+    with connect_managed_warehouse_trino(
+        str(organization_id), principal=f"posthog:trino-model-aliases:team:{team_id}"
+    ) as connection:
         cursor = connection.cursor()
         if control:
             control.attach(cursor)
