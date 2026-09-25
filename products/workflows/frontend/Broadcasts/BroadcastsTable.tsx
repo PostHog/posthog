@@ -39,8 +39,10 @@ const METRIC_COLUMNS: { title: string; metricName: string }[] = [
 ]
 
 export function BroadcastsTable(): JSX.Element {
-    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters, filtersPending } =
+    const { broadcasts, broadcastsLoading, hasLoadedBroadcasts, rowDetailsById, filters, filtersPending, loadFailed } =
         useValues(broadcastsLogic)
+    // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
+    const hideRows = loadFailed && filtersPending
     const { setFilters } = useActions(broadcastsLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
@@ -151,7 +153,7 @@ export function BroadcastsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
-                dataSource={broadcasts.results}
+                dataSource={hideRows ? [] : broadcasts.results}
                 pagination={{
                     controlled: true,
                     pageSize: BROADCASTS_PAGE_SIZE,
@@ -160,11 +162,17 @@ export function BroadcastsTable(): JSX.Element {
                     onForward: broadcasts.next ? () => setFilters({ page: page + 1 }) : undefined,
                     onBackward: page > 1 ? () => setFilters({ page: page - 1 }) : undefined,
                 }}
-                loading={broadcastsLoading || filtersPending}
+                loading={broadcastsLoading || (filtersPending && !loadFailed)}
                 rowKey="id"
                 columns={columns}
                 nouns={['broadcast', 'broadcasts']}
-                emptyState={isFiltered ? 'No broadcasts match these filters' : 'No broadcasts'}
+                emptyState={
+                    hideRows
+                        ? "Couldn't load broadcasts. Refresh the page to try again."
+                        : isFiltered
+                          ? 'No broadcasts match these filters'
+                          : 'No broadcasts'
+                }
                 data-attr="broadcasts-table"
             />
         </div>
