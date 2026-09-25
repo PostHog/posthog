@@ -102758,8 +102758,10 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest start first. */
+      /** AI events in the trace, earliest start first, up to 500 of them. */
       results: _TracingTraceAiEvent[];
+      /** Whether the trace has more AI events than `results` holds. The full list is in LLM analytics under the events' `ai_trace_id`. */
+      has_more: boolean;
     }
 
     export interface _TracingTraceRequest {

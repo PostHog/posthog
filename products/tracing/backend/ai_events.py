@@ -12,7 +12,8 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 # A run rarely makes more than a few hundred model calls, and past this many rows the waterfall
-# stops being readable, so the lookup does not page.
+# stops being readable, so the lookup does not page. A trace past the cap reports `has_more`, and
+# the caller links to LLM analytics, which lists every event.
 MAX_AI_EVENTS_PER_TRACE = 500
 
 # The LLM analytics event kinds that carry a latency, so each one can be placed on the timeline.
@@ -45,9 +46,15 @@ class TraceAiEvent:
     is_error: bool
 
 
-def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> list[TraceAiEvent]:
+@frozen
+class TraceAiEvents:
+    events: list[TraceAiEvent]
+    has_more: bool
+
+
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> TraceAiEvents:
     """LLM analytics events whose `$ai_trace_id` is the OpenTelemetry trace id, earliest start
-    first. Matches the 32-hex form OTel ingestion writes and the hyphenated UUID form the LLM
+    first, capped at `MAX_AI_EVENTS_PER_TRACE`. Matches the 32-hex form OTel ingestion writes and the hyphenated UUID form the LLM
     gateway writes for a `traceparent` header.
 
     Reads `ai_events`, whose sort key starts with `(team_id, trace_id)`, so a trace with no AI
@@ -98,15 +105,20 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
             "trace_ids": ast.Constant(value=_stored_trace_id_forms(trace_id)),
             "otel_source": ast.Constant(value=OTEL_INGESTION_SOURCE),
             "max_latency": ast.Constant(value=MAX_LATENCY_SECONDS),
-            # Explicit, because HogQL caps a select without a LIMIT at 100 rows.
-            "limit": ast.Constant(value=MAX_AI_EVENTS_PER_TRACE),
+            # Explicit, because HogQL caps a select without a LIMIT at 100 rows. One row past the
+            # cap tells a full trace from a truncated one.
+            "limit": ast.Constant(value=MAX_AI_EVENTS_PER_TRACE + 1),
         },
     )
     response = execute_hogql_query(query=query, team=team, user=user, query_type="TracingTraceAiEventsQuery")
     # The event alias differs from the column it aggregates, because an alias equal to a column
     # name shadows it in WHERE and ClickHouse then rejects the aggregate there.
     columns = [{"event_name": "event"}.get(c, c) for c in response.columns or []]
-    return [TraceAiEvent(**dict(zip(columns, row))) for row in response.results or []]
+    rows = response.results or []
+    return TraceAiEvents(
+        events=[TraceAiEvent(**dict(zip(columns, row))) for row in rows[:MAX_AI_EVENTS_PER_TRACE]],
+        has_more=len(rows) > MAX_AI_EVENTS_PER_TRACE,
+    )
 
 
 def _stored_trace_id_forms(trace_id: str) -> list[str]:

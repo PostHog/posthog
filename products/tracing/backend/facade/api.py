@@ -35,7 +35,7 @@ from posthog.schema import (
 )
 
 from products.tracing.backend.ai_events import (
-    TraceAiEvent,
+    TraceAiEvents,
     fetch_trace_ai_events as _fetch_trace_ai_events,
 )
 from products.tracing.backend.attribute_breakdown_query_runner import (
@@ -246,9 +246,10 @@ def count_session_exceptions(
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
 
 
-def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> list[TraceAiEvent]:
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> TraceAiEvents:
     """List the LLM analytics events whose `$ai_trace_id` is the trace id, as lowercase hex or as
-    the hyphenated UUID the LLM gateway writes, earliest start first. The events side of the
+    the hyphenated UUID the LLM gateway writes, earliest start first, capped with `has_more` set
+    past the cap. The events side of the
     trace-to-AI-events join, which the caller finishes. The user's property access rules apply to
     the returned columns.
     """
