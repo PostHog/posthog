@@ -37,6 +37,8 @@ class TestRequireShadowDsn:
             ("postgres://user@persons-shadow.example:5432/posthog?dbname=production",),
             ("postgres://user@persons-shadow.example:5432/posthog?service=prod",),
             ("postgres://user@persons-shadow.example,prod.example:5432/posthog",),
+            # A libpq key/value DSN has no URL authority for the guard to check.
+            ("host=prod.example dbname=posthog user=dagster_shadow",),
         ]
     )
     def test_rejects_non_shadow_targets(self, url: str) -> None:
