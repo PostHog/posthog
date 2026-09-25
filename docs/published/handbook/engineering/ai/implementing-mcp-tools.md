@@ -316,6 +316,10 @@ Product teams own their definitions and control which operations are exposed as 
          # Use it on tools that echo a nested serializer schema, where the unset optional fields
          # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
          # removing a `null` that only some rows carry makes the table larger, not smaller.
+         text_include: [id, name, status] # narrow only the text the model reads, per row of a list
+         # The structured payload stays whole, so a UI app and a JSON caller still see every field.
+         # Use it on a list tool whose rows are far wider than what a reader needs to choose between
+         # them. Pick `exclude` instead when a field should leave the response for every caller.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.
