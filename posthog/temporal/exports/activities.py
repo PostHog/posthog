@@ -7,14 +7,21 @@ from temporalio.exceptions import ApplicationError
 from posthog.event_usage import EventSource
 from posthog.sync import database_sync_to_async
 from posthog.tasks import exporter
-from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, MAX_ERROR_TRACE_CHARS, truncate_for_temporal_payload
+from posthog.temporal.common.errors import (
+    MAX_ERROR_MESSAGE_CHARS,
+    MAX_ERROR_TRACE_CHARS,
+    NonReportableApplicationError,
+    truncate_for_temporal_payload,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult, export_failure_metadata
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
     SYSTEM_ERROR_NAMES,
     TIMEOUT_ERROR_NAMES,
+    BrowserlessUnavailable,
     ExportCancelled,
     export_slo_failure_details,
 )
@@ -24,6 +31,21 @@ logger = structlog.get_logger(__name__)
 # Render/query timeouts are transient and must stay retryable; an explicit
 # cancellation is terminal even though it lives in TIMEOUT_ERROR_NAMES.
 RETRYABLE_ERROR_NAMES = SYSTEM_ERROR_NAMES | (TIMEOUT_ERROR_NAMES - {ExportCancelled.__name__})
+
+# An unreachable render service is a provider outage, not a defect, and every caller of this
+# activity retries it under EXPORT_RETRY_POLICY. Reporting each attempt files one error tracking
+# issue per attempt, so a bad provider hour buries the incident under duplicates. Log the attempts
+# that Temporal retries, and report the one that ends the retry chain. The Prometheus render
+# counters and the exports SLO dimensions still record every failed attempt.
+RETRYABLE_DEPENDENCY_ERROR_NAMES = frozenset({BrowserlessUnavailable.__name__})
+
+
+def _reports_to_error_tracking(exception_class: str) -> bool:
+    if exception_class not in RETRYABLE_DEPENDENCY_ERROR_NAMES:
+        return True
+    # An unlimited policy (maximum_attempts of 0) has no attempt that ends the chain, so it
+    # reports every attempt rather than staying silent for good.
+    return temporalio.activity.info().attempt >= EXPORT_RETRY_POLICY.maximum_attempts
 
 
 @temporalio.activity.defn
@@ -75,7 +97,10 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # errors retry; programming errors and Chrome crashes fail fast). See
             # posthog.temporal.exports.types.extract_error_details. Strings are truncated so
             # an upstream exception can't blow out the 2 MiB payload envelope.
-            raise ApplicationError(
+            error_class = (
+                ApplicationError if _reports_to_error_tracking(exception_class) else NonReportableApplicationError
+            )
+            raise error_class(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 export_failure_metadata(export_slo_failure_details(e)),
