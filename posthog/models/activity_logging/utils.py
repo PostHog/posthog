@@ -49,6 +49,9 @@ CredentialType = Literal[
     "service_jwt",
     "internal_api_secret",
     "scim",
+    "vercel",
+    "partner",
+    "unattributed",
 ]
 # Sized for an ID-JAG `client_id`, the longest value: the identity provider config accepts client
 # ids up to 256 characters. Key ids, OAuth application UUIDs and session public ids are much shorter.
@@ -65,8 +68,9 @@ class ActivityCredential:
 
     type: CredentialType
     # The personal or project secret key id, the OAuth application UUID, the ID-JAG client id, the
-    # SCIM identity provider config id, the service JWT audience, or `session_public_id` for a
-    # session. None when the credential has no id of its own.
+    # SCIM identity provider config id, the service JWT audience, the Vercel installation id, the
+    # partner application UUID, or `session_public_id` for a session. None when the credential has
+    # no id of its own.
     id: str | None = None
     impersonated_by_id: int | None = None
 

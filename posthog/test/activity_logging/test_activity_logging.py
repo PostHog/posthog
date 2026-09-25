@@ -315,6 +315,25 @@ class TestActivityLogModel(BaseTest):
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertIsNone(log.ip_address)
 
+    def test_a_request_that_recorded_no_credential_is_marked_unattributed(self) -> None:
+        activity_storage.mark_request_scoped()
+        try:
+            log = log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=13,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_all()
+
+        assert log is not None
+        assert (log.credential_type, log.credential_id) == ("unattributed", None)
+
     def test_bulk_log_activity_records_the_request_credential(self) -> None:
         activity_storage.set_credential(ActivityCredential(type="personal_api_key", id="key-id", impersonated_by_id=7))
         try:

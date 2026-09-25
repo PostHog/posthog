@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_CLIENT_MAX_LENGTH,
     ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    ActivityCredential,
     activity_storage,
 )
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
@@ -1279,6 +1280,10 @@ def log_activity(
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
     credential = activity_storage.get_credential()
+    if credential is None and activity_storage.is_request_scoped():
+        # The request was anonymous, or an authentication class that records no credential verified
+        # it. Say so, so that the row does not read like one written outside a request.
+        credential = ActivityCredential(type="unattributed")
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
         detail = _with_agent_trigger(detail)
