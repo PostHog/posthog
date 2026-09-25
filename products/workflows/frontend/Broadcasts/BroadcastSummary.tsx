@@ -4,10 +4,8 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft, IconChevronDown, IconLetter } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
-import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -17,10 +15,10 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { EmailMetricsSummary } from '../Workflows/EmailMetricsSummary'
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
+import { BroadcastPerformance } from './BroadcastPerformance'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -238,7 +236,6 @@ function RunsTable({
 export function BroadcastSummary(): JSX.Element {
     const {
         broadcast,
-        broadcastId,
         name,
         audienceProperties,
         email,
@@ -269,31 +266,8 @@ export function BroadcastSummary(): JSX.Element {
         })
     }
 
-    // Email metrics from a batch send are attributed to the batch job, not the flow (see
-    // `parentRunId ?? functionId` in the plugin server's email service), so a flow-scoped query
-    // returns zeros for every broadcast. Key the logic by the run so it remounts once runs load.
     const latestBatchJob = batchJobs[0]
     const latestBatchJobId = latestBatchJob?.id
-    const metricsSourceId = latestBatchJobId ?? broadcastId
-    const logicKey = `broadcast-${metricsSourceId}`
-    // Mounting with force params here pins the metrics query to this run; EmailMetricsSummary
-    // reads the same keyed logic below. The date window follows the run rather than a fixed
-    // lookback, so a send older than 30 days still shows its counts.
-    useValues(
-        appMetricsLogic({
-            logicKey,
-            loadOnMount: true,
-            loadOnChanges: true,
-            forceParams: {
-                appSource: 'hog_flow',
-                appSourceId: metricsSourceId ?? undefined,
-                breakdownBy: 'metric_name',
-                dateFrom: latestBatchJob ? dayjs(latestBatchJob.created_at).subtract(1, 'hour').toISOString() : '-30d',
-                dateTo: latestBatchJob ? dayjs().add(1, 'hour').toISOString() : undefined,
-                interval: 'day',
-            },
-        })
-    )
 
     const batchJobColumns: LemonTableColumns<HogFlowBatchJobApi> = [
         {
@@ -406,7 +380,16 @@ export function BroadcastSummary(): JSX.Element {
                                                 ? 'Performance (latest send)'
                                                 : 'Performance (last 30 days)'}
                                         </h2>
-                                        <EmailMetricsSummary logicKey={logicKey} compact showTrends={false} />
+                                        {latestBatchJob ? (
+                                            <BroadcastPerformance
+                                                runId={latestBatchJob.id}
+                                                runStartedAt={latestBatchJob.created_at}
+                                            />
+                                        ) : (
+                                            <span className="text-muted">
+                                                Numbers show up here once the first send goes out.
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             ),
