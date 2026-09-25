@@ -1,4 +1,4 @@
-import type { InactivityPeriod } from '@posthog/replay-headless/protocol'
+import { type InactivityPeriod, METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
 
 import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
@@ -87,7 +87,7 @@ export async function rasterizeRecording(
         signal?.throwIfAborted()
         const viewport = {
             width: input.viewport_width || 1280,
-            height: input.viewport_height || 720,
+            height: (input.viewport_height || 720) + (input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0),
         }
         const playerUrl = `${cfg.siteUrl}/player`
         const capturePage = await CapturePage.prepare(

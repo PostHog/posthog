@@ -5,6 +5,8 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
+import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
+
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
@@ -169,6 +171,7 @@ async function rasterizeRecordingActivity(
             video_duration_s: result.capture_duration_s,
             playback_speed: result.playback_speed,
             show_metadata_footer: !!input.show_metadata_footer,
+            footer_height_px: input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0,
             truncated: result.truncated,
             inactivity_periods: periods,
             file_size_bytes: stat.size,

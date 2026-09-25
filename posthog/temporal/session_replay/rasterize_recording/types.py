@@ -87,6 +87,8 @@ class RasterizationActivityOutput(BaseModel, frozen=True):
     video_duration_s: float
     playback_speed: float
     show_metadata_footer: bool = False
+    # Rows at the bottom of each frame the footer takes; renders from before this was reported used 32.
+    footer_height_px: int = 0
     truncated: bool = False
     inactivity_periods: list[InactivityPeriod] = []
     file_size_bytes: int = 0

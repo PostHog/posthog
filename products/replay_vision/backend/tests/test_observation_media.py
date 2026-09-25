@@ -24,6 +24,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.activities.observation_media import (
+    _footer_crop_px,
     _pick_video_time_s,
     finalize_observation_thumbnail_activity,
     prepare_observation_thumbnail_activity,
@@ -302,3 +303,15 @@ def test_the_thumbnail_moment_stays_off_the_unstyled_edges_of_the_video(
         team_id=1, observation_id=uuid7(), session_id="s", analysis_asset_id=1, thumbnail_video_s=thumbnail_video_s
     )
     assert _pick_video_time_s(inputs, model_output, None, duration_s) == expected_s
+
+
+@pytest.mark.parametrize(
+    "context,expected_px",
+    [
+        ({"show_metadata_footer": True, "footer_height_px": 48}, 48),
+        ({"show_metadata_footer": True}, 32),
+        ({"show_metadata_footer": False, "footer_height_px": 48}, 0),
+    ],
+)
+def test_the_thumbnail_crops_the_footer_its_video_was_rendered_with(context: dict[str, Any], expected_px: int) -> None:
+    assert _footer_crop_px(context) == expected_px

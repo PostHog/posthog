@@ -191,6 +191,7 @@ def _try_synthesize_cached_output(
         video_duration_s=float(ctx["video_duration_s"]),
         playback_speed=float(ctx["playback_speed"]),
         show_metadata_footer=bool(ctx.get("show_metadata_footer", False)),
+        footer_height_px=int(ctx.get("footer_height_px") or 0),
         truncated=bool(ctx["truncated"]),
         inactivity_periods=inactivity_periods,
         file_size_bytes=int(ctx["file_size_bytes"]),
@@ -218,6 +219,7 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
                 include={
                     "video_duration_s",
                     "playback_speed",
+                    "footer_height_px",
                     "truncated",
                     "file_size_bytes",
                     "inactivity_periods",

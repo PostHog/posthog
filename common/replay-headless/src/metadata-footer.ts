@@ -4,6 +4,7 @@ import { getHrefFromSnapshot, type RecordingSegment } from '@posthog/replay-shar
 
 import { footerUrl } from './footer-url'
 import type { PlaybackController } from './playback-controller'
+import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
 import type { ReplayerWindow } from './replayer-factory'
 
 /**
@@ -41,13 +42,17 @@ export class MetadataFooter {
                 }
             })
         }
+        // The footer's own frame callback runs before the controller's, so without this the frame that switches
+        // windows would show the new window's page under the old window's number and URL.
+        this.controller.onWindowChange(() => this.update())
     }
 
     start(): void {
         if (!this.footerEl) {
             return
         }
-        this.footerEl.style.display = 'flex'
+        this.footerEl.style.display = 'grid'
+        this.footerEl.style.height = `${METADATA_FOOTER_HEIGHT_PX}px`
 
         const onFrame = (): void => {
             this.update()

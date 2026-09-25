@@ -18,8 +18,8 @@ from products.replay_vision.backend.models.replay_observation import ReplayObser
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.media_types import (
-    ANALYSIS_FOOTER_HEIGHT_PX,
     FALLBACK_THUMBNAIL_FRACTION,
+    LEGACY_ANALYSIS_FOOTER_HEIGHT_PX,
     THUMBNAIL_WIDTH_PX,
     ExtractThumbnailActivityInput,
     FinalizeObservationThumbnailInputs,
@@ -33,6 +33,13 @@ logger = structlog.get_logger(__name__)
 _MEDIA_EXPIRY = timedelta(days=90)
 # The first and last seconds of an analysis video show the page before its CSS applies or while it unloads.
 _EDGE_MARGIN_S = 3.0
+
+
+def _footer_crop_px(context: dict[str, Any]) -> int:
+    """Rows to crop off the analysis video, which carry the metadata footer rather than the page."""
+    if not context.get("show_metadata_footer"):
+        return 0
+    return int(context.get("footer_height_px") or LEGACY_ANALYSIS_FOOTER_HEIGHT_PX)
 
 
 def _media_key_prefix(team_id: int, observation_id: Any) -> str:
@@ -135,7 +142,7 @@ async def prepare_observation_thumbnail_activity(inputs: ObservationMediaInputs)
         activity_input=ExtractThumbnailActivityInput(
             source_s3_uri=f"s3://{settings.OBJECT_STORAGE_BUCKET}/{asset.content_location}",
             video_time_s=video_time_s,
-            footer_crop_px=ANALYSIS_FOOTER_HEIGHT_PX if context.get("show_metadata_footer") else 0,
+            footer_crop_px=_footer_crop_px(context),
             width=THUMBNAIL_WIDTH_PX,
             s3_bucket=settings.OBJECT_STORAGE_BUCKET,
             s3_key_prefix=_media_key_prefix(media_inputs.team_id, media_inputs.observation_id),

@@ -22,25 +22,25 @@
         .PlayerFrame__content { position: absolute; top: 0; left: 0; }
         #metadata-footer {
             display: none;
-            height: 32px;
             background: #000;
             color: #fff;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            font-size: 14px;
-            padding: 4px 8px 8px 8px;
+            font-size: 22px;
+            padding: 6px 12px;
+            /* The first row is centered, and fixed widths in the monospace font keep its fields from moving
+               as their values change; the URL gets the whole second row. */
+            grid-template-columns: 1fr 13ch 16ch 25ch 1fr;
+            grid-template-areas: ". rect window status ." "url url url url url";
             align-items: center;
-            justify-content: flex-start;
-            gap: 16px;
+            column-gap: 16px;
             white-space: nowrap;
             overflow: hidden;
         }
         #metadata-footer .label { font-weight: bold; }
-        /* Fixed widths in the monospace font, so REC_T and the window never move as their values change. */
-        #metadata-footer .rect { flex: 0 0 13ch; }
-        #metadata-footer .window { flex: 0 0 16ch; }
-        #metadata-footer .url { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-        /* As wide as the longest status, so the URL's room never changes with it. */
-        #meta-status { flex: 0 0 17ch; margin-left: auto; text-align: right; }
+        #metadata-footer .rect { grid-area: rect; }
+        #metadata-footer .window { grid-area: window; }
+        #metadata-footer .url { grid-area: url; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        #metadata-footer .status { grid-area: status; }
         #metadata-footer .status-ended { font-weight: bold; color: #4ade80; }
         #metadata-footer .status-idle { font-weight: bold; color: #facc15; }
         #metadata-footer .status-active { font-weight: bold; color: #60a5fa; }
@@ -60,7 +60,7 @@
             <span class="rect"><span class="label">REC_T:</span> <span id="meta-rect"></span></span>
             <span class="window"><span class="label">WINDOW:</span> <span id="meta-window"></span></span>
             <span class="url"><span class="label">URL:</span> <span id="meta-url"></span></span>
-            <span id="meta-status"></span>
+            <span class="status"><span class="label">STATUS:</span> <span id="meta-status"></span></span>
         </div>
     </div>
     <!-- INLINE_JS -->
