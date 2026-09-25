@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -74,6 +75,10 @@ from products.data_catalog.evals.constants import (
     MCP_TOOL_CALL_FAIL_PCT_METRIC_DESCRIPTION,
     MCP_TOOL_CALL_FAIL_PCT_METRIC_DISPLAY_NAME,
     MCP_TOOL_CALL_FAIL_PCT_METRIC_NAME,
+    NEW_PAYING_CUSTOMERS_METRIC_DEFINITION,
+    NEW_PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+    NEW_PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+    NEW_PAYING_CUSTOMERS_METRIC_NAME,
     OPERATIONAL_METRIC_DEFINITION,
     OPERATIONAL_METRIC_DESCRIPTION,
     OPERATIONAL_METRIC_DISPLAY_NAME,
@@ -385,6 +390,60 @@ def seed_long_series_metric(context: CustomPromptSandboxContext) -> dict[str, An
         unit="uploads",
         definition=LONG_SERIES_METRIC_DEFINITION,
     )
+
+
+@frozen
+class _SeededMetric:
+    name: str
+    display_name: str
+    description: str
+    unit: str
+    definition: dict
+
+
+def seed_customer_count_metrics_across_nouns(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    """Only one of the three counts uses the user's noun, so name matching alone picks it and skips the clarification."""
+    team, user = _team_and_user(context)
+    for seeded in (
+        _SeededMetric(
+            name=PAYING_CUSTOMERS_METRIC_NAME,
+            display_name=PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+            description=PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+            unit="customers",
+            definition=PAYING_CUSTOMERS_METRIC_DEFINITION,
+        ),
+        _SeededMetric(
+            name=NEW_PAYING_CUSTOMERS_METRIC_NAME,
+            display_name=NEW_PAYING_CUSTOMERS_METRIC_DISPLAY_NAME,
+            description=NEW_PAYING_CUSTOMERS_METRIC_DESCRIPTION,
+            unit="customers",
+            definition=NEW_PAYING_CUSTOMERS_METRIC_DEFINITION,
+        ),
+        _SeededMetric(
+            name=DAILY_ACTIVE_ORGS_METRIC_NAME,
+            display_name=DAILY_ACTIVE_ORGS_METRIC_DISPLAY_NAME,
+            description=DAILY_ACTIVE_ORGS_METRIC_DESCRIPTION,
+            unit="orgs",
+            definition=DAILY_ACTIVE_ORGS_METRIC_DEFINITION,
+        ),
+    ):
+        metric = upsert_metric(
+            team=team,
+            user=user,
+            name=seeded.name,
+            display_name=seeded.display_name,
+            description=seeded.description,
+            unit=seeded.unit,
+            definition=seeded.definition,
+        )
+        approve_metric(metric, user)
+    return {
+        "metrics": [
+            {"name": PAYING_CUSTOMERS_METRIC_NAME, "meaning": "paid a bill last full calendar month"},
+            {"name": NEW_PAYING_CUSTOMERS_METRIC_NAME, "meaning": "first-ever paid bill last full calendar month"},
+            {"name": DAILY_ACTIVE_ORGS_METRIC_NAME, "meaning": "any event on a given day"},
+        ]
+    }
 
 
 def seed_ambiguous_customer_count_metrics(context: CustomPromptSandboxContext) -> dict[str, Any]:
