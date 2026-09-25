@@ -103,7 +103,8 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
-6. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+6. **Code redaction**: every QR/barcode that zxing decodes gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+   zxing reads the frame at the plan's code scale, which finds every code still decodable from the stored image.
 
 The goal is to protect data labellers and reduce PII exposure.
 It does not need to be perfect; the self-verifying test (below) keeps it honest.
@@ -117,16 +118,17 @@ The fill's edges are feathered by blurring the fill's _colour_ only, never the m
 All model inference and image processing run in optimized native libraries.
 The TypeScript is orchestration plus lightweight output decoding (over small downscaled maps, not full images):
 
-| Stage                              | Library            | Native engine        |
-| ---------------------------------- | ------------------ | -------------------- |
-| NSFW/gore classify (SwiftFormer)   | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Face detection (YuNet)             | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Text detection (DBNet / PP-OCRv3)  | `onnxruntime-node` | ONNX Runtime (C++)   |
-| QR/barcode detection               | `zxing-wasm`       | zxing-cpp (C++/wasm) |
-| resize / blur / composite / encode | `sharp`            | libvips (C++)        |
+| Stage                                  | Library                 | Native engine        |
+| -------------------------------------- | ----------------------- | -------------------- |
+| NSFW/gore classify (SwiftFormer)       | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| Face detection (YuNet)                 | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| Text detection (DBNet / PP-OCRv6 tiny) | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| QR/barcode detection                   | `zxing-wasm`            | zxing-cpp (C++/wasm) |
+| resize / blur / composite / encode     | `sharp`                 | libvips (C++)        |
+| model input and zxing pixel layout     | replay-anonymizer addon | Rust (neon)          |
 
 We do not train anything and run no neural nets in JS.
-The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, tensor packing, mask fill), which runs over the small detection maps and is not the bottleneck.
+The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, mask fill), which runs over the small detection maps and is not the bottleneck.
 Everything model-shaped runs on ONE runtime (onnxruntime-node) on purpose: a second ML runtime would mean a second native-binary compatibility surface and a second set of failure modes (Node-version coupling, slow fallback backends).
 
 ## Layout
@@ -148,6 +150,7 @@ src/  (production — ships)
   yunet.ts        YuNet face detector (ONNX)
   dbnet.ts        DBNet text-region detector (ONNX)
   qr.ts           QR/barcode detector (zxing-wasm, loaded from node_modules — no egress)
+  pixel-convert.ts  pixel layout conversions for the model inputs and zxing (Rust addon in native/)
   scale-plan.ts   every resize decided in one pure function, before a pixel is read
   floors.ts       what each detector finds vs what a person can read, and where both were measured
   src-image.ts    decode the source once to raw RGB, to the size the plan asked for
@@ -165,9 +168,16 @@ dev/  (non-production)
   bench.ts scale.ts worker-proc.ts   latency + throughput benchmarks
   make-corpus.ts  synthetic screenshot corpus
   setup.ts        download ONNX models + sample test images (npm run setup)
+  text-det-bench.ts   text detector comparison: cost and per-word redaction recall, per model and canvas size
+  text-det-setup.ts text-det-corpus.ts text-det-quantize.py text-det-dynamic-hw.py   its models, labelled images and int8 builds
+  face-bench.ts   face detector comparison: YuNet variants and input sizes, cost and per-face redaction recall
+  code-bench.ts   code detector cost against zxing's input scale, and which codes stay decodable from the stored image
+  build-native.ts build the replay-anonymizer Rust addon into native/ (npm run build:native)
+  pixel-convert-bench.ts pixel-convert-reference.ts   the addon's conversions timed against the TypeScript loops they replaced
 
 fixtures/  committed eval fixtures (e.g. a retina Wikipedia page: dense text + a face)
 models/  test-data/  corpus/  out/   downloaded/generated by setup (gitignored)
+native/  the replay-anonymizer addon, built by npm run build:native (gitignored)
 ```
 
 ## Run
@@ -175,7 +185,8 @@ models/  test-data/  corpus/  out/   downloaded/generated by setup (gitignored)
 ```bash
 pnpm install --ignore-workspace   # standalone package: own lockfile, outside the root workspace
 npm run setup        # download ONNX models + sample test images, generate the corpus
-npm run test:unit    # fast unit tests (no models/network)
+npm run build:native # build the Rust addon into native/ (needs cargo); again after any rust/replay-anonymizer* change
+npm run test:unit    # fast unit tests (no models/network, but the addon)
 npm run eval         # scrub-quality suite (text + face) over real images
 npm run bench        # latency + per-stage breakdown
 npm run smoke        # models load + one scrub end to end (what the image build runs)
@@ -196,7 +207,7 @@ The suite **gates** on session replay's representative domain (crisp rendered-UI
 
 ```text
 UI TEXT (gated):        31/31 clean, 0.0% leak   [PASS]   # rendered screenshots
-DOCUMENT TEXT (report): 19/20 clean, 2.7% worst  [report] # faint fax/scan print, out of domain
+DOCUMENT TEXT (report): 20/20 clean, 0.0% worst  [report] # faint fax/scan print, out of domain
 FACE:                   89/89 faces redacted (100%)
 ```
 
@@ -217,7 +228,9 @@ One rule sets every size: **each detector must see a subject at least `ratio` ti
 Anything still readable in the artifact was therefore large enough to have been found and filled.
 
 `ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
-Faces bind at 64/21 ≈ 3.05; text is 7/3 ≈ 2.33; codes constrain nothing, since a code degraded past decoding carries nothing.
+Faces bind at 64/21 ≈ 3.05; codes need 3, and text 4.3/3 ≈ 1.43.
+zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
+DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
 **`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
@@ -227,7 +240,7 @@ Setting the frame budget independently is what let two individually-reasonable s
 Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
 At the defaults a 1080p capture is stored at about 161x90.
 
-Re-derive the floors with `tsx dev/glyph-floor.ts` (text) and `tsx dev/floors.ts` (faces and codes); both read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
+Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
 ## Models are baked into the image
 
@@ -235,6 +248,17 @@ The three ONNX models (safety gate, YuNet, DBNet) are `ADD`ed in `Dockerfile.ml-
 zxing's wasm loads from `node_modules`.
 A build-time smoke test (`src/smoke.ts`) then loads the models and runs one scrub with networking disabled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
 The sidecar makes no network fetches at startup.
+
+## The native addon
+
+The pixel layout conversions that build each model input and zxing's RGBA frame (`src/pixel-convert.ts`) run in the replay-anonymizer Rust addon (`rust/replay-anonymizer-node/src/pixels.rs`).
+The worker allocates each destination typed array, and the addon borrows the source and the destination in place, so no pixel data crosses the boundary as a copy.
+The output is the same, bit for bit, as the TypeScript loops that it replaced.
+`src/pixel-convert.test.ts` checks that against those loops (`dev/pixel-convert-reference.ts`), and `dev/pixel-convert-bench.ts` times the two.
+
+The image compiles the addon from `rust/` in a Rust stage of `Dockerfile.ml-mirror-image-scrub` and copies it to `native/`.
+Every worker loads it at startup, so a missing or stale addon fails the smoke test and with it the image build.
+On a dev machine, `npm run build:native` builds it into `native/`.
 
 ## Observability
 

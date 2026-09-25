@@ -90,6 +90,7 @@ class ChangeEventBatcher:
         position_to_seq: Callable[[str], int] | None = None,
     ) -> None:
         self._events: defaultdict[str, list[ChangeEvent]] = defaultdict(list)
+        self._table_bytes: defaultdict[str, int] = defaultdict(int)
         self._estimated_bytes: int = 0
         self._max_events = max_events
         self._max_bytes = max_bytes
@@ -98,8 +99,10 @@ class ChangeEventBatcher:
         self._position_to_seq = position_to_seq
 
     def add(self, event: ChangeEvent) -> None:
+        size = self._estimate_event_bytes(event)
         self._events[event.table_name].append(event)
-        self._estimated_bytes += self._estimate_event_bytes(event)
+        self._table_bytes[event.table_name] += size
+        self._estimated_bytes += size
 
     @property
     def should_flush(self) -> bool:
@@ -119,8 +122,14 @@ class ChangeEventBatcher:
             result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
 
         self._events.clear()
+        self._table_bytes.clear()
         self._estimated_bytes = 0
         return result
+
+    def discard(self, table_name: str) -> None:
+        """Drop a table's pending events so no later flush writes them."""
+        self._events.pop(table_name, None)
+        self._estimated_bytes -= self._table_bytes.pop(table_name, 0)
 
     @property
     def event_count(self) -> int:
@@ -223,12 +232,16 @@ def enrich_delete_rows(
 
     pk_arrays = [table.column(col).to_pylist() for col in present_pks]
 
-    # Build lookup: pk_tuple -> data from last non-DELETE row in this batch
-    batch_lookup: dict[tuple, dict[str, object]] = {}
+    # Each DELETE row's index -> data from the last non-DELETE row before it with the same PK. A row
+    # after the delete is a re-insert of the key, not the state the delete removed.
+    latest_by_key: dict[tuple, dict[str, object]] = {}
+    batch_lookup: dict[int, dict[str, object]] = {}
     for i, op in enumerate(ops):
+        key = tuple(arr[i] for arr in pk_arrays)
         if op != "D":
-            key = tuple(arr[i] for arr in pk_arrays)
-            batch_lookup[key] = {col: table.column(col)[i].as_py() for col in table_data_cols}
+            latest_by_key[key] = {col: table.column(col)[i].as_py() for col in table_data_cols}
+        elif key in latest_by_key:
+            batch_lookup[i] = latest_by_key[key]
 
     # Build lookup from existing DeltaLake rows (cross-batch fallback)
     existing_lookup: dict[tuple, dict[str, object]] = {}
@@ -252,7 +265,7 @@ def enrich_delete_rows(
 
     for i in delete_indices:
         key = tuple(arr[i] for arr in pk_arrays)
-        source = batch_lookup.get(key) or existing_lookup.get(key)
+        source = batch_lookup.get(i) or existing_lookup.get(key)
         if source:
             for col in all_data_cols:
                 # Only fill if the DELETE row's column is currently null

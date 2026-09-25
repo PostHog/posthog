@@ -230,7 +230,7 @@ class BufferedRepublishBatch implements RepublishBatch {
     private planMessages(): PlannedRepublishMessage[] {
         const groups = new Map<string, PendingRepublish[]>()
         for (const item of this.pending) {
-            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${item.candidate.sessionId ?? ''}`
+            const key = `${item.destination.topic}\0${item.candidate.registrableDomain}\0${item.candidate.sessionId ? '2' : '1'}`
             const group = groups.get(key)
             if (group) {
                 group.push(item)

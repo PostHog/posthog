@@ -12,18 +12,16 @@ const GRID = 'grid grid-cols-1 gap-2 @sm:grid-cols-2 @lg:grid-cols-3'
 
 export function ChartGallery({
     className,
-    editMode,
     embedded,
     inSharedMode,
     insightProps,
 }: {
     className?: string
-    editMode?: boolean
     embedded: boolean
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
+    const logicProps = { embedded, inSharedMode, ...insightProps }
     const alternativesLogic = useMountedLogic(chartAlternativesLogic(logicProps))
     const { selectionDisabledReason } = useValues(alternativesLogic)
     const { selectChart } = useActions(alternativesLogic)

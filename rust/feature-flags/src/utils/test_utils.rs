@@ -278,7 +278,7 @@ pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(AlwaysMissS3Client)
 }
 
-pub async fn insert_v1_and_v2_flags(context: &TestContext, team_id: i32) {
+pub async fn insert_v1_v2_and_unsupported_flags(context: &TestContext, team_id: i32) {
     for (key, filters) in [
         (
             "v1-flag",
@@ -288,6 +288,7 @@ pub async fn insert_v1_and_v2_flags(context: &TestContext, team_id: i32) {
             "v2-flag",
             json!({"version": 2, "return_type": "boolean", "default_value": false, "rules": []}),
         ),
+        ("v3-flag", json!({"version": 3})),
     ] {
         context
             .insert_flag(
@@ -317,7 +318,9 @@ pub fn published_flag_keys(redis: &MockRedisClient) -> Vec<String> {
         panic!("unexpected write {:?}", written.value)
     };
     let wrapper: HypercacheFlagsWrapper = serde_json::from_str(&payload).unwrap();
-    wrapper.flags.into_iter().map(|flag| flag.key).collect()
+    let mut keys: Vec<String> = wrapper.flags.into_iter().map(|flag| flag.key).collect();
+    keys.sort();
+    keys
 }
 
 /// Create a HyperCacheReader for tests using the provided Redis client.

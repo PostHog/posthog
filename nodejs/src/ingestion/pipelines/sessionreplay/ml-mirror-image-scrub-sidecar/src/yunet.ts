@@ -10,6 +10,7 @@ import * as ort from 'onnxruntime-node'
 import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
+import { rgbToChw } from './pixel-convert.ts'
 // Tiling bounds for extreme-aspect frames. A single letterboxed pass scales by 640/longSide, so on a
 // very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
 // stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
@@ -135,12 +136,7 @@ async function detectInWindow(
     // RGB(HWC, 0-255) -> BGR(CHW, float32, no normalization), as OpenCV's YuNet expects.
     const side = YUNET_SIDE
     const chw = new Float32Array(3 * side * side)
-    const plane = side * side
-    for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-        chw[p] = data[i + 2] // B
-        chw[plane + p] = data[i + 1] // G
-        chw[2 * plane + p] = data[i] // R
-    }
+    rgbToChw(data, chw, 'bgr')
     const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, side, side]) })
 
     // Uniform inverse scale back to window coords, then offset to frame coords; boxes decoded in the

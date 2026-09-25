@@ -98,11 +98,11 @@ export const tracingCorrelationConfigLogic = kea<tracingCorrelationConfigLogicTy
                 // /api/projects/:pid/environments/:id/ variant, whose viewset rejects every
                 // request, so these URLs are deliberately hand-built.
                 loadTracingConfig: async (): Promise<TeamTracingConfigApi> => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsTracingConfigRetrieve() from 'products/tracing/frontend/generated/api' instead.
                     return await api.get(`api/projects/${values.currentTeamId}/tracing_config/`)
                 },
                 updateTracingConfig: async (patch: PatchedTeamTracingConfigApi): Promise<TeamTracingConfigApi> => {
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsTracingConfigPartialUpdate() from 'products/tracing/frontend/generated/api' instead.
                     return await api.update(`api/projects/${values.currentTeamId}/tracing_config/`, patch)
                 },
             },

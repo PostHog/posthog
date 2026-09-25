@@ -377,6 +377,194 @@ export namespace Schemas {
       resources: AccessControlMemberAccessResources;
     }
 
+    /**
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics
+     */
+    export type RuleResourceEnum = typeof RuleResourceEnum[keyof typeof RuleResourceEnum];
+
+
+    export const RuleResourceEnum = {
+      Account: 'account',
+      Action: 'action',
+      ActivityLog: 'activity_log',
+      AiObservabilityClusters: 'ai_observability_clusters',
+      CustomerAnalytics: 'customer_analytics',
+      CustomerJourney: 'customer_journey',
+      CustomerTask: 'customer_task',
+      Dashboard: 'dashboard',
+      DashboardTemplate: 'dashboard_template',
+      DataCatalog: 'data_catalog',
+      DataDeletion: 'data_deletion',
+      Dataset: 'dataset',
+      EarlyAccessFeature: 'early_access_feature',
+      Endpoint: 'endpoint',
+      ErrorTracking: 'error_tracking',
+      Evaluation: 'evaluation',
+      Experiment: 'experiment',
+      ExperimentHoldout: 'experiment_holdout',
+      ExperimentSavedMetric: 'experiment_saved_metric',
+      Export: 'export',
+      ExternalDataSource: 'external_data_source',
+      FeatureFlag: 'feature_flag',
+      Heatmap: 'heatmap',
+      HogFlow: 'hog_flow',
+      Insight: 'insight',
+      LlmAnalytics: 'llm_analytics',
+      LlmPlayground: 'llm_playground',
+      LlmPrompt: 'llm_prompt',
+      LlmProviderKey: 'llm_provider_key',
+      LlmSkill: 'llm_skill',
+      Logs: 'logs',
+      MarketingAnalytics: 'marketing_analytics',
+      McpAnalytics: 'mcp_analytics',
+      Metrics: 'metrics',
+      Notebook: 'notebook',
+      Project: 'project',
+      PropertyDefinition: 'property_definition',
+      ReplayScanner: 'replay_scanner',
+      RevenueAnalytics: 'revenue_analytics',
+      SessionRecording: 'session_recording',
+      SessionRecordingPlaylist: 'session_recording_playlist',
+      SharingConfiguration: 'sharing_configuration',
+      Stamphog: 'stamphog',
+      Survey: 'survey',
+      Tagger: 'tagger',
+      Ticket: 'ticket',
+      Toolbar: 'toolbar',
+      Tracing: 'tracing',
+      VisionAlert: 'vision_alert',
+      WarehouseObjects: 'warehouse_objects',
+      WarehouseTable: 'warehouse_table',
+      WarehouseView: 'warehouse_view',
+      WebAnalytics: 'web_analytics',
+    } as const;
+
+    /**
+     * A rule for one organization member.
+     */
+    export interface AccessControlMemberRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `data_deletion` - data_deletion
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
+      /** The organization membership id, as `organization_membership_id` in the members endpoint. */
+      member_id: string;
+    }
+
     export interface AccessControlMembersResponse {
       /** The project access levels, lowest first. */
       available_project_levels: string[];
@@ -450,6 +638,80 @@ export namespace Schemas {
       resources: AccessControlRoleAccessResources;
     }
 
+    /**
+     * A rule for every member of one role.
+     */
+    export interface AccessControlRoleRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `data_deletion` - data_deletion
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
+      /** The role id, as `role_id` in the roles endpoint. */
+      role_id: string;
+    }
+
     export interface AccessControlRolesResponse {
       /** The project access levels, lowest first. */
       available_project_levels: string[];
@@ -459,6 +721,104 @@ export namespace Schemas {
       can_edit: boolean;
       /** One entry per role in the organization. */
       results: AccessControlRoleAccess[];
+    }
+
+    /**
+     * The scope and level of one rule write. On its own it is the default rule, for everyone in the
+     * project without a member or role rule of their own. The subclasses add the subject.
+     */
+    export interface AccessControlRuleRequest {
+      /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+       *
+       * * `account` - account
+       * * `action` - action
+       * * `activity_log` - activity_log
+       * * `ai_observability_clusters` - ai_observability_clusters
+       * * `customer_analytics` - customer_analytics
+       * * `customer_journey` - customer_journey
+       * * `customer_task` - customer_task
+       * * `dashboard` - dashboard
+       * * `dashboard_template` - dashboard_template
+       * * `data_catalog` - data_catalog
+       * * `data_deletion` - data_deletion
+       * * `dataset` - dataset
+       * * `early_access_feature` - early_access_feature
+       * * `endpoint` - endpoint
+       * * `error_tracking` - error_tracking
+       * * `evaluation` - evaluation
+       * * `experiment` - experiment
+       * * `experiment_holdout` - experiment_holdout
+       * * `experiment_saved_metric` - experiment_saved_metric
+       * * `export` - export
+       * * `external_data_source` - external_data_source
+       * * `feature_flag` - feature_flag
+       * * `heatmap` - heatmap
+       * * `hog_flow` - hog_flow
+       * * `insight` - insight
+       * * `llm_analytics` - llm_analytics
+       * * `llm_playground` - llm_playground
+       * * `llm_prompt` - llm_prompt
+       * * `llm_provider_key` - llm_provider_key
+       * * `llm_skill` - llm_skill
+       * * `logs` - logs
+       * * `marketing_analytics` - marketing_analytics
+       * * `mcp_analytics` - mcp_analytics
+       * * `metrics` - metrics
+       * * `notebook` - notebook
+       * * `project` - project
+       * * `property_definition` - property_definition
+       * * `replay_scanner` - replay_scanner
+       * * `revenue_analytics` - revenue_analytics
+       * * `session_recording` - session_recording
+       * * `session_recording_playlist` - session_recording_playlist
+       * * `sharing_configuration` - sharing_configuration
+       * * `stamphog` - stamphog
+       * * `survey` - survey
+       * * `tagger` - tagger
+       * * `ticket` - ticket
+       * * `toolbar` - toolbar
+       * * `tracing` - tracing
+       * * `vision_alert` - vision_alert
+       * * `warehouse_objects` - warehouse_objects
+       * * `warehouse_table` - warehouse_table
+       * * `warehouse_view` - warehouse_view
+       * * `web_analytics` - web_analytics */
+      resource: RuleResourceEnum;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type.
+         * @nullable
+         */
+      resource_id?: string | null;
+      /**
+         * The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits.
+         * @nullable
+         */
+      access_level: string | null;
+    }
+
+    /**
+     * One stored rule, the same shape for object, resource, project and property rules.
+     */
+    export interface AccessControlStoredRule {
+      /** The rule's scope, as sent in the request. */
+      resource: string;
+      /**
+         * The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.
+         * @nullable
+         */
+      resource_id: string | null;
+      /** The stored level. */
+      access_level: string;
+      /**
+         * The organization membership the rule is for. Null unless it is a member rule.
+         * @nullable
+         */
+      member_id: string | null;
+      /**
+         * The role the rule is for. Null unless it is a role rule.
+         * @nullable
+         */
+      role_id: string | null;
     }
 
     /**
@@ -6182,6 +6542,38 @@ export namespace Schemas {
       GithubPr: 'github_pr',
     } as const;
 
+    export type NotebookWidgetAddRequestOpenApiWidgetType = typeof NotebookWidgetAddRequestOpenApiWidgetType[keyof typeof NotebookWidgetAddRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetAddRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetConfig {
+      /** Source notebook short ID. */
+      notebookShortId?: string | null;
+      /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+      snapshotId?: string | null;
+    }
+
+    export interface NotebookWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _TileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: NotebookWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the notebook widget widget. */
+      config: NotebookWidgetConfig;
+    }
+
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -6676,14 +7068,14 @@ export namespace Schemas {
       config: ConversationsRecentTicketsWidgetConfig;
     }
 
-    export type AddDashboardWidgetRequest = ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
+    export type AddDashboardWidgetRequest = NotebookWidgetAddRequestOpenApi | ActivityEventsListWidgetAddRequestOpenApi | ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi | ExperimentsListWidgetAddRequestOpenApi | ExperimentResultsWidgetAddRequestOpenApi | SurveyResultsWidgetAddRequestOpenApi | LogsListWidgetAddRequestOpenApi | ConversationsRecentTicketsWidgetAddRequestOpenApi;
 
     /**
      * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+         * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -9619,7 +10011,7 @@ export namespace Schemas {
       team: number;
     }
 
-    export type DashboardWidgetConfig = ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
+    export type DashboardWidgetConfig = NotebookWidgetConfig | ActivityEventsListWidgetConfig | ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig | ExperimentsListWidgetConfig | ExperimentResultsWidgetConfig | SurveyResultsWidgetConfig | LogsListWidgetConfig | ConversationsRecentTicketsWidgetConfig;
 
     export interface DashboardWidget {
       readonly id: string;
@@ -11477,6 +11869,118 @@ export namespace Schemas {
       is_bot: boolean;
     }
 
+    /**
+     * * `ci` - CI
+     * * `review` - REVIEW
+     * * `queue` - QUEUE
+     * * `rework` - REWORK
+     */
+    export type FrictionGroupEnum = typeof FrictionGroupEnum[keyof typeof FrictionGroupEnum];
+
+
+    export const FrictionGroupEnum = {
+      Ci: 'ci',
+      Review: 'review',
+      Queue: 'queue',
+      Rework: 'rework',
+    } as const;
+
+    export interface FrictionGroupShare {
+      /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+       *
+       * * `ci` - CI
+       * * `review` - REVIEW
+       * * `queue` - QUEUE
+       * * `rework` - REWORK */
+      group: FrictionGroupEnum;
+      /** This group's part of the score, in the same 'x typical' unit. The parts add up. */
+      score: number;
+    }
+
+    export interface AuthorFriction {
+      /** The score split by the kind of friction. */
+      groups: FrictionGroupShare[];
+      /** GitHub login. */
+      author: string;
+      /** The author's GitHub avatar, or empty when the pull requests carry none. */
+      avatar_url: string;
+      /** Friction as a multiple of the typical author: 1.0 is typical, 2.0 is twice as much. Counts only what happened to the author, never how much or how fast they ship. */
+      score: number;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+      /** Position by friction in the repository, 1 is the most. */
+      rank: number;
+      /** Low end of the rank band: the 10th percentile rank over resamples of the author's pull requests, and never above rank. */
+      rank_low: number;
+      /** High end of the rank band: the 90th percentile rank over the same resamples, and never below rank. */
+      rank_high: number;
+      /** The author's GitHub teams. Empty when the membership table isn't synced. */
+      teams?: string[];
+    }
+
+    export interface TeamFriction {
+      /** GitHub team slug. */
+      github_team: string;
+      /** The median friction of the team's scored members, in 'x typical' units. */
+      median_score: number;
+      /** Members with enough merged pull requests to score. A team shows only above a floor, so one or two people never read as a team's figure. */
+      scored_author_count: number;
+    }
+
+    export interface PullRequestFrictionItem {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Pull request number. */
+      number: number;
+      /** Repository owner. */
+      repo_owner: string;
+      /** Repository name. */
+      repo_name: string;
+      /** Pull request title, empty when the snapshot has none. */
+      title: string;
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+    }
+
+    export interface AuthorFrictionDetail {
+      /** The author's score and rank. Null below 3 merged pull requests in the window. */
+      author: AuthorFriction | null;
+      /** The author's teams without the author, each only with at least 2 other scored members. */
+      teams: TeamFriction[];
+      /** The author's pull requests that added the most friction, most first. */
+      pull_requests: PullRequestFrictionItem[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors ranked in the repository: the denominator of rank. */
+      ranked_author_count: number;
+      /** False when the team membership table isn't synced. */
+      has_membership_data: boolean;
+      /** The author's merged pull requests in the window. */
+      pr_count: number;
+    }
+
+    export interface AuthorFrictionList {
+      /** Authors by friction, most first. */
+      items: AuthorFriction[];
+      /** Teams with at least 3 scored members, by median member friction, most first. */
+      teams: TeamFriction[];
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
+      /** Authors with at least 3 merged pull requests, all ranked together. A team list keeps these repository-wide ranks. */
+      ranked_author_count: number;
+      /**
+         * The team the list is filtered to, or null for every author.
+         * @nullable
+         */
+      github_team: string | null;
+      /** False when the team membership table isn't synced, so a team filter matches nobody. */
+      has_membership_data: boolean;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -12773,6 +13277,18 @@ export namespace Schemas {
     export const AzureBlobDestinationRequestTypeEnum = {
       AzureBlob: 'AzureBlob',
     } as const;
+
+    export interface BackfillCreate {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to now. */
+      window_end: string;
+      /**
+         * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
+         * @minimum 0
+         */
+      max_total_credits: number;
+    }
 
     export interface BackfillEstimateResponse {
       /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
@@ -20106,7 +20622,7 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
-      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
@@ -20547,7 +21063,7 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
-      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
@@ -21153,11 +21669,10 @@ export namespace Schemas {
     }
 
     /**
-     * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
-     * repository default branch.
+     * Response for the `commit` artefact diff endpoint.
      */
     export interface CommitDiffResponse {
-      /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+      /** Unified diff (patch) text from the linked pull request or branch comparison. */
       readonly diff: string;
       /** True when the diff was too large to return in full and has been truncated. */
       readonly truncated: boolean;
@@ -21181,6 +21696,44 @@ export namespace Schemas {
       Verified: 'verified',
       Community: 'community',
     } as const;
+
+    /**
+     * * `skill` - Skill
+     * * `scout` - Scout
+     */
+    export type CommunitySkillKindEnum = typeof CommunitySkillKindEnum[keyof typeof CommunitySkillKindEnum];
+
+
+    export const CommunitySkillKindEnum = {
+      Skill: 'skill',
+      Scout: 'scout',
+    } as const;
+
+    /**
+     * The scout settings a published scout travels with. Every field is optional. An omitted field
+     * means the scout-create form's own default applies.
+     */
+    export interface CommunitySkillScoutConfig {
+      /**
+         * How often the scout runs, in minutes. Ignored when run_cron_schedule is set.
+         * @minimum 30
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * Five-field cron expression for the scout's schedule, which takes precedence over the interval.
+         * @maxLength 100
+         */
+      run_cron_schedule?: string;
+      /** Whether the scout writes its reports to the inbox. False means it runs as a dry run. */
+      emit?: boolean;
+      /**
+         * Tags used to group the scout in the fleet.
+         * @maxItems 10
+         * @items.maxLength 50
+         */
+      tags?: string[];
+    }
 
     export interface CommunitySkillFileManifest {
       /** @maxLength 500 */
@@ -21229,6 +21782,13 @@ export namespace Schemas {
        * * `verified` - Verified
        * * `community` - Community */
       trust_tier: CommunitySkillTrustTierEnum;
+      /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
       /** GitHub handle (or name) of the contributor who published the skill. */
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
@@ -21299,6 +21859,13 @@ export namespace Schemas {
        * * `verified` - Verified
        * * `community` - Community */
       trust_tier: CommunitySkillTrustTierEnum;
+      /** 'skill' installs into the project as a regular skill. 'scout' runs on a schedule, so it is set up through the scout form instead of being installed.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Schedule, emit posture and tags a scout travels with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
       /** GitHub handle (or name) of the contributor who published the skill. */
       readonly author_handle: string;
       /** Link to the skill's source directory on GitHub. */
@@ -21327,6 +21894,45 @@ export namespace Schemas {
       pr_number: number;
       /** Name of the branch created in the community-skills repo. */
       branch: string;
+    }
+
+    /**
+     * Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills.
+     */
+    export type CommunitySkillRenderVariables = {[key: string]: string};
+
+    export interface CommunitySkillRender {
+      /** Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills. */
+      variables?: CommunitySkillRenderVariables;
+    }
+
+    /**
+     * The {name: value} map the body was rendered with. Empty for a non-template skill.
+     */
+    export type CommunitySkillRenderResponseVariableBindings = {[key: string]: string};
+
+    /**
+     * A catalog entry with its template variables bound, for prefilling a create form. Nothing is
+     * persisted by rendering — the caller submits the result through the product's own create path.
+     */
+    export interface CommunitySkillRenderResponse {
+      /** Slug of the rendered community skill. */
+      slug: string;
+      /** Whether the rendered entry is a 'skill' or a 'scout'.
+       *
+       * * `skill` - Skill
+       * * `scout` - Scout */
+      kind: CommunitySkillKindEnum;
+      /** Display name of the community skill. */
+      name: string;
+      /** What the skill does and when to use it. */
+      description: string;
+      /** The SKILL.md instruction content, with template variables bound. */
+      body: string;
+      /** Schedule, emit posture and tags to prefill a scout with. Empty object for a skill. */
+      scout_config: CommunitySkillScoutConfig;
+      /** The {name: value} map the body was rendered with. Empty for a non-template skill. */
+      variable_bindings: CommunitySkillRenderResponseVariableBindings;
     }
 
     export interface CommunitySkillVoteResponse {
@@ -24421,6 +25027,7 @@ export namespace Schemas {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results
      */
@@ -24434,6 +25041,7 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
       ExperimentsList: 'experiments_list',
       LogsList: 'logs_list',
+      NotebookWidget: 'notebook_widget',
       SessionReplayList: 'session_replay_list',
       SurveyResults: 'survey_results',
     } as const;
@@ -24449,6 +25057,7 @@ export namespace Schemas {
        * * `experiment_results` - experiment_results
        * * `experiments_list` - experiments_list
        * * `logs_list` - logs_list
+       * * `notebook_widget` - notebook_widget
        * * `session_replay_list` - session_replay_list
        * * `survey_results` - survey_results */
       widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnum;
@@ -24983,6 +25592,137 @@ export namespace Schemas {
       /** @nullable */
       readonly created_at: string | null;
       readonly created_by: UserBasic;
+    }
+
+    export interface DataDeletionConflict {
+      /** Reason the deletion request could not be created in the current state. */
+      readonly detail: string;
+    }
+
+    export interface DataDeletionPreview {
+      /** Number of event UUIDs selected when the preview ran. */
+      readonly count: number;
+    }
+
+    /**
+     * Submitted HogQL variable snapshot.
+     */
+    export type DataDeletionRequestVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    /**
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Draft: 'draft',
+      Pending: 'pending',
+      Approved: 'approved',
+      InProgress: 'in_progress',
+      Queued: 'queued',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface DataDeletionRequest {
+      /** Deletion request identifier. */
+      readonly id: string;
+      /** Current deletion workflow status.
+       *
+       * * `draft` - Draft
+       * * `pending` - Pending
+       * * `approved` - Approved
+       * * `in_progress` - In Progress
+       * * `queued` - Queued
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: RequestStatusEnum;
+      /** Submitted HogQL query snapshot. */
+      readonly query: string;
+      /** Submitted HogQL variable snapshot. */
+      readonly variables: DataDeletionRequestVariables;
+      /**
+         * Client-generated idempotency identifier.
+         * @nullable
+         */
+      readonly submission_id: string | null;
+      /**
+         * Number of selected events, when calculated.
+         * @nullable
+         */
+      readonly count: number | null;
+      /**
+         * Identifier of the user who submitted the request.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /**
+         * Whether the submitter was a PostHog staff user.
+         * @nullable
+         */
+      readonly created_by_staff: boolean | null;
+      /** Time when the request was submitted. */
+      readonly created_at: string;
+      /** Time when the request last changed. */
+      readonly updated_at: string;
+      /**
+         * Time when the request was approved, if approved.
+         * @nullable
+         */
+      readonly approved_at: string | null;
+      /**
+         * Time when selection statistics were calculated, if available.
+         * @nullable
+         */
+      readonly stats_calculated_at: string | null;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestCreateVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestCreate {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestCreateVariables;
+      /** Client-generated identifier that makes request submission idempotent. */
+      submission_id: string;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestInputVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestInput {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestInputVariables;
     }
 
     /**
@@ -30862,10 +31602,10 @@ export namespace Schemas {
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions
      */
-    export type ResourceEnum = typeof ResourceEnum[keyof typeof ResourceEnum];
+    export type DatasetConflictResponseResourceEnum = typeof DatasetConflictResponseResourceEnum[keyof typeof DatasetConflictResponseResourceEnum];
 
 
-    export const ResourceEnum = {
+    export const DatasetConflictResponseResourceEnum = {
       Datasets: 'datasets',
       DatasetItems: 'dataset_items',
       DatasetItemVersions: 'dataset_item_versions',
@@ -30899,7 +31639,7 @@ export namespace Schemas {
        * * `datasets` - datasets
        * * `dataset_items` - dataset_items
        * * `dataset_item_versions` - dataset_item_versions */
-      resource?: ResourceEnum;
+      resource?: DatasetConflictResponseResourceEnum;
       /** Number of resources that already exist. */
       current_count?: number;
       /** Maximum number of resources allowed. */
@@ -37960,6 +38700,11 @@ export namespace Schemas {
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /**
+         * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+         * @nullable
+         */
+      readonly remaining_count: number | null;
       /** User who started the backfill. */
       readonly created_by: UserBasic | null;
       /** When the backfill was created. */
@@ -37974,6 +38719,8 @@ export namespace Schemas {
     export interface EvaluationBackfillEstimate {
       /** Units that would be evaluated. */
       total_units: number;
+      /** Units in the range this evaluation has already judged. They are excluded from total_units unless rerun_existing is set. */
+      already_evaluated_units: number;
       /** What one unit is: a generation, a trace, or a session.
        *
        * * `generation` - Generation
@@ -38827,6 +39574,8 @@ export namespace Schemas {
      * * `run_completed` - run_completed
      * * `run_failed` - run_failed
      * * `pr_created` - pr_created
+     * * `pr_merged` - pr_merged
+     * * `pr_closed` - pr_closed
      * * `needs_attention` - needs_attention
      */
     export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
@@ -38836,6 +39585,8 @@ export namespace Schemas {
       RunCompleted: 'run_completed',
       RunFailed: 'run_failed',
       PrCreated: 'pr_created',
+      PrMerged: 'pr_merged',
+      PrClosed: 'pr_closed',
       NeedsAttention: 'needs_attention',
     } as const;
 
@@ -40188,6 +40939,56 @@ export namespace Schemas {
       estimated_rows_total?: number | null;
     }
 
+    /**
+     * * `uploading` - Uploading
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type OfflineExperimentStatusEnum = typeof OfflineExperimentStatusEnum[keyof typeof OfflineExperimentStatusEnum];
+
+
+    export const OfflineExperimentStatusEnum = {
+      Uploading: 'uploading',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ExperimentReceipt {
+      /** Stable experiment UUID supplied at creation. */
+      id: string;
+      /** Current upload lifecycle state.
+       *
+       * * `uploading` - Uploading
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      status: OfflineExperimentStatusEnum;
+      /** Whether this request created the experiment. */
+      created: boolean;
+      /** Caller-supplied execution start time. */
+      started_at: string;
+      /** Time the experiment was first accepted. */
+      created_at: string;
+      /**
+         * Server closure time; null while uploading.
+         * @nullable
+         */
+      finished_at: string | null;
+      /**
+         * Declared item count, when supplied.
+         * @nullable
+         */
+      expected_item_count: number | null;
+      /**
+         * Declared result count, when supplied.
+         * @nullable
+         */
+      expected_result_count: number | null;
+      /** Number of unique accepted items. */
+      accepted_item_count: number;
+      /** Number of unique accepted results across all statuses. */
+      accepted_result_count: number;
+    }
+
     export type ExperimentResultsWidgetCatalogEntryOpenApiWidgetType = typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof ExperimentResultsWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -41330,6 +42131,99 @@ export namespace Schemas {
       previous_experiments: ExperimentSetupPreviousExperimentsSection;
       /** Most reused shared metrics. */
       shared_metrics: ExperimentSetupSharedMetricsSection;
+    }
+
+    /**
+     * * `ci` - CI
+     * * `local` - Local
+     * * `scheduled` - Scheduled
+     */
+    export type OfflineExperimentRunSourceEnum = typeof OfflineExperimentRunSourceEnum[keyof typeof OfflineExperimentRunSourceEnum];
+
+
+    export const OfflineExperimentRunSourceEnum = {
+      Ci: 'ci',
+      Local: 'local',
+      Scheduled: 'scheduled',
+    } as const;
+
+    export interface ExperimentSubmission {
+      /** Caller-generated experiment UUID. Reuse it for exact retries. */
+      id: string;
+      /**
+         * Display name for this experiment execution.
+         * @maxLength 400
+         */
+      name: string;
+      /** Execution start time in ISO 8601 format, supplied by the caller. */
+      started_at: string;
+      /** Where the execution started: ci, local, or scheduled. Omit or use null when unknown.
+       *
+       * * `ci` - CI
+       * * `local` - Local
+       * * `scheduled` - Scheduled */
+      run_source?: OfflineExperimentRunSourceEnum | null;
+      /**
+         * Expected number of distinct items. Completion must match this count when supplied.
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
+      expected_item_count?: number | null;
+      /**
+         * Expected number of distinct item/scorer-version results, including non-success statuses.
+         * @minimum 0
+         * @maximum 2147483647
+         * @nullable
+         */
+      expected_result_count?: number | null;
+      /**
+         * Stable identifier for comparing executions of the same evaluation suite.
+         * @maxLength 255
+         * @nullable
+         */
+      suite_key?: string | null;
+      /**
+         * Source of an external dataset. Hosted dataset provenance is derived from its revision.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_source?: string | null;
+      /**
+         * Stable identifier for the external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_identifier?: string | null;
+      /**
+         * Pinned revision identifier of the external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_revision_identifier?: string | null;
+      /**
+         * UUID of a hosted dataset revision in this project.
+         * @nullable
+         */
+      dataset_revision_id?: string | null;
+      /**
+         * Version of the application under evaluation.
+         * @maxLength 255
+         * @nullable
+         */
+      application_version?: string | null;
+      /**
+         * Version of the model under evaluation.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
+      /**
+         * Version of the prompt under evaluation.
+         * @maxLength 255
+         * @nullable
+         */
+      prompt_version?: string | null;
     }
 
     /**
@@ -48723,6 +49617,7 @@ export namespace Schemas {
       transpiled?: unknown;
       filter_test_accounts?: boolean;
       bytecode_error?: string;
+      bytecode_contract?: string;
     }
 
     export interface HogFlowConversionEvent {
@@ -48738,17 +49633,12 @@ export namespace Schemas {
       /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
       events?: HogFlowConversionEvent[];
       /**
-         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days. Set this or 'window_minutes', not both.
+         * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Must be longer than zero, and at most '365d'. Omit it to use the default of 90 days.
          * @maxLength 32
          * @nullable
          * @pattern ^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$
          */
       window?: string | null;
-      /**
-         * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default of 90 days. Set this or 'window', not both.
-         * @nullable
-         */
-      window_minutes?: number | null;
       /** Compiled server-side from 'filters'. Do not set; ignored if sent. */
       bytecode?: unknown;
     }
@@ -48986,7 +49876,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -49455,7 +50345,7 @@ export namespace Schemas {
       readonly trigger: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -49528,6 +50418,7 @@ export namespace Schemas {
       value?: unknown;
       templating?: HogFunctionTemplatingEnum;
       readonly bytecode: readonly unknown[];
+      readonly bytecode_contract: string;
       readonly order: number;
       readonly transpiled: unknown;
     }
@@ -50926,6 +51817,8 @@ export namespace Schemas {
     }
 
     export interface LogAttributesQuery {
+      /** Return only attribute keys that exactly match an entry in this list. */
+      attributeKeys?: string[] | null;
       attributeType: string;
       dateRange?: DateRange | null;
       filterGroup?: PropertyGroupFilter | null;
@@ -53928,6 +54821,76 @@ export namespace Schemas {
       readonly unavailable: readonly string[];
     }
 
+    export interface ItemReceipt {
+      /** Accepted item UUID. */
+      id: string;
+      /** Whether this upload created the item. */
+      created: boolean;
+      /** Original server acceptance time, unchanged on retry. */
+      accepted_at: string;
+    }
+
+    export type OfflineExperimentItemPayloadInputInput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    export type OfflineExperimentItemPayloadInputOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    export type OfflineExperimentItemPayloadInputExpectedOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
+     * @nullable
+     */
+    export type OfflineExperimentItemPayloadInputMetadata = { [key: string]: unknown } | null;
+
+    export interface OfflineExperimentItemPayloadInput {
+      input?: OfflineExperimentItemPayloadInputInput;
+      output?: OfflineExperimentItemPayloadInputOutput;
+      expected_output?: OfflineExperimentItemPayloadInputExpectedOutput;
+      /** @nullable */
+      metadata?: OfflineExperimentItemPayloadInputMetadata;
+    }
+
+    export interface ItemSubmission {
+      /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
+      id: string;
+      /**
+         * Stable case identifier for matching inputs across experiments.
+         * @maxLength 255
+         * @nullable
+         */
+      case_key?: string | null;
+      /**
+         * Identifier for a repeated execution of the same case.
+         * @maxLength 255
+         * @nullable
+         */
+      trial?: string | null;
+      /**
+         * Stable item identifier in an external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_item_identifier?: string | null;
+      /**
+         * Pinned item-version identifier in an external dataset.
+         * @maxLength 255
+         * @nullable
+         */
+      dataset_item_version_identifier?: string | null;
+      /**
+         * UUID of the hosted item version in the experiment's dataset revision.
+         * @nullable
+         */
+      dataset_item_version_id?: string | null;
+      /**
+         * Trace identifier for the application execution that produced this output.
+         * @maxLength 255
+         * @nullable
+         */
+      application_trace_id?: string | null;
+      /** Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ. */
+      payload?: OfflineExperimentItemPayloadInput;
+    }
+
     /**
      * Keyword arguments for the estimator's constructor; null or absent means the defaults.
      * @nullable
@@ -54958,6 +55921,13 @@ export namespace Schemas {
          * @minimum 1
          */
       expected_version: number;
+      /**
+         * Category of the skill the publisher reviewed. Registering a skill as a scout changes its category without raising its version, so the version alone would let a skill reviewed as an ordinary one publish as a scout. The request returns 409 if the category changed. Omit it to skip that check.
+         * @maxLength 64
+         */
+      expected_category?: string;
+      /** Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout. */
+      scout_config?: CommunitySkillScoutConfig;
       /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
@@ -57054,7 +58024,7 @@ export namespace Schemas {
     export interface LoopNotificationChannel {
       /** Whether this channel is active. */
       enabled?: boolean;
-      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
       events?: EventsEnum[];
       /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
       params?: LoopNotificationChannelParams;
@@ -60231,6 +61201,8 @@ export namespace Schemas {
     }
 
     export interface NotebookRunStartRequest {
+      /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+      include_prepared_insights?: boolean;
       /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
       variables?: NotebookVariable[];
     }
@@ -60460,6 +61432,60 @@ export namespace Schemas {
       variables: NotebookVariable[];
       /** Every cell in document order, with its dependency edges and derived run state. */
       cells: NotebookCellState[];
+    }
+
+    export type NotebookWidgetCatalogEntryOpenApiWidgetType = typeof NotebookWidgetCatalogEntryOpenApiWidgetType[keyof typeof NotebookWidgetCatalogEntryOpenApiWidgetType];
+
+
+    export const NotebookWidgetCatalogEntryOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetCatalogEntryOpenApi {
+      widget_type: NotebookWidgetCatalogEntryOpenApiWidgetType;
+      group_id: string;
+      group_label: string;
+      label: string;
+      description: string;
+      /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+      readonly config_schema: NotebookWidgetConfig;
+      /** @nullable */
+      required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
+    }
+
+    /**
+     * * `notebook_widget` - notebook_widget
+     */
+    export type NotebookWidgetTypeEnum = typeof NotebookWidgetTypeEnum[keyof typeof NotebookWidgetTypeEnum];
+
+
+    export const NotebookWidgetTypeEnum = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export type NotebookWidgetUpdateRequestOpenApiWidgetType = typeof NotebookWidgetUpdateRequestOpenApiWidgetType[keyof typeof NotebookWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const NotebookWidgetUpdateRequestOpenApiWidgetType = {
+      NotebookWidget: 'notebook_widget',
+    } as const;
+
+    export interface NotebookWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: NotebookWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+      config?: NotebookWidgetConfig;
     }
 
     /**
@@ -61047,6 +62073,78 @@ export namespace Schemas {
       workflow_id: string;
     }
 
+    export interface OfflineEvaluationValidationError {
+      /** Stable validation error code. */
+      code: string;
+      /** Explanation of the invalid value. */
+      detail: string;
+      /**
+         * Invalid field path, with dot-separated fields and zero-based batch indexes.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
+    export interface OfflineEvaluationError {
+      /** Error category for standard API errors. */
+      type?: string;
+      /** Stable error code. */
+      code: string;
+      /** Explanation of the rejected request. */
+      detail: string;
+      /**
+         * Invalid field, including batch entry index.
+         * @nullable
+         */
+      attr?: string | null;
+      /**
+         * Declared item count.
+         * @nullable
+         */
+      expected_item_count?: number | null;
+      /**
+         * Declared result count.
+         * @nullable
+         */
+      expected_result_count?: number | null;
+      /** Accepted items at failed completion. */
+      accepted_item_count?: number;
+      /** Accepted results at failed completion. */
+      accepted_result_count?: number;
+      /** All validation errors found in the request. */
+      errors?: OfflineEvaluationValidationError[];
+    }
+
+    /**
+     * @nullable
+     */
+    export type OfflineEvaluationResultPayloadInputMetadata = { [key: string]: unknown } | null;
+
+    export interface OfflineEvaluationResultPayloadInput {
+      /** @nullable */
+      reasoning?: string | null;
+      /** @nullable */
+      error_message?: string | null;
+      /** @nullable */
+      metadata?: OfflineEvaluationResultPayloadInputMetadata;
+    }
+
+    /**
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable
+     */
+    export type OfflineEvaluationResultStatusEnum = typeof OfflineEvaluationResultStatusEnum[keyof typeof OfflineEvaluationResultStatusEnum];
+
+
+    export const OfflineEvaluationResultStatusEnum = {
+      Ok: 'ok',
+      Error: 'error',
+      Skipped: 'skipped',
+      NotApplicable: 'not_applicable',
+    } as const;
+
     export interface OfflineExperimentItemsRequest {
       /** `$ai_experiment_id` whose offline-evaluation items to return. */
       experiment_id: string;
@@ -61547,6 +62645,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -61562,6 +62661,7 @@ export namespace Schemas {
 
 
     export const SettingEnum = {
+      DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
       DiscussionsMentioned: 'discussions_mentioned',
       ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
       ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -61577,6 +62677,7 @@ export namespace Schemas {
     export interface OrganizationNotificationLock {
       /** Notification setting this rule enforces.
        *
+       * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
        * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -61599,6 +62700,7 @@ export namespace Schemas {
       user_id: number;
       /** Notification setting to lock or unlock.
        *
+       * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
        * * `discussions_mentioned` - discussions_mentioned
        * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
        * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -62588,6 +63690,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
+    }
+
+    export interface PaginatedDataDeletionRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataDeletionRequest[];
     }
 
     export interface PaginatedDataModelingJobList {
@@ -63637,7 +64748,23 @@ export namespace Schemas {
       results: PauseStateResponse[];
     }
 
-    export interface PersonRecord {
+    /**
+     * * `distinct_id` - Distinct ID
+     * * `email` - Email
+     * * `name` - Name
+     * * `id` - Person ID
+     */
+    export type PersonSearchMatchFieldEnum = typeof PersonSearchMatchFieldEnum[keyof typeof PersonSearchMatchFieldEnum];
+
+
+    export const PersonSearchMatchFieldEnum = {
+      DistinctId: 'distinct_id',
+      Email: 'email',
+      Name: 'name',
+      Id: 'id',
+    } as const;
+
+    export interface PersonListRecord {
       /** Numeric person ID. */
       readonly id: number;
       /** Display name derived from person properties (email, name, or username). */
@@ -63654,15 +64781,17 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_seen_at: string | null;
+      /** Only on a search result with `include_matched_fields`: the searched fields the term was found in. */
+      matched_fields?: PersonSearchMatchFieldEnum[];
     }
 
-    export interface PaginatedPersonRecordList {
+    export interface PaginatedPersonListRecordList {
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
       count?: number;
-      results?: PersonRecord[];
+      results?: PersonListRecord[];
     }
 
     /**
@@ -65166,6 +66295,7 @@ export namespace Schemas {
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
+     * * `ranking_score` - Ranking Score
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -65200,6 +66330,7 @@ export namespace Schemas {
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
+      RankingScore: 'ranking_score',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];
@@ -68662,7 +69793,8 @@ export namespace Schemas {
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -72734,7 +73866,7 @@ export namespace Schemas {
       readonly trigger?: unknown;
       /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
       trigger_masking?: HogFlowMasking | null;
-      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+      /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d'. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: HogFlowConversion | null;
       /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
        *
@@ -77627,7 +78759,7 @@ export namespace Schemas {
       config?: SurveyResultsWidgetConfig;
     }
 
-    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
+    export type UpdateDashboardWidgetRequest = NotebookWidgetUpdateRequestOpenApi | ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi | SurveyResultsWidgetUpdateRequestOpenApi | LogsListWidgetUpdateRequestOpenApi | ConversationsRecentTicketsWidgetUpdateRequestOpenApi;
 
     /**
      * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
@@ -78057,7 +79189,8 @@ export namespace Schemas {
       readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by?: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -78236,7 +79369,7 @@ export namespace Schemas {
       events_queued_for_deletion: boolean;
       /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
       recordings_queued_for_deletion: boolean;
-      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them, except entries whose step is 'log_activity': that person was deleted, but the activity log entry was not written. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
+      /** Persons whose deletion did not fully complete in this request. Each entry contains 'person_uuid' and 'step', the deletion step that failed for that person. Failures are reported here rather than as an error status, so a 202 with entries means those persons were not deleted and the request should be retried for them. Two steps are exceptions, and retrying won't find these persons. For 'log_activity', the person was deleted, but the activity log entry was not written. For 'publish_clickhouse_tombstone', the person was deleted, but it can still show in analytics until a weekly cleanup job removes it. Always empty when the deletion was queued (see persons_queued_for_deletion). Contact support if this persists. */
       deletion_errors?: PersonBulkDeleteResponseDeletionErrorsItem[];
     }
 
@@ -78304,6 +79437,25 @@ export namespace Schemas {
       last_seen_at: string | null;
       /** Metadata about the point-in-time query */
       point_in_time_metadata: PersonPropertiesAtTimeMetadata;
+    }
+
+    export interface PersonRecord {
+      /** Numeric person ID. */
+      readonly id: number;
+      /** Display name derived from person properties (email, name, or username). */
+      readonly name: string;
+      readonly distinct_ids: readonly string[];
+      /** Key-value map of person properties set via $set and $set_once operations. */
+      properties?: unknown;
+      /** When this person was first seen (ISO 8601). */
+      readonly created_at: string;
+      /** Unique identifier (UUID) for this person. */
+      readonly uuid: string;
+      /**
+         * Timestamp of the last event from this person, or null.
+         * @nullable
+         */
+      readonly last_seen_at: string | null;
     }
 
     export interface PersonSplitRequest {
@@ -80951,6 +82103,56 @@ export namespace Schemas {
      */
     export interface PullRequestCommentsResponse {
       readonly comments: readonly PullRequestComment[];
+    }
+
+    export interface PullRequestFrictionBreakdown {
+      /** The pull request's friction split by kind. */
+      groups: FrictionGroupShare[];
+      /** Friction as a multiple of the typical pull request in the repository. */
+      score: number;
+      /** Red stretches that a re-run of the same commit turned green. */
+      flake_red_count: number;
+      /** Red stretches where the same job failed on the default branch within 12 hours. */
+      master_red_count: number;
+      /** Red stretches with no provable cause. */
+      unknown_red_count: number;
+      /** Red stretches that a later push fixed. */
+      own_red_count: number;
+      /** Re-runs that failed again. */
+      futile_rerun_count: number;
+      /** Pushes that triggered CI. */
+      push_count: number;
+      /** CI running time of each push, oldest first. */
+      ci_wait_seconds: number[];
+      /**
+         * From ready for review to the first approval. Null when either is not observed.
+         * @nullable
+         */
+      first_approval_wait_seconds: number | null;
+      /**
+         * Pushes after the first approval. Null without an approval.
+         * @nullable
+         */
+      pushes_after_approval: number | null;
+      /**
+         * Time in the merge queue. Null when the pull request never entered it.
+         * @nullable
+         */
+      queue_seconds: number | null;
+      /**
+         * Times the merge queue removed the pull request. Null without queue data.
+         * @nullable
+         */
+      kickout_count: number | null;
+    }
+
+    export interface PullRequestFrictionDetail {
+      /** Null when the pull request did not merge in the window, or a bot authored it. */
+      pull_request: PullRequestFrictionBreakdown | null;
+      /** False when the per-PR friction view does not exist yet: it needs a GitHub source with workflow runs, workflow jobs and pull requests synced. */
+      available: boolean;
+      /** Pull requests merged in this many days before the view last refreshed. */
+      window_days: number;
     }
 
     export interface PushCISample {
@@ -85686,6 +86888,54 @@ export namespace Schemas {
       Rejected: 'rejected',
     } as const;
 
+    export interface ResultReceipt {
+      /** Accepted item UUID. */
+      id: string;
+      /** Whether this upload created the item. */
+      created: boolean;
+      /** Original server acceptance time, unchanged on retry. */
+      accepted_at: string;
+      /** Item this result evaluates. */
+      item_id: string;
+      /** Pinned scorer version used by this result. */
+      scorer_version_id: string;
+    }
+
+    export interface ResultSubmission {
+      /** UUID of an item declared in this request or already accepted in this experiment. */
+      item_id: string;
+      /** Exact UUID of an existing scorer version in this project. */
+      scorer_version_id: string;
+      /** Outcome of this scorer execution.
+       *
+       * * `ok` - OK
+       * * `error` - Error
+       * * `skipped` - Skipped
+       * * `not_applicable` - Not applicable */
+      status: OfflineEvaluationResultStatusEnum;
+      /** Required for ok: finite number, boolean, or distinct category keys matching the scorer version. */
+      value?: number | boolean | string[] | null;
+      /**
+         * Optional stable error code, permitted only for error outcomes.
+         * @maxLength 128
+         * @nullable
+         */
+      error_code?: string | null;
+      /**
+         * Trace identifier of the evaluator that produced this result.
+         * @maxLength 255
+         * @nullable
+         */
+      evaluator_trace_id?: string | null;
+      /**
+         * Caller-supplied evaluation time in ISO 8601 format.
+         * @nullable
+         */
+      evaluated_at?: string | null;
+      /** Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels. */
+      payload?: OfflineEvaluationResultPayloadInput;
+    }
+
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];
 
 
@@ -87680,6 +88930,11 @@ export namespace Schemas {
          * @maxLength 64
          */
       suggestion_id?: string;
+      /**
+         * Optional description, in the user's own words, of what the new scout should watch. The chat then opens on this request instead of asking from scratch. `author_scout` only, and not together with `suggestion_id`.
+         * @maxLength 2000
+         */
+      user_prompt?: string;
     }
 
     /**
@@ -87931,6 +89186,16 @@ export namespace Schemas {
       available: boolean;
     }
 
+    /**
+     * A scope preset a scout run can be dispatched with.
+     */
+    export interface ScoutScopePreset {
+      /** The preset's name. `signals_scout` is what every scout holds; `signals_scout_reports` adds the report channel and is used only by a scout whose skill opted into it. */
+      name: string;
+      /** Every scope a token minted from this preset carries, including the internal ones. */
+      scopes: string[];
+    }
+
     export interface ScoutSuggestionProposedConfig {
       /**
          * Suggested five-field cron schedule in the project timezone, or null for an interval.
@@ -88019,6 +89284,69 @@ export namespace Schemas {
       fleet_snapshot: string[];
       /** Suggestions not yet dismissed or created, best first. Up to 5. */
       items: ScoutSuggestionItem[];
+    }
+
+    /**
+     * One MCP tool, with what a scout would need to call it.
+     */
+    export interface ScoutToolCatalogueEntry {
+      /** The tool's permanent identifier, for example `insight-get`. This is the name a scout calls. */
+      name: string;
+      /** The label people read, for example `Get insight`. */
+      title: string;
+      /** One line on what the tool does. The tool's full description runs to several kilobytes on some tools, so it is not part of this listing. */
+      summary: string;
+      /** The product area the tool belongs to, for example `Error tracking`. Use it to group the listing. */
+      category: string;
+      /** The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`. */
+      feature: string;
+      /** The API scopes a token must carry to call the tool. Empty for a tool that needs none. */
+      required_scopes: string[];
+      /** True when the tool only reads. A false value means the tool can change the project's data. */
+      is_read_only: boolean;
+      /** True when the tool is hidden until the project consents to AI features. */
+      requires_ai_consent: boolean;
+      /** True when a scout run can hold every scope the tool requires. A false value means no scout reaches the tool, whatever it is granted, so it cannot be configured for one. */
+      holdable: boolean;
+      /** Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these are what the scout has to be granted, or the preset it has to opt into. On a tool that is not holdable they include every scope no scout can reach, and can also include scopes a person can grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart. */
+      missing_scopes: string[];
+      /**
+         * Feature flag key that gates the tool, or null when the tool is always served. The flag resolves per project, so evaluate it for the project you are configuring before you offer the tool.
+         * @nullable
+         */
+      feature_flag: string | null;
+      /**
+         * How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` (served only while the flag is off). Null means the default, `enable`.
+         * @nullable
+         */
+      feature_flag_behavior: string | null;
+      /**
+         * Variant of `feature_flag` the tool needs, or null when any truthy value serves it.
+         * @nullable
+         */
+      feature_flag_variant: string | null;
+      /**
+         * A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.
+         * @nullable
+         */
+      hidden_when_flag_on: string | null;
+      /**
+         * Plan feature the organization must have for the tool to be served, or null when the tool is free.
+         * @nullable
+         */
+      feature_entitlement: string | null;
+    }
+
+    /**
+     * The MCP tool catalogue, with the scout scope postures to read it against.
+     */
+    export interface ScoutToolCatalogue {
+      /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
+      tools: ScoutToolCatalogueEntry[];
+      /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
+      presets: ScoutScopePreset[];
+      /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
+      grantable_write_scopes: string[];
     }
 
     /**
@@ -94628,6 +95956,15 @@ export namespace Schemas {
       readonly installations: readonly StamphogDiscoveredInstallation[];
     }
 
+    export interface StartTrainingRequest {
+      /**
+         * Override the pipeline iteration budget for this training run.
+         * @minimum 1
+         * @maximum 500
+         */
+      iteration_budget?: number;
+    }
+
     /**
      * Result of an upload: where the file landed and its content hash.
      */
@@ -96659,7 +97996,7 @@ export namespace Schemas {
          * @nullable
          */
       benjamin_enabled?: boolean | null;
-      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from the creating PostHog Desktop at run start; the token is sent in flight and never stored on PostHog servers. Only PostHog Desktop can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
+      /** How the Claude runtime pays for model use. 'own-subscription' makes the sandbox request a Claude token from whoever started the run; Desktop relays it interactively and an API key caller relays it unattended. The token is sent in flight and never stored on PostHog servers. Only PostHog Desktop and API keys can select 'own-subscription'; other callers get a 400. If omitted or null, resumed runs keep their billing choice and new runs use the PostHog gateway.
        *
        * * `posthog-gateway` - posthog-gateway
        * * `own-subscription` - own-subscription */
@@ -98519,6 +99856,19 @@ export namespace Schemas {
     }
 
     /**
+     * Payload for adding a private note to a ticket. It has no privacy field: the note is always private.
+     */
+    export interface TicketNoteCreateRequest {
+      /**
+         * Note content in markdown. The note is visible to your team only and is never sent to the customer.
+         * @maxLength 5000
+         */
+      message: string;
+      /** Optional TipTap rich content JSON for the note. Omit it to show the markdown message. */
+      rich_content?: unknown;
+    }
+
+    /**
      * Payload for posting a reply or internal note to a ticket.
      */
     export interface TicketReplyRequest {
@@ -98867,6 +100217,27 @@ export namespace Schemas {
     export interface UpdateWebhookInputsResponse {
       /** Whether the inputs were saved and pushed to the external service. */
       success: boolean;
+    }
+
+    export interface UploadReceipt {
+      /** One acknowledgment per referenced item. */
+      items: ItemReceipt[];
+      /** Acknowledgments in the submitted result order. */
+      results: ResultReceipt[];
+    }
+
+    export interface UploadSubmission {
+      /**
+         * Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.
+         * @maxItems 1000
+         */
+      items?: ItemSubmission[];
+      /**
+         * One to 1,000 unique item/scorer-version results. The entire request commits atomically.
+         * @minItems 1
+         * @maxItems 1000
+         */
+      results: ResultSubmission[];
     }
 
     export interface UploadVersionRequest {
@@ -99519,20 +100890,147 @@ export namespace Schemas {
      * * `slack` - slack
      * * `webhook` - webhook
      */
-    export type VisionAlertCreateDestinationTypeEnum = typeof VisionAlertCreateDestinationTypeEnum[keyof typeof VisionAlertCreateDestinationTypeEnum];
+    export type VisionAlertDestinationTypeEnum = typeof VisionAlertDestinationTypeEnum[keyof typeof VisionAlertDestinationTypeEnum];
 
 
-    export const VisionAlertCreateDestinationTypeEnum = {
+    export const VisionAlertDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
+
+    export interface VisionAlertDestinationConfig {
+      /** HogFunctions backing the created destination, one per event kind. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook */
+      type: VisionAlertDestinationTypeEnum;
+      /** Whether every HogFunction in the group is enabled, so the destination notifies on every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace, for Slack destinations. */
+      slack_workspace_id?: number;
+      /** Slack channel ID, for Slack destinations. */
+      slack_channel_id?: string;
+      /** Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret. */
+      webhook_url?: string;
+    }
+
+    export interface VisionAlertConfigurationDetail {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind: VisionAlertKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed. */
+      readonly destinations: readonly VisionAlertDestinationConfig[];
+    }
 
     export interface VisionAlertCreateDestination {
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook */
-      type: VisionAlertCreateDestinationTypeEnum;
+      type: VisionAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -100206,7 +101704,7 @@ export namespace Schemas {
       generation_id: string;
     }
 
-    export type WidgetCatalogEntry = ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
+    export type WidgetCatalogEntry = NotebookWidgetCatalogEntryOpenApi | ActivityEventsListWidgetCatalogEntryOpenApi | ErrorTrackingListWidgetCatalogEntryOpenApi | SessionReplayListWidgetCatalogEntryOpenApi | ExperimentsListWidgetCatalogEntryOpenApi | ExperimentResultsWidgetCatalogEntryOpenApi | SurveyResultsWidgetCatalogEntryOpenApi | LogsListWidgetCatalogEntryOpenApi | ConversationsRecentTicketsWidgetCatalogEntryOpenApi;
 
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -100351,6 +101849,86 @@ export namespace Schemas {
       version_id: string;
       /** Current version used for optimistic concurrency. */
       expected_current_version_id: string;
+    }
+
+    /**
+     * Frozen input mappings and Hog transforms.
+     */
+    export type WidgetSnapshotInputBindings = {[key: string]: {
+      source: string;
+      hog?: string;
+    }};
+
+    export interface WidgetSnapshot {
+      /** Immutable snapshot containing the widget's saved dataframe results. */
+      id: string;
+      /** Source widget node in the notebook. */
+      node_id: string;
+      /** Pinned generated widget version. */
+      version_id: string;
+      /** When all dataframe results were saved. */
+      created_at: string;
+      /** Allowed dataframe slots. */
+      frame_names: string[];
+      /** Frozen input mappings and Hog transforms. */
+      input_bindings: WidgetSnapshotInputBindings;
+      /** Pinned widget input schemas. */
+      input_contract: WidgetInputContractItem[];
+      /**
+         * Short-lived URL for the pinned widget build.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /**
+         * Exact build hash used for execution consent.
+         * @nullable
+         */
+      build_hash: string | null;
+      /** Review of the pinned widget source. */
+      security_review: WidgetSecurityReview | null;
+    }
+
+    export interface WidgetSnapshotPublish {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
+      /**
+         * Dashboard to add the widget to.
+         * @minimum 1
+         */
+      dashboard_id?: number;
+      /**
+         * Existing dashboard tile to refresh.
+         * @minimum 1
+         */
+      tile_id?: number;
+      /**
+         * Title for a new dashboard widget.
+         * @maxLength 400
+         */
+      name?: string;
+    }
+
+    export interface WidgetSnapshotRequest {
+      /**
+         * Notebook widget node to add to a dashboard.
+         * @maxLength 128
+         */
+      node_id: string;
+      /** Immutable widget version to keep on the dashboard. */
+      version_id: string;
+      /** Completed whole-notebook run supplying every input after refresh. */
+      notebook_run_id?: string;
+      /** Snapshot being refreshed; its version and input mappings must match. */
+      previous_snapshot_id?: string;
     }
 
     export interface WidgetSource {
@@ -103406,6 +104984,69 @@ export namespace Schemas {
       results: _TracingSparklineRow[];
     }
 
+    export interface _TracingTraceAiEvent {
+      /** Event UUID. */
+      uuid: string;
+      /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+      event: string;
+      /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+      started_at: string;
+      /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+      ai_trace_id: string;
+      /**
+         * The `$ai_span_id` of the event.
+         * @nullable
+         */
+      ai_span_id: string | null;
+      /**
+         * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+         * @nullable
+         */
+      ai_parent_id: string | null;
+      /**
+         * The `$ai_span_name`, set on `$ai_span` events.
+         * @nullable
+         */
+      span_name: string | null;
+      /**
+         * How long the call took, in seconds.
+         * @nullable
+         */
+      latency_seconds: number | null;
+      /**
+         * The model the call used.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider the call went to.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Prompt tokens.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Completion tokens.
+         * @nullable
+         */
+      output_tokens: number | null;
+      /**
+         * Total cost of the call, in USD.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /** Whether the call failed. */
+      is_error: boolean;
+    }
+
+    export interface _TracingTraceAiEventsResponse {
+      /** AI events in the trace, earliest start first. */
+      results: _TracingTraceAiEvent[];
+    }
+
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
@@ -106117,6 +107758,14 @@ export namespace Schemas {
 
     export type CommunitySkillsListParams = {
     /**
+     * Filter to skills or to scouts. Omit to return both.
+     *
+     * * `skill` - Skill
+     * * `scout` - Scout
+     * @minLength 1
+     */
+    kind?: CommunitySkillsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -106158,6 +107807,14 @@ export namespace Schemas {
      */
     trust_tier?: CommunitySkillsListTrustTier;
     };
+
+    export type CommunitySkillsListKind = typeof CommunitySkillsListKind[keyof typeof CommunitySkillsListKind];
+
+
+    export const CommunitySkillsListKind = {
+      Skill: 'skill',
+      Scout: 'scout',
+    } as const;
 
     export type CommunitySkillsListTrustTier = typeof CommunitySkillsListTrustTier[keyof typeof CommunitySkillsListTrustTier];
 
@@ -107059,6 +108716,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DataModelingDagsListParams = {
     /**
      * Number of results to return per page.
@@ -107649,6 +109317,36 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsAuthorFrictionParams = {
+    /**
+     * GitHub team slug: list only the team's members, through the team membership table. Ranks stay repository-wide.
+     */
+    github_team?: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsAuthorFrictionDetailParams = {
+    /**
+     * GitHub login of the author to show.
+     */
+    author: string;
+    /**
+     * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     /**
      * GitHub handle whose CI spend to break down.
@@ -107950,6 +109648,21 @@ export namespace Schemas {
     export type EngineeringAnalyticsPrRunsParams = {
     /**
      * Pull request number whose runs to list.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestFrictionParams = {
+    /**
+     * Pull request number to show.
      */
     pr_number: number;
     /**
@@ -109998,6 +111711,10 @@ export namespace Schemas {
     };
 
     export type HogFlowsListParams = {
+    /**
+     * Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.
+     */
+    broadcast_eligible?: boolean;
     created_at?: string;
     /**
      * Filter to workflows created by the user with this uuid.
@@ -111934,9 +113651,24 @@ export namespace Schemas {
      */
     dateRange?: _DateRange;
     /**
+     * Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
      * Property filters to narrow which logs are scanned for attributes.
      */
     filterGroup?: _LogPropertyFilter[];
+    /**
+     * Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.
+     * @minLength 1
+     */
+    keys?: string;
     /**
      * Max results (default: 100)
      * @minimum 1
@@ -112841,6 +114573,28 @@ export namespace Schemas {
     user?: string;
     };
 
+    export type NotebooksWidgetSnapshotFrameParams = {
+    /**
+     * Maximum rows in this page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Zero-based row offset.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Completed run selected by the first page request.
+     */
+    run_id?: string;
+    /**
+     * Version requesting the data.
+     */
+    version_id?: string;
+    };
+
     export type NotebooksWidgetFrameParams = {
     limit?: number;
     offset?: number;
@@ -112928,6 +114682,10 @@ export namespace Schemas {
      */
     email?: string;
     format?: PersonsListFormat;
+    /**
+     * Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.
+     */
+    include_matched_fields?: boolean;
     /**
      * Number of results to return per page.
      */
