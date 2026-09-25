@@ -1249,6 +1249,35 @@ class TestScoutHarnessConfigStructuredOutputSchemaAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.structured_output_schema == _STRUCTURED_OUTPUT_SCHEMA
 
+    @parameterized.expand(
+        [
+            ("custom_scout_clears", "signals-scout-judge", _STRUCTURED_OUTPUT_SCHEMA, status.HTTP_200_OK, None),
+            (
+                "canonical_shipped_schema_refused",
+                "signals-scout-mcp-tool-calls",
+                _STRUCTURED_OUTPUT_SCHEMA,
+                status.HTTP_400_BAD_REQUEST,
+                _STRUCTURED_OUTPUT_SCHEMA,
+            ),
+            ("canonical_null_to_null_is_a_no_op", "signals-scout-mcp-tool-calls", None, status.HTTP_200_OK, None),
+        ]
+    )
+    def test_patch_null_clears_a_custom_schema_but_not_a_shipped_one(
+        self, _name: str, skill_name: str, stored: dict | None, expected_status: int, expected_schema: dict | None
+    ) -> None:
+        # The per-tick reconcile refills a null schema on a canonical scout, so accepting the clear
+        # would turn recording back on within the hour with nothing in the response saying so. A
+        # patch that sends null over a null column is not a clear and must not be refused.
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name=skill_name, structured_output_schema=stored
+        )
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"structured_output_schema": None}, format="json"
+        )
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        assert config.structured_output_schema == expected_schema
+
     def test_patch_rejects_invalid_schema(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
         response = self.client.patch(

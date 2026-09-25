@@ -218,6 +218,7 @@ export class TerminalRuntime {
                         'cp /posthog/bin/jq /usr/bin/jq && chmod +x /usr/bin/jq || exit',
                         'cp /posthog/bin/ph /usr/bin/ph && chmod +x /usr/bin/ph || exit',
                         'cp /posthog/bin/run /usr/bin/run && chmod +x /usr/bin/run || exit',
+                        'cp /posthog/bin/hogql /usr/bin/hogql && chmod +x /usr/bin/hogql || exit',
                         '[ -e /dev/fd ] || ln -s /proc/self/fd /dev/fd',
                         'mkdir -p /usr/local/bin && cp /posthog/bin/rm /usr/local/bin/rm && chmod +x /usr/local/bin/rm || exit',
                         'export PATH=/usr/local/bin:$PATH',

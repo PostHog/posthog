@@ -19,7 +19,6 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
-    _clamp_thumbnail,
     _maybe_create_video_cache,
     _MissionOutcome,
     _remaining_verify_budget_seconds,
@@ -913,17 +912,3 @@ async def test_video_cache_creation_is_best_effort() -> None:
         cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE", tools=[events_tool()]
     )
     assert result is None
-
-
-@pytest.mark.parametrize(
-    "picked,expected",
-    [
-        (None, None),
-        (5, 5),
-        (40, 30),
-        (-3, 0),
-    ],
-)
-def test_the_thumbnail_pick_is_held_inside_the_rendered_video(picked: int | None, expected: int | None) -> None:
-    # A seek past the end makes ffmpeg exit 0 with no frame, which would leave the observation without a poster.
-    assert _clamp_thumbnail(picked, _IDENTITY_CLOCK, duration_ms=30_000) == expected
