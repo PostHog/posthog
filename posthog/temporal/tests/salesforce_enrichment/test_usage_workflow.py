@@ -112,6 +112,19 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         assert record["posthog_total_events_7d__c"] == 0
         assert record["posthog_total_events_30d__c"] == 0
 
+    @parameterized.expand(
+        [
+            ("7d", "events_7d_momentum", "posthog_events_7d_momentum__c", 250_000.0),
+            ("30d", "events_30d_momentum", "posthog_events_30d_momentum__c", 1_000_000.0),
+        ]
+    )
+    def test_momentum_capped_at_salesforce_field_maximum(self, _name, attr, sf_field, momentum):
+        signals = UsageSignals(**{attr: momentum})
+
+        record = prepare_salesforce_update_record("001ABC123", signals)
+
+        assert record[sf_field] == 99_999.99
+
 
 class TestDecideOrgRegion(SimpleTestCase):
     @parameterized.expand(

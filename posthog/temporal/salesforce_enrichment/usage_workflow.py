@@ -29,6 +29,7 @@ from ee.billing.salesforce_enrichment.constants import (
     POSTHOG_ORG_REGION_FIELD,
     POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE,
     POSTHOG_USAGE_FIELD_MAPPINGS,
+    SALESFORCE_MOMENTUM_MAX,
     SALESFORCE_UPDATE_BATCH_SIZE,
 )
 from ee.billing.salesforce_enrichment.org_regions import fetch_org_regions, normalize_org_id
@@ -48,6 +49,7 @@ LOGGER = get_logger(__name__)
 
 # Fields from POSTHOG_USAGE_FIELD_MAPPINGS that are handled specially (not simple attribute->field copy)
 _SPECIAL_FIELDS = frozenset({"products_activated_7d", "products_activated_30d"})
+_MOMENTUM_FIELDS = frozenset({"events_7d_momentum", "events_30d_momentum"})
 
 
 @dataclasses.dataclass(frozen=False)
@@ -95,7 +97,7 @@ def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageS
             continue
         value = getattr(signals, attr, None)
         if value is not None:
-            record[sf_field] = value
+            record[sf_field] = min(value, SALESFORCE_MOMENTUM_MAX) if attr in _MOMENTUM_FIELDS else value
 
     # Products activated (comma-separated, sorted for consistency)
     record[POSTHOG_USAGE_FIELD_MAPPINGS["products_activated_7d"]] = ",".join(sorted(signals.products_activated_7d))
