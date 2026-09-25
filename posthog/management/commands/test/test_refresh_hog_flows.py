@@ -350,6 +350,7 @@ class TestRefreshHogFlows(BaseTest):
         stamped = (flow.trigger or {}).get("filters", {}).get("bytecode_contract")
         assert stamped == (None if dry_run else RUNTIME_CONTRACT)
         assert ("Dry run" in out.getvalue()) is dry_run
+        assert ("Would update: 1" if dry_run else "Updated: 1") in out.getvalue()
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_names_a_workflow_that_no_longer_validates(self, mock_reload):

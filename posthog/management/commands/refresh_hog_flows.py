@@ -114,14 +114,15 @@ class Command(BaseCommand):
                     if serializer.is_valid():
                         if not dry_run:
                             serializer.save()
-                            total_updated += 1
+                        total_updated += 1
                         logger.info(
-                            "Successfully refreshed HogFlow",
+                            "Would refresh HogFlow" if dry_run else "Successfully refreshed HogFlow",
                             hog_flow_id=str(hog_flow.id),
                             team_id=hog_flow.team_id,
                             status=hog_flow.status,
                             name=hog_flow.name,
                             version=hog_flow.version,
+                            dry_run=dry_run,
                         )
                     else:
                         # A workflow that no longer validates cannot be re-saved, so it keeps whatever
@@ -152,7 +153,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"\n{'Dry run' if dry_run else 'Refresh'} completed in {duration:.2f}s.\n"
                 f"Processed: {total_processed}\n"
-                f"Updated: {total_updated}\n"
+                f"{'Would update' if dry_run else 'Updated'}: {total_updated}\n"
                 f"Errors: {error_count}"
             )
         )
