@@ -29,7 +29,7 @@ from rest_framework import (
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, ValidationError
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,7 +52,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, is_scout_sandbox_request
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
@@ -756,6 +756,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if is_scout_sandbox_request(request):
+            if self.action in {"compose", "note", "delete_note"}:
+                raise PermissionDenied(
+                    "Scouts can add private notes but cannot compose emails or change existing notes."
+                )
+            if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
+                raise PermissionDenied("Scouts cannot change customer identity fields.")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -1610,6 +1620,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
         request = self.request
+        if is_scout_sandbox_request(request) and not is_private:
+            raise PermissionDenied("Scouts can only add private notes. Set is_private to true.")
+
         item_context = {"author_type": "support", "is_private": is_private}
 
         def create_comment() -> Comment:

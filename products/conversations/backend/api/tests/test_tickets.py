@@ -32,6 +32,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
@@ -2482,8 +2483,28 @@ class TestComposeTicketAPI(APIBaseTest):
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
-    def _auth_with_pak(self, scopes: list[str]) -> None:
-        key = self.create_personal_api_key_with_scopes(scopes)
+    def _auth_with_scopes(self, scopes: list[str]) -> None:
+        if "signal_scout_internal:write" in scopes:
+            application = OAuthApplication.objects.create(
+                name="Ticket scout test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            key = "pha_ticket_scout_test"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=key,
+                scope=" ".join(scopes),
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            )
+        else:
+            key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
@@ -2513,7 +2534,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_read_actions(self, _name, action, method, use_detail, scopes, expected_status):
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
 
         base = f"/api/projects/{self.team.id}/conversations/tickets/"
         if use_detail:
@@ -2529,12 +2550,13 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     @parameterized.expand(
         [
             ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("scout_compose", "compose", ["ticket:write", "signal_scout_internal:write"], status.HTTP_403_FORBIDDEN),
             ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_write_actions(self, _name, action, scopes, expected_status):
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
         url = f"/api/projects/{self.team.id}/conversations/tickets/{action}/"
         response = self.client.post(url, {}, format="json")
         assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
@@ -2564,7 +2586,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_messages_and_reply_scopes(self, _name, action, method, scopes, expected_status):
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
 
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/{action}/"
         if method == "post":
@@ -2576,6 +2598,8 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     @parameterized.expand(
         [
             ("note_with_write", "patch", ["ticket:write"], status.HTTP_200_OK),
+            ("scout_edit_note", "patch", ["ticket:write", "signal_scout_internal:write"], status.HTTP_403_FORBIDDEN),
+            ("scout_delete_note", "delete", ["ticket:write", "signal_scout_internal:write"], status.HTTP_403_FORBIDDEN),
             ("note_with_read_only", "patch", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("note_wrong_scope", "patch", ["insight:write"], status.HTTP_403_FORBIDDEN),
             ("delete_note_with_write", "delete", ["ticket:write"], status.HTTP_204_NO_CONTENT),
@@ -2594,7 +2618,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             content="Original note",
             item_context={"author_type": "support", "is_private": True},
         )
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
         if method == "post":
             self.team.conversations_enabled = True
@@ -2609,6 +2633,74 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         else:
             response = self.client.delete(url)
         assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, status.HTTP_403_FORBIDDEN),
+            ("public", {"is_private": False}, status.HTTP_403_FORBIDDEN),
+            ("private", {"is_private": True}, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_scout_reply(self, _name: str, fields: dict[str, object], expected_status: int) -> None:
+        self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
+            {"message": "Private investigation result", **fields},
+            format="json",
+        )
+        assert response.status_code == expected_status
+        messages = Comment.objects.filter(team=self.team, item_id=str(self.ticket.id))
+        if expected_status == status.HTTP_201_CREATED:
+            assert messages.get().item_context["is_private"] is True
+        else:
+            assert not messages.exists()
+
+    @parameterized.expand(
+        [
+            ("identity", {"anonymous_traits": {"email": "other@example.com"}}, status.HTTP_403_FORBIDDEN),
+            ("status", {"status": Status.RESOLVED}, status.HTTP_200_OK),
+        ]
+    )
+    def test_scout_update(self, _name: str, fields: dict[str, object], expected_status: int) -> None:
+        self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
+        original_traits = self.ticket.anonymous_traits
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", fields, format="json"
+        )
+        assert response.status_code == expected_status
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == original_traits
+        if expected_status == status.HTTP_200_OK:
+            assert self.ticket.status == Status.RESOLVED
+
+    @parameterized.expand([("create", "post"), ("update", "patch")])
+    def test_scout_cannot_write_generic_ticket_comments(self, _name: str, method: str) -> None:
+        note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Original note",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
+        url = f"/api/projects/{self.team.id}/comments/"
+        if method == "patch":
+            url += f"{note.id}/"
+        response = getattr(self.client, method)(
+            url,
+            {
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "content": "Changed note",
+                "item_context": {"author_type": "customer"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        note.refresh_from_db()
+        assert note.content == "Original note"
+        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 1
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
