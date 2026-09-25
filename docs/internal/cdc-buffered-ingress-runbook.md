@@ -59,6 +59,8 @@ The table then carries `cdc_reset_pending`, capture leaves it out, and each late
 The new snapshot reads the table after the reset, so nothing skipped is lost.
 The key stays until the schedule is unpaused, so a failed unpause is retried too.
 A reset from slot-invalidation recovery marks the key `awaiting_slot` until the replacement slot exists, so no later run can unpause the table before capture has a point to resume from.
+A resync, a table-mode switch, re-enabling a table's sync, and Repair CDC use the same key: when a sync of the table can still hand over, they pause its schedule and leave the reset to capture, which also starts the new snapshot.
+The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
 Turning a table's sync off, or adding it back to capture, drops its marker, because capture skipped the table in between and its buffer has a gap.
 Capture handles a TRUNCATE only after every change of its transaction has been read, so no pre-TRUNCATE change can land in the buffer after the purge.
 Without the marker, the hand-over purges the whole buffer, as legacy always did.

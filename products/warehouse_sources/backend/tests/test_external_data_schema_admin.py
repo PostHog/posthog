@@ -67,6 +67,9 @@ class TestExternalDataSchemaAdmin(BaseTest):
         with (
             patch(f"{_ADMIN_MODULE}.sync_connect"),
             patch(f"{_SHARED_MODULE}.is_schedule_paused", return_value=True),
+            # No sync of the table can hand over, so the reset is staged here. The real check reads
+            # the load queue, which lives in a database this test does not create.
+            patch(f"{_SHARED_MODULE}.cancel_sync_that_could_hand_over", return_value=False),
             patch(f"{_SHARED_MODULE}.start_external_data_workflow") as mock_start,
         ):
             response = self.admin.trigger_sync_view(self._request("post", {"reset_pipeline": "on"}), schema.id)

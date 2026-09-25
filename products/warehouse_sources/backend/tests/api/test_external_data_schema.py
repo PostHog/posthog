@@ -3103,6 +3103,12 @@ class TestUpdateExternalDataSchema:
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
             ),
+            # The load queue lives in the warehouse-sources database, which this test does not
+            # create. Left real, the probe raises and the reset is handed to capture instead.
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches",
+                return_value=False,
+            ),
         ):
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",

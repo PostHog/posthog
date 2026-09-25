@@ -20,7 +20,10 @@ from structlog.types import FilteringBoundLogger
 from temporalio.service import RPCError, RPCStatusCode
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY
+from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import CDC_EXTRACTION_WORKFLOW_ID_PREFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
@@ -31,6 +34,9 @@ if TYPE_CHECKING:
 # older worker ignores the marker, so it would defer that table's changes or purge its buffer.
 BUFFERED_SNAPSHOT_FLAG = "dwh-cdc-buffered-snapshot"
 BUFFER_LANE = "buffer"
+# Marks a table whose reset waits for a sync that can still hand over. The slot or the request moves
+# on meanwhile, so this key is what makes a later capture run finish the reset.
+CDC_RESET_PENDING_KEY = "cdc_reset_pending"
 
 
 def team_flag_enabled(flag: str, team_id: int, logger: FilteringBoundLogger) -> bool:
@@ -118,3 +124,44 @@ def cancel_running_sync(schema: ExternalDataSchema) -> str | None:
             raise
         return None
     return job.workflow_id
+
+
+def cancel_sync_that_could_hand_over(schema: ExternalDataSchema) -> bool:
+    """Cancel the table's running sync. Returns True while it could still hand over.
+
+    It can until its workflow has closed and none of its batches are left in the load queue.
+    """
+    # Deferred: source_manager pulls in the pipeline, which this module stays free of.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
+        has_queued_batches,
+    )
+
+    return cancel_running_sync(schema) is not None or has_queued_batches(schema)
+
+
+def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> bool:
+    """Leave a CDC table's reset to capture while a sync of it could still hand over. Returns whether it did.
+
+    When no sync can, returns False, and the caller resets the table now. Otherwise the schedule is
+    paused and the reset marked pending, and capture finishes it once the sync stops. A failed check
+    hands the reset over too, because capture retries it.
+    """
+    # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
+    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
+    try:
+        if not cancel_sync_that_could_hand_over(schema):
+            return False
+    except Exception:
+        logger.warning("cdc_reset_sync_check_failed", schema_id=str(schema.id), exc_info=True)
+    try:
+        pause_external_data_schedule(str(schema.id))
+    except Exception:
+        # Capture pauses the schedule again before it resets the table.
+        logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
+    pending = {"clear_deferred_runs": True, "trigger": True}
+    update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_RESET_PENDING_KEY: pending})
+    # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
+    schema.sync_type_config = {**(schema.sync_type_config or {}), CDC_RESET_PENDING_KEY: pending}
+    logger.info("cdc_reset_handed_to_capture", schema_id=str(schema.id))
+    return True

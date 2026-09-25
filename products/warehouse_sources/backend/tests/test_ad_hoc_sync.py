@@ -4,7 +4,11 @@ from unittest.mock import MagicMock, patch
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
-from products.warehouse_sources.backend.ad_hoc_sync import WorkflowStartError, trigger_ad_hoc_sync
+from products.warehouse_sources.backend.ad_hoc_sync import (
+    SyncStillRunningError,
+    WorkflowStartError,
+    trigger_ad_hoc_sync,
+)
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
@@ -14,6 +18,17 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 pytestmark = [pytest.mark.django_db]
 
 MODULE = "products.warehouse_sources.backend.ad_hoc_sync"
+
+
+@pytest.fixture
+def no_sync_to_wait_for():
+    """No sync of the table can hand over, so a reset is staged here rather than left to capture.
+
+    The real check reads the load queue, which lives in the warehouse-sources database these tests
+    do not create — it would raise, and a failed check hands the reset over.
+    """
+    with patch(f"{MODULE}.cancel_sync_that_could_hand_over", return_value=False) as stub:
+        yield stub
 
 
 @pytest.fixture
@@ -64,7 +79,7 @@ def test_a_schedule_already_paused_is_left_paused(schema):
     assert "admin_unpause_schedule_after_run" not in schema.sync_type_config
 
 
-def test_failed_start_restores_staged_reset_state(schema):
+def test_failed_start_restores_staged_reset_state(schema, no_sync_to_wait_for):
     schema.sync_type_config = {"cdc_mode": "streaming", "cdc_last_log_position": "0/ABC"}
     schema.sync_type = ExternalDataSchema.SyncType.CDC
     schema.initial_sync_complete = True
@@ -87,7 +102,9 @@ def test_failed_start_restores_staged_reset_state(schema):
 
 
 @pytest.mark.parametrize("ingest_mode", [None, "buffered"])
-def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(schema, ingest_mode):
+def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(
+    schema, ingest_mode, no_sync_to_wait_for
+):
     schema.source.job_inputs = {"cdc_ingest_mode": ingest_mode} if ingest_mode else {}
     schema.source.save()
     schema.sync_type = ExternalDataSchema.SyncType.CDC
@@ -112,3 +129,22 @@ def test_a_reset_of_a_streaming_cdc_table_keeps_its_buffer_and_concurrent_keys(s
     # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
     assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
     assert schema.sync_type_config["cdc_last_run_at"] == "2026-09-24T00:00:00+00:00"
+
+
+def test_a_cdc_reset_is_refused_while_the_tables_sync_can_still_hand_over(schema):
+    schema.sync_type = ExternalDataSchema.SyncType.CDC
+    schema.sync_type_config = {"cdc_mode": "streaming"}
+    schema.save()
+
+    with (
+        patch(f"{MODULE}.cancel_sync_that_could_hand_over", return_value=True),
+        patch(f"{MODULE}.pause_external_data_schedule") as pause,
+        patch(f"{MODULE}.start_external_data_workflow") as start,
+        pytest.raises(SyncStillRunningError),
+    ):
+        trigger_ad_hoc_sync(MagicMock(), schema, billable=False, reset_pipeline=True, workflow_id_prefix="test")
+
+    pause.assert_not_called()
+    start.assert_not_called()
+    schema.refresh_from_db()
+    assert schema.sync_type_config == {"cdc_mode": "streaming"}
