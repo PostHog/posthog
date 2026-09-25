@@ -12,12 +12,13 @@ from typing import TYPE_CHECKING, Literal
 
 from posthog.schema import NativeMarketingSource
 
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import get_feature_flag_or_none
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 NativeIntegration = Literal[
+    "amazon_ads",
     "apple_ads",
     "openai_ads",
     "google_ads",
@@ -34,6 +35,7 @@ NativeIntegration = Literal[
 # Mapping from NativeMarketingSource to the snake-case key used everywhere
 # downstream (URL params, scope hints, suggestion targets).
 NATIVE_TO_KEY: dict[NativeMarketingSource, NativeIntegration] = {
+    NativeMarketingSource.AMAZON_ADS: "amazon_ads",
     NativeMarketingSource.APPLE_SEARCH_ADS: "apple_ads",
     NativeMarketingSource.OPEN_AI_ADS: "openai_ads",
     NativeMarketingSource.GOOGLE_ADS: "google_ads",
@@ -53,6 +55,7 @@ KEY_TO_NATIVE: dict[NativeIntegration, NativeMarketingSource] = {v: k for k, v i
 # layer uses) to NativeMarketingSource. Pinned explicitly because
 # ExternalDataSourceType has many non-marketing entries.
 EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
+    "AmazonAds": NativeMarketingSource.AMAZON_ADS,
     "AppleSearchAds": NativeMarketingSource.APPLE_SEARCH_ADS,
     "OpenAIAds": NativeMarketingSource.OPEN_AI_ADS,
     "GoogleAds": NativeMarketingSource.GOOGLE_ADS,
@@ -67,6 +70,7 @@ EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
 
 # Human-facing names for surfaces that produce text (LLMs, UI, error messages).
 DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
+    NativeMarketingSource.AMAZON_ADS: "Amazon Ads",
     NativeMarketingSource.APPLE_SEARCH_ADS: "Apple Ads",
     NativeMarketingSource.OPEN_AI_ADS: "OpenAI Ads",
     NativeMarketingSource.GOOGLE_ADS: "Google Ads",
@@ -95,6 +99,7 @@ OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
 
 
 NATIVE_SOURCE_FEATURE_FLAGS: dict[str, str] = {
+    "AmazonAds": "marketing-analytics-amazon-ads",
     "AppleSearchAds": "marketing-analytics-apple-ads",
     "OpenAIAds": "marketing-analytics-openai-ads",
 }
@@ -104,11 +109,14 @@ def is_native_source_enabled(source_type: str, team: "Team") -> bool:
     flag = NATIVE_SOURCE_FEATURE_FLAGS.get(source_type)
     if flag is None:
         return True
-    return feature_enabled_or_false(
-        flag,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
+    return (
+        get_feature_flag_or_none(
+            flag,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+        )
+        is True
     )
 
 

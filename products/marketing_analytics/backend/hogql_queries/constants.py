@@ -6,6 +6,7 @@ from typing import Optional, TypedDict, Union
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AmazonAdsDefaultSources,
     AppleSearchAdsDefaultSources,
     BingAdsDefaultSources,
     DefaultChannelTypes,
@@ -27,6 +28,7 @@ from posthog.schema import (
     MarketingIntegrationConfig8,
     MarketingIntegrationConfig9,
     MarketingIntegrationConfig10,
+    MarketingIntegrationConfig11,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
@@ -506,6 +508,7 @@ VALID_SELF_MANAGED_MARKETING_SOURCES = ["aws", "google-cloud", "cloudflare-r2", 
 _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig1,
     MarketingIntegrationConfig10,
+    MarketingIntegrationConfig11,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
@@ -543,6 +546,7 @@ def _get_enum_values(enum_class) -> list[str]:
 
 # Mapping from NativeMarketingSource to generated enum types
 _DEFAULT_SOURCES_ENUMS = {
+    NativeMarketingSource.AMAZON_ADS: AmazonAdsDefaultSources,
     NativeMarketingSource.APPLE_SEARCH_ADS: AppleSearchAdsDefaultSources,
     NativeMarketingSource.OPEN_AI_ADS: OpenAIAdsDefaultSources,
     NativeMarketingSource.GOOGLE_ADS: GoogleAdsDefaultSources,

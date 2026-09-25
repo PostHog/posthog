@@ -29,6 +29,7 @@ from posthog.schema_enums import (
     AlertCalculationInterval as AlertCalculationInterval,
     AlertConditionType as AlertConditionType,
     AlertState as AlertState,
+    AmazonAdsDefaultSources as AmazonAdsDefaultSources,
     AnnotationScope as AnnotationScope,
     AppleSearchAdsDefaultSources as AppleSearchAdsDefaultSources,
     ApprovalDecisionStatus as ApprovalDecisionStatus,
@@ -2135,6 +2136,19 @@ class MarketingIntegrationConfig10(BaseModel):
     statsTableName: Literal["campaign_insights"] = "campaign_insights"
 
 
+class MarketingIntegrationConfig11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["sp_campaigns"] = "sp_campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["amazon"] = "amazon"
+    sourceType: Literal["AmazonAds"] = "AmazonAds"
+    statsTableName: Literal["sp_campaign_reports"] = "sp_campaign_reports"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2147,6 +2161,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig8
         | MarketingIntegrationConfig9
         | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     ]
 ):
     root: (
@@ -2160,6 +2175,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig8
         | MarketingIntegrationConfig9
         | MarketingIntegrationConfig10
+        | MarketingIntegrationConfig11
     )
 
 

@@ -1,5 +1,140 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - clicks 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports clicks",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(clicks), 0))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - cost 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports cost",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', toFloat(cost), coalesce(toDate(date), today()))))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - impressions 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports impressions",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(ifNull(toFloat(purchases14d), 0))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion_value (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - reported_conversion_value 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports reported_conversion_value",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', ifNull(toFloat(sales14d), 0), coalesce(toDate(date), today()))))",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - roas (missing conversion fields) 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports roas",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "0",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
+exports[`marketing analytics utils createMarketingTile snapshots AmazonAds - roas 1`] = `
+{
+  "custom_name": "prefix.sp_campaign_reports roas",
+  "distinct_id_field": "campaign_id",
+  "id": "AmazonAds-stats-table-id",
+  "id_field": "campaign_id",
+  "kind": "DataWarehouseNode",
+  "math": "hogql",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', ifNull(toFloat(sales14d), 0), coalesce(toDate(date), today())))) / nullIf(SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'USD'), 'USD', toFloat(cost), coalesce(toDate(date), today())))), 0)",
+  "name": "amazon",
+  "table_name": "prefix.sp_campaign_reports",
+  "timestamp_field": "date",
+}
+`;
+
 exports[`marketing analytics utils createMarketingTile snapshots AppleSearchAds - clicks 1`] = `
 {
   "custom_name": "prefix.campaign_report clicks",

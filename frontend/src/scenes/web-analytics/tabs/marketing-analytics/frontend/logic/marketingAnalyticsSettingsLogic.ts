@@ -146,6 +146,7 @@ export interface marketingAnalyticsSettingsLogicActions {
         initialTab: IntegrationSettingsTab
         initialUtmValue: string
         integration:
+            | 'AmazonAds'
             | 'AppleSearchAds'
             | 'BingAds'
             | 'GoogleAds'

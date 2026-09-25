@@ -31,6 +31,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 ]
 
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
+    AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
     OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
@@ -71,6 +72,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     BingAds: 'Bing Ads',
     SnapchatAds: 'Snapchat Ads',
     PinterestAds: 'Pinterest Ads',
+    AmazonAds: 'Amazon Ads',
     AppleSearchAds: 'Apple Ads',
     OpenAIAds: 'OpenAI Ads',
 }
@@ -363,6 +365,28 @@ function buildConversionExpr(
 }
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
+    AmazonAds: {
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'cost',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'purchases14d',
+            reportedConversionValue: 'sales14d',
+            currencyColumn: 'campaign_budget_currency_code',
+            currencyTimestampColumn: 'date',
+        },
+        specialConversionLogic: (table, column) => {
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return buildConversionExpr('purchases14d', table)
+            }
+            if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
     AppleSearchAds: {
         idField: 'campaign_id',
         timestampField: 'date',
@@ -766,6 +790,20 @@ export function createMarketingTile(
         return null
     }
 
+    if (sourceType === 'AmazonAds') {
+        if (!['campaign_id', 'date', 'cost', 'impressions', 'clicks'].every((field) => field in table.fields)) {
+            return null
+        }
+        const monetaryColumn =
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
+            tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+            tileColumnSelection === 'roas' ||
+            tileColumnSelection === 'cost_per_reported_conversion'
+        if (monetaryColumn && !('campaign_budget_currency_code' in table.fields)) {
+            return null
+        }
+    }
+
     if (sourceType === 'OpenAIAds') {
         if (!['campaign_id', 'start_time', 'impressions', 'clicks', 'spend'].every((field) => field in table.fields)) {
             return null
@@ -784,7 +822,16 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
             tileConfig.columnMappings.reportedConversionValue
         )
-        const mathHogql = conversionValueExpr === '0' ? '0' : `${conversionValueExpr} / nullIf(SUM(${costExpr}), 0)`
+        let totalValueExpr = conversionValueExpr
+        let totalCostExpr = `SUM(${costExpr})`
+        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+            const perRowValue =
+                tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
+                    ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
+            totalValueExpr = wrapWithCurrencyConversion(perRowValue, tileConfig.columnMappings, table, baseCurrency)
+            totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
+        }
+        const mathHogql = conversionValueExpr === '0' ? '0' : `${totalValueExpr} / nullIf(${totalCostExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }
 

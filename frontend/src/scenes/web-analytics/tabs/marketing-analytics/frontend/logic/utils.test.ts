@@ -28,11 +28,21 @@ import {
 
 describe('marketing analytics utils', () => {
     describe.each([
-        ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS, FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
-        ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS, FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
-    ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag, otherFlag) => {
+        ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
+        ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
+        ['AmazonAds', FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS],
+    ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag) => {
         it.each([undefined, false, true, 'test'])('gates the source when its flag is %s', (enabled) => {
-            const flags = { [otherFlag]: true, ...(enabled === undefined ? {} : { [flag]: enabled }) }
+            const flags: Record<string, boolean | string> = {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS]: true,
+            }
+            if (enabled === undefined) {
+                delete flags[flag]
+            } else {
+                flags[flag] = enabled
+            }
             expect(getEnabledNativeMarketingSources(flags)).toEqual(
                 VALID_NATIVE_MARKETING_SOURCES.filter((source) => source !== sourceType || enabled === true)
             )
@@ -278,6 +288,16 @@ describe('marketing analytics utils', () => {
 
         // All fields each source could reference, so the mock table has them all
         const sourceFields: Record<NativeMarketingSource, string[]> = {
+            AmazonAds: [
+                'campaign_id',
+                'date',
+                'cost',
+                'impressions',
+                'clicks',
+                'purchases14d',
+                'sales14d',
+                'campaign_budget_currency_code',
+            ],
             AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: [
@@ -331,6 +351,7 @@ describe('marketing analytics utils', () => {
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
         const minimalSourceFields: Record<NativeMarketingSource, string[]> = {
+            AmazonAds: ['campaign_id', 'date', 'cost', 'impressions', 'clicks', 'campaign_budget_currency_code'],
             AppleSearchAds: ['local_spend', 'impressions', 'taps'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
@@ -406,6 +427,53 @@ describe('marketing analytics utils', () => {
             )
             expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Impressions, 'EUR')).not.toBeNull()
         })
+
+        it.each(['', 'custom_', 'warehouse.custom_'])('resolves AmazonAds tables with prefix %s', (prefix) => {
+            const source = makeMockSource('AmazonAds', sourceFields.AmazonAds)
+            source.tables[0].name = `${prefix}amazonads_${MARKETING_INTEGRATION_CONFIGS.AmazonAds.statsTableName.toLowerCase()}`
+            const result = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'EUR')
+            expect(result?.table_name).toBe(source.tables[0].name)
+        })
+
+        it.each(['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks'])(
+            'omits Amazon monetary tiles missing %s',
+            (field) => {
+                const source = makeMockSource(
+                    'AmazonAds',
+                    sourceFields.AmazonAds.filter((name) => name !== field)
+                )
+                for (const column of [
+                    MarketingAnalyticsColumnsSchemaNames.Cost,
+                    MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                    'roas',
+                    'cost_per_reported_conversion',
+                ] as const) {
+                    expect(createMarketingTile(source, column, 'EUR')).toBeNull()
+                }
+            }
+        )
+
+        it('keeps Amazon impressions available without currency', () => {
+            const source = makeMockSource(
+                'AmazonAds',
+                sourceFields.AmazonAds.filter((name) => name !== 'campaign_budget_currency_code')
+            )
+            expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Impressions, 'EUR')).not.toBeNull()
+        })
+
+        it.each([true, false])(
+            'converts Amazon cost per conversion into EUR with purchases present: %s',
+            (hasPurchases) => {
+                const fields = hasPurchases ? sourceFields.AmazonAds : minimalSourceFields.AmazonAds
+                const source = makeMockSource('AmazonAds', fields)
+                const result = createMarketingTile(source, 'cost_per_reported_conversion', 'EUR')
+                expect(result?.math_hogql).toBe(
+                    hasPurchases
+                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', toFloat(cost), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
+                        : '0'
+                )
+            }
+        )
 
         const testCases = VALID_NATIVE_MARKETING_SOURCES.flatMap((sourceType) =>
             ALL_TILE_COLUMNS.map(
