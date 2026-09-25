@@ -44,6 +44,7 @@ The `state` field must be a JSON object.
 
 `state.token_spend_incomplete` is true when gateway cost tracking does not cover the whole run.
 Treat recorded token costs as partial when this read-only marker is set.
+Cloud runs record `state.compute_spend` independently of gateway token tracking.
 
 ## Event delivery
 

@@ -100,7 +100,7 @@ from products.tasks.backend.github_repository_access import (
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
-from products.tasks.backend.logic.services.gateway_usage import gateway_usage_enabled, refresh_task_run_spend
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_spend
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -3199,7 +3199,7 @@ def update_task_run(
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         try:
-            if gateway_usage_enabled(run):
+            if run.environment == TaskRun.Environment.CLOUD:
                 refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
                 run.refresh_from_db(fields=["state", "updated_at"])
         except Exception:

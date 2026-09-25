@@ -246,14 +246,16 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             "compute_spend": 2,
         }
 
-    @parameterized.expand([(False,), (True,)])
+    @parameterized.expand([(False, True), (True, True), (False, False)])
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     @patch("products.tasks.backend.logic.services.gateway_usage._compute_spend_source", return_value=Decimal("0.12"))
     def test_terminal_patch_returns_spend_without_blocking_completion(
-        self, refresh_fails: bool, compute_spend: Mock, signal: Mock
+        self, refresh_fails: bool, uses_gateway: bool, compute_spend: Mock, signal: Mock
     ) -> None:
         run = self._run()
         run.state = {"unprocessed_request_ids": [], "token_spend": {}, "compute_spend": 7}
+        if not uses_gateway:
+            run.state = {"token_spend_incomplete": True, "compute_spend": 7}
         run.save(update_fields=["state"])
         if refresh_fails:
             compute_spend.side_effect = OperationalError("unavailable")

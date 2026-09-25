@@ -107,13 +107,17 @@ def accounting_session(test_task_run):
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("accounting_enabled", [False, True])
+@pytest.mark.parametrize(
+    "environment,uses_gateway",
+    [(TaskRun.Environment.CLOUD, True), (TaskRun.Environment.CLOUD, False), (TaskRun.Environment.LOCAL, False)],
+)
 def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
-    mocker, test_task_run, accounting_session, accounting_enabled
+    mocker, test_task_run, accounting_session, environment, uses_gateway
 ):
-    if not accounting_enabled:
+    if not uses_gateway:
         test_task_run.state = {}
-        test_task_run.save(update_fields=["state"])
+        test_task_run.environment = environment
+        test_task_run.save(update_fields=["state", "environment"])
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.read_cpu_usage_usec.return_value = 12_345_678
     sandbox.read_billed_cpu_usage_usec.return_value = 15_000_000
@@ -134,8 +138,8 @@ def test_cleanup_sandbox_keeps_accounted_compute_open_when_destroy_fails(
 
     sandbox.destroy.assert_called_once_with()
     accounting_session.refresh_from_db()
-    assert (accounting_session.ended_at is None) is accounting_enabled
-    if not accounting_enabled:
+    assert (accounting_session.ended_at is None) is (environment == TaskRun.Environment.CLOUD)
+    if environment == TaskRun.Environment.LOCAL:
         assert accounting_session.provider_cpu_usage_usec == 12_345_678
         assert accounting_session.provider_billed_cpu_usage_usec == 15_000_000
     publish_complete.assert_not_called()
@@ -157,12 +161,14 @@ def test_cleanup_sandbox_retries_accounting_lookup_before_destroying(
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("complete_stream", [False, True])
+@pytest.mark.parametrize("complete_stream,uses_gateway", [(False, True), (True, True), (True, False)])
 def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
-    mocker, test_task_run, accounting_session, complete_stream
+    mocker, test_task_run, accounting_session, complete_stream, uses_gateway
 ):
     test_task_run.refresh_from_db()
     test_task_run.state["unprocessed_request_ids"] = ["pending-request"]
+    if not uses_gateway:
+        test_task_run.state = {"token_spend_incomplete": True}
     test_task_run.save(update_fields=["state"])
     sandbox = mocker.Mock(id="sandbox-123")
     sandbox.stop_agent_server.return_value.exit_code = 0
@@ -198,7 +204,10 @@ def test_cleanup_sandbox_persists_compute_without_waiting_for_gateway_usage(
     assert accounting_session.ended_at is not None
     test_task_run.refresh_from_db()
     assert test_task_run.state["compute_spend"] > 0
-    assert test_task_run.state["unprocessed_request_ids"] == ["pending-request"]
+    if uses_gateway:
+        assert test_task_run.state["unprocessed_request_ids"] == ["pending-request"]
+    else:
+        assert get_task_run_spend(run_id=test_task_run.id, team_id=test_task_run.team_id).token_spend is None
 
 
 @pytest.mark.django_db
@@ -216,7 +225,8 @@ def test_cleanup_sandbox_ignores_invalid_optional_run_id(activity_environment, m
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("current_sandbox", ["sandbox-123", "sandbox-replacement"])
-def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, current_sandbox):
+@pytest.mark.parametrize("refresh_fails", [False, True])
+def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, current_sandbox, refresh_fails):
     run_id = str(test_task_run.id)
     connection = {
         "sandbox_id": current_sandbox,
@@ -225,8 +235,14 @@ def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, 
         "sandbox_jwt_kid": "fake-key",
         "sandbox_backend": "modal",
     }
-    test_task_run.state = {"other": "preserved", **connection}
+    accounting_state = {"unprocessed_request_ids": [], "token_spend": {}}
+    test_task_run.state = {"other": "preserved", **connection, **accounting_state}
     test_task_run.save(update_fields=["state"])
+    if refresh_fails:
+        mocker.patch(
+            "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.refresh_task_run_spend",
+            side_effect=OperationalError("unavailable"),
+        )
     sandbox = mocker.Mock(id="sandbox-123")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
     publish_complete = mocker.patch(
@@ -246,7 +262,9 @@ def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, 
     publish_complete.assert_called_once_with(run_id, False)
     test_task_run.refresh_from_db()
     assert test_task_run.state == (
-        {"other": "preserved"} if current_sandbox == "sandbox-123" else {"other": "preserved", **connection}
+        {"other": "preserved", **accounting_state}
+        | ({} if current_sandbox == "sandbox-123" else connection)
+        | ({} if refresh_fails else {"compute_spend": None})
     )
 
 

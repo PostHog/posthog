@@ -637,11 +637,12 @@ class TestRecordRunTokenUsageMetrics:
 @pytest.mark.requires_secrets
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "origin_product,origin_key,wakes,spend_failure",
+    "origin_product,origin_key,wakes,spend_failure,uses_gateway",
     [
-        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False),
-        (Task.OriginProduct.WORKFLOW, "job:step:1", True, True),
-        (Task.OriginProduct.USER_CREATED, None, False, False),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, True, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, False),
+        (Task.OriginProduct.USER_CREATED, None, False, False, True),
     ],
 )
 def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
@@ -651,13 +652,16 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
     origin_key: str | None,
     wakes: bool,
     spend_failure: bool,
+    uses_gateway: bool,
 ) -> None:
     task = test_task_run.task
     task.origin_product = origin_product
     task.origin_key = origin_key
     task.save(update_fields=["origin_product", "origin_key"])
     test_task_run.output = {"final_message": "done"}
-    test_task_run.state = {"token_spend": {}, "unprocessed_request_ids": []}
+    test_task_run.state = (
+        {"token_spend": {}, "unprocessed_request_ids": []} if uses_gateway else {"token_spend_incomplete": True}
+    )
     test_task_run.save(update_fields=["output", "state"])
     input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
 
@@ -675,6 +679,8 @@ def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
 
     assert resume.call_count == (2 if wakes else 0)
     assert sum(call.kwargs.get("event") == "task_run_completed" for call in capture.call_args_list) == 1
+    test_task_run.refresh_from_db()
+    assert ("compute_spend" in test_task_run.state) is not spend_failure
     if wakes:
         assert resume.call_args.kwargs["origin_key"] == "job:step:1"
         assert resume.call_args.kwargs["status"] == "completed"

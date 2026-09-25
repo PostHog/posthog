@@ -188,15 +188,33 @@ class TestGatewayUsage(BaseTest):
     def test_getters_use_recorded_spend_and_round_across_runs(self, get: Mock) -> None:
         first = self._run(status=TaskRun.Status.FAILED)
         second = self._run(task=first.task, status=TaskRun.Status.CANCELLED)
+        now = timezone.now()
         for index, run in enumerate((first, second)):
+            SandboxSession.objects.for_team(self.team.id).create(
+                team=self.team,
+                task_run=run,
+                sandbox_id=f"sandbox-{index}",
+                cpu_cores=2,
+                memory_gb=4,
+                ttl_seconds=600,
+                created_at=now - timedelta(seconds=20),
+                ttl_expires_at=now + timedelta(minutes=5),
+                user_attributed_at=now - timedelta(seconds=20),
+                ended_at=now,
+            )
             request_id = f"request-{index}"
             self._report(run, [request_id])
             get.return_value = self._response(request_id, "0.005")
             self._process(run)
         get.reset_mock()
-        assert get_task_run_spend(run_id=first.id, team_id=self.team.id).token_spend == 0
-        assert get_task_run_spend(run_id=second.id, team_id=self.team.id).token_spend == 0
-        assert get_task_spend(team_id=self.team.id, task_id=first.task_id).token_spend == 1
+        assert get_task_run_spend(run_id=first.id, team_id=self.team.id) == TaskRunSpend(token_spend=0, compute_spend=0)
+        assert get_task_run_spend(run_id=second.id, team_id=self.team.id) == TaskRunSpend(
+            token_spend=0, compute_spend=0
+        )
+        with self.assertNumQueries(3):
+            assert get_task_spend(team_id=self.team.id, task_id=first.task_id) == TaskRunSpend(
+                token_spend=1, compute_spend=1
+            )
         get.assert_not_called()
 
     def test_untracked_runs_have_no_recorded_token_spend(self) -> None:

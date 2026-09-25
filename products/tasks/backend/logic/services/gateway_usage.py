@@ -184,9 +184,13 @@ def get_task_run_spend(*, run_id: UUID, team_id: int) -> TaskRunSpend:
 
 
 def get_task_spend(*, team_id: int, task_id: UUID) -> TaskRunSpend:
-    sources = [_spend_sources(run) for run in TaskRun.objects.filter(team_id=team_id, task_id=task_id)]
-    if not sources:
+    runs = list(TaskRun.objects.filter(team_id=team_id, task_id=task_id))
+    if not runs:
         return TaskRunSpend(token_spend=None, compute_spend=None)
+    sessions_by_run: dict[UUID, list[SandboxSession]] = {}
+    for session in SandboxSession.objects.for_team(team_id).filter(task_run__in=runs):
+        sessions_by_run.setdefault(session.task_run_id, []).append(session)
+    sources = [_spend_sources(run, sessions=sessions_by_run.get(run.id, [])) for run in runs]
     return _SpendSources(
         token_spend_microusd=None
         if any(s.token_spend_microusd is None for s in sources)
@@ -237,19 +241,20 @@ async def _fetch_gateway_spend(request_id: str) -> GatewayRequestSpend | None:
         return None
 
 
-def _spend_sources(run: TaskRun) -> _SpendSources:
+def _spend_sources(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> _SpendSources:
     return _SpendSources(
         token_spend_microusd=sum(bucket.get("spend_microusd", 0) for bucket in _spend_buckets(run.state or {}))
         if gateway_usage_enabled(run) and not (run.state or {}).get("token_spend_incomplete")
         else None,
-        compute_spend_usd=_compute_spend_source(run),
+        compute_spend_usd=_compute_spend_source(run, sessions=sessions),
     )
 
 
-def _compute_spend_source(run: TaskRun) -> Decimal | None:
+def _compute_spend_source(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> Decimal | None:
     if run.environment != TaskRun.Environment.CLOUD or not COMPUTE_RATE_CARDS:
         return None
-    sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
+    if sessions is None:
+        sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
     if not sessions:
         return None
     now = timezone.now()
