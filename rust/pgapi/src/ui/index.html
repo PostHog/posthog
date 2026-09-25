@@ -191,7 +191,7 @@
   // series: [{name, color, points: [[Date, number | null]]}]; a null y breaks the line.
   // missing: what a bucket that a series has no point for counts as. 0 suits counts and
   // rates (nothing happened); null suits gauges and latency (nothing was measured) and draws a gap.
-  // stacked: every series is drawn as an area on top of the ones before it, so missing is always 0.
+  // stacked: every series is drawn as a bar on top of the ones before it, one bar per bucket, so missing is always 0.
   // Every chart on a page shares one cursor, and dragging across any of them sets the range.
   const charts = [];
   // Markers for the events in range are fetched once per page and drawn on every chart on it. The
@@ -212,6 +212,7 @@
       u.over.append(el('div', { class: 'marker', style: `left:${u.valToPos(x, 'x')}px; --c:${markerColor(e.kind)}` }, el('i', { title })));
     }
   }
+  const BARS = typeof uPlot === 'undefined' ? null : uPlot.paths.bars({ size: [0.85, 40], gap: 1 });
   const AXIS = { stroke: '#8b93a1', font: '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif', grid: { stroke: '#2c313a', width: 1 }, ticks: { stroke: '#2c313a', width: 1 } };
   function chart(series, { yfmt = v => fmt.dec(v, 1), stacked = false, missing = 0, height = 170 } = {}) {
     if (stacked) series = [...series.filter(s => !s.line), ...series.filter(s => s.line)];
@@ -233,15 +234,20 @@
     };
     let { data, bands } = stacked ? stack(() => true) : { data: raw, bands: [] };
     const restack = u => { const { data, bands } = stack(i => u.series[i + 1].show); u.delBand(null); bands.forEach(b => u.addBand(b)); u.setData([xs, ...data]); };
+    // Bars are centered on their bucket, so the first and last would be cut in half without half a bucket of room at each end.
+    const half = xs.length > 1 ? xs.slice(1).reduce((min, x, i) => Math.min(min, x - xs[i]), Infinity) / 2 : 0;
     const opts = {
       width: 600, height, bands,
       cursor: { y: false, sync: { key: 'page', setSeries: false }, drag: { x: true, y: false, setScale: false, dist: 4 }, points: { size: 6 }, bind: { dblclick: () => () => zoomOut() } },
       legend: { live: true },
-      scales: { x: { time: true }, y: { range: (u, min, max) => [0, max > 0 ? uPlot.rangeNum(0, max, 0.1, true)[1] : 1] } },
+      scales: { x: { time: true, range: stacked && xs.length > 1 ? (u, min, max) => [min - half, max + half] : undefined }, y: { range: (u, min, max) => [0, max > 0 ? uPlot.rangeNum(0, max, 0.1, true)[1] : 1] } },
       axes: [{ ...AXIS }, { ...AXIS, size: 60, values: (u, vals) => vals.map(yfmt) }],
       series: [
         { value: (u, v) => v == null ? '' : fmt.ts(new Date(v * 1000)) },
-        ...series.map(s => ({ label: s.name, stroke: s.color, width: 1.5, points: { show: false }, dash: s.line ? [4, 4] : null, fill: stacked && !s.line ? s.color + '59' : null, spanGaps: !!s.line, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) })),
+        ...series.map(s => {
+          const bar = stacked && !s.line;
+          return { label: s.name, stroke: s.color, width: bar ? 0 : 1.5, points: { show: false }, dash: s.line ? [4, 4] : null, fill: bar ? s.color + 'cc' : null, paths: bar ? BARS : undefined, spanGaps: !!s.line, value: (u, v, si, di) => di == null || raw[si - 1][di] == null ? '–' : yfmt(raw[si - 1][di]) };
+        }),
       ],
       hooks: { setSeries: stacked ? [restack] : [], draw: [u => markerEvents.then(ev => drawMarkers(u, ev))], setSelect: [u => {
         if (u.select.width < 4) return;
