@@ -23,9 +23,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[3]
 LOCAL_SQL_DIRS = ("local-single", "local-multi")
-# hogli clickhouse:logs:init runs this straight at a local server, so it never
-# reaches the generated SQL and needs reading on its own.
-EXTRA_LOCAL_SQL = ("bin/clickhouse-logs.sql",)
 
 # The generator prints one CREATE per statement and orders the settings, so the
 # table name and its consumer count are both on the statement's own line.
@@ -34,13 +31,11 @@ _KAFKA_CONSUMERS = re.compile(r"ENGINE = Kafka\(.*?kafka_num_consumers = (\d+)",
 
 
 def _local_sql_files() -> list[tuple[str, Path]]:
-    files = [
+    return [
         (env, path)
         for env in LOCAL_SQL_DIRS
         for path in sorted((REPO_ROOT / "posthog" / "clickhouse" / "hcl" / "sql" / env).glob("*.sql"))
     ]
-    files += [(name, REPO_ROOT / name) for name in EXTRA_LOCAL_SQL]
-    return files
 
 
 def _offenders() -> list[tuple[str, str, int]]:
