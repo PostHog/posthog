@@ -26,6 +26,9 @@
                                                 "type": "array"
                                             },
                                             "bytecode": {},
+                                            "bytecode_contract": {
+                                                "type": "string"
+                                            },
                                             "bytecode_error": {
                                                 "type": "string"
                                             },
