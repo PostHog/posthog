@@ -4,7 +4,7 @@ import random
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from django.core.management.base import BaseCommand, CommandParser
+from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
@@ -35,6 +35,7 @@ TOOL_WEIGHTS: dict[str, int] = {
 TOOL_NAMES = list(TOOL_WEIGHTS)
 
 MISSING_CAPABILITY_TOOL_NAME = "get_more_tools"
+FEEDBACK_TOOL_NAME = "send_feedback"
 
 # Advertised in $mcp_tools_list but never called, so the seeded catalog holds more tools than agents use.
 UNCALLED_TOOL_NAMES = ["annotation_create", "cohort_get"]
@@ -58,6 +59,7 @@ SEEDED_EVENT_NAMES = (
     "$mcp_tools_list",
     "$mcp_tool_call",
     "$mcp_missing_capability",
+    "$mcp_feedback",
     "$exception",
 )
 
@@ -281,6 +283,415 @@ EXCEPTION_PAIR_PROBABILITY = 0.6
 
 
 @frozen
+class _SeededCall:
+    timestamp: datetime
+    tool_name: str
+    failure: _Failure | None
+    is_retry: bool
+
+
+@frozen
+class _FeedbackText:
+    summary: str
+    details: str | None = None
+    friction_points: str | None = None
+    suggested_improvement: str | None = None
+
+
+@frozen
+class _MissingCapabilityTheme:
+    # Differently worded summaries of one gap, so feedback clustering groups them into one theme.
+    summaries: list[str]
+    details: str
+    friction_points: str | None
+    suggested_improvement: str
+    weight: int
+
+
+# The send_feedback `feedback_type` enum. Missing capabilities lead because the SDK's tool
+# description asks agents to report them even when a workaround exists.
+FEEDBACK_TYPE_WEIGHTS: dict[str, int] = {"missing_capability": 40, "issue": 34, "praise": 18, "other": 8}
+FAILURE_LINKED_ISSUE_PROBABILITY = 0.8
+# Error types an agent cannot work around by retrying or fixing its arguments, so it never retries them.
+TASK_BLOCKING_ERROR_TYPES = {"permission"}
+RETRY_AFTER_FAILURE_PROBABILITY = 0.6
+MAX_FEEDBACK_PER_SESSION = 3
+DEFAULT_FEEDBACK_COUNT = 60
+
+FEEDBACK_SENTIMENT_PROBABILITY = 0.85
+FEEDBACK_TASK_COMPLETED_PROBABILITY = 0.75
+FEEDBACK_OPTIONAL_TEXT_PROBABILITY = 0.8
+
+FEEDBACK_SENTIMENT_WEIGHTS: dict[str, dict[str, int]] = {
+    "missing_capability": {"neutral": 40, "negative": 35, "mixed": 25},
+    "issue": {"mixed": 50, "negative": 30, "neutral": 20},
+    "praise": {"positive": 100},
+    "other": {"neutral": 60, "mixed": 25, "positive": 15},
+}
+FEEDBACK_TASK_COMPLETED_RATE: dict[str, float] = {
+    "missing_capability": 0.5,
+    "issue": 0.6,
+    "praise": 1.0,
+    "other": 0.85,
+}
+
+# Every theme stays consistent with the seeded catalog: only annotation_create writes anything.
+MISSING_CAPABILITY_THEMES: list[_MissingCapabilityTheme] = [
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to change a feature flag's rollout percentage.",
+            "Could not update a feature flag rollout because feature_flag_get is read-only.",
+            "No way to roll a feature flag out to a specific cohort.",
+        ],
+        details="The user asked to raise the new-pricing flag from 20% to 50%. feature_flag_get shows the "
+        "release conditions but nothing can change them, so I gave the user the steps to do it in the app.",
+        friction_points="- Searched the tool list twice for a flag update tool.",
+        suggested_improvement="Add a feature_flag_update tool that accepts a rollout percentage and release conditions.",
+        weight=10,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to create a dashboard.",
+            "Cannot create a dashboard or add insights to one.",
+            "Missing a way to pin an insight to a dashboard.",
+        ],
+        details="The user wanted a dashboard with the five signup insights we had just reviewed. "
+        "dashboard_get only reads existing dashboards.",
+        friction_points=None,
+        suggested_improvement="Add dashboard_create and a tool that adds an insight tile to a dashboard.",
+        weight=8,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to search saved insights by name.",
+            "Could not find an insight without already knowing its id.",
+            "Missing an insight search tool because insight_get needs an exact id.",
+        ],
+        details="The user referred to 'the weekly signups insight'. insight_get needs a numeric id, so I "
+        "rebuilt the numbers with query_run instead.",
+        friction_points="- Rebuilt a saved insight from scratch with query_run.\n"
+        "- The numbers can differ from the saved insight the user meant.",
+        suggested_improvement="Add an insight_search tool that matches on name and description.",
+        weight=7,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to change an insight's filters and save it.",
+            "Cannot update the date range of a saved insight.",
+        ],
+        details="The user asked to switch the retention insight to weekly intervals and save it. "
+        "I could only read the definition.",
+        friction_points=None,
+        suggested_improvement="Add insight_update that accepts a partial query definition.",
+        weight=5,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to create an experiment.",
+            "Cannot launch an experiment from the agent.",
+        ],
+        details="The user wanted to A/B test the new onboarding flow. experiment_get reads existing experiments only.",
+        friction_points=None,
+        suggested_improvement="Add experiment_create with a feature flag key, variants and a primary metric.",
+        weight=4,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to create a cohort because cohort_get is read-only.",
+            "Cannot save a behavioral cohort.",
+        ],
+        details="The user wanted a cohort of users who started checkout but did not finish. I wrote the "
+        "HogQL for it but had no way to save it as a cohort.",
+        friction_points="- Gave the user a HogQL query to paste into the cohort editor by hand.",
+        suggested_improvement="Add cohort_create that accepts behavioral filters or a HogQL query.",
+        weight=4,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to resolve or assign an error-tracking issue.",
+            "Cannot change the status of an error-tracking issue.",
+        ],
+        details="After confirming the fix shipped, the user asked to mark the issue resolved. "
+        "error_tracking_issue_get has no write counterpart.",
+        friction_points=None,
+        suggested_improvement="Add error_tracking_issue_update for status and assignee.",
+        weight=3,
+    ),
+    _MissingCapabilityTheme(
+        summaries=[
+            "No tool to list session recordings that match a filter.",
+            "Cannot search recordings by person or event.",
+        ],
+        details="session_recording_get needs a recording id, but the user only knew the person and the rough time.",
+        friction_points=None,
+        suggested_improvement="Add session_recording_list with person, date range and event filters.",
+        weight=3,
+    ),
+    _MissingCapabilityTheme(
+        summaries=["No tool to connect a data warehouse source."],
+        details="The user wanted to connect their Stripe account. No tool touches the data warehouse.",
+        friction_points=None,
+        suggested_improvement="Add tools to list, create and sync data warehouse sources.",
+        weight=2,
+    ),
+    _MissingCapabilityTheme(
+        summaries=["No tool to invite a teammate to the project."],
+        details="The user asked to give a new analyst access. I pointed them to the organization settings page.",
+        friction_points=None,
+        suggested_improvement="Add an organization member invite tool with a role parameter.",
+        weight=1,
+    ),
+]
+
+FAILURE_ISSUES: dict[str, _FeedbackText] = {
+    "timeout": _FeedbackText(
+        summary="{tool} timed out on a long date range.",
+        details="The call returned '{error}' for a 90-day range.",
+        friction_points="- The error did not say which part of the request was slow.",
+        suggested_improvement="Suggest a narrower date range in the timeout error, or return partial results.",
+    ),
+    "validation": _FeedbackText(
+        summary="{tool} rejected the call for a missing project_id that its schema does not require.",
+        details="The error was '{error}'. The input schema marks project_id as optional.",
+        friction_points="- The input schema and the server disagree about which fields are required.",
+        suggested_improvement="Default project_id to the active project, or mark it required in the input schema.",
+    ),
+    "permission": _FeedbackText(
+        summary="{tool} failed with a permission error that does not name the missing scope.",
+        details="The error was '{error}'. I could not tell the user which scope to add to the API key.",
+        friction_points=None,
+        suggested_improvement="Name the required scope in the error message.",
+    ),
+    "internal": _FeedbackText(
+        summary="{tool} failed with a dropped database connection.",
+        details="The error was '{error}'.",
+        friction_points="- Nothing in the error said whether a retry was safe.",
+        suggested_improvement="Mark transient errors as retryable in the tool result.",
+    ),
+    "rate_limited": _FeedbackText(
+        summary="{tool} rate-limited a short burst of calls.",
+        details="The error was '{error}' after about ten calls in one minute.",
+        friction_points="- The retry delay is only in the message text, so I had to parse it.",
+        suggested_improvement="Return the retry delay as a structured field.",
+    ),
+}
+
+TOOL_ISSUES: dict[str, _FeedbackText] = {
+    "query_run": _FeedbackText(
+        summary="query_run returns dates as strings with no column types.",
+        details="Results come back as bare rows. I had to guess which columns were timestamps before charting them.",
+        suggested_improvement="Include column names and types in the query_run result.",
+    ),
+    "insight_get": _FeedbackText(
+        summary="insight_get output is too large for the context window.",
+        details="A trends insight with twelve series returned every data point for every series.",
+        friction_points="- Most of the response was data I did not need.",
+        suggested_improvement="Add a summary mode that returns totals and the last few data points.",
+    ),
+    "dashboard_get": _FeedbackText(
+        summary="dashboard_get does not say which tiles failed to compute.",
+        details="Two tiles came back empty with no error. I could not tell whether there was no data or the query failed.",
+        suggested_improvement="Add a status and an error message to each tile.",
+    ),
+    "feature_flag_get": _FeedbackText(
+        summary="feature_flag_get needs a numeric id and cannot look up a flag by key.",
+        details="The user gave the flag key 'new-pricing'. I had to guess ids until one matched.",
+        friction_points="- Made four feature_flag_get calls to find one flag.",
+        suggested_improvement="Accept the flag key as well as the id.",
+    ),
+    "experiment_get": _FeedbackText(
+        summary="experiment_get does not say whether results are significant.",
+        details="It returns raw counts per variant, so I calculated significance myself before answering.",
+        suggested_improvement="Include significance and credible intervals for each variant.",
+    ),
+    "person_get": _FeedbackText(
+        summary="person_get returns every property with no way to pick a subset.",
+        details="The person had over 300 properties. I needed only the plan and the signup date.",
+        suggested_improvement="Add a properties parameter that selects which properties to return.",
+    ),
+    "session_recording_get": _FeedbackText(
+        summary="session_recording_get returns metadata but not the event timeline.",
+        details="To explain where the user got stuck I needed the events in the recording. "
+        "The tool returns only the duration and the start URL.",
+        suggested_improvement="Add an option to include the event timeline.",
+    ),
+    "error_tracking_issue_get": _FeedbackText(
+        summary="error_tracking_issue_get leaves out the stack trace.",
+        details="The response has occurrence counts but no frames, so I could not point on-call to the failing line.",
+        suggested_improvement="Include the top stack frames of the latest occurrence.",
+    ),
+}
+
+TOOL_PRAISE: dict[str, _FeedbackText] = {
+    "query_run": _FeedbackText(
+        summary="query_run handled a complex HogQL query on the first try.",
+        details="The schema hints in the description were enough to write a correct join against persons.",
+    ),
+    "insight_get": _FeedbackText(
+        summary="insight_get returns computed results together with the definition.",
+        details="I answered the question without running the query again.",
+    ),
+    "dashboard_get": _FeedbackText(summary="dashboard_get gives a clear overview of every tile in one call."),
+    "feature_flag_get": _FeedbackText(
+        summary="feature_flag_get made the rollout conditions easy to explain.",
+        details="The release conditions come back already grouped by cohort.",
+    ),
+    "experiment_get": _FeedbackText(summary="experiment_get returned everything needed to summarize the experiment."),
+    "person_get": _FeedbackText(summary="person_get returned the person's plan history quickly."),
+    "session_recording_get": _FeedbackText(
+        summary="session_recording_get returned the start URL and duration without extra calls."
+    ),
+    "error_tracking_issue_get": _FeedbackText(
+        summary="error_tracking_issue_get links the issue to the release that introduced it.",
+        details="On-call could see which deploy to roll back straight away.",
+    ),
+}
+
+OTHER_FEEDBACK: list[_FeedbackText] = [
+    _FeedbackText(
+        summary="The server instructions are long for a small context window.",
+        details="They use a large part of the context before the first tool call.",
+        suggested_improvement="Offer a short version of the instructions.",
+    ),
+    _FeedbackText(
+        summary="It is not clear which project the API key is bound to.",
+        suggested_improvement="Return the active project name in the first tool result.",
+    ),
+    _FeedbackText(
+        summary="Tool results use a different date format from the PostHog app.",
+        suggested_improvement="Use ISO 8601 in every result and state the timezone.",
+    ),
+    _FeedbackText(
+        summary="It was hard to choose between query_run and insight_get for a saved insight.",
+        details="Both can answer the question, and the descriptions do not say when to prefer each.",
+        suggested_improvement="Say in each description when to use the other tool instead.",
+    ),
+]
+
+
+@frozen
+class _SeededFeedback:
+    feedback_type: str
+    text: _FeedbackText
+    tool_name: str | None
+    sentiment: str | None
+    task_completed: bool | None
+    timestamp: datetime
+    duration_ms: int
+
+    def event_properties(self) -> dict[str, Any]:
+        return {
+            # A virtual tool: the SDK sets the resource name but no $mcp_tool_name, and it omits $mcp_parameters.
+            "$mcp_resource_name": FEEDBACK_TOOL_NAME,
+            "$mcp_intent": "\n\n".join(part for part in (self.text.summary, self.text.details) if part),
+            "$mcp_intent_source": "context_parameter",
+            "$mcp_is_error": False,
+            "$mcp_duration_ms": self.duration_ms,
+            "$mcp_feedback_type": self.feedback_type,
+            "$mcp_feedback_summary": self.text.summary,
+            "$mcp_feedback_details": self.text.details,
+            "$mcp_feedback_friction_points": self.text.friction_points,
+            "$mcp_feedback_suggested_improvement": self.text.suggested_improvement,
+            "$mcp_feedback_tool": self.tool_name,
+            "$mcp_feedback_sentiment": self.sentiment,
+            "$mcp_feedback_task_completed": self.task_completed,
+        }
+
+
+def _render_feedback_text(
+    rng: random.Random, text: _FeedbackText, tool: str, error: str, keep_details: bool = False
+) -> _FeedbackText:
+    def optional(value: str | None) -> str | None:
+        if value is None or rng.random() >= FEEDBACK_OPTIONAL_TEXT_PROBABILITY:
+            return None
+        return value.format(tool=tool, error=error)
+
+    return _FeedbackText(
+        summary=text.summary.format(tool=tool, error=error),
+        details=text.details.format(tool=tool, error=error)
+        if keep_details and text.details
+        else optional(text.details),
+        friction_points=optional(text.friction_points),
+        suggested_improvement=optional(text.suggested_improvement),
+    )
+
+
+def recovering_retry(calls: list[_SeededCall], failed: _SeededCall) -> _SeededCall | None:
+    """The retry that succeeded after `failed`, following a chain of failed retries."""
+    for call in calls[calls.index(failed) + 1 :]:
+        if not call.is_retry:
+            return None
+        if call.failure is None:
+            return call
+    return None
+
+
+def failure_rate(calls: list[_SeededCall]) -> float:
+    return sum(1 for call in calls if call.failure) / len(calls)
+
+
+def build_feedback(rng: random.Random, calls: list[_SeededCall]) -> _SeededFeedback:
+    failures = [(call, call.failure) for call in calls if call.failure is not None]
+    successes = [call for call in calls if call.failure is None]
+    feedback_type = rng.choices(list(FEEDBACK_TYPE_WEIGHTS), weights=list(FEEDBACK_TYPE_WEIGHTS.values()), k=1)[0]
+    if feedback_type == "praise" and not successes:
+        feedback_type = "other"
+
+    anchor = rng.choice(calls)
+    tool_name: str | None = None
+    error = ""
+    sentiment_weights = FEEDBACK_SENTIMENT_WEIGHTS[feedback_type]
+    completed_rate = FEEDBACK_TASK_COMPLETED_RATE[feedback_type]
+    if feedback_type == "missing_capability":
+        theme = rng.choices(MISSING_CAPABILITY_THEMES, weights=[t.weight for t in MISSING_CAPABILITY_THEMES], k=1)[0]
+        template = _FeedbackText(
+            summary=rng.choice(theme.summaries),
+            details=theme.details,
+            friction_points=theme.friction_points,
+            suggested_improvement=theme.suggested_improvement,
+        )
+    elif feedback_type == "issue" and failures and rng.random() < FAILURE_LINKED_ISSUE_PROBABILITY:
+        anchor, failure = rng.choice(failures)
+        tool_name = anchor.tool_name
+        error = failure.message
+        template = FAILURE_ISSUES[failure.error_type]
+        recovery = recovering_retry(calls, anchor)
+        recovered = recovery is not None
+        # Report after the retry that recovered, so task_completed never precedes it.
+        if recovery is not None:
+            anchor = recovery
+        completed_rate = 1.0 if recovered else 0.0
+        sentiment_weights = {"mixed": 70, "negative": 30} if recovered else {"negative": 80, "mixed": 20}
+    elif feedback_type == "issue":
+        tool_name = anchor.tool_name
+        template = TOOL_ISSUES[tool_name]
+    elif feedback_type == "praise":
+        anchor = rng.choice(successes)
+        tool_name = anchor.tool_name
+        template = TOOL_PRAISE[tool_name]
+    else:
+        template = rng.choice(OTHER_FEEDBACK)
+
+    # The details of a failure-linked issue carry the error quote, so they are never dropped.
+    text = _render_feedback_text(rng, template, tool=tool_name or "", error=error, keep_details=bool(error))
+    sentiment = (
+        rng.choices(list(sentiment_weights), weights=list(sentiment_weights.values()), k=1)[0]
+        if rng.random() < FEEDBACK_SENTIMENT_PROBABILITY
+        else None
+    )
+    task_completed = rng.random() < completed_rate if rng.random() < FEEDBACK_TASK_COMPLETED_PROBABILITY else None
+    return _SeededFeedback(
+        feedback_type=feedback_type,
+        text=text,
+        tool_name=tool_name,
+        sentiment=sentiment,
+        task_completed=task_completed,
+        timestamp=anchor.timestamp + timedelta(seconds=rng.randint(2, 12)),
+        duration_ms=rng.randint(1, 6),
+    )
+
+
+@frozen
 class _SeededSession:
     conversation_id: str
     session_id: str
@@ -289,6 +700,8 @@ class _SeededSession:
     person_id: str | None
     person_properties: dict[str, Any]
     common_properties: dict[str, Any]
+    # Only events from tool calls carry the model, so it stays off the handshake events.
+    model_properties: dict[str, Any]
     session_end: datetime
 
 
@@ -313,6 +726,13 @@ class Command(BaseCommand):
             help="Number of missing-capability events to attach to distinct seeded sessions. "
             "Defaults to 8, clamped to --sessions.",
         )
+        parser.add_argument(
+            "--feedback",
+            type=int,
+            default=None,
+            help=f"Number of send_feedback reports ($mcp_feedback events), at most {MAX_FEEDBACK_PER_SESSION} "
+            f"per session. Defaults to {DEFAULT_FEEDBACK_COUNT}, clamped to what --sessions allows.",
+        )
         parser.add_argument("--seed", type=int, default=None, help="Optional random seed for reproducible output.")
         parser.add_argument(
             "--clear",
@@ -334,15 +754,22 @@ class Command(BaseCommand):
         missing_capability_count: int = (
             explicit_missing_capabilities if explicit_missing_capabilities is not None else min(8, session_count)
         )
+        max_feedback_count = session_count * MAX_FEEDBACK_PER_SESSION
+        explicit_feedback: int | None = options["feedback"]
+        # A report anchors to one of the session's tool calls, so feedback needs every session to have one.
+        default_feedback_count = min(DEFAULT_FEEDBACK_COUNT, max_feedback_count) if min_calls >= 1 else 0
+        feedback_count: int = explicit_feedback if explicit_feedback is not None else default_feedback_count
         seed: int | None = options["seed"]
         clear: bool = options["clear"]
 
         if min_calls > max_calls:
-            self.stderr.write(self.style.ERROR("--min-calls must be <= --max-calls"))
-            return
+            raise CommandError("--min-calls must be <= --max-calls")
         if missing_capability_count < 0 or missing_capability_count > session_count:
-            self.stderr.write(self.style.ERROR("--missing-capabilities must be between 0 and --sessions"))
-            return
+            raise CommandError("--missing-capabilities must be between 0 and --sessions")
+        if feedback_count < 0 or feedback_count > max_feedback_count:
+            raise CommandError(f"--feedback must be between 0 and {MAX_FEEDBACK_PER_SESSION} x --sessions")
+        if feedback_count > 0 and min_calls < 1:
+            raise CommandError("--min-calls must be at least 1 when --feedback is above 0")
 
         try:
             team = Team.objects.get(pk=team_id)
@@ -389,6 +816,7 @@ class Command(BaseCommand):
         now = datetime.now(tz=UTC)
         total_events = 0
         seeded_sessions: list[_SeededSession] = []
+        calls_by_session: dict[str, list[_SeededCall]] = {}
 
         # distinct_id -> (person_uuid, person_properties). Events carry person_id so the
         # person-on-events join (Top users table) keeps them — without a real person the
@@ -543,6 +971,7 @@ class Command(BaseCommand):
                 person_id=person_uuid,
                 person_properties=person_props,
                 common_properties=common_properties,
+                model_properties=model_properties,
                 session_end=session_start + total_call_duration,
             )
 
@@ -578,11 +1007,14 @@ class Command(BaseCommand):
             primary_tool = rng.choice(TOOL_NAMES)
             session_intent = rng.choice(INTENTS_BY_TOOL.get(primary_tool, [DEFAULT_INTENT]))
 
+            session_calls: list[_SeededCall] = []
+            retry_tool: str | None = None
             cumulative_offset_s = 0
             for call_idx in range(calls):
                 cumulative_offset_s += call_intervals[call_idx]
                 timestamp = session_start + timedelta(seconds=cumulative_offset_s)
-                tool_name = rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
+                is_retry = retry_tool is not None
+                tool_name = retry_tool or rng.choices(TOOL_NAMES, weights=list(TOOL_WEIGHTS.values()), k=1)[0]
                 # Skew error rate and latency per tool so the Tool quality tab has variation.
                 tool_error_rate = (stable_hash(tool_name) % 30) / 100.0
                 is_error = rng.random() < tool_error_rate
@@ -605,6 +1037,16 @@ class Command(BaseCommand):
                     tool_properties["$mcp_error_message"] = failure.message
                 tool_properties["$mcp_duration_ms"] = duration_ms
                 emit(session, "$mcp_tool_call", timestamp, tool_properties)
+                session_calls.append(
+                    _SeededCall(timestamp=timestamp, tool_name=tool_name, failure=failure, is_retry=is_retry)
+                )
+                retry_tool = (
+                    tool_name
+                    if failure
+                    and failure.error_type not in TASK_BLOCKING_ERROR_TYPES
+                    and rng.random() < RETRY_AFTER_FAILURE_PROBABILITY
+                    else None
+                )
 
                 # Pair some failures with an $exception event so the tool detail
                 # "Failures" table (which reads $exception events) has data.
@@ -637,6 +1079,7 @@ class Command(BaseCommand):
                     team=team, session_id=session_id, defaults={"intent": session_intent}
                 )
             seeded_sessions.append(session)
+            calls_by_session[session_id] = session_calls
             self.stdout.write(
                 f"  session {session_idx + 1}/{session_count}: {calls} tool calls (session_id={session_id})"
             )
@@ -654,9 +1097,29 @@ class Command(BaseCommand):
                 },
             )
 
+        feedback_per_session: dict[str, int] = {}
+        for _ in range(feedback_count):
+            eligible = [
+                s for s in seeded_sessions if feedback_per_session.get(s.session_id, 0) < MAX_FEEDBACK_PER_SESSION
+            ]
+            # Agents that hit failures more often have more to report. The rate, not the count,
+            # so long sessions do not take every report.
+            session = rng.choices(
+                eligible, weights=[1 + 4 * failure_rate(calls_by_session[s.session_id]) for s in eligible], k=1
+            )[0]
+            feedback_per_session[session.session_id] = feedback_per_session.get(session.session_id, 0) + 1
+            feedback = build_feedback(rng, calls_by_session[session.session_id])
+            emit(
+                session,
+                "$mcp_feedback",
+                feedback.timestamp,
+                {**session.model_properties, **feedback.event_properties()},
+            )
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded {session_count} sessions ({total_events} events, including "
-                f"{missing_capability_count} missing-capability reports) for team {team_id}."
+                f"{missing_capability_count} missing-capability reports and {feedback_count} feedback reports "
+                f"from {len(feedback_per_session)} sessions) for team {team_id}."
             )
         )

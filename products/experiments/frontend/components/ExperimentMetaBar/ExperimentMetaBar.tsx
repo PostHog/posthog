@@ -55,85 +55,90 @@ export function ExperimentMetaBar(): JSX.Element | null {
         <div className="flex flex-col gap-2 -mt-2" data-attr="experiment-meta-bar">
             {/* The gutter is 12px gap + 1px divider + 12px gap; the 4px clip margin keeps focus rings visible. */}
             <div className="overflow-x-clip [overflow-clip-margin:4px]">
-                <div className="flex flex-wrap items-center gap-y-2 -ml-[25px] text-sm">
-                    <MetaItem className="gap-1" data-attr="experiment-status">
-                        {isPaused ? (
-                            <Tooltip title={PAUSED_TOOLTIP}>
+                <div className="flex items-start justify-between gap-x-3 -ml-[25px] text-sm">
+                    <div className="flex flex-wrap items-center gap-y-2 min-w-0">
+                        <MetaItem className="gap-1" data-attr="experiment-status">
+                            {isPaused ? (
+                                <Tooltip title={PAUSED_TOOLTIP}>
+                                    <StatusTag status={status} />
+                                </Tooltip>
+                            ) : (
                                 <StatusTag status={status} />
-                            </Tooltip>
-                        ) : (
-                            <StatusTag status={status} />
-                        )}
-                        {isSingleVariantShipped && (
-                            <Tooltip title={`Variant "${shippedVariantKey}" is rolled out to 100% of users`}>
-                                <LemonTag type="completion" className="cursor-default">
-                                    <b className="uppercase">100% rollout</b>
-                                </LemonTag>
-                            </Tooltip>
-                        )}
-                    </MetaItem>
-
-                    {visibility.showConclusion && (
-                        <MetaItem>
-                            <ExperimentConclusionItem />
+                            )}
+                            {isSingleVariantShipped && (
+                                <Tooltip title={`Variant "${shippedVariantKey}" is rolled out to 100% of users`}>
+                                    <LemonTag type="completion" className="cursor-default">
+                                        <b className="uppercase">100% rollout</b>
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
                         </MetaItem>
-                    )}
 
-                    <MetaItem className="min-w-0" data-attr="experiment-feature-flag">
-                        {isPaused && (
-                            <Tooltip title={PAUSED_TOOLTIP}>
-                                <IconWarning className="text-danger text-base shrink-0" />
-                            </Tooltip>
+                        {visibility.showConclusion && (
+                            <MetaItem>
+                                <ExperimentConclusionItem />
+                            </MetaItem>
                         )}
-                        <Tooltip title="Feature flag">
-                            <IconFlag className="text-secondary text-base shrink-0" />
-                        </Tooltip>
-                        <TruncatedText text={experiment.feature_flag.key} maxLength={32} className="truncate" />
-                        <CopyToClipboardInline
-                            explicitValue={experiment.feature_flag.key}
-                            description="feature flag key"
-                        />
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            to={urls.featureFlag(experiment.feature_flag.id)}
-                            targetBlank
-                            hideExternalLinkIcon
-                            icon={<IconOpenInNew />}
-                            tooltip="Open feature flag"
-                            aria-label="Open feature flag"
-                            data-attr="experiment-open-feature-flag"
-                        />
-                    </MetaItem>
 
-                    <MetaItem>
-                        <Tooltip title={stats.description}>
-                            <span
-                                className="flex items-center gap-1.5 cursor-default"
-                                data-attr="experiment-stats-method"
-                            >
-                                <span>{stats.method}</span>
-                                <span className="text-secondary">·</span>
-                                <span>{stats.level}</span>
-                            </span>
-                        </Tooltip>
-                    </MetaItem>
-
-                    {visibility.showDateRange && (
-                        <MetaItem>
-                            <ExperimentDateRange />
+                        <MetaItem className="min-w-0" data-attr="experiment-feature-flag">
+                            {isPaused && (
+                                <Tooltip title={PAUSED_TOOLTIP}>
+                                    <IconWarning className="text-danger text-base shrink-0" />
+                                </Tooltip>
+                            )}
+                            <Tooltip title="Feature flag">
+                                <IconFlag className="text-secondary text-base shrink-0" />
+                            </Tooltip>
+                            <TruncatedText text={experiment.feature_flag.key} maxLength={32} className="truncate" />
+                            <CopyToClipboardInline
+                                explicitValue={experiment.feature_flag.key}
+                                description="feature flag key"
+                            />
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                to={urls.featureFlag(experiment.feature_flag.id)}
+                                targetBlank
+                                hideExternalLinkIcon
+                                icon={<IconOpenInNew />}
+                                tooltip="Open feature flag"
+                                aria-label="Open feature flag"
+                                data-attr="experiment-open-feature-flag"
+                            />
                         </MetaItem>
-                    )}
 
-                    {visibility.showRemainingTime && (
                         <MetaItem>
-                            <ExperimentRemainingTime experiment={experiment} onConfigure={openRunningTimeConfigModal} />
+                            <Tooltip title={stats.description}>
+                                <span
+                                    className="flex items-center gap-1.5 cursor-default"
+                                    data-attr="experiment-stats-method"
+                                >
+                                    <span>{stats.method}</span>
+                                    <span className="text-secondary">·</span>
+                                    <span>{stats.level}</span>
+                                </span>
+                            </Tooltip>
                         </MetaItem>
-                    )}
 
-                    {/* Right-aligned only when the scene column is wide enough for one line; below that it flows with the facts. */}
+                        {visibility.showDateRange && (
+                            <MetaItem>
+                                <ExperimentDateRange />
+                            </MetaItem>
+                        )}
+
+                        {visibility.showRemainingTime && (
+                            <MetaItem>
+                                <ExperimentRemainingTime
+                                    experiment={experiment}
+                                    onConfigure={openRunningTimeConfigModal}
+                                />
+                            </MetaItem>
+                        )}
+                    </div>
+
+                    {/* Pinned to the top right on the first line; the facts wrap inside the width that remains. */}
                     {(visibility.showRefresh || created_by) && (
-                        <MetaItem className="gap-2 @min-[72rem]/main-content:ml-auto @min-[72rem]/main-content:[&>[role=separator]]:hidden">
+                        <div className="flex items-center gap-2 shrink-0" data-attr="experiment-meta-bar-actions">
                             {visibility.showRefresh && <ExperimentRefreshButton experiment={experiment} />}
                             {created_by && (
                                 <Tooltip title={`Created by ${created_by.first_name || created_by.email}`}>
@@ -142,7 +147,7 @@ export function ExperimentMetaBar(): JSX.Element | null {
                                     </span>
                                 </Tooltip>
                             )}
-                        </MetaItem>
+                        </div>
                     )}
                 </div>
             </div>

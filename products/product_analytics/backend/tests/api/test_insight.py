@@ -846,14 +846,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     )
     def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
-        from posthog.models.tagged_item import TaggedItem
 
         insight = Insight.objects.create(
             short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
         )
         for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
             tag = Tag.objects.create(name=tag_name, team=self.team)
-            TaggedItem.objects.create(insight=insight, tag=tag)
+            insight.tagged_items.create(tag=tag)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK

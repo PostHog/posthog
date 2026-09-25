@@ -7,6 +7,8 @@ export const CyclotronInputSchema = z.object({
     templating: z.enum(['hog', 'liquid']).optional(),
     secret: z.boolean().optional(),
     bytecode: z.any().optional(),
+    /** The runtime contract the bytecode was compiled against. Absent on templates saved before stamping. */
+    bytecode_contract: z.string().optional(),
     order: z.number().optional(),
 })
 

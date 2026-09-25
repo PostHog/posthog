@@ -10654,6 +10654,195 @@
           "row_count": null,
           "type": "system"
       },
+      "system.replay_scanners": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scanner_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scanner_type",
+                  "id": null,
+                  "name": "scanner_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scanner_config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scanner_config",
+                  "id": null,
+                  "name": "scanner_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "sampling_rate": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_rate",
+                  "id": null,
+                  "name": "sampling_rate",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "sampling_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_mode",
+                  "id": null,
+                  "name": "sampling_mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "model",
+                  "id": null,
+                  "name": "model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "emits_signals": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "emits_signals",
+                  "id": null,
+                  "name": "emits_signals",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "scanner_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scanner_version",
+                  "id": null,
+                  "name": "scanner_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "credit_limit": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credit_limit",
+                  "id": null,
+                  "name": "credit_limit",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "estimated_monthly_observations": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "estimated_monthly_observations",
+                  "id": null,
+                  "name": "estimated_monthly_observations",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_swept_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_swept_at",
+                  "id": null,
+                  "name": "last_swept_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.replay_scanners",
+          "name": "system.replay_scanners",
+          "row_count": null,
+          "type": "system"
+      },
       "system.session_recordings": {
           "certification": null,
           "fields": {
@@ -22578,6 +22767,195 @@
           },
           "id": "system.session_recording_playlists",
           "name": "system.session_recording_playlists",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.replay_scanners": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "description": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "description",
+                  "id": null,
+                  "name": "description",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scanner_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scanner_type",
+                  "id": null,
+                  "name": "scanner_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scanner_config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scanner_config",
+                  "id": null,
+                  "name": "scanner_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "query": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "query",
+                  "id": null,
+                  "name": "query",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "sampling_rate": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_rate",
+                  "id": null,
+                  "name": "sampling_rate",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
+              "sampling_mode": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "sampling_mode",
+                  "id": null,
+                  "name": "sampling_mode",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "model": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "model",
+                  "id": null,
+                  "name": "model",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "enabled": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "enabled",
+                  "id": null,
+                  "name": "enabled",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "emits_signals": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "emits_signals",
+                  "id": null,
+                  "name": "emits_signals",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "scanner_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scanner_version",
+                  "id": null,
+                  "name": "scanner_version",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "credit_limit": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "credit_limit",
+                  "id": null,
+                  "name": "credit_limit",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "estimated_monthly_observations": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "estimated_monthly_observations",
+                  "id": null,
+                  "name": "estimated_monthly_observations",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "last_swept_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_swept_at",
+                  "id": null,
+                  "name": "last_swept_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.replay_scanners",
+          "name": "system.replay_scanners",
           "row_count": null,
           "type": "system"
       },

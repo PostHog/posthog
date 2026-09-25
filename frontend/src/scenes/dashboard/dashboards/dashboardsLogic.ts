@@ -27,7 +27,6 @@ export enum DashboardsTab {
     All = 'all',
     Yours = 'yours',
     Pinned = 'pinned',
-    Templates = 'templates',
 }
 
 const DEFAULT_SORTING: Sorting = { columnKey: 'name', order: 1 }
@@ -363,6 +362,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     if (folder != null) {
                         params.append('folder', folder)
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsList() from 'products/dashboards/frontend/generated/api' instead.
                     const response: PaginatedResponse<DashboardBasicType> = await api.get(
                         `api/projects/${teamId}/dashboards/?${params.toString()}`
                     )
@@ -383,6 +383,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         return { count: 0, next: null, previous: null, results: [] }
                     }
                     const params = new URLSearchParams({ search, limit: '50', offset: String(offset) })
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const tagPage: PaginatedResponse<string> = await api.get(
                         `api/projects/${teamId}/tags?${params.toString()}`
                     )
@@ -578,7 +579,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
             const requestedTab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
-            const tab = requestedTab === DashboardsTab.Pinned ? DashboardsTab.All : requestedTab
+            const tab = requestedTab === DashboardsTab.Yours ? DashboardsTab.Yours : DashboardsTab.All
             if (values.currentTab !== tab) {
                 actions.setCurrentTab(tab)
             }

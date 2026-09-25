@@ -133,6 +133,12 @@ class AccountPresenceViewer:
 
 
 @dataclass(frozen=True)
+class AccountPresence:
+    account_id: UUID
+    viewers: list[AccountPresenceViewer]
+
+
+@dataclass(frozen=True)
 class EmailAccountMatch:
     account_id: str
     account_external_id: str | None
@@ -623,7 +629,6 @@ OwnershipClaimOutcome = Literal["accepted", "already_applied", "cleared", "not_h
 OwnershipClaimReason = Literal[
     "account_not_found",
     "binding_changed",
-    "role_not_managed",
     "identity_mismatch",
     "assignee_not_member",
     "role_occupied",
@@ -658,8 +663,8 @@ class OwnershipClaimDecision:
 class OwnershipClaimResult:
     """What customer analytics did with a decision. ``rejected`` and ``blocked`` carry a reason;
     ``blocked`` means the decision may apply after review, ``rejected`` that it does not apply as
-    read. Refusals are not stored, so every sweep evaluates the Task again; in practice only an
-    allocation that was still in the future can turn into an acceptance."""
+    read. Refusals are not stored, so every sweep evaluates the Task again, and a refusal turns into an
+    acceptance once its cause is gone."""
 
     outcome: OwnershipClaimOutcome
     reason: OwnershipClaimReason | None

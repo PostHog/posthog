@@ -16,6 +16,7 @@ from django.utils.timezone import now
 
 import structlog
 from dateutil.parser import isoparse
+from prometheus_client import Counter, Histogram
 
 from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
@@ -857,6 +858,23 @@ def publish_person_tombstone(
 
 TOMBSTONE_DELIVERY_TIMEOUT_SECONDS = 10
 
+# source: "delete" for the person delete paths, "orphan_repair" for the fix_orphaned_ch_persons command.
+PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS = Histogram(
+    "posthog_person_tombstone_delivery_wait_seconds",
+    "Time a caller waits for Kafka to deliver the ClickHouse tombstones it published, before acking the queue.",
+    labelnames=["source"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, float("inf")),
+)
+
+# Acks go out in calls of 1000 persons, the RPC maximum. "acked" counts queue rows a call cleared, which
+# can be fewer than the persons sent because an ack is idempotent. "ack_failed" counts the persons in a
+# call that raised; they stay queued for the weekly sweep, and earlier calls' rows stay counted as acked.
+PERSON_TOMBSTONE_ACKS_COUNTER = Counter(
+    "posthog_person_tombstone_acks_total",
+    "Tombstone queue rows cleared after Kafka delivery, or persons left queued because the ack call failed.",
+    labelnames=["outcome"],
+)
+
 
 @frozen
 class PersonTombstonePublishFailure:
@@ -878,6 +896,7 @@ class PersonTombstonePublication:
     """
 
     team_id: int
+    source: str = "delete"
     failures: list[PersonTombstonePublishFailure] = field(default_factory=list)
     _pending: list[tuple[PersonTombstone, list[ProduceResult]]] = field(default_factory=list, init=False, repr=False)
 
@@ -895,8 +914,10 @@ class PersonTombstonePublication:
         if not pending:
             return
 
+        started = time.monotonic()
         if not all(result.done() for _, results in pending for result in results):
             _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+        PERSON_TOMBSTONE_DELIVERY_WAIT_SECONDS.labels(source=self.source).observe(time.monotonic() - started)
 
         delivered: list[tuple[UUID, int]] = []
         for tombstone, results in pending:
@@ -907,14 +928,17 @@ class PersonTombstonePublication:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
             delivered.append((tombstone.uuid, tombstone.version))
-        if not delivered:
-            return
-        try:
-            ack_person_tombstones(self.team_id, delivered)
-        except Exception:
-            logger.warning(
-                "person_tombstones.ack_failed", team_id=self.team_id, person_count=len(delivered), exc_info=True
-            )
+        for i in range(0, len(delivered), 1000):
+            chunk = delivered[i : i + 1000]
+            try:
+                cleared = ack_person_tombstones(self.team_id, chunk)
+            except Exception:
+                PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="ack_failed").inc(len(chunk))
+                logger.warning(
+                    "person_tombstones.ack_failed", team_id=self.team_id, person_count=len(chunk), exc_info=True
+                )
+                continue
+            PERSON_TOMBSTONE_ACKS_COUNTER.labels(outcome="acked").inc(cleared)
 
 
 def _flush_person_producers(timeout: float) -> None:

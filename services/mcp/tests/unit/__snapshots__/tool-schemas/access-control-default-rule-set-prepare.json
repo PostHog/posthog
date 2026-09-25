@@ -1,0 +1,95 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "access_level": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
+        },
+        "id": {
+            "description": "Project id. If omitted, uses the active project.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        },
+        "resource": {
+            "description": "The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resource_access_levels` on access-control-defaults-get.",
+            "enum": [
+                "account",
+                "action",
+                "activity_log",
+                "ai_observability_clusters",
+                "customer_analytics",
+                "customer_journey",
+                "customer_task",
+                "dashboard",
+                "dashboard_template",
+                "data_catalog",
+                "data_deletion",
+                "dataset",
+                "early_access_feature",
+                "endpoint",
+                "error_tracking",
+                "evaluation",
+                "experiment",
+                "experiment_holdout",
+                "experiment_saved_metric",
+                "export",
+                "external_data_source",
+                "feature_flag",
+                "heatmap",
+                "hog_flow",
+                "insight",
+                "llm_analytics",
+                "llm_playground",
+                "llm_prompt",
+                "llm_provider_key",
+                "llm_skill",
+                "logs",
+                "marketing_analytics",
+                "mcp_analytics",
+                "metrics",
+                "notebook",
+                "project",
+                "property_definition",
+                "replay_scanner",
+                "revenue_analytics",
+                "session_recording",
+                "session_recording_playlist",
+                "sharing_configuration",
+                "stamphog",
+                "survey",
+                "tagger",
+                "ticket",
+                "toolbar",
+                "tracing",
+                "vision_alert",
+                "warehouse_objects",
+                "warehouse_table",
+                "warehouse_view",
+                "web_analytics"
+            ],
+            "type": "string"
+        },
+        "resource_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "default": null,
+            "description": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool."
+        }
+    },
+    "required": ["resource", "access_level"],
+    "type": "object"
+}

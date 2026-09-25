@@ -67,6 +67,46 @@ graphics code owns a canvas element, or a mostly static page can mount one inter
 This is a judgment call, not a persisted mode — ask the user only when the choice changes a
 user-visible requirement you cannot infer.
 
+## Blocks
+
+A canvas can contain premade blocks: numbers, goals, trends, top lists, funnels, retention, saved insights, live event feeds, SQL tables, filters, compare and refresh controls, and callouts.
+They are React components in `src/blocks/` that people drag into the canvas in the desktop app, so they are part of your source.
+Read [references/blocks.md](references/blocks.md) before you change a canvas that has `src/blocks/runtime.tsx`.
+
+## Params
+
+Expose the values a person may want to change as params. They can then change them in the desktop editor without a new task.
+Params are optional, but add them to each panel, card, or tool that has values worth changing: titles, copy, events, properties, thresholds, limits, colors.
+Params need React components. A plain HTML canvas has no params.
+
+1. Put each panel in its own component. The component takes these values as props, with defaults.
+2. Spread `editable(name, props, params)` from `@posthog/canvas-sdk` on the root element of the component. `name` is the component name. `params` maps each prop name to its field.
+3. Use the component with literal props, for example `<SignupFunnel title="Signup" windowDays={14} />`. The editor writes changes into these props, so do not compute them inline.
+
+```tsx
+import { editable } from '@posthog/canvas-sdk'
+
+export function SignupFunnel(props: { title?: string; steps?: string[]; windowDays?: number }) {
+  const { title = 'Signup funnel', steps = ['$pageview', 'signed_up'], windowDays = 14 } = props
+  return (
+    <Card
+      {...editable('SignupFunnel', props, {
+        title: { type: 'text', label: 'Title', default: 'Signup funnel' },
+        steps: { type: 'events', label: 'Steps', default: ['$pageview', 'signed_up'] },
+        windowDays: { type: 'number', label: 'Conversion window (days)', min: 1, max: 90, default: 14 },
+      })}
+    >
+      …
+    </Card>
+  )
+}
+```
+
+Field types: `text`, `longtext`, `number` (`min`, `max`, `step`; with both `min` and `max` the editor shows a slider), `boolean`, `select` (`options`: strings or `{ value, label }`), `event`, `events`, `property`, `insight` (a saved insight's short id), `color`. Each field can also have a `description`.
+Give each field the same `default` as its prop default, for example `{ type: "boolean", label: "Show legend", default: true }`. The editor shows `default` when the prop is not set.
+A `color` param defaults to a theme token such as `var(--primary)`, so the canvas follows light and dark mode until a person picks a hex in the editor.
+Pass only JSON values (strings, numbers, booleans, string arrays) through params. Keep functions and query results out of them.
+
 ## Images
 
 Use public media library URLs for images in a canvas. Call `posthog:media-images-list` with

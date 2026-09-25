@@ -78,7 +78,8 @@ from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.batch_exports.backend.models import BatchExport, BatchExportDestination
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import DestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
@@ -6868,10 +6869,13 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert Integration.objects.filter(id=self.integration.id).exists()
 
     def test_destroy_blocked_message_includes_batch_exports(self, client: HttpClient):
-        dest = BatchExportDestination.objects.create(
-            config={}, type=BatchExportDestination.Destination.AWS_S3, integration=self.integration
+        batch_exports_testing.create_batch_export(
+            self.team.id,
+            name="Test batch export",
+            destination_type=DestinationType.AWS_S3,
+            destination_config={},
+            integration_id=self.integration.id,
         )
-        BatchExport.objects.create(name="Test batch export", destination=dest, team=self.team, interval="hour")
 
         response = self._delete(client)
 

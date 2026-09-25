@@ -206,7 +206,7 @@ export const metricsStarterDashboardLogic = kea<metricsStarterDashboardLogicType
                 // The core dashboards create endpoint has no generated client yet
                 // (only its sharing sub-resources are in the codegen surface), so this
                 // stays a manual call until the Dashboard viewset is tagged.
-                // nosemgrep: prefer-codegen-api
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                 dashboard = await api.create<DashboardType>(`api/projects/${values.currentTeamId}/dashboards/`, {
                     name,
                 })

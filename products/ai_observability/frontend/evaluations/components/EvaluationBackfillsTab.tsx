@@ -31,7 +31,7 @@ import type {
     EvaluationBackfillConditionApi,
     EvaluationBackfillStatusEnumApi,
 } from '../../generated/api.schemas'
-import { backfillRangeDateFormat, backfillSamplingLabel } from '../backfillConditions'
+import { backfillCoveredCount, backfillRangeDateFormat, backfillSamplingLabel } from '../backfillConditions'
 import { evaluationBackfillsLogic } from '../evaluationBackfillsLogic'
 import { EvaluationTriggers } from './EvaluationTriggers'
 
@@ -50,6 +50,15 @@ const BACKFILL_STATUS_TAG: Record<EvaluationBackfillStatusEnumApi, { label: stri
 }
 
 const WINDOW_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
+
+function backfillLeftBehindLabel(backfill: EvaluationBackfillApi): string | null {
+    // Null coverage means nothing counted the window, and a covered run is already told by the
+    // full bar, so only a run that left work behind has something to say.
+    if (!backfill.remaining_count) {
+        return null
+    }
+    return `${pluralize(backfill.remaining_count, backfill.target)} weren't evaluated. Start another backfill over this range to retry them.`
+}
 
 function backfillUnitPlural(backfill: EvaluationBackfillApi): string {
     return pluralize(2, backfill.target, undefined, false)
@@ -94,6 +103,7 @@ export function EvaluationBackfillsTab({
         estimate,
         estimateError,
         estimateLoading,
+        estimateSummary,
         expandedBackfillIds,
         rerunExisting,
         settleWait,
@@ -244,29 +254,36 @@ export function EvaluationBackfillsTab({
             },
         },
         {
-            title: 'Started',
+            title: 'Covered',
             key: 'progress',
             render: (_, backfill) => {
-                // The walk has handled a unit once it started it, or skipped it because the live
-                // path had covered it already. A rerun over a window that keeps growing can hand
-                // back more than the total it started from, so the bar stops at that total.
-                const handled = Math.min(backfill.dispatched_count + backfill.skipped_count, backfill.total_count)
+                // While the walk runs, coverage is what it has handled: started, or skipped because
+                // the live path had the unit already. Once it ends, the measured remainder is the
+                // truer number, because a unit the live path judged mid-run is covered too and the
+                // walk never saw it.
+                const measured = backfill.status === 'completed' && backfill.remaining_count !== null
+                const covered = backfillCoveredCount(backfill)
                 return (
-                    <Tooltip title="How many units this backfill has started evaluating. It does not track which of them have finished.">
+                    <Tooltip
+                        title={
+                            measured
+                                ? `How many ${backfillUnitPlural(backfill)} hold a result, counted when the run ended. The evaluation grades new data on its own, so it covers some of them without this run.`
+                                : `How many ${backfillUnitPlural(backfill)} this backfill has started evaluating or skipped because the evaluation already had them. It does not track which of them have finished.`
+                        }
+                    >
                         <div className="min-w-24">
                             <span className="whitespace-nowrap" translate="no">
-                                {backfill.dispatched_count.toLocaleString('en-US')} /{' '}
-                                {backfill.total_count.toLocaleString('en-US')}
+                                {covered.toLocaleString('en-US')} / {backfill.total_count.toLocaleString('en-US')}
                             </span>
-                            {backfill.skipped_count > 0 && (
+                            {backfill.dispatched_count > 0 && (
                                 <span className="text-muted whitespace-nowrap">
                                     {' '}
-                                    · {backfill.skipped_count.toLocaleString('en-US')} skipped
+                                    · {backfill.dispatched_count.toLocaleString('en-US')} started
                                 </span>
                             )}
                             <LemonProgress
                                 className="mt-1"
-                                percent={backfill.total_count > 0 ? (handled / backfill.total_count) * 100 : 0}
+                                percent={backfill.total_count > 0 ? (covered / backfill.total_count) * 100 : 0}
                                 strokeColor={backfill.status === 'running' ? undefined : 'var(--border)'}
                             />
                         </div>
@@ -374,8 +391,8 @@ export function EvaluationBackfillsTab({
                             ? 'Counting…'
                             : estimateError
                               ? estimateError
-                              : estimate
-                                ? `${pluralize(estimate.total_units, estimate.unit)} would be evaluated${
+                              : estimateSummary
+                                ? `${estimateSummary}${
                                       clampedWindow ? ` between ${clampedWindow.start} and ${clampedWindow.end}` : ''
                                   }`
                                 : null}
@@ -425,60 +442,63 @@ export function EvaluationBackfillsTab({
                     isRowExpanded: (backfill) => (expandedBackfillIds.includes(backfill.id) ? 1 : -1),
                     onRowExpand: (backfill) => expandBackfill(backfill.id),
                     onRowCollapse: (backfill) => collapseBackfill(backfill.id),
-                    expandedRowRender: (backfill) => (
-                        <div className="flex items-center justify-between gap-4 px-2 py-3">
-                            <div className="flex flex-col gap-2 min-w-0">
-                                {backfill.conditions.map((condition, index) => (
-                                    <div key={index} className="flex items-center gap-1 flex-wrap">
-                                        <ConditionSetScope
-                                            condition={condition}
-                                            unitPlural={backfillUnitPlural(backfill)}
-                                        />
-                                        <span className="text-muted whitespace-nowrap">
-                                            {backfillSamplingLabel(condition)}
+                    expandedRowRender: (backfill) => {
+                        const leftBehind = backfillLeftBehindLabel(backfill)
+                        return (
+                            <div className="flex items-center justify-between gap-4 px-2 py-3">
+                                <div className="flex flex-col gap-2 min-w-0">
+                                    {backfill.conditions.map((condition, index) => (
+                                        <div key={index} className="flex items-center gap-1 flex-wrap">
+                                            <ConditionSetScope
+                                                condition={condition}
+                                                unitPlural={backfillUnitPlural(backfill)}
+                                            />
+                                            <span className="text-muted whitespace-nowrap">
+                                                {backfillSamplingLabel(condition)}
+                                            </span>
+                                        </div>
+                                    ))}
+                                    <div className="flex items-center gap-2 flex-wrap text-muted">
+                                        <span className="flex items-center gap-1">
+                                            <TZLabel
+                                                time={backfill.window_start}
+                                                timestampStyle="absolute"
+                                                {...WINDOW_TIME_FORMAT}
+                                            />
+                                            <span>→</span>
+                                            <TZLabel
+                                                time={backfill.window_end}
+                                                timestampStyle="absolute"
+                                                {...WINDOW_TIME_FORMAT}
+                                            />
+                                        </span>
+                                        <span>·</span>
+                                        <span>
+                                            {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
+                                            {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
+                                            {pluralize(backfill.total_count, backfill.target)}
+                                            {backfill.rerun_existing ? ' in range' : ' that had no result'}
                                         </span>
                                     </div>
-                                ))}
-                                <div className="flex items-center gap-2 flex-wrap text-muted">
-                                    <span className="flex items-center gap-1">
-                                        <TZLabel
-                                            time={backfill.window_start}
-                                            timestampStyle="absolute"
-                                            {...WINDOW_TIME_FORMAT}
-                                        />
-                                        <span>→</span>
-                                        <TZLabel
-                                            time={backfill.window_end}
-                                            timestampStyle="absolute"
-                                            {...WINDOW_TIME_FORMAT}
-                                        />
-                                    </span>
-                                    <span>·</span>
-                                    <span>
-                                        {backfill.dispatched_count.toLocaleString('en-US')} started,{' '}
-                                        {backfill.skipped_count.toLocaleString('en-US')} skipped, out of{' '}
-                                        {pluralize(backfill.total_count, backfill.target)} in range
-                                        {backfill.rerun_existing &&
-                                            `, including ${backfillUnitPlural(backfill)} that already had a result`}
-                                    </span>
+                                    {leftBehind && <div className="text-warning">{leftBehind}</div>}
                                 </div>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    to={
+                                        combineUrl(router.values.location.pathname, {
+                                            ...router.values.searchParams,
+                                            evaluation_tab: 'runs',
+                                            backfill_id: backfill.id,
+                                        }).url
+                                    }
+                                    data-attr="llma-eval-backfill-view-results"
+                                >
+                                    View results from this run
+                                </LemonButton>
                             </div>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                to={
-                                    combineUrl(router.values.location.pathname, {
-                                        ...router.values.searchParams,
-                                        evaluation_tab: 'runs',
-                                        backfill_id: backfill.id,
-                                    }).url
-                                }
-                                data-attr="llma-eval-backfill-view-results"
-                            >
-                                View results from this run
-                            </LemonButton>
-                        </div>
-                    ),
+                        )
+                    },
                 }}
                 emptyState={
                     backfillsError ? (
