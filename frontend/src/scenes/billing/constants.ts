@@ -32,8 +32,8 @@ export const BILLING_TABLE_PAGE_SIZE = 100
  */
 export const MAX_CHARTED_BILLING_SERIES = 50
 
-// UI subset of ee/billing/billing_types.py::USAGE_TYPE_OPTIONS, with matching labels.
-// Values are sent as `usage_types` and must be supported by the `billing` repo's `billing/types/usage.py::SupportedUsageType`.
+// Labels mirror ee/billing/billing_types.py::USAGE_TYPE_OPTIONS.
+// Values are sent to the `billing` repo as `usage_types`; keep in sync with `billing/billing/types/usage.py::SupportedUsageType`.
 export const SPEND_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Identified events', value: 'enhanced_persons_event_count_in_period' },
