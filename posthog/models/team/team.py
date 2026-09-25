@@ -805,6 +805,10 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
+            # send_feature_flag_events=False means this evaluation sends no $feature_flag_called
+            # event, so usage-based staleness cannot observe this call site. Keep the check because
+            # an explicit project allowlist depends on it to stay on PoE v1. Without it, those
+            # projects fall back to PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
             return feature_enabled_or_false(
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
