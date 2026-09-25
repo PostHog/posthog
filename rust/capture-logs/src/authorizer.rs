@@ -75,7 +75,7 @@ impl Authorizer {
         let verbatim = headers
             .get(header_name)
             .and_then(|value| value.to_str().ok())
-            .map(|value| value.trim().split("Bearer ").last().unwrap_or("").trim())
+            .map(strip_bearer)
             .filter(|token| !token.is_empty());
         match verbatim {
             Some(token) => {
@@ -124,6 +124,11 @@ fn unauthorized(message: impl Into<String>) -> Rejection {
     )
 }
 
+/// Splits before it trims, so a value of exactly `Bearer ` still yields the empty token callers reject.
+fn strip_bearer(value: &str) -> &str {
+    value.split("Bearer ").last().unwrap_or("").trim()
+}
+
 /// Bearer header first, `?token=` second, matching what the handlers did individually.
 fn resolve_token<'a>(
     headers: &'a HeaderMap,
@@ -135,11 +140,7 @@ fn resolve_token<'a>(
     };
 
     if let Some(value) = headers.get("Authorization") {
-        return value
-            .to_str()
-            .unwrap_or("")
-            .split("Bearer ")
-            .last()
+        return Some(strip_bearer(value.to_str().unwrap_or("")))
             .filter(|token| !token.is_empty())
             .ok_or_else(missing);
     }

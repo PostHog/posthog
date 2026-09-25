@@ -10,7 +10,7 @@
 use crate::authorizer::Signal;
 use crate::log_record::{
     apply_timestamp_override, convert_severity_text_to_number, datetime_from_millis,
-    severity_alias, sum_kafka_log_row_bytes, try_extract_severity, KafkaLogRow,
+    severity_alias, try_extract_severity, KafkaLogRow,
 };
 use crate::service::{gunzip_if_magic, Service};
 use axum::{
@@ -19,9 +19,9 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Json, Response},
 };
-use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use common_compression::decode_base64;
 use metrics::counter;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -104,12 +104,8 @@ pub enum DecodedRecord {
     Raw(String),
 }
 
-/// Rows from one record plus how many timestamps were clamped, for the Kafka header.
-#[derive(Default)]
-pub struct DecodedRows {
-    pub rows: Vec<KafkaLogRow>,
-    pub timestamps_overridden: u64,
-}
+/// Rows from one record, each paired with whether its timestamp was clamped.
+pub type DecodedRows = Vec<(KafkaLogRow, bool)>;
 
 fn contract_body(request_id: &str, error_message: Option<&str>) -> Json<Value> {
     let mut body = json!({
@@ -237,13 +233,8 @@ pub fn infer_severity(message: &str) -> (String, i32) {
             .map(|token| token.trim_matches(|c: char| !c.is_ascii_alphabetic()))
             .find_map(severity_alias)
     });
-    match text {
-        Some(text) => {
-            let number = convert_severity_text_to_number(&text);
-            (text, number)
-        }
-        None => ("info".to_string(), 9),
-    }
+    let text = text.unwrap_or("info");
+    (text.to_string(), convert_severity_text_to_number(text))
 }
 
 /// Attribute values travel as JSON-encoded strings; this is the one place that encodes them.
@@ -359,25 +350,26 @@ pub fn cloudwatch_envelope_to_rows(
 ) -> DecodedRows {
     let template = ctx.template(Some(&envelope));
     let now = Utc::now();
-    let mut out = DecodedRows::default();
-    for CloudWatchLogEvent {
-        id,
-        timestamp,
-        message,
-    } in envelope.log_events
-    {
-        let event_id = (!id.is_empty()).then_some(id.as_str());
-        let (row, overridden) = build_row(
-            &template,
-            message,
-            datetime_from_millis(timestamp),
-            event_id,
-            now,
-        );
-        out.rows.push(row);
-        out.timestamps_overridden += u64::from(overridden);
-    }
-    out
+    envelope
+        .log_events
+        .into_iter()
+        .map(
+            |CloudWatchLogEvent {
+                 id,
+                 timestamp,
+                 message,
+             }| {
+                let event_id = (!id.is_empty()).then_some(id.as_str());
+                build_row(
+                    &template,
+                    message,
+                    datetime_from_millis(timestamp),
+                    event_id,
+                    now,
+                )
+            },
+        )
+        .collect()
 }
 
 /// Lines from a record that is not a CloudWatch envelope. There is no per-line timestamp, so
@@ -385,15 +377,10 @@ pub fn cloudwatch_envelope_to_rows(
 pub fn raw_record_to_rows(text: &str, ctx: &FirehoseContext) -> DecodedRows {
     let template = ctx.template(None);
     let now = Utc::now();
-    let rows = text
-        .lines()
+    text.lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| build_row(&template, line.to_string(), now, None, now).0)
-        .collect();
-    DecodedRows {
-        rows,
-        timestamps_overridden: 0,
-    }
+        .map(|line| build_row(&template, line.to_string(), now, None, now))
+        .collect()
 }
 
 /// Base64-decode a Firehose record, gunzip it when CloudWatch compressed it, and classify it.
@@ -403,7 +390,7 @@ pub fn decode_record(
     data: &str,
     max_bytes: usize,
 ) -> Result<(DecodedRecord, usize), (StatusCode, String)> {
-    let bytes = base64_standard.decode(data.trim()).map_err(|e| {
+    let bytes = decode_base64(data.trim()).map_err(|e| {
         (
             StatusCode::BAD_REQUEST,
             format!("record is not valid base64: {e}"),
@@ -473,7 +460,7 @@ impl BatchBuilder {
     /// Add a row; returns a full batch to produce when this row did not fit alongside the pending
     /// ones. A single row larger than the budget still goes out on its own.
     pub fn push(&mut self, row: KafkaLogRow, overridden: bool) -> Option<Batch> {
-        let row_bytes = row.bytes_uncompressed.unwrap_or(0).max(0) as u64;
+        let row_bytes = row.byte_count();
         let full = if !self.rows.is_empty() && self.bytes + row_bytes > self.budget {
             self.take()
         } else {
@@ -505,19 +492,17 @@ fn spawn_write(
     writes: &mut JoinSet<anyhow::Result<()>>,
     service: &Service,
     token: &str,
-    source_id: Option<&str>,
+    ctx: &FirehoseContext,
     batch: Batch,
 ) {
     let sink = service.sink.clone();
     let token = token.to_string();
-    let source_id = source_id.map(str::to_string);
+    let source_id = ctx.source_id.clone();
     writes.spawn(async move {
-        // The rows sum is also the payload figure, so the records-based header never exceeds it.
-        let payload_bytes = batch.bytes.max(sum_kafka_log_row_bytes(&batch.rows));
         sink.write(
             &token,
             batch.rows,
-            payload_bytes,
+            batch.bytes,
             batch.timestamps_overridden,
             source_id.as_deref(),
         )
@@ -642,33 +627,18 @@ pub async fn export_aws_firehose_logs_http(
         let Some(decoded_rows) = decoded_record_to_rows(decoded, &ctx) else {
             continue;
         };
-        total_events += decoded_rows.rows.len() as u64;
-        let overridden_rows = decoded_rows.timestamps_overridden;
-        for (i, row) in decoded_rows.rows.into_iter().enumerate() {
-            // Attribute the clamped count to the first rows; only the batch total matters.
-            let overridden = (i as u64) < overridden_rows;
+        total_events += decoded_rows.len() as u64;
+        for (row, overridden) in decoded_rows {
             if let Some(batch) = batches.push(row, overridden) {
-                spawn_write(
-                    &mut writes,
-                    &service,
-                    &token,
-                    ctx.source_id.as_deref(),
-                    batch,
-                );
+                spawn_write(&mut writes, &service, &token, &ctx, batch);
             }
         }
     }
     if let Some(batch) = batches.finish() {
-        spawn_write(
-            &mut writes,
-            &service,
-            &token,
-            ctx.source_id.as_deref(),
-            batch,
-        );
+        spawn_write(&mut writes, &service, &token, &ctx, batch);
     }
 
-    if total_events == 0 && invalid_records > 0 && invalid_records == record_count {
+    if invalid_records > 0 && invalid_records == record_count {
         return Err(rejection(
             StatusCode::BAD_REQUEST,
             &request_id,
@@ -741,7 +711,7 @@ mod tests {
     #[test]
     fn decode_record_reads_cloudwatch_envelopes_gzipped_or_plain() {
         let json = envelope_json("DATA_MESSAGE");
-        for data in [gzip_b64(json.as_bytes()), base64_standard.encode(&json)] {
+        for data in [gzip_b64(json.as_bytes()), encode_base64(json.as_bytes())] {
             let (decoded, len) = decode_record(&data, 1 << 20).unwrap();
             assert_eq!(len, json.len());
             match decoded {
@@ -756,7 +726,7 @@ mod tests {
 
     #[test]
     fn decode_record_falls_back_to_raw_lines() {
-        let data = base64_standard.encode("2 123 eni-1 10.0.0.1 10.0.0.2 ACCEPT OK\nline two\n");
+        let data = encode_base64(b"2 123 eni-1 10.0.0.1 10.0.0.2 ACCEPT OK\nline two\n");
         match decode_record(&data, 1 << 20).unwrap().0 {
             DecodedRecord::Raw(text) => assert!(text.starts_with("2 123")),
             DecodedRecord::CloudWatch(_) => panic!("expected raw"),
@@ -865,9 +835,9 @@ mod tests {
 
         let decoded = cloudwatch_envelope_to_rows(env, &context());
 
-        assert_eq!(decoded.rows.len(), 3);
-        assert_eq!(decoded.timestamps_overridden, 1);
-        let row = &decoded.rows[0];
+        assert_eq!(decoded.len(), 3);
+        assert_eq!(decoded.iter().filter(|(_, clamped)| *clamped).count(), 1);
+        let row = &decoded[0].0;
         assert_eq!(row.body, "ERROR payment declined");
         assert_eq!(row.service_name, "checkout-api");
         assert_eq!(row.severity_text, "error");
@@ -891,8 +861,8 @@ mod tests {
             "\"6f1a2b3c-0000-4000-8000-000000000001\""
         );
         assert!(row.bytes_uncompressed.is_some());
-        assert_eq!(decoded.rows[1].severity_text, "warn");
-        let old = &decoded.rows[2];
+        assert_eq!(decoded[1].0.severity_text, "warn");
+        let old = &decoded[2].0;
         assert!(old.attributes.contains_key("$originalTimestamp"));
         assert!(!old.attributes.contains_key("aws.log.event.id"));
     }
@@ -904,9 +874,9 @@ mod tests {
             ..FirehoseContext::default()
         };
         let decoded = cloudwatch_envelope_to_rows(envelope(), &ctx);
-        assert_eq!(decoded.rows[0].service_name, "payments");
+        assert_eq!(decoded[0].0.service_name, "payments");
         assert_eq!(
-            decoded.rows[0].resource_attributes["service.name"],
+            decoded[0].0.resource_attributes["service.name"],
             "\"payments\""
         );
         // AWS facts are never overridden by common attributes.
@@ -919,7 +889,7 @@ mod tests {
         };
         let decoded = cloudwatch_envelope_to_rows(envelope(), &ctx);
         assert_eq!(
-            decoded.rows[0].resource_attributes["aws.log.group.name"],
+            decoded[0].0.resource_attributes["aws.log.group.name"],
             "\"/aws/lambda/checkout-api\""
         );
     }
@@ -927,47 +897,34 @@ mod tests {
     #[test]
     fn raw_record_yields_one_row_per_non_empty_line() {
         let decoded = raw_record_to_rows("a\n\nb\n", &FirehoseContext::default());
-        assert_eq!(decoded.rows.len(), 2);
-        assert_eq!(decoded.rows[0].service_name, "aws-firehose");
-        assert!(!decoded.rows[0].attributes.contains_key("posthog.source_id"));
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].0.service_name, "aws-firehose");
+        assert!(!decoded[0].0.attributes.contains_key("posthog.source_id"));
     }
 
     #[test]
     fn batch_builder_splits_by_row_bytes_and_never_drops_rows() {
-        let rows = raw_record_to_rows(
-            &"x".repeat(50).lines().collect::<Vec<_>>().join("\n"),
-            &FirehoseContext::default(),
-        )
-        .rows;
-        let row_bytes = rows[0].bytes_uncompressed.unwrap() as u64;
+        let one_row = || {
+            raw_record_to_rows(&"x".repeat(50), &FirehoseContext::default())
+                .remove(0)
+                .0
+        };
+        let row_bytes = one_row().bytes_uncompressed.unwrap() as u64;
         let mut builder = BatchBuilder::new(row_bytes * 3);
         let mut batches = Vec::new();
-        let mut all_rows = 0;
         for _ in 0..7 {
-            let row = raw_record_to_rows("x".repeat(50).as_str(), &FirehoseContext::default())
-                .rows
-                .remove(0);
-            all_rows += 1;
-            if let Some(batch) = builder.push(row, false) {
+            if let Some(batch) = builder.push(one_row(), false) {
                 batches.push(batch);
             }
         }
         batches.extend(builder.finish());
         let sizes: Vec<usize> = batches.iter().map(|b| b.rows.len()).collect();
         assert_eq!(sizes, vec![3, 3, 1]);
-        assert_eq!(sizes.iter().sum::<usize>(), all_rows);
         assert!(batches.iter().all(|b| b.bytes <= row_bytes * 3));
 
         // One row above the budget still goes out alone rather than being dropped.
         let mut small = BatchBuilder::new(1);
-        assert!(small
-            .push(
-                raw_record_to_rows("big row", &FirehoseContext::default())
-                    .rows
-                    .remove(0),
-                false
-            )
-            .is_none());
+        assert!(small.push(one_row(), false).is_none());
         assert_eq!(small.finish().unwrap().rows.len(), 1);
     }
 

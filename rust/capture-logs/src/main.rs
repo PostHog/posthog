@@ -230,7 +230,6 @@ async fn main() {
         ))
         .layer(axum::middleware::from_fn(track_metrics))
         .layer(RequestDecompressionLayer::new())
-        .layer(axum::middleware::from_fn(translate_compression_query_param))
         .layer(axum::middleware::from_fn(
             aws_firehose::shape_layer_rejections,
         ));
