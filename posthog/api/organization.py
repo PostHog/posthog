@@ -158,6 +158,9 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
+    has_other_owner = serializers.SerializerMethodField(
+        help_text="Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true."
+    )
     logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
@@ -202,6 +205,7 @@ class OrganizationSerializer(
             "allow_publicly_shared_resources",
             "read_only_mcp_access",
             "member_count",
+            "has_other_owner",
             "is_ai_data_processing_approved",
             "is_ai_training_opted_in",
             "is_ai_training_locked",
@@ -227,6 +231,7 @@ class OrganizationSerializer(
             "metadata",
             "customer_id",
             "member_count",
+            "has_other_owner",
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
@@ -417,6 +422,15 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_other_owner(self, organization: Organization) -> bool:
+        user_id = _resolve_cached_user_id(self.context)
+        if user_id is None:
+            return False
+        return bool(
+            OrganizationMembership.org_ids_with_other_owner(user_id=user_id, organization_ids=[organization.id])
+        )
 
     def validate_read_only_mcp_access(self, value: bool) -> bool:
         if self.instance and self.instance.read_only_mcp_access != value:

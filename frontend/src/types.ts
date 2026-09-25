@@ -584,6 +584,8 @@ export interface OrganizationBasicType {
     slug: string
     logo_media_id: string | null
     membership_level: OrganizationMembershipLevel | null
+    /** Whether the organization has an owner other than the current user. */
+    has_other_owner: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
     is_active: boolean | null

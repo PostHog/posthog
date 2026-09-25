@@ -1,15 +1,38 @@
 import { OrganizationBasicType, OrganizationMemberType, UserType } from '../../types'
 import { EitherMembershipLevel, OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
 
+function getReasonForSelfAccessLevelChangeProhibition(
+    currentMembershipLevel: OrganizationMembershipLevel | null,
+    newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[],
+    organizationHasOtherOwner: boolean
+): null | string {
+    if (currentMembershipLevel !== OrganizationMembershipLevel.Owner) {
+        return "You can't change your own access level."
+    }
+    if (!organizationHasOtherOwner) {
+        return "You can't lower your own access level as the organization's only owner. Make someone else an owner first."
+    }
+    // An owner is already at the top, so stepping down is the only self change left.
+    const stepsDown = Array.isArray(newLevelOrAllowedLevels)
+        ? newLevelOrAllowedLevels.some((level) => level < currentMembershipLevel)
+        : newLevelOrAllowedLevels < currentMembershipLevel
+    return stepsDown ? null : "It doesn't make sense to set the same level as before."
+}
+
 /** If access level change is disallowed given the circumstances, returns a reason why so. Otherwise returns null. */
 export function getReasonForAccessLevelChangeProhibition(
     currentMembershipLevel: OrganizationMembershipLevel | null,
     currentUser: UserType,
     memberToBeUpdated: OrganizationMemberType,
-    newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[]
+    newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[],
+    organizationHasOtherOwner: boolean
 ): null | string {
     if (memberToBeUpdated.user.uuid === currentUser.uuid) {
-        return "You can't change your own access level."
+        return getReasonForSelfAccessLevelChangeProhibition(
+            currentMembershipLevel,
+            newLevelOrAllowedLevels,
+            organizationHasOtherOwner
+        )
     }
     if (!currentMembershipLevel) {
         return 'Your membership level is unknown.'

@@ -1,12 +1,14 @@
 import sys
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
@@ -708,6 +710,10 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
     transaction.on_commit(_invalidate_cache)
 
 
+# Advisory lock class for owner transitions, so this lock cannot collide with another lock class.
+OWNER_TRANSITION_LOCK_NAMESPACE = 4049
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
@@ -761,6 +767,39 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     def __str__(self):
         return str(self.Level(self.level))
 
+    @classmethod
+    def org_ids_with_other_owner(cls, *, user_id: int, organization_ids: Iterable[UUID]) -> set[UUID]:
+        """Which of the given organizations have an active owner who is not the given user."""
+        return set(
+            cls.objects.filter(organization_id__in=organization_ids, level=cls.Level.OWNER, user__is_active=True)
+            .exclude(user_id=user_id)
+            .values_list("organization_id", flat=True)
+        )
+
+    @classmethod
+    def lock_owner_transitions(cls, organization_id: UUID) -> None:
+        """Serialize the owner departures and demotions of one organization.
+
+        Without this, two owners leaving at once each see the other and both succeed, which
+        leaves the organization with no owner. The lock is a transaction-scoped advisory one
+        rather than a row lock on `Organization`, because `FOR UPDATE` on that row makes every
+        unrelated child-row write wait behind this transaction. The caller must hold the same
+        transaction as the write, since the lock lives until that transaction ends.
+
+        Take this lock before locking any membership row. A caller that locks rows first can
+        hold the two rows of a transfer in the opposite order to another caller and deadlock;
+        taking this one first leaves only one caller in the row-locking section at a time.
+        """
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)",
+                [OWNER_TRANSITION_LOCK_NAMESPACE, UUID(str(organization_id)).int % 2**31],
+            )
+
+    def has_other_owner(self) -> bool:
+        self.lock_owner_transitions(self.organization_id)
+        return bool(self.org_ids_with_other_owner(user_id=self.user_id, organization_ids=[self.organization_id]))
+
     def validate_update(
         self,
         membership_being_updated: "OrganizationMembership",
@@ -768,7 +807,15 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
-                raise exceptions.PermissionDenied("You can't change your own access level.")
+                # An owner can step down while another owner remains. Every other self change stays blocked.
+                if self.level != OrganizationMembership.Level.OWNER or new_level >= self.level:
+                    raise exceptions.PermissionDenied("You can't change your own access level.")
+                if not self.has_other_owner():
+                    raise exceptions.PermissionDenied(
+                        "You can't lower your own access level as the organization's only owner. "
+                        "Make someone else an owner first."
+                    )
+                return
             if new_level == OrganizationMembership.Level.OWNER:
                 if self.level != OrganizationMembership.Level.OWNER:
                     raise exceptions.PermissionDenied(

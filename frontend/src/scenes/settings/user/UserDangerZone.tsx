@@ -87,10 +87,13 @@ export function DeleteUserModal({
                                 {
                                     title: '',
                                     render: function RenderActionButton(_, organization) {
+                                        // The only owner has to hand ownership over before they can leave.
+                                        const isOnlyOwner =
+                                            organization.membership_level === OrganizationMembershipLevel.Owner &&
+                                            !organization.has_other_owner
                                         return (
                                             <div className="flex justify-end items-center gap-2 py-1 text-danger font-semibold">
-                                                {organization.membership_level ===
-                                                    OrganizationMembershipLevel.Owner && (
+                                                {isOnlyOwner && (
                                                     <LemonButton
                                                         type="secondary"
                                                         size="small"
@@ -109,8 +112,7 @@ export function DeleteUserModal({
                                                         Transfer ownership
                                                     </LemonButton>
                                                 )}
-                                                {organization.membership_level !==
-                                                    OrganizationMembershipLevel.Owner && (
+                                                {!isOnlyOwner && (
                                                     <LemonButton
                                                         type="secondary"
                                                         size="small"
