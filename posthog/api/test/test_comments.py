@@ -76,25 +76,42 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         return task
 
-    def test_task_artifact_comments_require_a_visible_owning_task(self) -> None:
+    @parameterized.expand([("task_artifact",), ("task_preview",)])
+    def test_task_comments_require_a_visible_owning_task(self, scope: str) -> None:
         task = self._task_artifact_target()
+        item_id = "artifact-1" if scope == "task_artifact" else f"{task.id}:3000"
         payload: dict[str, Any] = {
             "content": "Review this",
-            "scope": "task_artifact",
-            "item_id": "artifact-1",
+            "scope": scope,
+            "item_id": item_id,
             "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
         }
 
         created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
         assert created.status_code == status.HTTP_201_CREATED
-        without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1")
+        without_task = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={item_id}")
         assert without_task.json()["results"] == []
-        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id=artifact-1")
+        unscoped = self.client.get(f"/api/projects/{self.team.id}/comments?item_id={item_id}")
         assert unscoped.json()["results"] == []
         with_task = self.client.get(
-            f"/api/projects/{self.team.id}/comments?scope=task_artifact&item_id=artifact-1&task_id={task.id}"
+            f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={item_id}&task_id={task.id}"
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
+
+    @parameterized.expand([("another_task", "{other}:3000"), ("no_port", "{task}"), ("bad_port", "{task}:http")])
+    def test_task_preview_comment_item_must_belong_to_the_task(self, _name: str, item_template: str) -> None:
+        task = self._task_artifact_target()
+        other = self._task_artifact_target()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Review this",
+                "scope": "task_preview",
+                "item_id": item_template.format(task=task.id, other=other.id),
+                "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            },
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.api.comments.produce_discussion_mention_events")

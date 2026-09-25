@@ -1,5 +1,8 @@
 import type { WebContents, WebPreferences } from "electron";
-import { TASK_PREVIEW_PARTITION } from "../../shared/constants";
+import {
+  TASK_PREVIEW_ARG,
+  TASK_PREVIEW_PARTITION,
+} from "../../shared/constants";
 
 const SANDBOX_PREVIEW_HOST_SUFFIX = ".modal.host";
 const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1"]);
@@ -41,9 +44,10 @@ export function isAllowedTaskPreview(
 
 export function hardenTaskPreviewPreferences(
   preferences: WebPreferences,
+  preloadPath: string,
 ): void {
-  delete preferences.preload;
-  preferences.additionalArguments = [];
+  preferences.preload = preloadPath;
+  preferences.additionalArguments = [TASK_PREVIEW_ARG];
   preferences.nodeIntegration = false;
   preferences.nodeIntegrationInSubFrames = false;
   preferences.contextIsolation = true;

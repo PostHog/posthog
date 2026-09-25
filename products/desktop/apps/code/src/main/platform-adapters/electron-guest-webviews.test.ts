@@ -18,6 +18,7 @@ vi.mock("../utils/logger", () => ({
 import {
   ARTIFACT_PREVIEW_ARG,
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
+  TASK_PREVIEW_ARG,
   TASK_PREVIEW_PARTITION,
 } from "../../shared/constants";
 import { setupGuestWebviews } from "./electron-guest-webviews";
@@ -117,8 +118,9 @@ describe("guest webviews", () => {
       );
       expect(prevented).toBe(!allowed);
       if (allowed) {
-        expect(preferences.preload).toBeUndefined();
         expect(preferences).toMatchObject({
+          preload: expect.stringMatching(/preload\.js$/),
+          additionalArguments: [TASK_PREVIEW_ARG],
           sandbox: true,
           nodeIntegration: false,
           contextIsolation: true,

@@ -6,9 +6,14 @@ import {
   ARTIFACT_HOST_TO_PREVIEW_CHANNEL,
   ARTIFACT_OPEN_EXTERNAL_CHANNEL,
   ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
+  HOST_TO_TASK_PREVIEW_CHANNEL,
+  TASK_PREVIEW_ARG,
+  TASK_PREVIEW_TO_HOST_CHANNEL,
 } from "../shared/constants";
+import { sanitizeTaskPreviewHostMessage } from "../shared/task-preview-message";
 import { trustedArtifactLink } from "./artifact-preview-link";
 import { parseSessionIdArg } from "./posthog-session-arg";
+import { setupTaskPreviewPicker } from "./task-preview-picker";
 
 const DEV_FLAGS_CLI_PREFIX = "--posthog-code-flags=";
 
@@ -39,6 +44,16 @@ function setupArtifactPreviewPreload(): void {
 
   ipcRenderer.on(ARTIFACT_HOST_TO_PREVIEW_CHANNEL, (_event, data: unknown) => {
     window.postMessage(data, "*");
+  });
+}
+
+function setupTaskPreviewPreload(): void {
+  const receive = setupTaskPreviewPicker((message) =>
+    ipcRenderer.sendToHost(TASK_PREVIEW_TO_HOST_CHANNEL, message),
+  );
+  ipcRenderer.on(HOST_TO_TASK_PREVIEW_CHANNEL, (_event, data: unknown) => {
+    const message = sanitizeTaskPreviewHostMessage(data);
+    if (message) receive(message);
   });
 }
 
@@ -87,6 +102,8 @@ function setupApplicationPreload(argv: string[]): void {
 export function setupPreload(argv: string[]): void {
   if (argv.includes(APP_WINDOW_ARG)) {
     setupApplicationPreload(argv);
+  } else if (argv.includes(TASK_PREVIEW_ARG)) {
+    setupTaskPreviewPreload();
   } else {
     setupArtifactPreviewPreload();
   }

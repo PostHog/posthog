@@ -67,7 +67,7 @@ function resourceAuthorName(comment: ResourceComment): string {
   );
 }
 
-function resourceEntry(comment: ResourceComment): CommentEntry {
+export function resourceEntry(comment: ResourceComment): CommentEntry {
   return {
     id: comment.id,
     authorName: resourceAuthorName(comment),

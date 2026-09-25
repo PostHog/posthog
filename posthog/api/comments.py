@@ -432,7 +432,7 @@ class CommentSerializer(serializers.ModelSerializer):
         target_scope = data.get("scope", instance.scope if instance else None)
         target_item_id = data.get("item_id", instance.item_id if instance else None)
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
-        if target_scope in {"task", "task_artifact", "desktop_canvas"}:
+        if target_scope in DESKTOP_COMMENT_SCOPES:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
             if not task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
@@ -581,7 +581,8 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
         required=False, help_text="Filter by the numeric ID of the user who wrote the comment."
     )
     task_id = serializers.UUIDField(
-        required=False, help_text="Owning task for task, task_artifact, and desktop_canvas comment scopes."
+        required=False,
+        help_text="Owning task for task, task_artifact, task_preview, and desktop_canvas comment scopes.",
     )
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
     source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")
@@ -863,7 +864,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             comment = Comment.objects.filter(team_id=self.team_id, pk=pk).first()
         except (ValueError, django_exceptions.ValidationError):
             return
-        if comment is None or comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
+        if comment is None or comment.scope not in DESKTOP_COMMENT_SCOPES:
             return
         item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
         task_id = comment.item_id if comment.scope == "task" else item_context.get("taskId")
@@ -880,7 +881,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
         lookup_value = self.kwargs[lookup_url_kwarg]
         comment = get_object_or_404(queryset, **{self.lookup_field: lookup_value})
-        if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
+        if comment.scope in DESKTOP_COMMENT_SCOPES:
             task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
             if not task_comment_target_is_accessible(
                 team_id=self.team_id,
@@ -937,7 +938,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             queryset = queryset.filter(scope=scope)
             if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
-            elif scope in {"task", "task_artifact", "desktop_canvas"}:
+            elif scope in DESKTOP_COMMENT_SCOPES:
                 task_id = params.get("task_id")
                 item_id = params.get("item_id")
                 if not task_comment_target_is_accessible(
@@ -955,7 +956,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         elif self.action in ("list", "count"):
             # Product-owned scopes require their own object-level access checks and must
             # never leak through an unscoped generic comments query.
-            queryset = queryset.exclude(scope__in=[*TICKET_COMMENT_SCOPES, "task", "task_artifact", "desktop_canvas"])
+            queryset = queryset.exclude(scope__in=[*TICKET_COMMENT_SCOPES, *DESKTOP_COMMENT_SCOPES])
         else:
             self._require_ticket_viewer_access_for_pk()
             self._require_task_comment_viewer_access_for_pk()

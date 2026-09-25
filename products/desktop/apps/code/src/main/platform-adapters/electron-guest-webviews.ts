@@ -30,7 +30,7 @@ export function setupGuestWebviews(
         options.allowLocalTaskPreviews,
       )
     ) {
-      hardenTaskPreviewPreferences(preferences);
+      hardenTaskPreviewPreferences(preferences, preloadPath);
       return;
     }
     if (isAllowedArtifactPreview(params.src, params.partition)) {

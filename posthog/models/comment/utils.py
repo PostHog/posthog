@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-DESKTOP_COMMENT_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+DESKTOP_COMMENT_SCOPES = frozenset({"task", "task_artifact", "task_preview", "desktop_canvas"})
 
 SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Replay": "replay",

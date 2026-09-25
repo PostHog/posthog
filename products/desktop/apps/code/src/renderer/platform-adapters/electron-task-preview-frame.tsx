@@ -1,10 +1,30 @@
-import type { TaskPreviewFrameProps } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
+import type {
+  TaskPreviewFrameProps,
+  TaskPreviewPin,
+} from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
 import { useEffect, useRef } from "react";
-import { TASK_PREVIEW_PARTITION } from "../../shared/constants";
+import {
+  HOST_TO_TASK_PREVIEW_CHANNEL,
+  TASK_PREVIEW_PARTITION,
+  TASK_PREVIEW_TO_HOST_CHANNEL,
+} from "../../shared/constants";
+import {
+  sanitizeTaskPreviewGuestMessage,
+  type TaskPreviewHostMessage,
+} from "../../shared/task-preview-message";
+
+type TaskPreviewWebviewElement = HTMLElement & {
+  send: (channel: string, ...args: unknown[]) => void;
+};
 
 type WebviewLoadFailureEvent = Event & {
   errorCode?: number;
   isMainFrame?: boolean;
+};
+
+type WebviewIpcMessageEvent = Event & {
+  channel: string;
+  args: unknown[];
 };
 
 const ABORTED_LOAD_ERROR_CODE = -3;
@@ -12,24 +32,61 @@ const ABORTED_LOAD_ERROR_CODE = -3;
 export function ElectronTaskPreviewFrame({
   url,
   title,
+  picking,
+  pins,
+  locateRequest,
   onLoadFailed,
+  onPicked,
+  onPickCancelled,
+  onActivatePin,
 }: TaskPreviewFrameProps) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const onLoadFailedRef = useRef(onLoadFailed);
+  const webviewRef = useRef<TaskPreviewWebviewElement | null>(null);
+  const readyRef = useRef(false);
+  const stateRef = useRef<{ picking: boolean; pins: TaskPreviewPin[] }>({
+    picking,
+    pins,
+  });
+  const callbacksRef = useRef({
+    onLoadFailed,
+    onPicked,
+    onPickCancelled,
+    onActivatePin,
+  });
 
   useEffect(() => {
-    onLoadFailedRef.current = onLoadFailed;
-  }, [onLoadFailed]);
+    callbacksRef.current = {
+      onLoadFailed,
+      onPicked,
+      onPickCancelled,
+      onActivatePin,
+    };
+  }, [onLoadFailed, onPicked, onPickCancelled, onActivatePin]);
+
+  const send = (message: TaskPreviewHostMessage) => {
+    if (readyRef.current) {
+      webviewRef.current?.send(HOST_TO_TASK_PREVIEW_CHANNEL, message);
+    }
+  };
+  const sendRef = useRef(send);
+  sendRef.current = send;
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
 
-    const webview = document.createElement("webview");
+    const webview = document.createElement(
+      "webview",
+    ) as TaskPreviewWebviewElement;
     webview.className = "size-full";
     webview.setAttribute("partition", TASK_PREVIEW_PARTITION);
     webview.setAttribute("src", url);
 
+    const onReady = () => {
+      readyRef.current = true;
+      sendRef.current({ type: "pins", items: stateRef.current.pins });
+      sendRef.current({ type: "pick", active: stateRef.current.picking });
+    };
     const onFailed = (event: Event) => {
       const failure = event as WebviewLoadFailureEvent;
       if (
@@ -38,25 +95,58 @@ export function ElectronTaskPreviewFrame({
       ) {
         return;
       }
-      onLoadFailedRef.current();
+      callbacksRef.current.onLoadFailed();
     };
-    const onGone = () => onLoadFailedRef.current();
+    const onGone = () => callbacksRef.current.onLoadFailed();
+    const onIpcMessage = (event: Event) => {
+      const ipcEvent = event as WebviewIpcMessageEvent;
+      if (ipcEvent.channel !== TASK_PREVIEW_TO_HOST_CHANNEL) return;
+      const message = sanitizeTaskPreviewGuestMessage(ipcEvent.args[0]);
+      if (!message) return;
+      if (message.type === "picked") {
+        callbacksRef.current.onPicked(message.element, message.rect);
+      } else if (message.type === "pick-cancelled") {
+        callbacksRef.current.onPickCancelled();
+      } else {
+        callbacksRef.current.onActivatePin(message.id);
+      }
+    };
 
+    webview.addEventListener("dom-ready", onReady);
     webview.addEventListener("did-fail-load", onFailed);
     webview.addEventListener("render-process-gone", onGone);
+    webview.addEventListener("ipc-message", onIpcMessage);
     mount.appendChild(webview);
+    webviewRef.current = webview;
 
     return () => {
+      webview.removeEventListener("dom-ready", onReady);
       webview.removeEventListener("did-fail-load", onFailed);
       webview.removeEventListener("render-process-gone", onGone);
+      webview.removeEventListener("ipc-message", onIpcMessage);
+      readyRef.current = false;
+      webviewRef.current = null;
       webview.remove();
     };
   }, [url]);
 
   useEffect(() => {
-    mountRef.current
-      ?.querySelector("webview")
-      ?.setAttribute("aria-label", title);
+    stateRef.current = { picking, pins };
+    sendRef.current({ type: "pins", items: pins });
+  }, [pins, picking]);
+
+  useEffect(() => {
+    sendRef.current({ type: "pick", active: picking });
+  }, [picking]);
+
+  useEffect(() => {
+    if (locateRequest) {
+      sendRef.current({ type: "locate", id: locateRequest.id });
+    }
+  }, [locateRequest]);
+
+  useEffect(() => {
+    webviewRef.current?.setAttribute("aria-label", title);
   }, [title]);
 
   return <div ref={mountRef} className="size-full bg-white" />;

@@ -15,7 +15,12 @@ from products.tasks.backend.visibility import task_visibility_q
 
 logger = structlog.get_logger(__name__)
 
-COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "task_preview", "desktop_canvas"})
+
+
+def is_task_preview_item(task_id: UUID, item_id: str) -> bool:
+    prefix, _, port = item_id.rpartition(":")
+    return prefix == str(task_id) and port.isdigit() and 0 < int(port) <= 65535
 
 
 def _visible_tasks(team_id: int, user_id: int | None):
@@ -35,6 +40,8 @@ def target_is_accessible(
         return False
     if scope == "task":
         return str(task.id) == str(item_id)
+    if scope == "task_preview":
+        return is_task_preview_item(task.id, item_id)
     if scope != "task_artifact":
         return False
 

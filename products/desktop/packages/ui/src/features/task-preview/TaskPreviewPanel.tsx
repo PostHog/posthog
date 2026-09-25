@@ -1,4 +1,9 @@
-import { ArrowClockwise, ArrowSquareOut, Globe } from "@phosphor-icons/react";
+import {
+  ArrowClockwise,
+  ArrowSquareOut,
+  ChatCircle,
+  Globe,
+} from "@phosphor-icons/react";
 import {
   Button,
   Empty,
@@ -15,8 +20,9 @@ import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useEffect, useState } from "react";
+import { AnnotatedTaskPreview } from "./AnnotatedTaskPreview";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
-import { TaskPreviewFrame } from "./TaskPreviewFrame";
+import { useTaskPreviewAnnotationsSupported } from "./useTaskPreviewAnnotationsSupported";
 import { useTaskPreviewSession } from "./useTaskPreviewSession";
 
 interface TaskPreviewPanelProps {
@@ -68,6 +74,8 @@ export function TaskPreviewPanel({
 }: TaskPreviewPanelProps) {
   const [attempt, setAttempt] = useState(0);
   const [failedAttempt, setFailedAttempt] = useState<number | null>(null);
+  const [commenting, setCommenting] = useState(false);
+  const annotationsSupported = useTaskPreviewAnnotationsSupported();
   const session = useTaskPreviewSession(taskId, runId, port, attempt);
   const outcome = session.data?.outcome;
   const url = outcome === "ready" ? session.data?.url : null;
@@ -119,10 +127,14 @@ export function TaskPreviewPanel({
     );
   } else if (url) {
     body = (
-      <TaskPreviewFrame
+      <AnnotatedTaskPreview
         key={attempt}
+        taskId={taskId}
+        port={port}
         url={url}
         title={`Preview of ${label}`}
+        commenting={commenting}
+        onCommentingChange={setCommenting}
         onLoadFailed={() => setFailedAttempt(attempt)}
       />
     );
@@ -134,6 +146,28 @@ export function TaskPreviewPanel({
         inset="text"
         actions={
           <>
+            {annotationsSupported && (
+              <Tooltip
+                content={
+                  commenting
+                    ? "Stop commenting"
+                    : "Comment on an element of the page"
+                }
+                side="bottom"
+              >
+                <Button
+                  size="icon-sm"
+                  aria-label={commenting ? "Stop commenting" : "Comment"}
+                  aria-pressed={commenting}
+                  data-attr="task-preview-comment"
+                  disabled={!url}
+                  variant={commenting ? "primary" : "default"}
+                  onClick={() => setCommenting((current) => !current)}
+                >
+                  <ChatCircle size={14} />
+                </Button>
+              </Tooltip>
+            )}
             <Tooltip content="Reload preview" side="bottom">
               <Button
                 size="icon-sm"

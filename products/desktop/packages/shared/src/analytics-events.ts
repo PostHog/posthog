@@ -312,6 +312,10 @@ export interface TaskPreviewSessionStartedProperties {
   outcome: TaskRunPreviewSessionOutcome;
 }
 
+export interface TaskPreviewCommentCreatedProperties {
+  sent_to_agent: boolean;
+}
+
 export interface SidebarNavItemClickedProperties {
   item: SidebarNavItem;
   /** True when the row was clicked inside the expanded More section. */
@@ -1694,6 +1698,7 @@ export const ANALYTICS_EVENTS = {
   TASK_PREVIEW_OPENED: "Task preview opened",
   TASK_PREVIEW_SESSION_STARTED: "Task preview session started",
   TASK_PREVIEW_OPENED_IN_BROWSER: "Task preview opened in browser",
+  TASK_PREVIEW_COMMENT_CREATED: "Task preview comment created",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
@@ -1920,6 +1925,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_PREVIEW_OPENED]: TaskPreviewOpenedProperties;
   [ANALYTICS_EVENTS.TASK_PREVIEW_SESSION_STARTED]: TaskPreviewSessionStartedProperties;
   [ANALYTICS_EVENTS.TASK_PREVIEW_OPENED_IN_BROWSER]: never;
+  [ANALYTICS_EVENTS.TASK_PREVIEW_COMMENT_CREATED]: TaskPreviewCommentCreatedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;
