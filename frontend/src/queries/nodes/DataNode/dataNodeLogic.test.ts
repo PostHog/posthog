@@ -1,7 +1,9 @@
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
+    DataNodeLogicProps,
     QUERY_SCAN_POLL_DEADLINE_MS,
     QUERY_SCAN_POLL_DELAYS_MS,
     dataNodeLogic,
@@ -123,6 +125,32 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
+    })
+
+    it('reports the query kind to its collection when the query arrives after mount', async () => {
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        const collection = dataNodeCollectionLogic({ key: 'test-collection' })
+        collection.mount()
+        logic = dataNodeLogic({ key: testUniqueKey, dataNodeCollectionId: 'test-collection' } as DataNodeLogicProps)
+        logic.mount()
+
+        await expectLogic(collection, () => {
+            dataNodeLogic({
+                key: testUniqueKey,
+                dataNodeCollectionId: 'test-collection',
+                query: setLatestVersionsOnQuery({ kind: NodeKind.EventsQuery, select: ['*'] }),
+            })
+        }).toDispatchActions([collection.actionCreators.collectionNodeLoadData(testUniqueKey, NodeKind.EventsQuery)])
+
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        await expectLogic(collection, () => {
+            logic.actions.loadData(
+                undefined,
+                undefined,
+                setLatestVersionsOnQuery({ kind: NodeKind.HogQLQuery, query: 'select 1' })
+            )
+        }).toDispatchActions([collection.actionCreators.collectionNodeLoadData(testUniqueKey, NodeKind.HogQLQuery)])
+        collection.unmount()
     })
 
     it('force refreshes account table results when filters change', async () => {

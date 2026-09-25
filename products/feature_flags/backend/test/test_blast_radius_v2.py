@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.user_blast_radius import (
     BlastRadiusResult,
     get_person_blast_radius_v2,
@@ -45,6 +46,31 @@ class TestBlastRadiusQueryV2(ClickhouseTestMixin, APIBaseTest):
 
         assert (result.affected, result.total) == (affected, total)
         assert (result.affected, result.total) == (v1_result.affected, v1_result.total)
+
+    def test_flag_dependency_is_weighted_on_both_paths(self):
+        self._create_persons([True, True, True, False])
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        filters = {
+            "properties": [
+                {"key": str(dependency_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+            ]
+        }
+
+        # Both paths must weight the dependency: a v2 count that neutralizes it returns every person.
+        v1_result = get_user_blast_radius(self.team, filters)
+        assert (v1_result.affected, v1_result.total) == (2, 4)
+        assert get_person_blast_radius_v2(self.team, filters) == v1_result
+
+        with (
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+        ):
+            assert get_person_blast_radius_v2(self.team, filters) == v1_result
 
     def test_sampled_path_extrapolates_by_modulus(self):
         self._create_persons([True, True, False])

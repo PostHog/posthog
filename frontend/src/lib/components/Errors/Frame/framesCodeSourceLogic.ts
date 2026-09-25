@@ -2,12 +2,8 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { subscriptions } from 'kea-subscriptions'
 import { match } from 'ts-pattern'
 
-import {
-    GitMetadataParser,
-    supportedProviders,
-} from '@posthog/products-error-tracking/frontend/components/ReleasesPreview/gitMetadataParser'
-
 import api from 'lib/api'
+import { GitMetadataParser, supportedProviders } from 'lib/components/Git/gitMetadataParser'
 
 import { stackFrameLogic } from './stackFrameLogic'
 import type { KeyedStackFrameRecords } from './stackFrameLogic'

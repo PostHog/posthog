@@ -5155,6 +5155,7 @@ export interface InputsItemApi {
     value?: unknown
     templating?: HogFunctionTemplatingEnumApi
     readonly bytecode: readonly unknown[]
+    readonly bytecode_contract: string
     readonly order: number
     readonly transpiled: unknown
 }
