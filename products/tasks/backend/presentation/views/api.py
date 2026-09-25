@@ -1338,7 +1338,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk,
                 self.team_id,
                 self._user_id(),
-                validated_data=dict(request.validated_data),
+                validated_data={
+                    **request.validated_data,
+                    "client_platform": "mobile"
+                    if request.headers.get("X-PostHog-Client-Platform") == "mobile"
+                    else None,
+                },
                 **(
                     {"warm_retry_token": request.headers["X-PostHog-Warm-Retry"]}
                     if "X-PostHog-Warm-Retry" in request.headers

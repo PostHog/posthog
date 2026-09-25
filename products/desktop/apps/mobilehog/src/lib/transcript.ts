@@ -1,3 +1,7 @@
+import {
+  type AttachmentRef,
+  extractPromptDisplayContent,
+} from "@posthog/core/sessions/promptContent";
 import type { StoredLogEntry } from "@posthog/shared";
 import { isIdleResumeTurnComplete } from "@posthog/shared";
 
@@ -10,8 +14,20 @@ export interface PlanEntry {
 }
 
 export type Block =
-  | { kind: "user"; id: string; text: string }
-  | { kind: "agent"; id: string; text: string; complete: boolean }
+  | {
+      kind: "user";
+      id: string;
+      text: string;
+      attachments?: AttachmentRef[];
+      promptEcho?: boolean;
+    }
+  | {
+      kind: "agent";
+      id: string;
+      text: string;
+      complete: boolean;
+      attachments?: AttachmentRef[];
+    }
   | { kind: "thought"; id: string; text: string; at: number }
   | {
       kind: "tool";
@@ -30,7 +46,7 @@ export type Block =
 
 interface SessionUpdate {
   sessionUpdate?: string;
-  content?: { type: string; text: string };
+  content?: Parameters<typeof extractPromptDisplayContent>[0][number];
   title?: string;
   toolCallId?: string;
   status?: "pending" | "in_progress" | "completed" | "failed" | null;
@@ -126,6 +142,37 @@ export function foldEntries(
     const method = entry.notification?.method;
     if (!method) continue;
 
+    if (method === "session/prompt") {
+      const params = entry.notification?.params as
+        | { prompt?: Parameters<typeof extractPromptDisplayContent>[0] }
+        | undefined;
+      if (!Array.isArray(params?.prompt)) continue;
+      const display = extractPromptDisplayContent(params.prompt, {
+        filterHidden: true,
+      });
+      if (!display.text && !display.attachments.length) continue;
+      closeOpenAgent(blocks);
+      const previousUser = blocks.findLastIndex(
+        (block) => block.kind === "user" && block.text === display.text,
+      );
+      if (localEchoes.has(display.text) && previousUser >= 0) {
+        blocks[previousUser] = {
+          ...blocks[previousUser],
+          attachments: display.attachments,
+        } as Block;
+      } else {
+        blocks.push({
+          kind: "user",
+          id: nextId("user"),
+          text: display.text,
+          attachments: display.attachments,
+          promptEcho: true,
+        });
+        result.externalUserMessages += 1;
+      }
+      continue;
+    }
+
     if (method === "_posthog/turn_complete") {
       if (!isIdleResumeTurnComplete(entry)) {
         result.turnEnded = true;
@@ -191,10 +238,64 @@ export function foldEntries(
       ?.update;
     if (!update?.sessionUpdate) continue;
 
+    if (
+      update.content &&
+      update.content.type !== "text" &&
+      ["user_message_chunk", "agent_message_chunk", "agent_message"].includes(
+        update.sessionUpdate,
+      )
+    ) {
+      const { attachments } = extractPromptDisplayContent([update.content]);
+      if (attachments.length) {
+        const previousUser = last(blocks);
+        if (
+          update.sessionUpdate === "user_message_chunk" &&
+          previousUser?.kind === "user" &&
+          attachments.every((attachment) =>
+            previousUser.attachments?.some(
+              (existing) => existing.id === attachment.id,
+            ),
+          )
+        )
+          continue;
+        closeOpenAgent(blocks);
+        if (update.sessionUpdate === "user_message_chunk") {
+          blocks.push({
+            kind: "user",
+            id: nextId("user-image"),
+            text: "",
+            attachments,
+          });
+        } else {
+          blocks.push({
+            kind: "agent",
+            id: nextId("agent-image"),
+            text: "",
+            attachments,
+            complete: true,
+          });
+        }
+      }
+      continue;
+    }
+
     switch (update.sessionUpdate) {
       case "user_message_chunk": {
-        const text = update.content?.text ?? "";
+        const text =
+          (update.content?.type === "text" ? update.content.text : undefined) ??
+          "";
         if (!text) break;
+        const promptIndex = blocks.findLastIndex(
+          (block) =>
+            block.kind === "user" && block.promptEcho && block.text === text,
+        );
+        if (promptIndex >= 0) {
+          blocks[promptIndex] = {
+            ...blocks[promptIndex],
+            promptEcho: false,
+          } as Block;
+          break;
+        }
         if (localEchoes.has(text)) {
           localEchoes.delete(text);
           break;
@@ -205,7 +306,8 @@ export function foldEntries(
         break;
       }
       case "agent_message_chunk": {
-        const text = update.content?.text;
+        const text =
+          update.content?.type === "text" ? update.content.text : undefined;
         if (!text) break;
         const open = last(blocks);
         if (open?.kind === "agent" && !open.complete) {
@@ -221,7 +323,8 @@ export function foldEntries(
         break;
       }
       case "agent_message": {
-        const text = update.content?.text;
+        const text =
+          update.content?.type === "text" ? update.content.text : undefined;
         if (!text) break;
         const open = last(blocks);
         if (open?.kind === "agent" && !open.complete) {
@@ -237,7 +340,8 @@ export function foldEntries(
         break;
       }
       case "agent_thought_chunk": {
-        const text = update.content?.text;
+        const text =
+          update.content?.type === "text" ? update.content.text : undefined;
         if (!text) break;
         const open = last(blocks);
         if (open?.kind === "thought") {

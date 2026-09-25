@@ -11,7 +11,12 @@ import type {
   SignalReportArtefactsResponse,
   SignalReportSignalsResponse,
 } from "@posthog/shared/domain-types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
@@ -25,22 +30,41 @@ export const reportKeys = {
   artefacts: (id: string) => ["reports", id, "artefacts"] as const,
 };
 
-// Reports a person can act on right now, highest priority first.
+// Inbox and its badge use the same reviewer filter.
 export function useReports() {
   const session = useAuth((s) => s.session);
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: reportKeys.list,
-    queryFn: () =>
-      getClient().getSignalReports({
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const client = getClient();
+      const user = await client.getCurrentUser();
+      if (!user.uuid)
+        throw new Error("Could not identify your account. Try again.");
+      return client.getSignalReports({
         status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
         actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-        ordering: "status,-priority,-created_at",
-        limit: 100,
-      }),
+        suggested_reviewers: user.uuid,
+        ordering: "priority,-created_at",
+        limit: 50,
+        offset: pageParam,
+      });
+    },
+    getNextPageParam: (lastPage, pages) => {
+      const loaded = pages.reduce(
+        (total, page) => total + page.results.length,
+        0,
+      );
+      return lastPage.results.length > 0 && loaded < lastPage.count
+        ? loaded
+        : undefined;
+    },
     enabled: !!session,
     refetchInterval: 60_000,
-    select: (page) =>
-      page.results.filter((report) => canCreateImplementationPr(report)),
+    select: (data) =>
+      data.pages
+        .flatMap((page) => page.results)
+        .filter((report) => canCreateImplementationPr(report)),
   });
 }
 
@@ -101,10 +125,10 @@ export function useStartReport() {
   });
 }
 
-// Which reports this device has already surfaced in triage, so only new ones
-// pop the deck automatically.
+// Read state is local to this account and project on this device.
 const SEEN_KEY = "mobilehog_seen_reports";
 const SEEN_CAP = 500;
+let seenWrite = Promise.resolve();
 
 interface SeenState {
   seen: Set<string>;
@@ -131,13 +155,22 @@ export const useSeenReports = create<SeenState>((set, get) => ({
     }
   },
   markSeen: async (ids) => {
-    const next = new Set(get().seen);
-    for (const id of ids) next.add(id);
-    const list = [...next].slice(-SEEN_CAP);
-    set({ seen: new Set(list) });
-    await SecureStore.setItemAsync(
-      accountStorageKey(SEEN_KEY),
-      JSON.stringify(list),
-    );
+    const identity = sessionIdentity();
+    const key = accountStorageKey(SEEN_KEY);
+    const write = seenWrite
+      .catch(() => {})
+      .then(async () => {
+        if (sessionIdentity() !== identity) return;
+        const next = new Set(get().seen);
+        for (const id of ids) {
+          next.delete(id);
+          next.add(id);
+        }
+        const list = [...next].slice(-SEEN_CAP);
+        await SecureStore.setItemAsync(key, JSON.stringify(list));
+        if (sessionIdentity() === identity) set({ seen: new Set(list) });
+      });
+    seenWrite = write;
+    await write;
   },
 }));

@@ -2,7 +2,11 @@ import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import { toTaskActivityItems } from "@posthog/core/canvas/taskActivity";
 import { formatRelativeAge, getRelativeDateGroup } from "@posthog/shared";
 import type { TaskActivityPage } from "@posthog/shared/domain-types";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 
@@ -10,9 +14,20 @@ export const activityKey = ["activity"] as const;
 
 export function useActivity() {
   const session = useAuth((s) => s.session);
-  return useQuery<TaskActivityPage>({
+  return useInfiniteQuery({
     queryKey: activityKey,
-    queryFn: () => getClient().getTaskActivity(),
+    initialPageParam: undefined as
+      | { before: string; beforeId: string }
+      | undefined,
+    queryFn: ({ pageParam }) => getClient().getTaskActivity(pageParam),
+    getNextPageParam: (page) =>
+      page.next_before && page.next_before_id
+        ? { before: page.next_before, beforeId: page.next_before_id }
+        : undefined,
+    select: (data): TaskActivityPage => ({
+      ...data.pages[0],
+      results: data.pages.flatMap((page) => page.results),
+    }),
     enabled: !!session,
     refetchInterval: 30_000,
   });
@@ -21,15 +36,19 @@ export function useActivity() {
 export function useMarkActivityRead() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (item: TaskActivityItem) =>
-      getClient().markTaskActivityRead([
-        {
-          task_id: item.taskId,
-          seen_before: item.activityAt,
-          activity_id: item.id,
-        },
-      ]),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: activityKey }),
+    mutationFn: async (items: TaskActivityItem[]) => {
+      const client = getClient();
+      for (let offset = 0; offset < items.length; offset += 500) {
+        await client.markTaskActivityRead(
+          items.slice(offset, offset + 500).map((item) => ({
+            task_id: item.taskId,
+            seen_before: item.activityAt,
+            activity_id: item.id,
+          })),
+        );
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: activityKey }),
   });
 }
 

@@ -1,13 +1,12 @@
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import { KeyboardStickyView } from "react-native-keyboard-controller";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ChatHeader } from "@/components/ChatHeader";
 import { Composer } from "@/components/Composer";
 import { DrawerScene } from "@/components/DrawerScene";
-import { FadeScrim } from "@/components/FadeScrim";
 import { Hedgehog } from "@/components/Hedgehog";
 import {
   buildTranscriptRows,
@@ -33,13 +32,8 @@ export default function TaskScreen() {
     useSessions();
   const setModel = useComposer((s) => s.setModel);
   const listRef = useRef<FlashListRef<TranscriptRow>>(null);
-  const pendingScrollTo = useRef<string | null>(null);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [composerHeight, setComposerHeight] = useState(0);
-  // Extra room below the transcript only while a sent message is pinned near
-  // the top; it goes away once the reply lands so idle chats have no gap.
-  const [pinRoom, setPinRoom] = useState(false);
-  const topPadding = insets.top + 70;
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const followNextMessage = useRef(false);
 
   const runId = task.data?.latest_run?.id;
   useEffect(() => {
@@ -63,11 +57,6 @@ export default function TaskScreen() {
     (session.runStatus === "queued" || session.runStatus === "not_started") &&
     !blocks?.some((block) => block.kind !== "user");
 
-  const turnActive = !!session?.turnActive;
-  useEffect(() => {
-    if (!turnActive) setPinRoom(false);
-  }, [turnActive]);
-
   const workingLabel = session?.resuming
     ? "Reconnecting"
     : booting
@@ -81,91 +70,87 @@ export default function TaskScreen() {
   );
 
   const send = async (text: string): Promise<void> => {
-    // The bubble lays out before the request resolves, so pick the id first.
-    const blockId = `local-${Date.now()}`;
-    pendingScrollTo.current = blockId;
-    setPinRoom(true);
-    await sendPrompt(id, text, blockId);
+    followNextMessage.current = true;
+    await sendPrompt(id, text, `local-${Date.now()}`);
   };
 
-  // Once the sent bubble is a row, pin it near the top with a sliver of the
-  // previous reply above it.
-  useEffect(() => {
-    const target = pendingScrollTo.current;
-    if (!target) return;
-    const index = rows.findIndex((row) => row.id === target);
-    if (index < 0) return;
-    pendingScrollTo.current = null;
-    listRef.current?.scrollToIndex({
-      index,
-      viewPosition: 0,
-      viewOffset: 56,
-      animated: true,
-    });
-  }, [rows]);
+  const scrollToLatest = (): void => {
+    listRef.current?.scrollToEnd({ animated: true });
+    setAwayFromBottom(false);
+  };
 
   return (
     <DrawerScene>
-      <ChatHeader />
-      <FlashList
-        ref={listRef}
-        data={rows}
-        keyExtractor={(row) => row.id}
-        getItemType={(row) => row.kind}
-        renderItem={({ item }) => (
-          <TranscriptRowView
-            row={item}
-            onPermission={(toolCallId, optionId) =>
-              respondToPermission(id, toolCallId, optionId)
+      <ChatHeader inline />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+        <View style={{ flex: 1 }}>
+          <FlashList
+            ref={listRef}
+            data={rows}
+            keyExtractor={(row) => row.id}
+            getItemType={(row) => row.kind}
+            renderItem={({ item }) => (
+              <TranscriptRowView
+                row={item}
+                onPermission={(toolCallId, optionId) =>
+                  respondToPermission(id, toolCallId, optionId)
+                }
+              />
+            )}
+            ItemSeparatorComponent={Gap}
+            onScroll={({ nativeEvent }) => {
+              const distance =
+                nativeEvent.contentSize.height -
+                nativeEvent.layoutMeasurement.height -
+                nativeEvent.contentOffset.y;
+              setAwayFromBottom(distance > 100);
+            }}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              if (followNextMessage.current) {
+                followNextMessage.current = false;
+                scrollToLatest();
+              }
+            }}
+            contentContainerStyle={{
+              paddingTop: 8,
+              paddingHorizontal: 18,
+              paddingBottom: 16,
+            }}
+            maintainVisibleContentPosition={{
+              startRenderingFromBottom: true,
+              autoscrollToBottomThreshold: 0.2,
+              animateAutoScrollToBottom: false,
+            }}
+            keyboardDismissMode="interactive"
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              <View style={styles.loading}>
+                <StatusLine
+                  label={task.error ? task.error.message : "Loading"}
+                  active={!task.error}
+                />
+              </View>
+            }
+            ListFooterComponent={
+              session?.error ? (
+                <Text style={styles.error}>{session.error}</Text>
+              ) : null
             }
           />
-        )}
-        ItemSeparatorComponent={Gap}
-        onLayout={(event) => setViewportHeight(event.nativeEvent.layout.height)}
-        contentContainerStyle={{
-          paddingTop: topPadding,
-          paddingHorizontal: 18,
-          // Clear the floating composer, and leave room to pin a fresh
-          // message near the top of the screen.
-          paddingBottom: pinRoom
-            ? Math.max(composerHeight + 16, viewportHeight - 200)
-            : composerHeight + 16,
-        }}
-        // Open at the end, and keep following it while the reader is near the
-        // bottom; a pinned message sits far enough up to opt out on its own.
-        maintainVisibleContentPosition={{
-          startRenderingFromBottom: true,
-          autoscrollToBottomThreshold: 0.2,
-          animateAutoScrollToBottom: false,
-        }}
-        keyboardDismissMode="interactive"
-        ListEmptyComponent={
-          <View style={styles.loading}>
-            <StatusLine
-              label={task.error ? task.error.message : "Loading"}
-              active={!task.error}
-            />
-          </View>
-        }
-        ListFooterComponent={
-          session?.error ? (
-            <Text style={styles.error}>{session.error}</Text>
-          ) : null
-        }
-      />
-      <KeyboardStickyView
-        offset={{ closed: 0, opened: insets.bottom }}
-        style={styles.dock}
-      >
-        <View
-          style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}
-          onLayout={(event) =>
-            setComposerHeight(event.nativeEvent.layout.height)
-          }
-        >
+          {awayFromBottom ? (
+            <Pressable
+              style={styles.latest}
+              accessibilityRole="button"
+              onPress={scrollToLatest}
+            >
+              <Text style={styles.latestText}>↓ Latest message</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <View style={[styles.composer, { paddingBottom: insets.bottom + 8 }]}>
           {session && hedgehogMode ? <Hedgehog walking={walking} /> : null}
           <View>
-            <FadeScrim style={styles.scrim} />
             <Composer
               placeholder="Reply"
               onSend={send}
@@ -175,7 +160,7 @@ export default function TaskScreen() {
             />
           </View>
         </View>
-      </KeyboardStickyView>
+      </KeyboardAvoidingView>
     </DrawerScene>
   );
 }
@@ -194,13 +179,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     marginTop: 8,
   },
-  dock: { position: "absolute", left: 0, right: 0, bottom: 0 },
-  scrim: {
-    position: "absolute",
-    top: -40,
-    bottom: -60,
-    left: -12,
-    right: -12,
+  latest: {
+    alignSelf: "center",
+    padding: 10,
+    marginBottom: 8,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
   },
-  composer: { paddingHorizontal: 12 },
+  latestText: { fontFamily: fonts.sansMedium, color: colors.ink, fontSize: 14 },
+  composer: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    backgroundColor: colors.bg,
+  },
 });

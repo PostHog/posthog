@@ -16,7 +16,14 @@ const nativeFetch: FetchImplementation = (input, init) =>
       : input instanceof URL
         ? input.toString()
         : input.url,
-    { ...init, credentials: "omit" },
+    {
+      ...init,
+      headers: {
+        ...Object.fromEntries(new Headers(init?.headers).entries()),
+        "X-PostHog-Client-Platform": "mobile",
+      },
+      credentials: "omit",
+    },
   );
 
 let client: PostHogAPIClient | null = null;

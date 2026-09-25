@@ -1,4 +1,12 @@
+import { parseObjectTags } from "@posthog/core/inbox/objectTags";
+import {
+  isRasterImageFile,
+  isSafeExternalUrl,
+  unescapeXmlAttr,
+} from "@posthog/shared";
 import { type ColorValue, Linking, StyleSheet, Text, View } from "react-native";
+import { ChatImage } from "@/components/ChatImage";
+import { InsightCard } from "@/components/InsightCard";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
@@ -12,7 +20,7 @@ type Segment =
   | { kind: "code"; value: string }
   | { kind: "link"; value: string; href: string };
 
-const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+const INLINE = /(`[^`]+`|\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*)/g;
 
 function parseInline(line: string): Segment[] {
   const segments: Segment[] = [];
@@ -60,9 +68,12 @@ function Inline({ line, color }: { line: string; color: ColorValue }) {
               <Text
                 key={key}
                 style={styles.link}
-                onPress={() => Linking.openURL(segment.href).catch(() => {})}
+                onPress={() => {
+                  if (isSafeExternalUrl(segment.href))
+                    void Linking.openURL(segment.href).catch(() => {});
+                }}
               >
-                {segment.value}
+                <Inline line={segment.value} color={colors.accent} />
               </Text>
             );
           default:
@@ -90,7 +101,7 @@ function parseBlocks(text: string): NodeType[] {
 
   const flush = (): void => {
     if (paragraph.length > 0) {
-      nodes.push({ type: "paragraph", text: paragraph.join(" ") });
+      nodes.push({ type: "paragraph", text: paragraph.join("\n") });
       paragraph = [];
     }
   };
@@ -157,6 +168,44 @@ function parseBlocks(text: string): NodeType[] {
   return nodes;
 }
 
+function RichText({ text, color }: { text: string; color: ColorValue }) {
+  return (
+    <View style={{ gap: 8 }}>
+      {parseObjectTags(text).flatMap((segment, index) => {
+        if (segment.type === "tag")
+          return [
+            <InsightCard
+              key={`${index}-${segment.ref.kind}-${segment.ref.id}`}
+              reference={segment.ref}
+            />,
+          ];
+        const parts = segment.value.split(
+          /(!\[[^\]]*\]\([^)]+\)|<file\s+path="[^"]+"\s*\/>)/g,
+        );
+        return parts.filter(Boolean).map((part, partIndex) => {
+          const key = `${index}-${partIndex}`;
+          const image = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(part);
+          if (image)
+            return (
+              <ChatImage key={key} uri={image[2]} label={image[1] || "Image"} />
+            );
+          const file = /^<file\s+path="([^"]+)"\s*\/>$/.exec(part);
+          const path = file ? unescapeXmlAttr(file[1]) : null;
+          if (path && isRasterImageFile(path))
+            return (
+              <ChatImage key={key} uri={path} label={path.split("/").pop()} />
+            );
+          return (
+            <Text key={key} style={[styles.body, { color }]} selectable>
+              <Inline line={part} color={color} />
+            </Text>
+          );
+        });
+      })}
+    </View>
+  );
+}
+
 export function Markdown({ text, color = colors.ink }: MarkdownProps) {
   const nodes = parseBlocks(text);
   return (
@@ -197,12 +246,9 @@ export function Markdown({ text, color = colors.ink }: MarkdownProps) {
                 <Text style={[styles.bulletMark, { color }]}>
                   {node.ordered ? `${node.index}.` : "•"}
                 </Text>
-                <Text
-                  style={[styles.body, styles.bulletText, { color }]}
-                  selectable
-                >
-                  <Inline line={node.text} color={color} />
-                </Text>
+                <View style={styles.bulletText}>
+                  <RichText text={node.text} color={color} />
+                </View>
               </View>
             );
           case "quote":
@@ -214,11 +260,7 @@ export function Markdown({ text, color = colors.ink }: MarkdownProps) {
               </View>
             );
           case "paragraph":
-            return (
-              <Text key={key} style={[styles.body, { color }]} selectable>
-                <Inline line={node.text} color={color} />
-              </Text>
-            );
+            return <RichText key={key} text={node.text} color={color} />;
           default:
             return null;
         }
