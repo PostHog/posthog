@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import time_machine
 
+from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
@@ -228,6 +229,8 @@ def pytest_configure(config) -> None:
         )
 
         config.pluginmanager.register(EventsSchemaRecorder(Path(record_path)), "posthog-events-schema-recorder")
+    if prune_manifest := os.environ.get("POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST"):
+        config.pluginmanager.register(EventsSchemaPruner(Path(prune_manifest)), "posthog-events-schema-pruner")
 
 
 def pytest_collection_finish() -> None:

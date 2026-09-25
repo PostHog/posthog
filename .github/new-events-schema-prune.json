@@ -1,0 +1,3024 @@
+{
+    "files": {
+        "ee/clickhouse/materialized_columns/test/test_analyze.py": {
+            "digest": "9f8362bdb6c2e2c4",
+            "prune": {
+                "*": 1
+            }
+        },
+        "ee/clickhouse/materialized_columns/test/test_columns.py": {
+            "digest": "fdb7dfd648f2c572",
+            "prune": {
+                "*": 17
+            }
+        },
+        "ee/clickhouse/models/test/test_action.py": {
+            "digest": "0ce961f1b4ff7bc1",
+            "prune": {
+                "*": 1
+            }
+        },
+        "ee/clickhouse/models/test/test_cohort.py": {
+            "digest": "5739742765e01c28",
+            "prune": {
+                "TestCohort::test_calculate_people_ch_in_multiteam_project": 1,
+                "TestCohort::test_clickhouse_empty_query": 1,
+                "TestCohort::test_cohort_change": 1,
+                "TestCohort::test_cohort_versioning": 1,
+                "TestCohort::test_cohort_with_inclusion_and_exclusion_and_nested_negation": 1,
+                "TestCohort::test_cohortpeople_basic": 1,
+                "TestCohort::test_cohortpeople_deleted_person": 1,
+                "TestCohort::test_cohortpeople_prop_changed": 1,
+                "TestCohort::test_cohortpeople_with_nonexistent_other_cohort_filter": 1,
+                "TestCohort::test_cohortpeople_with_valid_other_cohort_filter": 1,
+                "TestCohort::test_insert_by_distinct_id_or_email": 1,
+                "TestCohort::test_insert_cohort_hogql_query_with_distinct_id": 1,
+                "TestCohort::test_recalculate_cohort_empty_string_property": 1,
+                "TestCohort::test_recalculate_cohort_with_list_of_values": 1,
+                "TestCohort::test_update_cohort": 1
+            }
+        },
+        "ee/clickhouse/models/test/test_dead_letter_queue.py": {
+            "digest": "c6f2e463fb37cfd6",
+            "prune": {
+                "*": 2
+            }
+        },
+        "ee/clickhouse/models/test/test_filters.py": {
+            "digest": "6c35576961e7b105",
+            "prune": {
+                "*": 19
+            }
+        },
+        "ee/clickhouse/models/test/test_property.py": {
+            "digest": "69a5fe659e7e482d",
+            "prune": {
+                "*": 2
+            }
+        },
+        "ee/clickhouse/queries/test/test_cohort_query.py": {
+            "digest": "a44b5a5289a858c4",
+            "prune": {
+                "TestCohortNegationValidation": 2,
+                "TestCohortQuery::test_cohort_filter": 1,
+                "TestCohortQuery::test_person_property_with_value_list": 1,
+                "TestCohortQuery::test_person_props_only": 1,
+                "TestCohortQuery::test_precalculated_cohort_filter": 1,
+                "TestCohortQuery::test_precalculated_cohort_filter_with_extra_filters": 1,
+                "TestCohortQuery::test_static_cohort_filter": 1,
+                "TestCohortQuery::test_unwrap_multiple_levels": 1
+            }
+        },
+        "ee/clickhouse/queries/test/test_related_actors_query.py": {
+            "digest": "bb8cf9f8d53ee851",
+            "prune": {
+                "TestRelatedGroupsQuery::test_no_groups_when_no_mappings": 1
+            }
+        },
+        "ee/clickhouse/test/test_error.py": {
+            "digest": "15797250c128e66a",
+            "prune": {
+                "*": 29
+            }
+        },
+        "ee/clickhouse/test/test_system_status.py": {
+            "digest": "d415ef855f607fc9",
+            "prune": {
+                "*": 1
+            }
+        },
+        "ee/clickhouse/views/test/test_clickhouse_groups.py": {
+            "digest": "b16f277de1a724d9",
+            "prune": {
+                "GroupPropertyDefinitionsTestCase": 7,
+                "GroupUsageMetricViewSetTestCase": 23,
+                "GroupsTypesViewSetTestCase": 11,
+                "GroupsViewSetTestCase::test_can_list_group_types_of_another_org_with_sharing_access_token": 1,
+                "GroupsViewSetTestCase::test_create_group": 1,
+                "GroupsViewSetTestCase::test_empty_property_values": 1,
+                "GroupsViewSetTestCase::test_get_group_activities_success": 1,
+                "GroupsViewSetTestCase::test_group_property_crud_add_success": 1,
+                "GroupsViewSetTestCase::test_group_property_crud_delete_success": 1,
+                "GroupsViewSetTestCase::test_group_property_crud_update_success": 1,
+                "GroupsViewSetTestCase::test_groups_list": 1,
+                "GroupsViewSetTestCase::test_property_values": 1,
+                "GroupsViewSetTestCase::test_retrieve_group_notebook_transaction_rollback": 1,
+                "TestGroupsListAPIContract": 10,
+                "TestListGroupsFunction": 16
+            }
+        },
+        "ee/clickhouse/views/test/test_experiment_holdouts.py": {
+            "digest": "7c15decb415e83e4",
+            "prune": {
+                "*": 16
+            }
+        },
+        "ee/clickhouse/views/test/test_experiment_saved_metrics.py": {
+            "digest": "a2f85171df6766a4",
+            "prune": {
+                "*": 35
+            }
+        },
+        "ee/clickhouse/views/test/test_experiments_action_names.py": {
+            "digest": "eaf780fc720fa3f6",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/api/test/test_event.py": {
+            "digest": "5fc00116c0687ff1",
+            "prune": {
+                "TestEventListRestrictedProperties::test_filter_referencing_restricted_property_is_rejected": 1,
+                "TestEventListRestrictedProperties::test_order_by_referencing_restricted_property_is_rejected": 1,
+                "TestEventListTimeWindowOptimization": 11,
+                "TestEvents::test_action_no_steps": 1,
+                "TestEvents::test_event_property_values_refresh_0_default": 1,
+                "TestEvents::test_event_property_values_refresh_1_refresh_force_blocking": 1,
+                "TestEvents::test_event_property_values_refresh_2_refresh_force_cache": 1,
+                "TestEvents::test_event_property_values_refresh_3_refresh_async": 1,
+                "TestEvents::test_optimize_query_progressive_windows": 1
+            }
+        },
+        "posthog/api/test/test_query.py": {
+            "digest": "0771c8d907a58d8b",
+            "prune": {
+                "TestMcpProductTaggingEndToEnd::test_mcp_request_falls_back_to_mcp_when_kind_and_scene_unmapped": 1,
+                "TestMcpProductTaggingEndToEnd::test_mcp_request_with_inferred_product_keeps_inferred_product": 1,
+                "TestMcpProductTaggingEndToEnd::test_non_mcp_request_does_not_set_product_to_mcp": 1,
+                "TestQuery::test_dashboard_variables_overrides": 1,
+                "TestQuery::test_full_hogql_query_async": 1,
+                "TestQuery::test_hogql_autocomplete_bypasses_query_runner": 1,
+                "TestQuery::test_hogql_error_is_enriched_with_metadata": 1,
+                "TestQuery::test_served_from_query_failure_cache_is_not_recaptured_0_served_from_cache": 1,
+                "TestQueryCostHeaders": 4,
+                "TestQueryDraftSql": 1,
+                "TestQueryLLMFormatting": 8,
+                "TestQueryRetrieve": 9,
+                "TestQueryScan": 5,
+                "TestQueryTraceCorrelation": 5
+            }
+        },
+        "posthog/clickhouse/test/test_0064.py": {
+            "digest": "5071669fa5324f7d",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/clickhouse/test/test_alter_replicated_validation.py": {
+            "digest": "e9ac442a87c3163b",
+            "prune": {
+                "*": 12
+            }
+        },
+        "posthog/clickhouse/test/test_cluster.py": {
+            "digest": "466db1175910971b",
+            "prune": {
+                "*": 40
+            }
+        },
+        "posthog/clickhouse/test/test_custom_metrics.py": {
+            "digest": "d5c50c0847e01ea4",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/clickhouse/test/test_deletion_coverage.py": {
+            "digest": "b16f2d92230a2123",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/clickhouse/test/test_dmat_dictionary.py": {
+            "digest": "2544cbcc1ad26661",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/clickhouse/test/test_enable_analyzer.py": {
+            "digest": "281fa41fb68800a6",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/clickhouse/test/test_explain.py": {
+            "digest": "2594f37867ef695b",
+            "prune": {
+                "*": 6
+            }
+        },
+        "posthog/clickhouse/test/test_kill_switch.py": {
+            "digest": "fa638813602a07d8",
+            "prune": {
+                "*": 33
+            }
+        },
+        "posthog/clickhouse/test/test_migrations.py": {
+            "digest": "2bdbcb9d6ae65458",
+            "prune": {
+                "*": 4
+            }
+        },
+        "posthog/clickhouse/test/test_preaggregation_model.py": {
+            "digest": "07b9232b86ac0c6f",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/clickhouse/test/test_query_tagging.py": {
+            "digest": "b48f8c686bae14e0",
+            "prune": {
+                "TestAddFallbackQueryTags": 47,
+                "TestQueryTaggingSourceInQueryLog::test_execute_hogql_query_populates_source_tags": 1,
+                "TestQueryTaggingSourceInQueryLog::test_hogql_query_runner_marks_contains_user_hogql": 1,
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp_0_api": 1,
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp_1_web": 1,
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_does_not_set_mcp_product_when_source_is_not_mcp_2_posthog_code": 1,
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_preserves_ai_data_processing_approved_tag_0_approved": 1,
+                "TestQueryTaggingSourceInQueryLog::test_sync_execute_preserves_ai_data_processing_approved_tag_1_not_approved": 1
+            }
+        },
+        "posthog/clickhouse/test/test_raw_sessions_model.py": {
+            "digest": "6ad11a6a32929b2b",
+            "prune": {
+                "TestRawSessionsModel::test_backfill_sql_1_sharded_events": 1,
+                "TestRawSessionsModel::test_counts_pageviews_autocaptures_and_events": 1,
+                "TestRawSessionsModel::test_handles_different_distinct_id_across_same_session": 1,
+                "TestRawSessionsModel::test_handles_entry_and_exit_urls": 1,
+                "TestRawSessionsModel::test_handles_initial_utm_properties": 1,
+                "TestRawSessionsModel::test_ignores_empty_lcp": 1,
+                "TestRawSessionsModel::test_it_creates_session_when_creating_event": 1,
+                "TestRawSessionsModel::test_max_inserted_at": 1,
+                "TestRawSessionsModel::test_select_from_sessions": 1,
+                "TestRawSessionsModel::test_select_from_sessions_mv": 1,
+                "TestRawSessionsModel::test_separates_sessions_across_same_user": 1
+            }
+        },
+        "posthog/clickhouse/test/test_raw_sessions_v3_model.py": {
+            "digest": "21b2f031a0e34eaf",
+            "prune": {
+                "*": 24
+            }
+        },
+        "posthog/clickhouse/test/test_schema.py": {
+            "digest": "fe1e52cb8ddd3d55",
+            "prune": {
+                "*": 450
+            }
+        },
+        "posthog/clickhouse/test/test_session_replay_mode.py": {
+            "digest": "9115eba49f110841",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/clickhouse/test/test_sessions_model.py": {
+            "digest": "0253260276330dd6",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/dags/tests/test_deletes.py": {
+            "digest": "3782a44162637bfe",
+            "prune": {
+                "test_a_rerun_stages_over_the_previous_runs_object": 1,
+                "test_a_staged_dictionary_holds_the_same_rows_as_the_source_table": 1,
+                "test_a_target_on_another_cluster_is_also_counted_on_its_storage_table": 1,
+                "test_creating_on_a_second_cluster_points_it_at_the_staged_object": 1,
+                "test_find_partitions_to_cleanup": 1,
+                "test_full_job_adhoc_event_deletes": 1,
+                "test_full_job_deletes_events_queued_in_postgres": 1,
+                "test_full_job_person_deletes": 1,
+                "test_full_job_team_deletes": 1,
+                "test_the_adhoc_dictionary_holds_one_row_per_key_when_the_source_has_duplicates": 1,
+                "test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run[deletes_job]": 1,
+                "test_the_manual_trigger_sensor_launches_a_real_deletes_run": 1
+            }
+        },
+        "posthog/hogql/compiler/test/test_bytecode.py": {
+            "digest": "636081ba56ead1df",
+            "prune": {
+                "*": 12
+            }
+        },
+        "posthog/hogql/compiler/test/test_javascript.py": {
+            "digest": "be58b36af38aee21",
+            "prune": {
+                "*": 42
+            }
+        },
+        "posthog/hogql/database/schema/test/test_channel_type.py": {
+            "digest": "33b726216b3756ec",
+            "prune": {
+                "TestChannelType::test_ai_0_utm_source_chatgpt_with_stripped_referrer": 1,
+                "TestChannelType::test_ai_1_referring_domain_chatgpt": 1,
+                "TestChannelType::test_ai_2_referring_domain_claude": 1,
+                "TestChannelType::test_ai_3_referring_domain_perplexity": 1,
+                "TestChannelType::test_cross_network": 1,
+                "TestChannelType::test_direct": 1,
+                "TestChannelType::test_direct_empty_string": 1,
+                "TestChannelType::test_direct_null_string": 1,
+                "TestChannelType::test_direct_with_red_herring_utm_tags_is_direct": 1,
+                "TestChannelType::test_doesnt_fail_on_numbers": 1,
+                "TestChannelType::test_initial_channel_type_custom_url_rule_matches_initial_current_url": 1,
+                "TestChannelType::test_no_info_is_unknown": 1,
+                "TestChannelType::test_organic_video": 1,
+                "TestChannelType::test_paid_search": 1,
+                "TestChannelType::test_paid_search_source": 1,
+                "TestChannelType::test_paid_shopping_campaign": 1,
+                "TestChannelType::test_paid_shopping_domain": 1,
+                "TestChannelType::test_paid_shopping_source": 1,
+                "TestChannelType::test_paid_video": 1,
+                "TestChannelType::test_paid_video_source": 1,
+                "TestChannelType::test_unknown_domain_is_referral": 1,
+                "TestReferringDomainType": 4
+            }
+        },
+        "posthog/hogql/database/schema/test/test_cohort_people.py": {
+            "digest": "82c0cd0f56c8ab22",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/database/schema/test/test_document_embeddings.py": {
+            "digest": "3fef7f4ec70031f8",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql/database/schema/test/test_event_sessions.py": {
+            "digest": "0384f98084be956b",
+            "prune": {
+                "*": 11
+            }
+        },
+        "posthog/hogql/database/schema/test/test_flag_evaluations.py": {
+            "digest": "3e9a620e75e71986",
+            "prune": {
+                "*": 13
+            }
+        },
+        "posthog/hogql/database/schema/test/test_groups.py": {
+            "digest": "fae52771ea3dbd10",
+            "prune": {
+                "*": 11
+            }
+        },
+        "posthog/hogql/database/schema/test/test_groups_revenue_analytics.py": {
+            "digest": "afaac6b047c7fc70",
+            "prune": {
+                "TestGroupsRevenueAnalytics::test_get_mrr_via_lazy_join_for_schema_source": 1,
+                "TestGroupsRevenueAnalytics::test_get_revenue_for_schema_source_for_email_join": 1,
+                "TestGroupsRevenueAnalytics::test_get_revenue_for_schema_source_for_id_join": 1,
+                "TestGroupsRevenueAnalytics::test_get_revenue_for_schema_source_for_metadata_join": 1,
+                "TestGroupsRevenueAnalytics::test_query_revenue_analytics_table_sources": 1,
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_mrr_via_lazy_join_for_schema_source": 1,
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_email_join": 1,
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_id_join": 1,
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_metadata_join": 1,
+                "TestGroupsRevenueAnalyticsManagedViewsets::test_query_revenue_analytics_table_sources": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_information_schema.py": {
+            "digest": "5575d1cbe4a7a937",
+            "prune": {
+                "*": 60
+            }
+        },
+        "posthog/hogql/database/schema/test/test_ingestion_warnings.py": {
+            "digest": "11fbc4faf888555c",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/hogql/database/schema/test/test_logs.py": {
+            "digest": "f4e30b981c728b9e",
+            "prune": {
+                "*": 4
+            }
+        },
+        "posthog/hogql/database/schema/test/test_marketing_costs_precomputed.py": {
+            "digest": "999fb7133550f535",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_persons.py": {
+            "digest": "d386a3f6d0fc8937",
+            "prune": {
+                "TestArgMaxNonNullableSimplification::test_non_nullable_columns_are_simplified": 1,
+                "TestArgMaxNonNullableSimplification::test_nullable_property_keeps_wrap_and_latest_null_wins_0_json": 1,
+                "TestArgMaxNonNullableSimplification::test_nullable_property_keeps_wrap_and_latest_null_wins_1_materialized": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_0_eq": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_1_in_list": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_2_quoted_value": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_3_non_ascii_value": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_4_is_not": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_needle_limit_0_at_needle_limit": 1,
+                "TestPersonOptimization::test_json_substring_prefilter_needle_limit_1_past_needle_limit": 1,
+                "TestPersonOptimization::test_order_by_limit_transferred": 1,
+                "TestPersonOptimization::test_simple_filter": 1,
+                "TestPersons::test_virtual_person_properties": 1,
+                "TestPersonsV2LimitPushDown": 9,
+                "TestVirtualFieldDetection": 24
+            }
+        },
+        "posthog/hogql/database/schema/test/test_persons_revenue_analytics.py": {
+            "digest": "842fd9baa335dbaa",
+            "prune": {
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_customer_with_multiple_distinct_ids": 1,
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_email_join": 1,
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_id_join": 1,
+                "TestPersonsRevenueAnalytics::test_get_revenue_for_schema_source_for_metadata_join": 1,
+                "TestPersonsRevenueAnalytics::test_person_id_joins_directly_against_persons_id_1_warehouse": 1,
+                "TestPersonsRevenueAnalytics::test_query_revenue_analytics_table_sources": 1,
+                "TestPersonsRevenueAnalytics::test_revenue_aggregated_per_person_across_multiple_customers": 1,
+                "TestPersonsRevenueAnalytics::test_warehouse_join_named_persons_pointing_elsewhere_is_ignored": 1,
+                "TestPersonsRevenueAnalyticsManagedViewsets::test_get_revenue_for_schema_source_for_id_join": 1,
+                "TestPersonsRevenueAnalyticsManagedViewsets::test_query_revenue_analytics_table_sources": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_session_replay_events.py": {
+            "digest": "714c8ea6e5587042",
+            "prune": {
+                "TestFilterSessionReplaysByConsoleLogs": 3,
+                "TestFilterSessionReplaysByPerson::test_select_by_person_distinct_id": 1,
+                "TestFilterSessionReplaysByPerson::test_select_by_replay_person": 1,
+                "TestFilterSessionReplaysByPerson::test_select_person_property": 1,
+                "TestFilterSessionReplaysByPerson::test_select_where_person_property_with_join_optimization": 1,
+                "TestFilterSessionReplaysByPerson::test_select_where_person_property_without_join_optimization": 1,
+                "TestFilterSessionReplaysBySessions": 2,
+                "TestSelectAggregatedArrayColumns": 3
+            }
+        },
+        "posthog/hogql/database/schema/test/test_session_replay_features.py": {
+            "digest": "5cc58100c6d46bc9",
+            "prune": {
+                "*": 18
+            }
+        },
+        "posthog/hogql/database/schema/test/test_sessions_v1.py": {
+            "digest": "970690dc1a0c7dfe",
+            "prune": {
+                "TestGetLazySessionProperties": 7,
+                "TestSessionsV1::test_bounce_rate_0_uniq_urls": 1,
+                "TestSessionsV1::test_bounce_rate_1_count_pageviews": 1,
+                "TestSessionsV1::test_can_use_v1_and_v2_fields": 1,
+                "TestSessionsV1::test_channel_type": 1,
+                "TestSessionsV1::test_select_session_replay_session_duration": 1,
+                "TestSessionsV1::test_select_star": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_sessions_v2.py": {
+            "digest": "66cb4c3d60a9ee3d",
+            "prune": {
+                "TestGetLazySessionProperties": 7,
+                "TestSessionsV2::test_bounce_rate_0_uniq_page_screen_autocaptures": 1,
+                "TestSessionsV2::test_bounce_rate_1_count_pageviews": 1,
+                "TestSessionsV2::test_can_use_v1_and_v2_fields": 1,
+                "TestSessionsV2::test_channel_type": 1,
+                "TestSessionsV2::test_counts": 1,
+                "TestSessionsV2::test_custom_bounce_rate_duration_0_uniq_page_screen_autocaptures": 1,
+                "TestSessionsV2::test_custom_bounce_rate_duration_1_count_pageviews": 1,
+                "TestSessionsV2::test_empty_counts": 1,
+                "TestSessionsV2::test_idempotent_event_counts": 1,
+                "TestSessionsV2::test_last_external_click_url": 1,
+                "TestSessionsV2::test_lcp": 1,
+                "TestSessionsV2::test_page_screen_autocapture_count_up_to": 1,
+                "TestSessionsV2::test_select_star_from_raw_sessions": 1,
+                "TestSessionsV2::test_select_star_from_sessions": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_sessions_v3.py": {
+            "digest": "348c7eb67f742345",
+            "prune": {
+                "TestGetLazySessionProperties": 7,
+                "TestSessionsV3::test_bounce_rate": 1,
+                "TestSessionsV3::test_can_use_v1_and_v2_fields": 1,
+                "TestSessionsV3::test_channel_type": 1,
+                "TestSessionsV3::test_counts": 1,
+                "TestSessionsV3::test_custom_bounce_rate_duration": 1,
+                "TestSessionsV3::test_empty_counts": 1,
+                "TestSessionsV3::test_idempotent_event_counts": 1,
+                "TestSessionsV3::test_last_external_click_url": 1,
+                "TestSessionsV3::test_page_screen_autocapture_count_up_to": 1,
+                "TestSessionsV3::test_select_star_from_raw_sessions": 1,
+                "TestSessionsV3::test_select_star_from_sessions": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_system_tables.py": {
+            "digest": "9c26efa74b0b9084",
+            "prune": {
+                "*": 233
+            }
+        },
+        "posthog/hogql/database/schema/test/test_table_descriptions.py": {
+            "digest": "fe96314f8eb95631",
+            "prune": {
+                "*": 11
+            }
+        },
+        "posthog/hogql/database/schema/test/test_table_query_log.py": {
+            "digest": "a00e4258921113fa",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/database/schema/test/test_traffic_type.py": {
+            "digest": "290f2285c7354456",
+            "prune": {
+                "*": 30
+            }
+        },
+        "posthog/hogql/database/schema/test/test_web_analytics_s3.py": {
+            "digest": "e574128273a258d3",
+            "prune": {
+                "*": 6
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_person_where_clause_extractor.py": {
+            "digest": "ea26ed01f63dab75",
+            "prune": {
+                "TestPersonWhereClauseExtractor::test_left_join_with_negation": 1,
+                "TestPersonWhereClauseExtractor::test_person_array": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_1": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_10": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_11": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_2": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_3": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_4": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_5": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_8": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_andor_9": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_function_call_args": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_function_call_args_complex": 1,
+                "TestPersonWhereClauseExtractor::test_person_properties_function_calls": 1
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_predicate_pushdown.py": {
+            "digest": "aa488276f2b53909",
+            "prune": {
+                "*": 26
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_session_v2_where_clause_extractor.py": {
+            "digest": "4e54ba915f9162cb",
+            "prune": {
+                "TestDirectSessionIdInPushdownV2::test_multi_column_subquery_fails_open_without_neutralizing": 1,
+                "TestSessionWhereClauseExtractorV2": 37
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_session_v3_where_clause_extractor.py": {
+            "digest": "d5fa8b5cd3bf9c59",
+            "prune": {
+                "TestIsSessionIdStringExpr": 1,
+                "TestSessionWhereClauseExtractorV3": 39
+            }
+        },
+        "posthog/hogql/database/schema/util/test/test_session_where_clause_extractor.py": {
+            "digest": "03655055ac79dfe4",
+            "prune": {
+                "TestSessionWhereClauseExtractorV1": 32
+            }
+        },
+        "posthog/hogql/database/test/test_activity_logs_restrictions.py": {
+            "digest": "f43be39339060bf8",
+            "prune": {
+                "*": 27
+            }
+        },
+        "posthog/hogql/database/test/test_argmax.py": {
+            "digest": "d7669fb6521301ba",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/database/test/test_database.py": {
+            "digest": "40562038c1aff3b2",
+            "prune": {
+                "TestBuildDatabaseRootNode": 8,
+                "TestCachedTeamFlag": 7,
+                "TestCreateForPosthogTables": 2,
+                "TestDatabase::test_cached_sources_warm_build_runs_no_queries": 1,
+                "TestDatabase::test_create_hogql_database_keeps_self_managed_table_without_source": 1,
+                "TestDatabase::test_database_credentials_is_not_n_plus_1": 1,
+                "TestDatabase::test_database_serialization_handles_invalid_sources_gracefully": 1,
+                "TestDatabase::test_deferred_revenue_views_serialize_identically_to_eager": 1,
+                "TestDatabase::test_direct_postgres_reserved_table_names_do_not_hide_posthog_tables_without_connection": 1,
+                "TestDatabase::test_external_data_source_is_not_n_plus_1": 1,
+                "TestDatabase::test_flag_evaluations_visibility_follows_the_org_flag_0": 1,
+                "TestDatabase::test_flag_evaluations_visibility_follows_the_org_flag_1": 1,
+                "TestDatabase::test_partial_serialize_skips_revenue_view_build": 1,
+                "TestDatabase::test_serialize_database_deleted_saved_query": 1,
+                "TestDatabase::test_serialize_database_include_only_returns_same_fields_as_full_serialization": 1,
+                "TestDatabase::test_serialize_database_no_person_on_events": 1,
+                "TestDatabase::test_serialize_database_posthog_table": 1,
+                "TestDatabase::test_serialize_database_warehouse_table_s3": 1,
+                "TestDatabase::test_serialize_database_warehouse_table_s3_with_hyphens": 1,
+                "TestDatabase::test_serialize_database_warehouse_table_s3_with_legacy_column_shape": 1,
+                "TestDatabase::test_serialize_database_warehouse_table_s3_with_unknown_field": 1,
+                "TestDatabase::test_serialize_database_warehouse_table_source": 1,
+                "TestDatabase::test_serialize_database_warehouse_table_source_query_count": 1,
+                "TestDatabase::test_serialize_database_warehouse_with_deleted_joins": 1,
+                "TestDatabase::test_serialize_database_with_person_on_events_enabled": 1,
+                "TestDatabase::test_serialize_database_without_fields_matches_full_metadata": 1,
+                "TestDatabase::test_serialize_direct_postgres_table_is_hidden_without_connection": 1,
+                "TestDatabase::test_warm_cached_serialize_reuses_prebuilt_revenue_views": 1,
+                "TestSourcesCacheConcurrency": 3,
+                "TestTableNodeCaseInsensitiveLookup": 5,
+                "TestUnknownTableSuggestions": 6
+            }
+        },
+        "posthog/hogql/database/test/test_database_schema_payload.py": {
+            "digest": "032de2b169869f55",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/database/test/test_lazy_join_resolvers.py": {
+            "digest": "04683b5946a48c83",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/database/test/test_postgres_table.py": {
+            "digest": "f243100e2531fcfd",
+            "prune": {
+                "*": 455
+            }
+        },
+        "posthog/hogql/database/test/test_s3_table_clickhouse.py": {
+            "digest": "49e7c6bf1f809f42",
+            "prune": {
+                "*": 4
+            }
+        },
+        "posthog/hogql/database/test/test_s3_table_duckdb.py": {
+            "digest": "071ca51488dae655",
+            "prune": {
+                "*": 13
+            }
+        },
+        "posthog/hogql/database/test/test_view.py": {
+            "digest": "0c25a1d99159bfb7",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/database/test/test_warehouse_usage.py": {
+            "digest": "c193c0cab8fe4264",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_clickhouse_adapter.py": {
+            "digest": "0c8814a77a876eac",
+            "prune": {
+                "*": 47
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_motherduck_adapter.py": {
+            "digest": "503591402d4d3a1f",
+            "prune": {
+                "*": 63
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_registry_and_capability.py": {
+            "digest": "2102ac5d6b2310b6",
+            "prune": {
+                "*": 22
+            }
+        },
+        "posthog/hogql/direct_sql/test/test_trino_adapter.py": {
+            "digest": "8a53e95e46d6d849",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/functions/test/test_cohort.py": {
+            "digest": "d49aa6ba2e9c52b7",
+            "prune": {
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_0_subquery_off": 1,
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_1_subquery_always": 1,
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_2_leftjoin_off": 1,
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_3_leftjoin_always": 1,
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_4_conjoined_off": 1,
+                "TestInlineCohortSubquery::test_inline_cohort_limit_not_pushed_to_inner_query_5_conjoined_always": 1
+            }
+        },
+        "posthog/hogql/functions/test/test_explain_csp_button.py": {
+            "digest": "c2f3f22ba1112be0",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/functions/test/test_hog_stl_arity.py": {
+            "digest": "28a109a2546cb701",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/functions/test/test_ip_functions.py": {
+            "digest": "7eed0162a1cd1b01",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/functions/test/test_recording_button.py": {
+            "digest": "7ae9f4e7e4daf365",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/functions/test/test_sparkline.py": {
+            "digest": "7d3d450154306e00",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/functions/test/test_traffic_type_functions.py": {
+            "digest": "51fccd7632a241af",
+            "prune": {
+                "TestBotDefinitionsDataStructure": 36,
+                "TestBotIPClassification": 7,
+                "TestBotIPDefinitionsDataStructure": 5,
+                "TestCookielessOverrideExpression": 2,
+                "TestGetBotNameFunction": 3,
+                "TestGetBotTypeFunction": 2,
+                "TestIsBotFunction": 3,
+                "TestNullHandling": 2,
+                "TestTrafficTypeFunctionPatterns": 5,
+                "TestTrafficTypeFunctions": 9
+            }
+        },
+        "posthog/hogql/functions/test/test_traffic_type_real_ua.py": {
+            "digest": "473549b9bbd84064",
+            "prune": {
+                "TestBotClassificationRealUA": 353
+            }
+        },
+        "posthog/hogql/functions/test/test_typegen.py": {
+            "digest": "2e56cf69523d9537",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql/helpers/test_timestamp_visitor.py": {
+            "digest": "977028e3d9ca4fe8",
+            "prune": {
+                "*": 129
+            }
+        },
+        "posthog/hogql/printer/test/test_dialect_constant_binding.py": {
+            "digest": "dde94ef5bd3a2144",
+            "prune": {
+                "*": 13
+            }
+        },
+        "posthog/hogql/printer/test/test_duckdb_printer.py": {
+            "digest": "d5b32dc38defa6dd",
+            "prune": {
+                "*": 46
+            }
+        },
+        "posthog/hogql/printer/test/test_hogql_access_control.py": {
+            "digest": "8df4ee2c906fb978",
+            "prune": {
+                "*": 59
+            }
+        },
+        "posthog/hogql/printer/test/test_mysql_printer.py": {
+            "digest": "a59db442ea08436d",
+            "prune": {
+                "*": 38
+            }
+        },
+        "posthog/hogql/printer/test/test_postgres_printer.py": {
+            "digest": "7698f8bcf9d9fc4b",
+            "prune": {
+                "TestPostgresPrinter::test_arithmetic_operators": 1,
+                "TestPostgresPrinter::test_comparison_operators": 1,
+                "TestPostgresPrinter::test_postgres_style_cast": 1
+            }
+        },
+        "posthog/hogql/printer/test/test_printer.py": {
+            "digest": "7109f6da063d71e0",
+            "prune": {
+                "TestMaterializedColumnOptimization::test_jsonextractstring_not_rewritten_for_non_string_mat_column": 1,
+                "TestMaterializedColumnOptimization::test_jsonextractstring_rewrite_emits_mat_column": 1,
+                "TestMaterializedColumnOptimization::test_lower_in_optimization_on_persons": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_empty_string": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_non_string_constant": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_null_comparison": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_equality_not_optimized_for_null_string": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_bails_out_for_sentinel_pattern_on_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_uses_raw_column_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_with_tostring_not_optimized_for_numeric_property": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_ilike_with_tostring_uses_ngram_index_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_in_bails_out_for_sentinel_value_on_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_in_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_in_uses_raw_column_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_like_bails_out_for_sentinel_pattern_on_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_like_case_sensitivity": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_like_uses_raw_column_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_bails_out_for_sentinel_value": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_matches_case_insensitive_lower_call": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_not_optimized_without_a_lower_index": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_sentinels_for_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_uses_bloom_filter_lower_index_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_uses_bloom_filter_lower_index_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_in_uses_ngram_lower_index": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_not_in_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_lower_not_in_uses_bloom_filter_lower_index_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_not_ilike_uses_raw_column_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_not_in_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_not_in_uses_raw_column_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_not_like_uses_raw_column_for_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_equality_comparison_non_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_equality_comparison_nullable": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_0__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_1__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_2__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_non_nullable_3__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_0__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_1__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_2__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_optimized_range_comparison_nullable_3__": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_not_optimized_for_datetime_property_type": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_not_optimized_for_null_constant": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_not_optimized_for_numeric_property_type": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_only_when_property_on_left": 1,
+                "TestMaterializedColumnOptimization::test_materialized_column_range_comparison_skips_non_nullable_numeric_source": 1,
+                "TestMaterializedColumnOptimization::test_recursive_cte_raises": 1,
+                "TestNewEventsSchemaDefaults::test_hogql_events_table_uses_configured_schema_1_legacy": 1,
+                "TestPrinted": 1,
+                "TestPrinter::test_array_access": 1,
+                "TestPrinter::test_boolean_and_optimization": 1,
+                "TestPrinter::test_boolean_or_optimization": 1,
+                "TestPrinter::test_expr_parse_errors": 1,
+                "TestPrinter::test_feature_flag_json_extracts_match_map_document_0": 1,
+                "TestPrinter::test_fields_and_properties": 1,
+                "TestPrinter::test_functions": 1,
+                "TestPrinter::test_hogql_properties": 1,
+                "TestPrinter::test_hogql_properties_materialized_json_access": 1,
+                "TestPrinter::test_hogql_properties_use_active_storage_schema": 1,
+                "TestPrinter::test_intersect3": 1,
+                "TestPrinter::test_literals": 1,
+                "TestPrinter::test_logic": 1,
+                "TestPrinter::test_materialized_fields_and_properties": 1,
+                "TestPrinter::test_methods": 1,
+                "TestPrinter::test_new_events_schema_json_has_uses_direct_json_subcolumns": 1,
+                "TestPrinter::test_new_events_schema_keyed_json_extracts_avoid_blob_reconstruction": 1,
+                "TestPrinter::test_property_groups": 1,
+                "TestPrinter::test_property_groups_optimized_basic_equality_comparisons": 1,
+                "TestPrinter::test_property_groups_optimized_boolean_equality_comparisons": 1,
+                "TestPrinter::test_property_groups_optimized_empty_string_equality_comparisons": 1,
+                "TestPrinter::test_property_groups_optimized_has": 1,
+                "TestPrinter::test_property_groups_optimized_in_comparisons": 1,
+                "TestPrinter::test_property_groups_optimized_null_comparisons": 1,
+                "TestPrinter::test_to_bool_is_null_safe_0_toBool": 1
+            }
+        },
+        "posthog/hogql/printer/test/test_printer_pbt.py": {
+            "digest": "f22a61ccd3fe1843",
+            "prune": {
+                "*": 24
+            }
+        },
+        "posthog/hogql/printer/test/test_property_access_control.py": {
+            "digest": "38cab579c7667ae6",
+            "prune": {
+                "TestRestrictPropertiesInHogQL::test_ai_column_and_nested_reads_use_the_canonical_property_rule_0_input": 1,
+                "TestRestrictPropertiesInHogQL::test_explicit_property_access_on_non_event_table_not_blocked": 1
+            }
+        },
+        "posthog/hogql/printer/test/test_snowflake_printer.py": {
+            "digest": "c3cb17b4d83150cf",
+            "prune": {
+                "*": 90
+            }
+        },
+        "posthog/hogql/printer/test/test_sql_injection_defenses.py": {
+            "digest": "026e752be49225dd",
+            "prune": {
+                "TestParserPathProducesOnlyAllowlistedVerbatimValues": 1,
+                "TestVerbatimFieldConstructionRejection": 16
+            }
+        },
+        "posthog/hogql/printer/test/test_trino_printer.py": {
+            "digest": "79789cec7ee9e0c6",
+            "prune": {
+                "*": 866
+            }
+        },
+        "posthog/hogql/printer/test/test_within_non_hogql_delete.py": {
+            "digest": "e65e987ed4dc51a8",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/hogql/test/test_autocomplete.py": {
+            "digest": "6e3c9be04458068c",
+            "prune": {
+                "*": 80
+            }
+        },
+        "posthog/hogql/test/test_base.py": {
+            "digest": "1400609bdaa38b6a",
+            "prune": {
+                "*": 352
+            }
+        },
+        "posthog/hogql/test/test_corpus_redaction.py": {
+            "digest": "136f12830d79c588",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/test/test_diagnostic_common.py": {
+            "digest": "05b5b644da037aaa",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/hogql/test/test_direct_clickhouse_query.py": {
+            "digest": "7a5bb5610156fd47",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/hogql/test/test_direct_connection.py": {
+            "digest": "8528675fc6490727",
+            "prune": {
+                "*": 24
+            }
+        },
+        "posthog/hogql/test/test_direct_connection_discovery.py": {
+            "digest": "a2898e0b29761b34",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/test/test_direct_duckgres_query.py": {
+            "digest": "e68c72f0ee1583b0",
+            "prune": {
+                "*": 42
+            }
+        },
+        "posthog/hogql/test/test_direct_motherduck_query.py": {
+            "digest": "b87af3a99e004094",
+            "prune": {
+                "*": 11
+            }
+        },
+        "posthog/hogql/test/test_direct_mysql_query.py": {
+            "digest": "be44e64755afd612",
+            "prune": {
+                "*": 46
+            }
+        },
+        "posthog/hogql/test/test_direct_postgres_query.py": {
+            "digest": "00d4c8e96c0e1a5c",
+            "prune": {
+                "*": 103
+            }
+        },
+        "posthog/hogql/test/test_direct_redshift_query.py": {
+            "digest": "e466dd38790829a9",
+            "prune": {
+                "*": 29
+            }
+        },
+        "posthog/hogql/test/test_direct_snowflake_query.py": {
+            "digest": "35f387ee615f5c6e",
+            "prune": {
+                "*": 71
+            }
+        },
+        "posthog/hogql/test/test_direct_trino_query.py": {
+            "digest": "c96ccaaf70450ad9",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/hogql/test/test_escape_sql.py": {
+            "digest": "e8d691e7947e91e9",
+            "prune": {
+                "*": 59
+            }
+        },
+        "posthog/hogql/test/test_feature_extractor.py": {
+            "digest": "90660d93ea4a1e15",
+            "prune": {
+                "*": 20
+            }
+        },
+        "posthog/hogql/test/test_filters.py": {
+            "digest": "ed6158df2b849f45",
+            "prune": {
+                "*": 80
+            }
+        },
+        "posthog/hogql/test/test_generated_language_service_functions.py": {
+            "digest": "f4b184c14a75e3ba",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/test/test_get_lowercase_index_hint.py": {
+            "digest": "ec1dc0e4ee6aab45",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/test/test_hogqlx.py": {
+            "digest": "89392b0f9d3fdb4b",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/hogql/test/test_index_eligibility.py": {
+            "digest": "1bb20d88ad146c0d",
+            "prune": {
+                "TestIndexEligibilityThroughThePlanner": 5,
+                "TestIndexEligibilityVerdicts": 45,
+                "TestIndexEnumsMatchTheSchema": 1
+            }
+        },
+        "posthog/hogql/test/test_language_service.py": {
+            "digest": "4a70812f40e5627f",
+            "prune": {
+                "*": 26
+            }
+        },
+        "posthog/hogql/test/test_log_query_settings.py": {
+            "digest": "2bef6d48829025fd",
+            "prune": {
+                "TestArgumentCountErrorsAreUserFacing": 3,
+                "TestCorruptedParquetMetadataError": 2,
+                "TestLogQuerySettings::test_internal_has_logs_query_type_has_no_max_bytes_to_read": 1,
+                "TestLogQuerySettings::test_user_query_on_persons_table_has_no_max_bytes_to_read": 1,
+                "TestTooManyBytesError": 5
+            }
+        },
+        "posthog/hogql/test/test_mapping.py": {
+            "digest": "7846b076a8482307",
+            "prune": {
+                "*": 25
+            }
+        },
+        "posthog/hogql/test/test_metadata.py": {
+            "digest": "95bece8e8486c0e1",
+            "prune": {
+                "TestMetadata::test_experimental_join_condition": 1
+            }
+        },
+        "posthog/hogql/test/test_modifiers.py": {
+            "digest": "2bf236a9628605d4",
+            "prune": {
+                "TestModifiers::test_modifiers_in_cohort_join": 1,
+                "TestModifiers::test_modifiers_persons_argmax_version_auto": 1,
+                "TestModifiers::test_modifiers_persons_argmax_version_v2": 1
+            }
+        },
+        "posthog/hogql/test/test_no_django_imports.py": {
+            "digest": "2edf9ae39b7af706",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql/test/test_observability.py": {
+            "digest": "05bc8eab4226295d",
+            "prune": {
+                "*": 27
+            }
+        },
+        "posthog/hogql/test/test_parse_string_cpp.py": {
+            "digest": "facf21699002b22a",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/hogql/test/test_parse_string_rust.py": {
+            "digest": "dccff4d80d87691d",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/test/test_parser_cache.py": {
+            "digest": "7686335f99cb49e7",
+            "prune": {
+                "*": 27
+            }
+        },
+        "posthog/hogql/test/test_parser_cpp_json.py": {
+            "digest": "e7cfce0083f5251c",
+            "prune": {
+                "*": 478
+            }
+        },
+        "posthog/hogql/test/test_parser_grammar_pbt.py": {
+            "digest": "2b9dee633126d79d",
+            "prune": {
+                "*": 6
+            }
+        },
+        "posthog/hogql/test/test_parser_mode.py": {
+            "digest": "1a50a24293003dd1",
+            "prune": {
+                "*": 35
+            }
+        },
+        "posthog/hogql/test/test_parser_pbt.py": {
+            "digest": "08a86a86c9d04adf",
+            "prune": {
+                "*": 16
+            }
+        },
+        "posthog/hogql/test/test_parser_rust_json.py": {
+            "digest": "77f06b1192427732",
+            "prune": {
+                "*": 477
+            }
+        },
+        "posthog/hogql/test/test_parser_rust_py.py": {
+            "digest": "41b7d99dbfd79bf8",
+            "prune": {
+                "*": 477
+            }
+        },
+        "posthog/hogql/test/test_placeholders.py": {
+            "digest": "2164a537fa9839bc",
+            "prune": {
+                "*": 26
+            }
+        },
+        "posthog/hogql/test/test_property_skip_indexes.py": {
+            "digest": "a1bb67d86b14d769",
+            "prune": {
+                "TestPersonPropertySkipIndexes": 9
+            }
+        },
+        "posthog/hogql/test/test_query.py": {
+            "digest": "5435ab6692daf7ff",
+            "prune": {
+                "TestQuery::test_between_operators": 1,
+                "TestQuery::test_currency_conversion": 1,
+                "TestQuery::test_currency_conversion_with_string_date": 1,
+                "TestQuery::test_hogql_query_filters_session_date_range": 1,
+                "TestQuery::test_hogql_query_session_filters": 1,
+                "TestQuery::test_null_equality": 1,
+                "TestQuery::test_numbers_table": 1,
+                "TestQuery::test_query_distinct": 1,
+                "TestQuery::test_query_joins_pdi_person_properties": 1,
+                "TestQuery::test_query_joins_pdi_persons": 1,
+                "TestQuery::test_query_person_distinct_ids": 1
+            }
+        },
+        "posthog/hogql/test/test_query_stats.py": {
+            "digest": "35068e7f19c028e3",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/test/test_restricted_properties.py": {
+            "digest": "7867abbd5733b544",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql/test/test_timings.py": {
+            "digest": "f092c280badfa7b3",
+            "prune": {
+                "*": 6
+            }
+        },
+        "posthog/hogql/test/test_trino_corpus.py": {
+            "digest": "9296c8ac56996b28",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/hogql/test/test_trino_parameters.py": {
+            "digest": "5f285a62221d6bf1",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/hogql/test/test_trino_semantics.py": {
+            "digest": "1bb412f261911fdf",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/hogql/test/test_type_system.py": {
+            "digest": "f2a7338f52d1603d",
+            "prune": {
+                "*": 89
+            }
+        },
+        "posthog/hogql/test/test_utils.py": {
+            "digest": "2e79f3b301415e82",
+            "prune": {
+                "*": 277
+            }
+        },
+        "posthog/hogql/test/test_visitor.py": {
+            "digest": "a9ccee5834c08aed",
+            "prune": {
+                "*": 16
+            }
+        },
+        "posthog/hogql/test/test_warehouse_warnings.py": {
+            "digest": "b55f86d6720f1b49",
+            "prune": {
+                "*": 6
+            }
+        },
+        "posthog/hogql/test/test_workload.py": {
+            "digest": "89c3c22a8faac8d4",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/transforms/test/test_clickhouse_property_resolution.py": {
+            "digest": "85fa3c4632e90cd7",
+            "prune": {
+                "*": 9
+            }
+        },
+        "posthog/hogql/transforms/test/test_events_predicate_pushdown.py": {
+            "digest": "2c1a4040391d824d",
+            "prune": {
+                "TestEventsPredicatePushdownTransformUnit": 29,
+                "TestEventsSubexprHoister": 15,
+                "TestOuterWhereAssignment": 1
+            }
+        },
+        "posthog/hogql/transforms/test/test_events_read_in_order.py": {
+            "digest": "5a29e9c0162b675d",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/hogql/transforms/test/test_federated_join_merge.py": {
+            "digest": "4e62e89ae01c1d31",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql/transforms/test/test_json_property_pushdown.py": {
+            "digest": "cbfefa0e5ca89dbf",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql/transforms/test/test_order_by_pushdown.py": {
+            "digest": "e7ae9acc16ae8059",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/hogql/transforms/test/test_preaggregated_table_transformation.py": {
+            "digest": "5cd86dcee5a2ef47",
+            "prune": {
+                "*": 106
+            }
+        },
+        "posthog/hogql/transforms/test/test_projection_pushdown.py": {
+            "digest": "483779ef364671ad",
+            "prune": {
+                "*": 26
+            }
+        },
+        "posthog/hogql/transforms/test/test_property_types.py": {
+            "digest": "61dd9c8596e5625d",
+            "prune": {
+                "TestPropertyTypes::test_data_warehouse_person_property_types": 1,
+                "TestPropertyTypes::test_property_comparison_planner_blocks_datetime_minmax_until_source_type_matches": 1,
+                "TestPropertyTypes::test_property_comparison_planner_blocks_numeric_minmax_until_source_type_matches": 1,
+                "TestPropertyTypes::test_property_comparison_planner_respects_restricted_property_materialization": 1,
+                "TestTimezoneIndexPruning::test_alias_not_added_when_not_present": 1,
+                "TestTimezoneIndexPruning::test_alias_preserved_when_recursing_into_assumeNotNull": 1
+            }
+        },
+        "posthog/hogql/transforms/trino/test/test_manifest.py": {
+            "digest": "64658695d41954db",
+            "prune": {
+                "*": 57
+            }
+        },
+        "posthog/hogql/transforms/trino/test/test_type_inference.py": {
+            "digest": "22c634e195ee1aa7",
+            "prune": {
+                "*": 75
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_actors_property_taxonomy_query_runner.py": {
+            "digest": "b69759c28e169b1e",
+            "prune": {
+                "*": 4
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_ai_column_rewriter.py": {
+            "digest": "2b06e2be166de974",
+            "prune": {
+                "*": 29
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_ai_property_rewriter.py": {
+            "digest": "388efba90427079a",
+            "prune": {
+                "*": 20
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_ai_table_resolver.py": {
+            "digest": "6a66534fe1cddb7f",
+            "prune": {
+                "*": 11
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_sentiment_evaluations.py": {
+            "digest": "d7fb58220f998f30",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_session_query_runner.py": {
+            "digest": "84589b08c7704c51",
+            "prune": {
+                "TestSessionQueryRunner::test_does_not_fallback_to_events_without_date_range": 1,
+                "TestSessionQueryRunner::test_evaluation_mode_bounds_the_primary_query": 1,
+                "TestSessionQueryRunner::test_includes_sentiment_when_requested": 1,
+                "TestSessionQueryRunner::test_paginates_session_traces": 1
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_trace_neighbors_query_runner.py": {
+            "digest": "0c6d415b4023d9b1",
+            "prune": {
+                "TestTraceNeighborsQueryRunner::test_calendar_day_date_to_covers_the_whole_day": 1,
+                "TestTraceNeighborsQueryRunner::test_default_date_range_window": 1,
+                "TestTraceNeighborsQueryRunner::test_empty_trace_id_excluded": 1,
+                "TestTraceNeighborsQueryRunner::test_filter_support_traces": 1,
+                "TestTraceNeighborsQueryRunner::test_filter_test_accounts": 1,
+                "TestTraceNeighborsQueryRunner::test_finds_prev_and_next_traces": 1,
+                "TestTraceNeighborsQueryRunner::test_identical_timestamps_deterministic_ordering": 1,
+                "TestTraceNeighborsQueryRunner::test_multiple_event_types_in_trace": 1,
+                "TestTraceNeighborsQueryRunner::test_no_next_trace_when_last": 1,
+                "TestTraceNeighborsQueryRunner::test_no_prev_trace_when_first": 1,
+                "TestTraceNeighborsQueryRunner::test_property_filters": 1,
+                "TestTraceNeighborsQueryRunner::test_respects_date_range_filter": 1,
+                "TestTraceNeighborsQueryRunner::test_uses_max_timestamp_per_trace": 1
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_trace_query_runner.py": {
+            "digest": "5eecab1766312ebe",
+            "prune": {
+                "TestTraceQueryRunner::test_bound_events_to_date_range_holds_events_and_totals_to_date_to": 1,
+                "TestTraceQueryRunner::test_bound_events_to_date_range_keeps_the_whole_calendar_day": 1,
+                "TestTraceQueryRunner::test_capture_range": 1,
+                "TestTraceQueryRunner::test_capture_range_includes_long_running_trace": 1,
+                "TestTraceQueryRunner::test_date_range": 1,
+                "TestTraceQueryRunner::test_distinct_id_falls_back_without_trace_event": 1,
+                "TestTraceQueryRunner::test_distinct_id_prefers_trace_event": 1,
+                "TestTraceQueryRunner::test_embedding_events_in_trace": 1,
+                "TestTraceQueryRunner::test_embedding_only_trace_cost_aggregation": 1,
+                "TestTraceQueryRunner::test_fallback_to_events_when_ai_events_empty": 1,
+                "TestTraceQueryRunner::test_field_mapping": 1,
+                "TestTraceQueryRunner::test_full_trace": 1,
+                "TestTraceQueryRunner::test_latency_missing_intermediate_levels": 1,
+                "TestTraceQueryRunner::test_latency_mixed_span_id_presence": 1,
+                "TestTraceQueryRunner::test_latency_no_double_counting_when_parent_has_latency": 1,
+                "TestTraceQueryRunner::test_latency_no_parent_id_root_leaves": 1,
+                "TestTraceQueryRunner::test_latency_no_span_id_automatic_leaves": 1,
+                "TestTraceQueryRunner::test_latency_root_trace_event_reports_wall_clock": 1,
+                "TestTraceQueryRunner::test_maps_all_fields": 1,
+                "TestTraceQueryRunner::test_member_property_denial_survives_reconstruction_and_cache_0_trace": 1,
+                "TestTraceQueryRunner::test_member_property_denial_survives_reconstruction_and_cache_2_session": 1,
+                "TestTraceQueryRunner::test_mixed_type_parent_trace_comparison": 1,
+                "TestTraceQueryRunner::test_model_parameters": 1,
+                "TestTraceQueryRunner::test_overlap_semantics_trace_started_before_window": 1,
+                "TestTraceQueryRunner::test_person_properties": 1,
+                "TestTraceQueryRunner::test_removes_duplicate_events": 1,
+                "TestTraceQueryRunner::test_returns_metrics_and_feedback_events": 1,
+                "TestTraceQueryRunner::test_stored_sentiment_evaluation_lookup_is_opt_in": 1,
+                "TestTraceQueryRunner::test_stored_sentiment_evaluations_are_mapped_to_trace_and_generation": 1,
+                "TestTraceQueryRunner::test_sums_distinguish_reported_zero_from_no_report": 1,
+                "TestTraceQueryRunner::test_trace_name_fallback": 1,
+                "TestTraceQueryRunner::test_trace_name_fallback_when_no_trace_events": 1,
+                "TestTraceQueryRunner::test_trace_name_from_trace_event": 1,
+                "TestTraceQueryRunner::test_trace_name_when_no_names_exist": 1,
+                "TestTraceQueryRunner::test_trace_name_with_only_generation_events": 1
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_utils.py": {
+            "digest": "5df12ea3dcc47ba6",
+            "prune": {
+                "*": 30
+            }
+        },
+        "posthog/hogql_queries/ai/test/test_vector_search_query_runner.py": {
+            "digest": "644dc12fd66cc575",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/hogql_queries/endpoints/test/test_endpoints_usage_query_runners.py": {
+            "digest": "c2d337318f74f9f7",
+            "prune": {
+                "*": 34
+            }
+        },
+        "posthog/hogql_queries/groups/test/test_groups_query_runner.py": {
+            "digest": "f4abe54504439b4f",
+            "prune": {
+                "*": 17
+            }
+        },
+        "posthog/hogql_queries/legacy_compatibility/test/test_clean_properties.py": {
+            "digest": "8255f58f3682b8e9",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/hogql_queries/properties_timeline/test/test_query_date_range.py": {
+            "digest": "e4a0a8f94f29fa59",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/hogql_queries/test/test_access_controlled_resources.py": {
+            "digest": "806e2e80ff7fc6f4",
+            "prune": {
+                "*": 51
+            }
+        },
+        "posthog/hogql_queries/test/test_actor_strategies_personhog.py": {
+            "digest": "cfcf62bbc236c40c",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/hogql_queries/test/test_actors_query_runner.py": {
+            "digest": "4575d20a18a4db94",
+            "prune": {
+                "TestActorsQueryRunner::test_default_persons_query": 1,
+                "TestActorsQueryRunner::test_direct_actors_query_uses_latest_person_data_after_property_deletion": 1,
+                "TestActorsQueryRunner::test_filter_test_accounts_applies_only_person_scoped_filters_0_person_filter_on_excludes_internal": 1,
+                "TestActorsQueryRunner::test_filter_test_accounts_applies_only_person_scoped_filters_3_empty_test_account_filters_is_noop": 1,
+                "TestActorsQueryRunner::test_person_display_name_all_empty_strings_falls_back_to_id": 1,
+                "TestActorsQueryRunner::test_person_display_name_custom": 1,
+                "TestActorsQueryRunner::test_person_display_name_default": 1,
+                "TestActorsQueryRunner::test_person_display_name_empty_string_fallthrough_0_empty_first_prop_falls_through": 1,
+                "TestActorsQueryRunner::test_person_display_name_empty_string_fallthrough_1_non_empty_value_still_wins": 1,
+                "TestActorsQueryRunner::test_person_display_name_fallback": 1,
+                "TestActorsQueryRunner::test_person_display_name_with_spaces_in_property_name": 1,
+                "TestActorsQueryRunner::test_persons_query_aggregation_select_having": 1,
+                "TestActorsQueryRunner::test_persons_query_fixed_properties": 1,
+                "TestActorsQueryRunner::test_persons_query_grouping": 1,
+                "TestActorsQueryRunner::test_persons_query_limit": 1,
+                "TestActorsQueryRunner::test_persons_query_order_by": 1,
+                "TestActorsQueryRunner::test_persons_query_order_by_person_display_name": 1,
+                "TestActorsQueryRunner::test_persons_query_order_by_person_display_name_when_column_is_not_selected": 1,
+                "TestActorsQueryRunner::test_persons_query_order_by_virtual_property": 1,
+                "TestActorsQueryRunner::test_persons_query_order_by_with_aliases": 1,
+                "TestActorsQueryRunner::test_persons_query_properties": 1,
+                "TestActorsQueryRunner::test_persons_query_search_distinct_id": 1,
+                "TestActorsQueryRunner::test_persons_query_search_email": 1,
+                "TestActorsQueryRunner::test_persons_query_search_name": 1,
+                "TestActorsQueryRunner::test_persons_query_search_trims_whitespace": 1,
+                "TestActorsQueryRunner::test_select_property_name_with_spaces": 1
+            }
+        },
+        "posthog/hogql_queries/test/test_api_queries_budget.py": {
+            "digest": "0b7aab1515847f0f",
+            "prune": {
+                "*": 16
+            }
+        },
+        "posthog/hogql_queries/test/test_dashboard_filters_overrides.py": {
+            "digest": "b633c912d3a3a4d3",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/hogql_queries/test/test_document_embeddings_query_runner.py": {
+            "digest": "2f43045353016190",
+            "prune": {
+                "*": 4
+            }
+        },
+        "posthog/hogql_queries/test/test_events_dashboard_filters.py": {
+            "digest": "2933408bf174488f",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/hogql_queries/test/test_events_query_runner.py": {
+            "digest": "75ed6cea2b53bca2",
+            "prune": {
+                "TestEventsQueryRunner::test_restricted_event_property_in_select_raises_error": 1,
+                "TestEventsQueryRunner::test_users_with_different_restrictions_get_different_cache_keys": 1,
+                "TestEventsQueryRunner::test_users_without_restrictions_share_cache_key": 1
+            }
+        },
+        "posthog/hogql_queries/test/test_hogql_cohort_query.py": {
+            "digest": "b7a33ae409819b42",
+            "prune": {
+                "TestHogQLCohortQuery::test_filter_test_accounts_excludes_person_matches_and_tracks_team_settings": 1,
+                "TestHogQLCohortQuery::test_multiple_person_properties_optimization": 1,
+                "TestHogQLCohortQuery::test_multiple_person_properties_or_optimization": 1,
+                "TestHogQLCohortQuery::test_optimization_disabled_when_feature_flag_off": 1,
+                "TestHogQLCohortQuery::test_optimization_skipped_for_properties_with_negation": 1,
+                "TestHogQLCohortQuery::test_or_optimization_disabled_when_feature_flag_off": 1,
+                "TestHogQLCohortQuery::test_or_optimization_skipped_for_properties_with_negation": 1,
+                "TestHogQLCohortQuery::test_person_metadata_cohort_membership_end_to_end": 1,
+                "TestHogQLCohortQuery::test_person_metadata_cohort_membership_negated_end_to_end": 1,
+                "TestHogQLCohortQuery::test_static_cohort_condition_rejects_cross_project_cohort": 1
+            }
+        },
+        "posthog/hogql_queries/test/test_hogql_dashboard_filters.py": {
+            "digest": "92ee51c395952e0c",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/hogql_queries/test/test_hogql_query_runner.py": {
+            "digest": "7298dbaa138ddc26",
+            "prune": {
+                "TestHogQLQueryRunner::test_alert_explicit_limit_probes_one_extra_row_0": 1,
+                "TestHogQLQueryRunner::test_alert_explicit_limit_probes_one_extra_row_1": 1,
+                "TestHogQLQueryRunner::test_calculate_reports_modifiers_matching_its_shared_database": 1,
+                "TestHogQLQueryRunner::test_calculate_with_query_modifiers_matches_unthreaded_executor_sql": 1,
+                "TestHogQLQueryRunner::test_invalid_connection_id_raises_exposed_hogql_error": 1,
+                "TestHogQLQueryRunner::test_legacy_managed_cache_and_status_are_stable": 1,
+                "TestHogQLQueryRunner::test_managed_warehouse_cache_and_status_do_not_evaluate_a_feature_flag": 1,
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_0_top_level": 1,
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_1_subquery": 1,
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_2_select_set_outer": 1,
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_3_limit_by": 1,
+                "TestHogQLQueryRunner::test_query_service_rejects_offset_4_placeholder": 1,
+                "TestHogQLQueryRunner::test_query_service_runs_do_not_share_a_flight_with_app_runs": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_0_metrics": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_1_tables": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_2_relationships": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_3_columns": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_4_activity_logs": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_5_other_system_table": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_6_events": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_7_unparseable": 1,
+                "TestHogQLQueryRunner::test_requires_fresh_calculation_false_for_external_connection": 1,
+                "TestHogQLQueryRunner::test_send_raw_query_is_ignored_without_direct_connection": 1,
+                "TestHogQLQueryRunner::test_send_raw_query_uses_raw_query_string_for_direct_connections": 1,
+                "TestHogQLQueryRunner::test_soft_deleted_connection_id_raises_exposed_hogql_error": 1,
+                "TestHogQLQueryRunner::test_variables_in_hog_expression": 1
+            }
+        },
+        "posthog/hogql_queries/test/test_merge_filters_by_priority.py": {
+            "digest": "4b73d5ac9c9a025b",
+            "prune": {
+                "*": 41
+            }
+        },
+        "posthog/hogql_queries/test/test_paginators.py": {
+            "digest": "4f942deb438649c1",
+            "prune": {
+                "*": 35
+            }
+        },
+        "posthog/hogql_queries/test/test_personhog_routing.py": {
+            "digest": "0648540f06c797b4",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/hogql_queries/test/test_phase_times.py": {
+            "digest": "8e97c705d952a1c7",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql_queries/test/test_property_values_query_runner.py": {
+            "digest": "2882d5779fdb3584",
+            "prune": {
+                "TestPropertyValuesQueryRunner::test_person_property_values_basic": 1,
+                "TestPropertyValuesQueryRunner::test_person_property_values_distinct_id_search_1_matching_filter": 1,
+                "TestPropertyValuesQueryRunner::test_person_property_values_excludes_empty": 1,
+                "TestPropertyValuesQueryRunner::test_person_property_values_includes_count": 1,
+                "TestPropertyValuesQueryRunner::test_person_property_values_search_0_no_filter": 1,
+                "TestPropertyValuesQueryRunner::test_person_property_values_search_1_matching_filter": 1,
+                "TestPropertyValuesQueryRunner::test_person_property_values_search_2_non_matching_filter": 1,
+                "TestPropertyValuesQueryRunnerAggregatedTable::test_event_scoped_request_is_served_unscoped_from_table": 1,
+                "TestPropertyValuesQueryRunnerAggregatedTable::test_restricted_property_key_is_not_served": 1
+            }
+        },
+        "posthog/hogql_queries/test/test_query_failure_handling.py": {
+            "digest": "870be6a0e2354bb2",
+            "prune": {
+                "*": 45
+            }
+        },
+        "posthog/hogql_queries/test/test_query_metadata.py": {
+            "digest": "3dc15807e6adc1f9",
+            "prune": {
+                "*": 29
+            }
+        },
+        "posthog/hogql_queries/test/test_query_runner.py": {
+            "digest": "4dd7b6392bf868b1",
+            "prune": {
+                "TestApplySeriesCustomNames": 14,
+                "TestQueryFailureCaching": 16,
+                "TestQueryRunner::test_schema_change_triggers_recalculation": 1,
+                "TestQueryRunnerAccessControlFingerprint": 37,
+                "TestQueryRunnerRetentionTtl": 1,
+                "TestQuerySingleFlightRunner": 19,
+                "TestRunnersBuildDatabaseOnce::test_calculate_builds_database_once_via_shared_path_6_groups": 1,
+                "TestRunnersBuildDatabaseOnce::test_calculate_builds_database_once_via_shared_path_7_property_values": 1,
+                "TestSeriesCustomNameCaching": 5,
+                "TestSharedInsightsExecutionMode": 6
+            }
+        },
+        "posthog/hogql_queries/test/test_refresh_policy.py": {
+            "digest": "ca44c898749fee68",
+            "prune": {
+                "*": 15
+            }
+        },
+        "posthog/hogql_queries/test/test_serialized_actors.py": {
+            "digest": "754b72e5cbde52bd",
+            "prune": {
+                "*": 3
+            }
+        },
+        "posthog/hogql_queries/test/test_session_profile_query.py": {
+            "digest": "e65d0969745fc68d",
+            "prune": {
+                "*": 2
+            }
+        },
+        "posthog/hogql_queries/test/test_sessions_query_runner.py": {
+            "digest": "70684d87378db120",
+            "prune": {
+                "TestSessionsQueryRunner::test_anonymous_session_identified_later": 1,
+                "TestSessionsQueryRunner::test_anonymous_session_not_identified": 1,
+                "TestSessionsQueryRunner::test_arbitrary_person_property_field": 1,
+                "TestSessionsQueryRunner::test_arbitrary_person_property_orderby": 1,
+                "TestSessionsQueryRunner::test_arbitrary_person_property_with_comment": 1,
+                "TestSessionsQueryRunner::test_basic_sessions_query": 1,
+                "TestSessionsQueryRunner::test_filter_by_person_property": 1,
+                "TestSessionsQueryRunner::test_filter_by_person_property_icontains": 1,
+                "TestSessionsQueryRunner::test_filter_by_person_property_without_person_column": 1,
+                "TestSessionsQueryRunner::test_filter_by_session_properties": 1,
+                "TestSessionsQueryRunner::test_filter_test_accounts_with_person_property": 1,
+                "TestSessionsQueryRunner::test_orderby_person_display_name": 1,
+                "TestSessionsQueryRunner::test_person_display_name_combined_with_other_columns": 1,
+                "TestSessionsQueryRunner::test_person_display_name_empty_string_fallthrough_0_empty_first_prop_falls_through": 1,
+                "TestSessionsQueryRunner::test_person_display_name_empty_string_fallthrough_1_all_props_empty_falls_back_to_distinct_id": 1,
+                "TestSessionsQueryRunner::test_person_display_name_empty_string_fallthrough_2_non_empty_value_still_wins": 1,
+                "TestSessionsQueryRunner::test_person_display_name_fallback_to_distinct_id": 1,
+                "TestSessionsQueryRunner::test_person_display_name_field": 1,
+                "TestSessionsQueryRunner::test_person_display_name_multiple_persons": 1,
+                "TestSessionsQueryRunner::test_person_display_name_with_custom_properties": 1,
+                "TestSessionsQueryRunner::test_person_display_name_with_spaces_in_property_name": 1,
+                "TestSessionsQueryRunner::test_person_display_name_with_star_select": 1,
+                "TestSessionsQueryRunner::test_person_display_name_without_person_join_no_regression": 1,
+                "TestSessionsQueryRunner::test_person_property_combined_with_display_name": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_0_gt_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_1_gt_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_2_lt_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_3_lt_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_4_gte_match_greater": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_5_gte_match_equal": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_6_gte_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_7_lte_match_less": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_8_lte_match_equal": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_numeric_operators_9_lte_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_00_exact_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_01_exact_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_02_is_not_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_03_is_not_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_04_icontains_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_05_icontains_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_06_not_icontains_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_07_not_icontains_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_08_starts_with_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_09_starts_with_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_10_not_starts_with_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_11_not_starts_with_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_12_ends_with_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_13_ends_with_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_14_not_ends_with_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_15_not_ends_with_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_16_regex_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_17_regex_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_18_not_regex_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_19_not_regex_no_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_20_is_set_match": 1,
+                "TestSessionsQueryRunner::test_person_property_filter_operators_21_is_not_set_no_match": 1,
+                "TestSessionsQueryRunner::test_session_id_event_property_filter_empty_list_returns_no_sessions": 1,
+                "TestSessionsQueryRunner::test_session_id_event_property_filter_short_circuits_events_subquery": 1,
+                "TestSessionsQueryRunner::test_session_id_event_property_filter_with_list_values": 1,
+                "TestSessionsQueryRunner::test_session_property_column": 1,
+                "TestSessionsQueryRunner::test_session_property_with_person_property": 1,
+                "TestSessionsQueryRunner::test_sessions_date_range": 1,
+                "TestSessionsQueryRunner::test_sessions_limit_and_offset": 1,
+                "TestSessionsQueryRunner::test_sessions_with_aggregation": 1,
+                "TestSessionsQueryRunner::test_sessions_with_custom_order_by": 1,
+                "TestSessionsQueryRunner::test_sessions_with_session_duration": 1,
+                "TestSessionsQueryRunner::test_sessions_with_where_clause": 1,
+                "TestSessionsQueryRunner::test_unsupported_person_property_operator_raises_error": 1
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_aggregations.py": {
+            "digest": "83800bc5863e8b48",
+            "prune": {
+                "*": 15
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_breakdowns.py": {
+            "digest": "cd5758b8799666f5",
+            "prune": {
+                "*": 14
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_caller_context.py": {
+            "digest": "304ed73cc7e2681a",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_dashboard_filter_conflicts.py": {
+            "digest": "d29bc1bb3cd50b9f",
+            "prune": {
+                "*": 17
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_entities.py": {
+            "digest": "15c8dbfc9afa6e2b",
+            "prune": {
+                "*": 36
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_formula_ast.py": {
+            "digest": "cb665f07747c4ee9",
+            "prune": {
+                "*": 19
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_parallel.py": {
+            "digest": "bcf9a5eb78d8ed15",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_query_compare_to_date_range.py": {
+            "digest": "1c8f47411970735d",
+            "prune": {
+                "*": 7
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_query_date_range.py": {
+            "digest": "e3a931b47af86a14",
+            "prune": {
+                "*": 111
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_query_previous_period_date_range.py": {
+            "digest": "36178a64214e50a7",
+            "prune": {
+                "*": 22
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_sampling.py": {
+            "digest": "0b1d70d801aa7435",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_time_sliced_query.py": {
+            "digest": "25a80b0051eec65e",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/hogql_queries/utils/test/test_timestamp_utils.py": {
+            "digest": "6221182181c1385a",
+            "prune": {
+                "TestTimestampUtils::test_cached_raw_value_is_coerced_on_read": 1
+            }
+        },
+        "posthog/hogql_queries/validation/test_rules.py": {
+            "digest": "6149bdfa3d1c77ef",
+            "prune": {
+                "*": 21
+            }
+        },
+        "posthog/models/team/test_production_event_activation.py": {
+            "digest": "8ffc28998d331465",
+            "prune": {
+                "TestIsProductionHost": 64,
+                "TestMarkTeamsIngestedProductionEvent": 7
+            }
+        },
+        "posthog/models/test/test_async_deletion_model.py": {
+            "digest": "1a43bd5a6f8eb4e4",
+            "prune": {
+                "TestAsyncDeletion::test_a_team_scoped_key_sweeps_instead_of_raising": 1,
+                "TestAsyncDeletion::test_delete_cohortpeople": 1,
+                "TestAsyncDeletion::test_delete_cohortpeople_version": 1,
+                "TestAsyncDeletion::test_marking_verified_respects_the_versions_that_survive": 1
+            }
+        },
+        "posthog/models/test/test_deletion_targets.py": {
+            "digest": "4ceaa87e3ddce487",
+            "prune": {
+                "*": 6
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recording_list_from_query.py": {
+            "digest": "0989dbf70883edb1",
+            "prune": {
+                "TestClickhouseSessionRecordingsListFromQuery::test_backward_compatibility_offset_still_works": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_cursor_based_pagination_multiple_pages": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_cursor_based_pagination_single_page": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_cursor_pagination_with_different_ordering_fields": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_is_and_combined_with_or_operand": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_no_op_when_empty_0_empty_list": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_no_op_when_empty_1_none": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_paginates_over_filtered_set": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_ids_to_exclude_removes_those_sessions": 1,
+                "TestClickhouseSessionRecordingsListFromQuery::test_session_property_filter_is_applied_to_query": 1,
+                "TestSessionRecordingsListFromQuery_0::test_basic_query": 1,
+                "TestSessionRecordingsListFromQuery_0::test_basic_query_active_sessions": 1,
+                "TestSessionRecordingsListFromQuery_0::test_basic_query_with_ordering": 1,
+                "TestSessionRecordingsListFromQuery_0::test_basic_query_with_paging": 1,
+                "TestSessionRecordingsListFromQuery_0::test_bypass_does_not_apply_to_session_ids_derived_from_comment_search": 1,
+                "TestSessionRecordingsListFromQuery_0::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_0_default_date_range": 1,
+                "TestSessionRecordingsListFromQuery_0::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_1_explicit_narrow_date_range": 1,
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter": 1,
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter_respects_ttl_0_that_searching_from_28_days_ago_excludes_sessions_past_TTL": 1,
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter_respects_ttl_1_that_searching_from_29_days_ago_still_excludes_sessions_past_TTL": 1,
+                "TestSessionRecordingsListFromQuery_0::test_date_from_filter_respects_ttl_2_that_even_searching_from_30_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL": 1,
+                "TestSessionRecordingsListFromQuery_0::test_date_to_filter": 1,
+                "TestSessionRecordingsListFromQuery_0::test_date_window_still_excludes_old_recordings_without_session_ids": 1,
+                "TestSessionRecordingsListFromQuery_0::test_duration_always_anded_with_visited_page_under_or": 1,
+                "TestSessionRecordingsListFromQuery_0::test_duration_filter": 1,
+                "TestSessionRecordingsListFromQuery_0::test_duration_metrics_stay_in_valid_range_0_active_time_exceeds_span": 1,
+                "TestSessionRecordingsListFromQuery_0::test_duration_metrics_stay_in_valid_range_1_no_denominator": 1,
+                "TestSessionRecordingsListFromQuery_0::test_empty_session_ids_list_still_matches_nothing_0_default": 1,
+                "TestSessionRecordingsListFromQuery_0::test_empty_session_ids_list_still_matches_nothing_1_with_bypass": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_0_single_distinct_id": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_1_multiple_distinct_ids": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_2_non_existent_distinct_id": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_by_distinct_ids_3_empty_distinct_ids": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_snapshot_library": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_snapshot_source": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_visited_page": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_by_visited_page_negative_operator": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_errors": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_logs": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_logs_and_explicit_date_range": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_console_warns": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_for_recordings_with_mixed_console_counts": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_on_session_ids": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_users_from_excluded_cohort": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filter_users_from_excluded_cohort_no_events": 1,
+                "TestSessionRecordingsListFromQuery_0::test_filters_recommended_recordings_by_surfacing_score": 1,
+                "TestSessionRecordingsListFromQuery_0::test_first_url_selection": 1,
+                "TestSessionRecordingsListFromQuery_0::test_listing_ignores_future_replays": 1,
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_0::test_ordering": 1,
+                "TestSessionRecordingsListFromQuery_0::test_recording_property_in_properties_is_routed_to_having_predicates": 1,
+                "TestSessionRecordingsListFromQuery_0::test_recording_that_spans_time_bounds": 1,
+                "TestSessionRecordingsListFromQuery_0::test_recordings_dont_leak_data_between_teams": 1,
+                "TestSessionRecordingsListFromQuery_0::test_retention_bound_cannot_hide_live_recordings": 1,
+                "TestSessionRecordingsListFromQuery_0::test_session_ids_apply_date_window_by_default_0_default_date_range": 1,
+                "TestSessionRecordingsListFromQuery_0::test_session_ids_apply_date_window_by_default_1_explicit_narrow_date_range": 1,
+                "TestSessionRecordingsListFromQuery_0::test_session_ids_apply_date_window_by_default_2_window_covering_the_recording": 1,
+                "TestSessionRecordingsListFromQuery_0::test_sessions_with_current_data": 1,
+                "TestSessionRecordingsListFromQuery_1::test_basic_query": 1,
+                "TestSessionRecordingsListFromQuery_1::test_basic_query_active_sessions": 1,
+                "TestSessionRecordingsListFromQuery_1::test_basic_query_with_ordering": 1,
+                "TestSessionRecordingsListFromQuery_1::test_basic_query_with_paging": 1,
+                "TestSessionRecordingsListFromQuery_1::test_bypass_does_not_apply_to_session_ids_derived_from_comment_search": 1,
+                "TestSessionRecordingsListFromQuery_1::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_0_default_date_range": 1,
+                "TestSessionRecordingsListFromQuery_1::test_bypass_returns_explicitly_selected_sessions_regardless_of_date_window_1_explicit_narrow_date_range": 1,
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter": 1,
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter_respects_ttl_0_that_searching_from_28_days_ago_excludes_sessions_past_TTL": 1,
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter_respects_ttl_1_that_searching_from_29_days_ago_still_excludes_sessions_past_TTL": 1,
+                "TestSessionRecordingsListFromQuery_1::test_date_from_filter_respects_ttl_2_that_even_searching_from_30_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL": 1,
+                "TestSessionRecordingsListFromQuery_1::test_date_to_filter": 1,
+                "TestSessionRecordingsListFromQuery_1::test_date_window_still_excludes_old_recordings_without_session_ids": 1,
+                "TestSessionRecordingsListFromQuery_1::test_duration_always_anded_with_visited_page_under_or": 1,
+                "TestSessionRecordingsListFromQuery_1::test_duration_filter": 1,
+                "TestSessionRecordingsListFromQuery_1::test_duration_metrics_stay_in_valid_range_0_active_time_exceeds_span": 1,
+                "TestSessionRecordingsListFromQuery_1::test_duration_metrics_stay_in_valid_range_1_no_denominator": 1,
+                "TestSessionRecordingsListFromQuery_1::test_empty_session_ids_list_still_matches_nothing_0_default": 1,
+                "TestSessionRecordingsListFromQuery_1::test_empty_session_ids_list_still_matches_nothing_1_with_bypass": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_0_single_distinct_id": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_1_multiple_distinct_ids": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_2_non_existent_distinct_id": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_by_distinct_ids_3_empty_distinct_ids": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_lib_event_property_converts_to_snapshot_library": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_snapshot_library": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_snapshot_source": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_visited_page": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_by_visited_page_negative_operator": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_errors": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_logs": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_logs_and_explicit_date_range": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_console_warns": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_for_recordings_with_mixed_console_counts": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_on_session_ids": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_users_from_excluded_cohort": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filter_users_from_excluded_cohort_no_events": 1,
+                "TestSessionRecordingsListFromQuery_1::test_filters_recommended_recordings_by_surfacing_score": 1,
+                "TestSessionRecordingsListFromQuery_1::test_first_url_selection": 1,
+                "TestSessionRecordingsListFromQuery_1::test_listing_ignores_future_replays": 1,
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_": 1,
+                "TestSessionRecordingsListFromQuery_1::test_ordering": 1,
+                "TestSessionRecordingsListFromQuery_1::test_recording_property_in_properties_is_routed_to_having_predicates": 1,
+                "TestSessionRecordingsListFromQuery_1::test_recording_that_spans_time_bounds": 1,
+                "TestSessionRecordingsListFromQuery_1::test_recordings_dont_leak_data_between_teams": 1,
+                "TestSessionRecordingsListFromQuery_1::test_retention_bound_cannot_hide_live_recordings": 1,
+                "TestSessionRecordingsListFromQuery_1::test_session_ids_apply_date_window_by_default_0_default_date_range": 1,
+                "TestSessionRecordingsListFromQuery_1::test_session_ids_apply_date_window_by_default_1_explicit_narrow_date_range": 1,
+                "TestSessionRecordingsListFromQuery_1::test_session_ids_apply_date_window_by_default_2_window_covering_the_recording": 1,
+                "TestSessionRecordingsListFromQuery_1::test_sessions_with_current_data": 1
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recordings_list_by_cohort.py": {
+            "digest": "29ef7b82d768e655",
+            "prune": {
+                "TestSessionRecordingsListByCohort::test_cohort_filter_with_or_operand": 1,
+                "TestSessionRecordingsListByCohort::test_filter_with_cohort_properties": 1,
+                "TestSessionRecordingsListByCohort::test_filter_with_cohort_when_distinct_id_has_multiple_person_ids": 1,
+                "TestSessionRecordingsListByCohort::test_filter_with_static_and_dynamic_cohort_properties": 1,
+                "TestSessionRecordingsListByCohort::test_internal_account_filter_with_cohort_properties": 1,
+                "TestSessionRecordingsListByCohort::test_multiple_not_in_cohorts": 1,
+                "TestSessionRecordingsListByCohort::test_not_in_cohort_with_empty_cohort": 1,
+                "TestSessionRecordingsListByCohort::test_not_in_cohort_with_many_users_outside_cohort": 1
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recordings_list_by_experiment_exposure.py": {
+            "digest": "2f365222ce431316",
+            "prune": {
+                "TestSessionRecordingsListByExperimentExposure::test_activation_live_scan_is_memory_bounded_and_memory_kills_keep_their_rendering": 1,
+                "TestSessionRecordingsListByExperimentExposure::test_in_session_stamped_fallback_is_refused_on_precomputing_teams": 1,
+                "TestSessionRecordingsListByExperimentExposure::test_list_endpoint_scope_parity_for_api_keys_0_replay_scope_only": 1,
+                "TestSessionRecordingsListByExperimentExposure::test_list_endpoint_scope_parity_for_api_keys_2_no_filter_needs_no_experiment_scope": 1,
+                "TestSessionRecordingsListByExperimentExposure::test_playlist_recordings_endpoint_scope_parity_for_api_keys_2_no_filter_needs_no_experiment_scope": 1,
+                "TestSessionRecordingsListByExperimentExposure::test_query_endpoint_scope_parity_for_api_keys_2_no_filter_needs_no_experiment_scope": 1
+            }
+        },
+        "posthog/session_recordings/queries/test/listing_recordings/test_session_recordings_query_date_range.py": {
+            "digest": "fa62cbaaaf0a1e07",
+            "prune": {
+                "*": 5
+            }
+        },
+        "posthog/session_recordings/queries/test/test_combine_session_ids.py": {
+            "digest": "97332b6b58acb1c0",
+            "prune": {
+                "*": 11
+            }
+        },
+        "posthog/session_recordings/queries/test/test_group_key_resolver.py": {
+            "digest": "ce21b1b68e100da6",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/session_recordings/queries/test/test_recordings_query_runner.py": {
+            "digest": "c806dc07f7d14857",
+            "prune": {
+                "*": 8
+            }
+        },
+        "posthog/session_recordings/queries/test/test_session_replay_events.py": {
+            "digest": "dff8b5d183100cb3",
+            "prune": {
+                "SessionReplayEventsQueries::test_get_group_metadata": 1,
+                "SessionReplayEventsQueries::test_get_group_metadata_handles_nonexistent_sessions": 1,
+                "SessionReplayEventsQueries::test_get_metadata": 1,
+                "SessionReplayEventsQueries::test_get_metadata_does_not_leak_between_teams": 1,
+                "SessionReplayEventsQueries::test_get_metadata_filters_by_date": 1,
+                "SessionReplayEventsQueries::test_get_metadata_with_block": 1,
+                "SessionReplayEventsQueries::test_get_metadata_with_multiple_blocks": 1,
+                "SessionReplayEventsQueries::test_get_nonexistent_metadata": 1,
+                "SessionReplayEventsQueries::test_sessions_found_with_timestamps_empty_list": 1,
+                "SessionReplayEventsQueries::test_sessions_found_with_timestamps_no_matches": 1,
+                "TestBatchExists": 1,
+                "TestSessionLookupUsesUuidv7Bound": 3,
+                "TestUuidv7SessionLowerBound": 5
+            }
+        },
+        "posthog/session_recordings/queries/test/test_session_replay_summaries.py": {
+            "digest": "7a58f6c0e06ef9e8",
+            "prune": {
+                "*": 1
+            }
+        },
+        "posthog/session_recordings/queries/test/test_strip_properties.py": {
+            "digest": "e891f8f4a5e45ebc",
+            "prune": {
+                "*": 10
+            }
+        },
+        "posthog/tasks/test/test_ai_observability_usage_report.py": {
+            "digest": "c563ae5b5f744cfc",
+            "prune": {
+                "TestAIObservabilityUsageReport::test_send_ai_observability_usage_reports_disabled_by_feature_flag": 1,
+                "TestAIObservabilityUsageReportTaskWiring": 13
+            }
+        },
+        "posthog/tasks/test/test_stop_surveys_reached_target.py": {
+            "digest": "629fd6bebc9a814a",
+            "prune": {
+                "TestStopSurveysReachedTarget::test_do_not_stop_already_stopped_survey_with_responses_limit": 1,
+                "TestStopSurveysReachedTarget::test_do_not_stop_survey_without_limit": 1
+            }
+        },
+        "posthog/tasks/test/test_usage_report.py": {
+            "digest": "0aab181b4901847c",
+            "prune": {
+                "TestAICreditsRegionHandling": 2,
+                "TestAIEventsUsageReport::test_ai_credits_returns_no_rows_when_instance_group_missing": 1,
+                "TestAIEventsUsageReport::test_has_non_zero_usage_counts_posthog_code_credits": 1,
+                "TestAIEventsUsageReport::test_has_non_zero_usage_counts_signals_credits": 1,
+                "TestAIEventsUsageReport::test_signals_credits_bills_reports_with_implementation_pr": 1,
+                "TestCalendarAlignedQuerySplitting": 2,
+                "TestCaptureReportGroupProperties": 1,
+                "TestCaptureReportTrimsOversizePayload": 1,
+                "TestHasNonZeroUsage": 3,
+                "TestHogFunctionUsageReports::test_sdk_logs_counts_respect_period_and_team_0_aligned": 1,
+                "TestHogFunctionUsageReports::test_sdk_logs_counts_respect_period_and_team_1_partial_buckets": 1,
+                "TestHogQLUsageReport": 2,
+                "TestPostHogCodeComputeUsageReport": 4,
+                "TestQuerySplitting::test_execute_split_query_splits_correctly": 1,
+                "TestQuerySplitting::test_execute_split_query_with_custom_combiner": 1,
+                "TestQuerySplitting::test_split_query_with_different_num_splits": 1,
+                "TestQueryUsageReportSQL": 4,
+                "TestSendUsage::test_capture_event_called_with_string_timestamp": 1,
+                "TestSendUsage::test_capture_event_skips_group_identify_without_group_properties": 1,
+                "TestSendUsageNoLicense::test_get_teams_for_usage_reports_only_fields": 1,
+                "TestTaskSandboxUsageReport": 2,
+                "TestTrimOversizeUsageReportPayload": 2
+            }
+        },
+        "posthog/temporal/tests/test_clickhouse.py": {
+            "digest": "6faf05ab510b3c40",
+            "prune": {
+                "*": 49
+            }
+        },
+        "products/ai_observability/backend/api/test/test_personal_spend.py": {
+            "digest": "527ccd4332735ecb",
+            "prune": {
+                "TestPersonalSpendAuth": 2,
+                "TestPersonalSpendEUProxy": 11,
+                "TestPersonalSpendEuRedirect": 2,
+                "TestPersonalSpendQueries::test_cache_key_includes_date_from": 1
+            }
+        },
+        "products/batch_exports/backend/tests/api/test_serializers.py": {
+            "digest": "4b19cecf5d6a3cd0",
+            "prune": {
+                "*": 24
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/destinations/test_http_batch_export_workflow.py": {
+            "digest": "1b3b5fc22c8d9cde",
+            "prune": {
+                "test_http_export_workflow[None-day]": 1,
+                "test_http_export_workflow[None-hour]": 1,
+                "test_http_export_workflow[exclude_events1-day]": 1,
+                "test_http_export_workflow[exclude_events1-hour]": 1,
+                "test_http_export_workflow_handles_cancellation": 1,
+                "test_http_export_workflow_handles_insert_activity_errors": 1,
+                "test_http_export_workflow_handles_insert_activity_non_retryable_errors": 1,
+                "test_http_export_workflow_with_model[None]": 1,
+                "test_http_export_workflow_with_model[batch_export_model1]": 1,
+                "test_http_export_workflow_with_model[batch_export_model2]": 1,
+                "test_http_export_workflow_with_model[batch_export_model3]": 1,
+                "test_http_export_workflow_with_model[batch_export_model4]": 1,
+                "test_http_export_workflow_with_model[batch_export_model5]": 1,
+                "test_http_export_workflow_with_model[batch_export_model6]": 1,
+                "test_insert_into_http_activity_heartbeats": 1,
+                "test_insert_into_http_activity_preserves_mutation_properties_when_using_native_events": 1
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/pipeline/test_internal_stage.py": {
+            "digest": "26c67796ac089fc5",
+            "prune": {
+                "test_afetch_last_run_records_completed": 1,
+                "test_afetch_last_run_records_completed_ignores_runs_older_than": 1,
+                "test_afetch_last_run_records_completed_matching_interval_duration": 1,
+                "test_afetch_last_run_records_completed_no_runs": 1,
+                "test_afetch_last_run_records_completed_none_duration_skips_frequency_check": 1,
+                "test_afetch_last_run_records_completed_relative_to_interval": 1,
+                "test_compute_num_partitions_db_error_falls_back_to_static_default": 1,
+                "test_execute_query_still_cancels_when_the_kill_fails": 1,
+                "test_insert_into_stage_activity_applies_settings_and_log_comment[events]": 1,
+                "test_insert_into_stage_activity_applies_settings_and_log_comment[persons]": 1,
+                "test_insert_into_stage_activity_applies_settings_and_log_comment[sessions]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-False-model0-day-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-False-model0-day-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-False-model0-every 5 minutes-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-False-model0-every 5 minutes-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-True-model0-day-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-True-model0-day-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-True-model0-every 5 minutes-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-False-True-model0-every 5 minutes-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-False-model0-day-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-False-model0-day-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-False-model0-every 5 minutes-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-False-model0-every 5 minutes-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-True-model0-day-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-True-model0-day-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-True-model0-every 5 minutes-False]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_events_model[data_interval_end0-True-True-model0-every 5 minutes-True]": 1,
+                "test_insert_into_stage_activity_executes_the_expected_query_for_sessions_model[data_interval_end0-model0-day]": 1,
+                "test_insert_into_stage_activity_for_events_model[data_interval_end0-model0-None-day]": 1,
+                "test_insert_into_stage_activity_for_events_model[data_interval_end0-model0-None-every 5 minutes]": 1,
+                "test_insert_into_stage_activity_for_events_model[data_interval_end0-model0-exclude_events1-day]": 1,
+                "test_insert_into_stage_activity_for_events_model[data_interval_end0-model0-exclude_events1-every 5 minutes]": 1,
+                "test_insert_into_stage_activity_for_persons_model[False-data_interval_end0-model0-day]": 1,
+                "test_insert_into_stage_activity_for_persons_model[True-data_interval_end0-model0-day]": 1,
+                "test_insert_into_stage_activity_reports_records_total_for_events_model[data_interval_end0-model0-day]": 1,
+                "test_insert_into_stage_activity_uses_static_default_without_previous_run[data_interval_end0-model0-day]": 1,
+                "test_insert_into_stage_activity_writes_dynamic_number_of_files[data_interval_end0-model0-day]": 1
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/test_batch_exports.py": {
+            "digest": "5f51d2c3542bfcf0",
+            "prune": {
+                "test_iter_records_can_exclude_events": 1,
+                "test_iter_records_can_include_events": 1
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/test_filters.py": {
+            "digest": "82a9a8f7478c8842",
+            "prune": {
+                "*": 19
+            }
+        },
+        "products/batch_exports/backend/tests/temporal/test_record_batch_model.py": {
+            "digest": "1a8f8531502a8161",
+            "prune": {
+                "TestHogQLQueryRecordBatchModel::test_rechecks_user_property_restrictions_at_runtime[False]": 1,
+                "TestSessionsRecordBatchModel": 7,
+                "test_custom_export_recompilation_preserves_column_names[False]": 1,
+                "test_custom_export_recompilation_preserves_column_names[True]": 1
+            }
+        },
+        "products/batch_exports/backend/tests/test_hogql_source.py": {
+            "digest": "a624a2ad7a72175a",
+            "prune": {
+                "test_rejects_unsupported_queries[expression-placeholder]": 1,
+                "test_rejects_unsupported_queries[filters-placeholder]": 1,
+                "test_rejects_unsupported_queries[unaliased-expression]": 1,
+                "test_rejects_unsupported_queries[unknown-field-in-placeholder-comparison]": 1,
+                "test_rejects_unsupported_queries[unknown-field]": 1,
+                "test_rejects_unsupported_queries[unknown-placeholder]": 1
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_account_audience.py": {
+            "digest": "09797da0a27864f3",
+            "prune": {
+                "*": 17
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_accounts_query_runner.py": {
+            "digest": "32b19dfbe761299c",
+            "prune": {
+                "*": 57
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_accounts_table_query_runner.py": {
+            "digest": "5dac24f6e09e2309",
+            "prune": {
+                "*": 57
+            }
+        },
+        "products/customer_analytics/backend/hogql_queries/test/test_usage_metrics_query_runner.py": {
+            "digest": "a5e5b2fb8f3d8d93",
+            "prune": {
+                "TestUsageMetricsQueryRunner::test_handles_failed_metric_gracefully": 1,
+                "TestUsageMetricsQueryRunner::test_no_metrics": 1,
+                "TestUsageMetricsQueryRunner::test_sum_math_with_null_math_property_returns_zero": 1,
+                "TestUsageMetricsQueryRunnerDataWarehouse::test_cache_invalidates_when_data_warehouse_field_edited": 1,
+                "TestUsageMetricsQueryRunnerDataWarehouse::test_data_warehouse_count_metric": 1,
+                "TestUsageMetricsQueryRunnerDataWarehouse::test_data_warehouse_sum_metric": 1
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_fingerprint_projection_query_runner.py": {
+            "digest": "d5f2fc1068299ccc",
+            "prune": {
+                "*": 8
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_pending_fingerprint_issue_state_updates.py": {
+            "digest": "4904537ba7084917",
+            "prune": {
+                "*": 5
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_query_runner.py": {
+            "digest": "b51bd99d73081a24",
+            "prune": {
+                "TestErrorTrackingQueryRunner::test_cache_payload_degrades_when_watermark_read_fails": 1,
+                "TestErrorTrackingQueryRunner::test_cache_payload_keeps_latest_issue_state_watermark_after_overlay_expiry": 1,
+                "TestErrorTrackingQueryRunner::test_canonicalizes_uuid_params": 1,
+                "TestErrorTrackingQueryRunner::test_date_range_resolution": 1,
+                "TestErrorTrackingQueryRunner::test_date_to_only_window_ends_at_date_to": 1,
+                "TestErrorTrackingQueryRunner::test_distinct_aggregations_are_capped_at_occurrences_0_optimized_shape": 1,
+                "TestErrorTrackingQueryRunner::test_distinct_aggregations_are_capped_at_occurrences_1_legacy_shape": 1,
+                "TestErrorTrackingQueryRunner::test_event_fetching_defaults_off": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_00_exact_single": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_01_exact_multiple": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_02_is_not_single": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_03_is_not_multiple": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_04_icontains": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_05_not_icontains": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_06_starts_with": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_07_not_starts_with": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_08_ends_with": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_09_not_ends_with": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_10_is_set": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_11_is_not_set": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_12_description_key_alias": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_13_first_seen_gt": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_14_first_seen_gte": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_15_first_seen_lt": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_16_first_seen_lte": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_17_first_seen_is_date_after": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_18_first_seen_is_date_before": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_19_first_seen_exact_single": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_20_first_seen_exact_multiple": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_21_description_key": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_22_unsupported_operator": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_23_unsupported_key": 1,
+                "TestErrorTrackingQueryRunner::test_issue_filter_operator_mapping_24_empty_value": 1,
+                "TestErrorTrackingQueryRunner::test_missing_date_from_defaults_to_seven_days": 1,
+                "TestErrorTrackingQueryRunner::test_recent_issue_state_is_scoped_to_team": 1,
+                "TestErrorTrackingQueryRunner::test_recent_issue_state_skips_overlay_when_bound_exceeded": 1,
+                "TestErrorTrackingQueryRunner::test_rejects_malformed_uuid_params_0_issueId": 1,
+                "TestErrorTrackingQueryRunner::test_rejects_malformed_uuid_params_1_personId": 1,
+                "TestErrorTrackingQueryRunner::test_requires_error_tracking_viewer_access": 1,
+                "TestErrorTrackingQueryRunner::test_similar_issues_ignores_another_teams_fingerprint_row": 1,
+                "TestErrorTrackingQueryRunner::test_similar_issues_rejects_malformed_issue_id": 1,
+                "TestErrorTrackingQueryRunner::test_watermark_decides_whether_the_overlay_reads_0_within_window": 1,
+                "TestErrorTrackingQueryRunner::test_watermark_decides_whether_the_overlay_reads_1_outside_window": 1,
+                "TestSearchTokenizer": 1
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_error_tracking_releases_query_runner.py": {
+            "digest": "11903ad5fbc0ecf0",
+            "prune": {
+                "TestErrorTrackingReleasesQueryRunner::test_flags_a_release_count_the_query_capped": 1
+            }
+        },
+        "products/error_tracking/backend/hogql_queries/test/test_query_schema_compat.py": {
+            "digest": "f59f289f63adbe65",
+            "prune": {
+                "*": 2
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/adapters/test_apple_search_ads.py": {
+            "digest": "3571044f9be7106c",
+            "prune": {
+                "*": 8
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/adapters/test_campaign_field_preferences.py": {
+            "digest": "8d7058200f65bcf5",
+            "prune": {
+                "*": 12
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/adapters/test_factory.py": {
+            "digest": "60ae83221cdd818f",
+            "prune": {
+                "*": 38
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_adapters.py": {
+            "digest": "61ff0dad516e84fd",
+            "prune": {
+                "*": 123
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_attribution_sessions_read.py": {
+            "digest": "f8dc58848bbb9d8b",
+            "prune": {
+                "*": 28
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_constants.py": {
+            "digest": "054c98bbbdc0131a",
+            "prune": {
+                "*": 70
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_conversion_goal_processor.py": {
+            "digest": "6b68429914eeb16a",
+            "prune": {
+                "TestConversionGoalProcessor::test_data_warehouse_node_empty_utm_falls_back_to_organic": 1
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_conversion_goal_processor_refactor.py": {
+            "digest": "1eb12fb28e5117c7",
+            "prune": {
+                "*": 19
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_custom_source_mappings_integration.py": {
+            "digest": "a672daa9d4c0556e",
+            "prune": {
+                "*": 5
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_aggregated_query_runner.py": {
+            "digest": "93c3319ae8bcba96",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_base_query_runner.py": {
+            "digest": "46d02ca918ab1adf",
+            "prune": {
+                "*": 10
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_config.py": {
+            "digest": "7f1aaa813f79c8f4",
+            "prune": {
+                "*": 8
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_table_query_runner.py": {
+            "digest": "8a23fd64bb3d9975",
+            "prune": {
+                "TestMarketingAnalyticsTableQueryRunner::test_channel_drill_down_classifies_adapter_source_03_instagram": 1,
+                "TestMarketingAnalyticsTableQueryRunner::test_channel_source_drill_down_keeps_sources_separate_within_a_channel": 1,
+                "TestMarketingAnalyticsTableQueryRunner::test_channel_source_drill_down_surfaces_untagged_traffic": 1,
+                "TestMarketingAnalyticsTableQueryRunner::test_drill_down_calculate_returns_valid_response_1_channel_source": 1
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_table_query_runner_business.py": {
+            "digest": "ff03f6d0f7ab6358",
+            "prune": {
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_basic_query_execution_no_sources": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_comprehensive_marketing_analytics_basic": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_cost_efficiency_analysis": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_date_range_filtering": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_facebook_ads_single_source_execution": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_facebook_only_multi_source_execution": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_multi_source_business_metrics_validation": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_pagination_basic": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_pagination_edge_cases": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_query_performance_multi_source": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_query_performance_single_source": 1,
+                "TestMarketingAnalyticsTableQueryRunnerBusiness::test_zero_cost_campaigns_handling": 1,
+                "test_campaign_performance_ranking[campaign-order_by3-False]": 1,
+                "test_campaign_performance_ranking[clicks-order_by1-True]": 1,
+                "test_campaign_performance_ranking[cost-order_by0-True]": 1,
+                "test_campaign_performance_ranking[impressions-order_by2-True]": 1
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_table_query_runner_compare.py": {
+            "digest": "cb7a931a38c49a5a",
+            "prune": {
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_basic_query_execution_no_sources": 1,
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_comprehensive_marketing_analytics_basic": 1,
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_invalid_source_map_configuration": 1,
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_multi_source_business_metrics_validation_with_compare": 1,
+                "TestMarketingAnalyticsTableQueryRunnerCompare::test_pagination_edge_cases": 1
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_analytics_telemetry.py": {
+            "digest": "f5ae6f584ff98e69",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_costs_precompute.py": {
+            "digest": "0498b06987c82e3d",
+            "prune": {
+                "*": 10
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_lazy_precompute.py": {
+            "digest": "0df9538c37ed3a54",
+            "prune": {
+                "*": 15
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_marketing_retention_query_runner.py": {
+            "digest": "d6bd5cf03565ceb8",
+            "prune": {
+                "TestMarketingAnalyticsRetentionQueryRunner::test_an_inverted_date_range_returns_an_empty_table_instead_of_raising_0_session_outside_the_aligned_window": 1,
+                "TestMarketingAnalyticsRetentionQueryRunner::test_an_inverted_date_range_returns_an_empty_table_instead_of_raising_1_session_inside_the_aligned_window": 1
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_query_settings.py": {
+            "digest": "734dc46fd2403753",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/marketing_analytics/backend/hogql_queries/test_utils.py": {
+            "digest": "97a37b797f9d410a",
+            "prune": {
+                "*": 7
+            }
+        },
+        "products/mcp_analytics/backend/tests/test_dashboard_series.py": {
+            "digest": "5f05cf2539a5ec39",
+            "prune": {
+                "TestMCPDashboardSeriesGate::test_query_endpoint_scope_parity_for_api_keys_00_MCPMissingCapabilitiesQuery": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_aggregation_operations.py": {
+            "digest": "39414e2a4e0c0741",
+            "prune": {
+                "*": 12
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_correlation.py": {
+            "digest": "e3745849ab8933b1",
+            "prune": {
+                "TestClickhouseFunnelCorrelation::test_correlation_with_properties_raises_validation_error": 1,
+                "TestCorrelationFunctions": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_data_warehouse.py": {
+            "digest": "af0605f28ec997f4",
+            "prune": {
+                "TestFunnelDataWarehouse::test_data_warehouse_trends_days_of_week_filters_entrances_0_mondays_only": 1,
+                "TestFunnelDataWarehouse::test_data_warehouse_trends_days_of_week_filters_entrances_1_empty_means_unfiltered": 1,
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse": 1,
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_decimal_id_column": 1,
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_first_time_for_user": 1,
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_non_uuid_id_column": 1,
+                "TestFunnelDataWarehouse::test_funnels_data_warehouse_non_uuid_id_column_with_nulls": 1,
+                "TestFunnelDataWarehouse::test_funnels_different_tables_same_config_do_not_share_step_filters": 1,
+                "TestFunnelDataWarehouse::test_funnels_first_time_for_user_two_different_tables": 1,
+                "TestFunnelDataWarehouse::test_funnels_salesforce_lead_to_opportunity": 1,
+                "TestFunnelDataWarehouse::test_funnels_same_data_warehouse_table_different_timestamp_fields": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_event_query.py": {
+            "digest": "861ccca55c469636",
+            "prune": {
+                "*": 20
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_time_to_convert_bins.py": {
+            "digest": "6a4d8fdab1a10ab3",
+            "prune": {
+                "*": 5
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_unordered.py": {
+            "digest": "46a78f223934486b",
+            "prune": {
+                "TestFunnelUnorderedStepsBreakdown::test_funnel_step_breakdown_with_step_one_attribution": 1,
+                "TestFunnelUnorderedStepsBreakdown::test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnel_validation_rules.py": {
+            "digest": "4de7ec7e57758e2c",
+            "prune": {
+                "*": 19
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_funnels_query_runner.py": {
+            "digest": "254b1440521cda3b",
+            "prune": {
+                "*": 8
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/funnels/test/test_utils.py": {
+            "digest": "f6d8fec257f0ee01",
+            "prune": {
+                "*": 13
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_data_warehouse.py": {
+            "digest": "c0e0edfcb6a78719",
+            "prune": {
+                "*": 9
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_endpoint_contract.py": {
+            "digest": "c1863e8b9601c515",
+            "prune": {
+                "*": 2
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_query_runner_filters.py": {
+            "digest": "a834f16dfdeeb061",
+            "prune": {
+                "*": 7
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/lifecycle/test/test_lifecycle_validation_rules.py": {
+            "digest": "cca98f899a444b44",
+            "prune": {
+                "*": 2
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner.py": {
+            "digest": "70a75f5457054570",
+            "prune": {
+                "TestPathsDashboardFilters": 4
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths/test/test_paths_query_runner_ee.py": {
+            "digest": "982d8368f643c45b",
+            "prune": {
+                "TestClickhousePathsEdgeValidation": 4
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths_v2/test/test_funnel_converter.py": {
+            "digest": "164fe2cc5a7cf25f",
+            "prune": {
+                "TestEdgeToFunnelsQuery": 5
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths_v2/test/test_paths_v2_actors.py": {
+            "digest": "708cb04683dbc709",
+            "prune": {
+                "TestPathsV2ActorsValidation": 10
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/paths_v2/test/test_paths_v2_query_runner.py": {
+            "digest": "c65bc22f64e0fa98",
+            "prune": {
+                "TestPathsV2FilterConstraints": 9,
+                "TestPathsV2Validation": 23
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_data_warehouse.py": {
+            "digest": "a389debbb444d290",
+            "prune": {
+                "TestRetentionDataWarehouse::test_non_datetime_timestamp_field_is_rejected_0_integer": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_actor_query_maps_back_to_actors_0_person": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_actor_query_maps_back_to_actors_1_group": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_breakdown_by_cohort": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_breakdown_by_person_property": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_breakdown_by_warehouse_column": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_different_tables": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_event_property_breakdown_degrades_to_empty_bucket": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_different_tables": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_same_table_0_sum": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_same_table_1_avg": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_property_aggregation_same_table_different_events": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_return_event_with_minimum_occurrences": 1,
+                "TestRetentionDataWarehouse::test_retention_data_warehouse_same_table": 1,
+                "TestRetentionDataWarehouse::test_retention_first_time_dwh_excludes_anchor_before_window": 1,
+                "TestRetentionDataWarehouse::test_retention_first_time_dwh_property_aggregation_different_events": 1,
+                "TestRetentionDataWarehouse::test_retention_first_time_vs_first_ever_dwh_property_aggregation_same_entity": 1,
+                "TestRetentionDataWarehouse::test_retention_first_time_vs_first_ever_dwh_same_table": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_data_warehouse_24h_window.py": {
+            "digest": "6a2a0ccef06a0a7a",
+            "prune": {
+                "TestRetentionDataWarehouse24hWindow::test_actors_query_filters_to_selected_interval_24h_window": 1,
+                "TestRetentionDataWarehouse24hWindow::test_first_time_dwh_start_excludes_anchor_before_window_24h": 1,
+                "TestRetentionDataWarehouse24hWindow::test_first_time_modes_dwh_start_24h_window_0_retention_first_ever_occurrence": 1,
+                "TestRetentionDataWarehouse24hWindow::test_first_time_modes_dwh_start_24h_window_1_retention_first_time": 1,
+                "TestRetentionDataWarehouse24hWindow::test_same_table_dwh_start_and_return_24h_window": 1,
+                "TestRetentionDataWarehouse24hWindow::test_two_different_dwh_tables_24h_window": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_endpoint_contract.py": {
+            "digest": "954146f290abbfcd",
+            "prune": {
+                "*": 2
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_first_time_anchor.py": {
+            "digest": "7b4421e607acc863",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_query_runner.py": {
+            "digest": "ee4f3700442c3342",
+            "prune": {
+                "TestRetention::test_cohort_filter_optimization_with_cohort_breakdown": 1,
+                "TestRetention::test_cohort_filter_optimization_with_dashboard_filters": 1,
+                "TestRetention::test_cohort_filter_optimization_with_nested_properties": 1,
+                "TestRetention::test_cohort_filter_optimization_with_property_filter": 1,
+                "TestRetentionFirstTimeTwoArmScan": 8
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_query_runner_filters.py": {
+            "digest": "6913ee46c1be7b0a",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_utils.py": {
+            "digest": "f6c64dae237049d1",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/retention/test/test_retention_validation_rules.py": {
+            "digest": "753864854b0915e8",
+            "prune": {
+                "*": 43
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/stickiness/test/test_stickiness_query_runner.py": {
+            "digest": "55fbc7d853415e94",
+            "prune": {
+                "TestStickinessDashboardFilters": 5,
+                "TestStickinessQueryRunner::test_stickiness_data_warehouse": 1,
+                "TestStickinessQueryRunner::test_stickiness_data_warehouse_uses_configured_timestamp_field": 1,
+                "TestStickinessQueryRunner::test_stickiness_data_warehouse_with_entity_property_filter": 1,
+                "TestStickinessSeriesCustomNames": 2,
+                "TestStickinessSeriesFanOut": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_aggregation_operations.py": {
+            "digest": "5604e25d65c5629f",
+            "prune": {
+                "*": 94
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_boxplot_trends_query_runner.py": {
+            "digest": "30b8a5c8f900ce35",
+            "prune": {
+                "TestBoxPlotTrendsQueryRunnerDataWarehouse": 2
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_breakdown_limits.py": {
+            "digest": "90098ef2525e247d",
+            "prune": {
+                "*": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_math_property_revenue_currency_timestamp.py": {
+            "digest": "c718d04e96a8c4be",
+            "prune": {
+                "*": 3
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_session_level_aggregation.py": {
+            "digest": "a2cd7cd4eb98ee21",
+            "prune": {
+                "*": 5
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trend_validation_rules.py": {
+            "digest": "a4a076cf53e25bd9",
+            "prune": {
+                "*": 37
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends.py": {
+            "digest": "ff3a6b1a866e5565",
+            "prune": {
+                "TestTrends::test_breakdown_label": 1,
+                "TestTrends::test_should_throw_exception": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_actors_query_builder.py": {
+            "digest": "8d8da517dc855023",
+            "prune": {
+                "*": 31
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_dashboard_filters.py": {
+            "digest": "1d6e243ef1942650",
+            "prune": {
+                "*": 19
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_data_warehouse_query.py": {
+            "digest": "a22fa717bf294bef",
+            "prune": {
+                "TestTrendsDataWarehouseQuery::test_column_names_with_display_type": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_by_warehouse_person_property_with_empty_columns": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_by_warehouse_person_property_with_missing_column": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_on_view": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_on_view_with_date_timestamp": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_breakdown_with_property": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_data_warehouse": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_data_warehouse_all_time": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_data_warehouse_uses_configured_distinct_id_field": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_entity_property": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_over_a_view_tags_the_saved_query": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_query_properties": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_single_item_multi_breakdown": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_single_item_multi_breakdown_boolean_field": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_view_avg": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_view_quartile": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_with_date32_timestamp_column": 1,
+                "TestTrendsDataWarehouseQuery::test_trends_with_multiple_property_types": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_trends_query_runner.py": {
+            "digest": "8d5d709e1355d735",
+            "prune": {
+                "TestTrendsQueryRunner::test_actors_query_explicit_dates": 1,
+                "TestTrendsQueryRunner::test_should_throw_exception": 1,
+                "TestTrendsQueryRunner::test_to_actors_query_options": 1,
+                "TestTrendsQueryRunner::test_to_actors_query_options_breakdowns_cohort": 1,
+                "TestTrendsQueryRunner::test_to_actors_query_options_compare": 1,
+                "TestTrendsQueryRunner::test_to_actors_query_options_compare_to": 1,
+                "TestTrendsQueryRunner::test_to_actors_query_options_multiple_series": 1,
+                "TestTrendsQueryRunnerParallelExecution::test_empty_cohort_breakdown_returns_no_results_instead_of_raising": 1
+            }
+        },
+        "products/product_analytics/backend/hogql_queries/trends/test/test_utils.py": {
+            "digest": "1138c67c06254062",
+            "prune": {
+                "*": 49
+            }
+        },
+        "products/revenue_analytics/backend/views/test/test_mrr_views.py": {
+            "digest": "6efc3a248cd7d558",
+            "prune": {
+                "TestMRRViewsE2E::test_no_data_when_no_stripe_source_data_warehouse_tables": 1,
+                "TestMRRViewsE2E::test_query_output_data_warehouse_tables": 1
+            }
+        },
+        "products/surveys/backend/api/test/test_survey.py": {
+            "digest": "6abc4579d4989c91",
+            "prune": {
+                "TestExternalSurveyValidation": 6,
+                "TestGetSurveyConditionsActionSanitization": 1,
+                "TestMultipleChoiceQuestions": 2,
+                "TestSurvey": 122,
+                "TestSurveyBulkDuplication": 16,
+                "TestSurveyFeatureFlagScopeEnforcement": 12,
+                "TestSurveyFeatureFlagScopeWarning": 11,
+                "TestSurveyLifecycleActions": 7,
+                "TestSurveyListTypeFilter": 7,
+                "TestSurveyQuestionLabels": 5,
+                "TestSurveyQuestionValidation": 20,
+                "TestSurveyQuestionValidationWithEnterpriseFeatures": 16,
+                "TestSurveyResponseArchive": 9,
+                "TestSurveyResponseSampling": 3,
+                "TestSurveyStats::test_create_survey_with_valid_linked_flag_variant": 1,
+                "TestSurveyStats::test_update_survey_with_invalid_linked_flag_variant": 1,
+                "TestSurveyStats::test_update_survey_with_valid_linked_flag_variant": 1,
+                "TestSurveySummarizeByQuestionId": 2,
+                "TestSurveySummarizeDispatchesToHeadline": 1,
+                "TestSurveyWithActions": 5,
+                "TestSurveysRecurringIterations": 13
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/external/test/test_summary_query_runner.py": {
+            "digest": "8768c0fb40a0afda",
+            "prune": {
+                "*": 13
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_bot_definitions.py": {
+            "digest": "4906fde9f855cff6",
+            "prune": {
+                "*": 56
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_cookieless_flag.py": {
+            "digest": "6dac2b648c7589c1",
+            "prune": {
+                "*": 6
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_custom_bot_definitions.py": {
+            "digest": "9e73d6037404ad80",
+            "prune": {
+                "*": 63
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_session_attribution_explorer_query_runner.py": {
+            "digest": "75eaed388a1a20d2",
+            "prune": {
+                "*": 5
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_cohort_filter.py": {
+            "digest": "de7c1f2dce554e5c",
+            "prune": {
+                "TestWebAnalyticsCohortFilter::test_web_overview_cohort_filter_disables_preaggregated_tables": 1,
+                "TestWebAnalyticsCohortFilter::test_web_stats_table_cohort_filter_disables_preaggregated_tables": 1
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_metrics.py": {
+            "digest": "f9f728f67c92746d",
+            "prune": {
+                "*": 63
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_query_runner.py": {
+            "digest": "e5030a73c65438a9",
+            "prune": {
+                "TestWebStatsTableQueryRunner": 9
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_analytics_rbac.py": {
+            "digest": "98b697ef58df5705",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_bounces_pre_aggregated.py": {
+            "digest": "79cdfc4b6a1651bc",
+            "prune": {
+                "TestWebBouncesPreAggregated::test_preagg_vs_raw_events_comparison": 1,
+                "TestWebBouncesPreAggregated::test_web_bounces_table_match_expected_metrics": 1
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_dimensional_precompute.py": {
+            "digest": "a75305eed4baf27f",
+            "prune": {
+                "TestColdBackfillSplitsByTtlBandNotPerDay": 2,
+                "TestWebDimensionalPrecomputeTemplates": 2
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_lazy_precompute_common.py": {
+            "digest": "dd1008530592db7d",
+            "prune": {
+                "TestCacheKeyVariesWithRolloutState": 2,
+                "TestChannelModifiersShapeKey": 1,
+                "TestCheckCommonEligibility": 7,
+                "TestComputeFiltersEligibilityHash": 12,
+                "TestComputeShapeCapKey": 4,
+                "TestEligibilityReasonTagging": 4,
+                "TestHostFilterExpr": 2,
+                "TestIsPrecomputeEnabledForTeam": 4,
+                "TestLazyTtlSchedule": 1,
+                "TestOwningLazyPrecomputeFamily": 9,
+                "TestPrecomputeShapeCapWiring": 3,
+                "TestServeLiveWarmBehind": 3,
+                "TestStaleRevalidationEnqueue": 5,
+                "TestStickyWarmShapes": 6,
+                "TestTeamOomPin": 3,
+                "TestTryReservePrecomputeShape": 4,
+                "TestVolumeFloor": 8,
+                "TestWebEnsurePrecomputed": 25
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_overview.py": {
+            "digest": "b00e8a73d69900ea",
+            "prune": {
+                "TestWebOverviewQueryRunner::test_preaggregated_queries_use_utc_filtering": 1,
+                "TestWebOverviewQueryRunner::test_preaggregated_query_sql_snapshot_with_timezone": 1
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_stats_pre_aggregated.py": {
+            "digest": "4b13abc1955d0636",
+            "prune": {
+                "TestWebStatsPreAggregated::test_browser_breakdown": 1,
+                "TestWebStatsPreAggregated::test_can_use_preaggregated_tables_rejects_recent_relative_date_range": 1,
+                "TestWebStatsPreAggregated::test_can_use_preaggregated_tables_with_supported_breakdowns": 1,
+                "TestWebStatsPreAggregated::test_cannot_use_preaggregated_tables_with_unsupported_breakdown": 1,
+                "TestWebStatsPreAggregated::test_cannot_use_preaggregated_tables_with_unsupported_properties": 1,
+                "TestWebStatsPreAggregated::test_country_breakdown": 1,
+                "TestWebStatsPreAggregated::test_device_type_breakdown": 1,
+                "TestWebStatsPreAggregated::test_include_host_concatenates_host_and_path_0_InitialPage": 1,
+                "TestWebStatsPreAggregated::test_include_host_concatenates_host_and_path_1_ExitPage": 1,
+                "TestWebStatsPreAggregated::test_include_host_false_returns_path_only_0_Page": 1,
+                "TestWebStatsPreAggregated::test_include_host_false_returns_path_only_1_InitialPage": 1,
+                "TestWebStatsPreAggregated::test_include_host_false_returns_path_only_2_ExitPage": 1,
+                "TestWebStatsPreAggregated::test_include_host_page_breakdown_groups_same_paths_separately": 1,
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_0_1_hour_no_explicit_date_to": 1,
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_1_6_hours_no_explicit_date_to": 1,
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_2_7_hours_no_explicit_date_to": 1,
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_3_24_hours_no_explicit_date_to": 1,
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_4_1_hour_with_explicit_date_to": 1,
+                "TestWebStatsPreAggregated::test_is_recent_relative_date_range_5_6_hours_with_explicit_date_to": 1,
+                "TestWebStatsPreAggregated::test_page_breakdown": 1,
+                "TestWebStatsPreAggregated::test_page_breakdown_with_pathname_filter": 1,
+                "TestWebStatsPreAggregated::test_property_filtering": 1,
+                "TestWebStatsPreAggregated::test_query_includes_order_by": 1,
+                "TestWebStatsPreAggregated::test_query_with_supported_properties": 1,
+                "TestWebStatsPreAggregated::test_utm_source_breakdown": 1,
+                "TestWebStatsPreAggregated::test_viewport_breakdown": 1
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_stats_pre_aggregated_channel_types.py": {
+            "digest": "02fa019730edc470",
+            "prune": {
+                "TestWebStatsPreAggregatedChannelTypes::test_channel_type_breakdown_with_stats_table_runner": 1,
+                "TestWebStatsPreAggregatedChannelTypes::test_channel_type_filtering_with_different_channel_types": 1,
+                "TestWebStatsPreAggregatedChannelTypes::test_covers_all_default_channel_types": 1
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_stats_table.py": {
+            "digest": "cd34f50e236cc40c",
+            "prune": {
+                "TestWebStatsTableQueryRunner::test_calculate_pageview_statistics_excludes_null_durations": 1,
+                "TestWebStatsTableQueryRunner::test_calculate_pageview_statistics_p90_multiple_sessions": 1,
+                "TestWebStatsTableQueryRunner::test_first_pageview_attribution_bypasses_lazy_precompute": 1
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_traffic_type.py": {
+            "digest": "8610c0687f4d227e",
+            "prune": {
+                "*": 31
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_trends_lazy_precompute.py": {
+            "digest": "7f4e582879823aed",
+            "prune": {
+                "TestCurrentPeriodBoundary": 6
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test/test_web_vitals_timeseries_lazy_precompute.py": {
+            "digest": "2df9a3d84856c78c",
+            "prune": {
+                "TestVitalsTimeseriesGate": 13
+            }
+        },
+        "products/web_analytics/backend/hogql_queries/test_web_analytics_tables_version.py": {
+            "digest": "9908213106e95779",
+            "prune": {
+                "*": 4
+            }
+        },
+        "products/web_analytics/backend/test/test_heatmaps_api.py": {
+            "digest": "04204f286a4539b8",
+            "prune": {
+                "TestSessionRecordings::test_can_filter_by_exact_url": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_^http\\:\\/\\/example\\.com\\/?(\\?.*)?(#.*)?$": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/*/parts/*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/*/reviews/*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/1*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http://example.com/products/1*/parts/*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_http\\:\\/\\/example\\.com\\/products\\/*\\/parts\\/*": 1,
+                "TestSessionRecordings::test_can_filter_by_url_pattern_where_end_is_anchored": 1,
+                "TestSessionRecordings::test_can_filter_by_viewport_0_min_150": 1,
+                "TestSessionRecordings::test_can_filter_by_viewport_1_min_161": 1,
+                "TestSessionRecordings::test_can_filter_by_viewport_2_min_177": 1,
+                "TestSessionRecordings::test_can_filter_by_viewport_3_min_201": 1,
+                "TestSessionRecordings::test_can_filter_by_viewport_4_min_161_and_max_192": 1,
+                "TestSessionRecordings::test_can_get_all_data_response": 1,
+                "TestSessionRecordings::test_can_get_count_by_aggregation": 1,
+                "TestSessionRecordings::test_can_get_empty_response": 1,
+                "TestSessionRecordings::test_can_get_filter_by_click": 1,
+                "TestSessionRecordings::test_can_get_filter_by_date_from": 1,
+                "TestSessionRecordings::test_can_get_filter_by_relative_date": 1,
+                "TestSessionRecordings::test_can_get_scrolldepth_counts": 1,
+                "TestSessionRecordings::test_can_get_scrolldepth_counts_by_visitor": 1,
+                "TestSessionRecordings::test_cannot_query_across_teams": 1,
+                "TestSessionRecordings::test_capture_allowlist_also_hides_off_list_rows_from_the_interaction_drill_down": 1,
+                "TestSessionRecordings::test_capture_allowlist_applies_the_version_active_when_each_row_was_captured": 1,
+                "TestSessionRecordings::test_capture_allowlist_hides_off_list_rows_after_enforcement": 1,
+                "TestSessionRecordings::test_capture_allowlist_ignored_when_enforcement_disabled": 1,
+                "TestSessionRecordings::test_event_filter_is_ignored_when_the_flag_is_off": 1,
+                "TestSessionRecordings::test_hide_zero_coordinates_false_includes_zero_zero": 1,
+                "TestSessionRecordings::test_hide_zero_coordinates_filters_out_zero_zero_events_0_explicit_true": 1,
+                "TestSessionRecordings::test_hide_zero_coordinates_filters_out_zero_zero_events_1_default": 1,
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_0_default_returns_all": 1,
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_1_limit_zero_is_unbounded": 1,
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_2_limit_truncates_hottest_first": 1,
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_3_limit_equal_to_total": 1,
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_4_offset_pages_into_cooler_points": 1,
+                "TestSessionRecordings::test_limit_and_offset_page_hottest_first_5_offset_past_end_returns_empty": 1,
+                "TestSessionRecordings::test_only_allow_valid_values_for_aggregation_0_total_count": 1,
+                "TestSessionRecordings::test_only_allow_valid_values_for_aggregation_1_unique_visitors": 1,
+                "TestSessionRecordings::test_only_allow_valid_values_for_aggregation_3_": 1,
+                "TestSessionRecordings::test_only_allow_valid_values_for_filter_test_accounts_1_boolean_false_is_valid": 1,
+                "TestSessionRecordings::test_only_allow_valid_values_for_filter_test_accounts_6_number_zero_is_valid": 1,
+                "TestSessionRecordings::test_returns_below_the_fold_summary": 1,
+                "TestSessionRecordings::test_scrolldepth_ignores_limit_and_has_no_has_more": 1,
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_0_query_no_slash_data_no_slash": 1,
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_1_query_no_slash_data_with_slash": 1,
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_2_query_with_slash_data_no_slash": 1,
+                "TestSessionRecordings::test_url_exact_normalizes_trailing_slash_3_query_with_slash_data_with_slash": 1
+            }
+        }
+    },
+    "source": "https://github.com/PostHog/posthog/actions/runs/36152024457"
+}

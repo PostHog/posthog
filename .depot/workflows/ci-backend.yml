@@ -3298,6 +3298,12 @@ jobs:
                       # The recording lists the tests that read the JSON tables, for pruning the rest.
                       # A head without the recorder ignores the variable.
                       export POSTHOG_EVENTS_SCHEMA_RECORD_PATH=events-schema-record.json
+                      # The manifest skips tests a recording showed never read the JSON tables. The
+                      # hourly run keeps them, so "Check the events_json prune manifest" can see a
+                      # skipped test that starts to read those tables.
+                      if [[ "$GITHUB_EVENT_NAME" != "schedule" && -f .github/new-events-schema-prune.json ]]; then
+                          export POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST=.github/new-events-schema-prune.json
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
                           "${JSON_SPLIT[@]}" \
@@ -3366,6 +3372,12 @@ jobs:
                   else
                       exit $exit_code
                   fi
+
+            - name: Check the events_json prune manifest
+              # A skipped test file can stay unchanged while the code it covers starts to read the
+              # JSON tables. Only the unpruned hourly run records those tests, so it fails here.
+              if: ${{ !cancelled() && matrix.json-targets && github.event_name == 'schedule' && hashFiles('events-schema-record.json') != '' }}
+              run: python posthog/test/events_schema_prune.py check .github/new-events-schema-prune.json events-schema-record.json
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
