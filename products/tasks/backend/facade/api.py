@@ -4587,6 +4587,18 @@ def _server_notification_key(entry: dict) -> str | None:
     return json.dumps(entry, sort_keys=True)
 
 
+def _overlap_with_log_tail(log_entries: list[dict], stream_entries: list[dict]) -> int:
+    """How many leading stream entries the log already holds, as the tail it ends with."""
+    if not stream_entries:
+        return 0
+    first = stream_entries[0]
+    for start in range(max(0, len(log_entries) - len(stream_entries)), len(log_entries)):
+        size = len(log_entries) - start
+        if log_entries[start] == first and log_entries[start:] == stream_entries[:size]:
+            return size
+    return 0
+
+
 def _entry_time(entry: dict) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(entry["timestamp"])
@@ -4653,18 +4665,22 @@ def read_task_run_history(
         ]
         return [*earlier_entries, *_merge_by_timestamp(stream_entries, persisted_only)]
     log_entries = list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
+    if not any(entry.get("event_id") for entry in stream_entries):
+        # Without ids the backlog index matches nothing, so the log's catch-up of the stream is cut by position.
+        stream_entries = stream_entries[_overlap_with_log_tail(log_entries, stream_entries) :]
     backlog = TaskRunStreamBacklogIndex(log_entries)
     persisted_server_notifications = {
         key for key in (_server_notification_key(entry) for entry in log_entries) if key is not None
     }
-    return [
-        *log_entries,
-        *(
-            entry
-            for entry in stream_entries
-            if not backlog.covers(entry) and _server_notification_key(entry) not in persisted_server_notifications
-        ),
+    uncovered = [
+        entry
+        for entry in stream_entries
+        if not backlog.covers(entry) and _server_notification_key(entry) not in persisted_server_notifications
     ]
+    # A live-only server notification can predate log frames, so it goes back to its place in time.
+    live_only = [entry for entry in uncovered if _server_notification_key(entry) is not None]
+    tail = [entry for entry in uncovered if _server_notification_key(entry) is None]
+    return _merge_by_timestamp([*log_entries, *tail], live_only)
 
 
 def publish_task_run_stream_notification(

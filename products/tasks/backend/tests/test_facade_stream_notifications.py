@@ -28,6 +28,17 @@ def _frame(event_id: str) -> dict:
     return {"type": "notification", "event_id": event_id, "notification": {"method": "session/update"}}
 
 
+LIVE_ONLY_NOTIFICATION = {
+    "type": "notification",
+    "timestamp": "2026-01-01T00:00:02+00:00",
+    "notification": {"jsonrpc": "2.0", "method": "_posthog/turn_suggestion_resolved", "params": {}},
+}
+
+
+def _numbered(index: int) -> dict:
+    return {"type": "notification", "notification": {"method": "session/update", "params": {"n": index}}}
+
+
 def _frame_without_id() -> dict:
     return {"type": "notification", "notification": {"method": "session/update"}}
 
@@ -137,6 +148,28 @@ class TestStreamNotifications(BaseTest):
                 [USER_PROMPT, _stamped_at(_frame_without_id(), "2026-01-01T00:00:01+00:00")],
                 [_frame("b-1"), SERVER_NOTIFICATION],
                 [USER_PROMPT, SERVER_NOTIFICATION, _stamped_at(_frame_without_id(), "2026-01-01T00:00:01+00:00")],
+            ),
+            # An unstamped stream at the cap overlaps the log's tail, and the overlap appears once.
+            (
+                "capped_unstamped_stream_overlapping_the_log",
+                [_numbered(2), _numbered(3), _numbered(4)],
+                [_numbered(1), _numbered(2), _numbered(3)],
+                [_numbered(1), _numbered(2), _numbered(3), _numbered(4)],
+                3,
+            ),
+            # A live-only server notification keeps its place in time among the logged frames.
+            (
+                "live_only_server_notification_keeps_its_place",
+                [_stamped_at(_frame("b-1"), "2026-01-01T00:00:00+00:00"), LIVE_ONLY_NOTIFICATION],
+                [
+                    _stamped_at(_frame("b-1"), "2026-01-01T00:00:00+00:00"),
+                    _stamped_at(_frame("b-2"), "2026-01-01T00:00:05+00:00"),
+                ],
+                [
+                    _stamped_at(_frame("b-1"), "2026-01-01T00:00:00+00:00"),
+                    LIVE_ONLY_NOTIFICATION,
+                    _stamped_at(_frame("b-2"), "2026-01-01T00:00:05+00:00"),
+                ],
             ),
             # An unstamped stream at the length cap may be a trimmed tail, so the log is still read.
             (
