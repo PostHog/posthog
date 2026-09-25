@@ -317,6 +317,22 @@ describe("ClaudeCloudTokenSection", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("shows a retryable error when Desktop cannot read the local token", async () => {
+    const user = userEvent.setup();
+    client.getClaudeUserIntegration.mockResolvedValue(null);
+    tokenStore.has
+      .mockRejectedValueOnce(new Error("Key store locked."))
+      .mockResolvedValue(true);
+    renderSection(true);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Desktop cannot read the token on this device. Try again.",
+    );
+    expect(screen.queryByText("Token saved")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Token saved")).toBeInTheDocument();
+  });
+
   it("shows a retryable error when PostHog cannot report the token status", async () => {
     const user = userEvent.setup();
     client.getClaudeUserIntegration.mockRejectedValueOnce(
