@@ -208,10 +208,10 @@ pub struct GlobalRateLimiterConfig {
     /// Set to 0 to sync every key, restoring the pre-floor behavior.
     pub min_sync_floor: u64,
     /// Accumulated count a `(key, epoch)` entry must reach before it earns a
-    /// Redis write; entries below it keep merging, so nothing is lost. `0`
-    /// disables it (the default); before raising it note the bypass is
-    /// `2 * pods * floor` and `max_write_batch_entries` must cover the held
-    /// working set.
+    /// Redis write. Entries below it keep merging within their epoch and are
+    /// dropped when it ends. `0` disables it (the default). A key hides up to
+    /// `pods * (floor - 1)` counts per epoch, so size this against the fleet's
+    /// maximum pod count, which the limiter cannot observe.
     pub min_write_floor: u64,
     /// Maximum keys drained from `pending_sync` per tick. The remainder stays
     /// queued for the next tick, so a backlog degrades into staleness instead of
@@ -231,6 +231,9 @@ pub struct GlobalRateLimiterConfig {
     /// unique-key inflow faster than the per-tick drain grows the batch without
     /// bound -- the update channel's capacity does not help, because the
     /// receiver moves entries into this map as fast as they arrive.
+    /// With `min_write_floor` set, the batch also holds the current epoch's
+    /// sub-floor entries, so a cap under one epoch of distinct keys per pod
+    /// makes the drain pass its high-water mark and the floor stop applying.
     pub max_write_batch_entries: usize,
     /// Maximum keys held in the pending-sync set. At the cap, new sync
     /// requests are dropped and counted; the key's next request re-queues it
@@ -318,7 +321,7 @@ impl Default for GlobalRateLimiterConfig {
             max_sync_keys_per_tick: 20_000,
             max_keys_per_command: 2_000,
             max_concurrent_commands: 4,
-            max_write_batch_entries: 200_000,
+            max_write_batch_entries: 400_000,
             max_pending_sync_entries: 200_000,
             custom_keys: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             custom_key_resolver: None,
@@ -1111,7 +1114,8 @@ impl GlobalRateLimiterImpl {
         // no longer affect any decision: reads consult only the current and
         // previous epochs. Purge them instead of spending write commands (and
         // deferral slots) on counts nothing will ever read.
-        let min_live_epoch = epoch_from_timestamp(Utc::now(), config.window_interval) - 1;
+        let current_epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+        let min_live_epoch = current_epoch - 1;
 
         // Computed once: the batch is scanned in full whenever the floor
         // applies, so these must not be resolved per entry.
@@ -1121,18 +1125,20 @@ impl GlobalRateLimiterImpl {
         let mut purged_unwritten = 0u64;
         let mut purged_below_floor = 0u64;
         write_batch.retain(|(key, epoch), count| {
+            if *epoch >= current_epoch {
+                return true;
+            }
+            // A past epoch takes no new counts, so an entry under the floor can
+            // never reach it and only occupies a deferral slot. Entries the
+            // floor held back stay off the error counter behind the alert.
+            if *count < Self::write_floor_for(config, key, global_floor, uniform_floor) {
+                purged_below_floor += 1;
+                return false;
+            }
             if *epoch >= min_live_epoch {
                 return true;
             }
-            // An entry that never cleared the write floor was held back on
-            // purpose, so losing it is the floor working rather than a write
-            // that failed. Keep the two apart: the error counter drives the
-            // pipeline alert.
-            if *count >= Self::write_floor_for(config, key, global_floor, uniform_floor) {
-                purged_unwritten += 1;
-            } else {
-                purged_below_floor += 1;
-            }
+            purged_unwritten += 1;
             false
         });
         if purged_unwritten > 0 {
@@ -1971,7 +1977,7 @@ mod tests {
         assert_eq!(config.max_sync_keys_per_tick, 20_000);
         assert_eq!(config.max_keys_per_command, 2_000);
         assert_eq!(config.max_concurrent_commands, 4);
-        assert_eq!(config.max_write_batch_entries, 200_000);
+        assert_eq!(config.max_write_batch_entries, 400_000);
         assert_eq!(config.max_pending_sync_entries, 200_000);
         assert!(config.custom_keys.load().is_empty());
         assert!(config.custom_key_resolver.is_none());
@@ -2775,9 +2781,76 @@ mod tests {
             .map(|c| c.key)
             .collect();
         let redis_key = epoch_key(&config.redis_key_prefix, "cold", epoch);
-        let expire_at = epoch_expire_at(epoch, config.window_interval, config.global_cache_ttl);
+        let expire_at = epoch_expire_at(
+            "cold",
+            epoch,
+            config.window_interval,
+            config.global_cache_ttl,
+        );
         assert_eq!(written, vec![format!("{redis_key}=6@{expire_at}")]);
         assert!(writes.is_empty(), "a flushed entry must leave the batch");
+    }
+
+    #[tokio::test]
+    async fn test_write_floor_drops_sub_floor_entries_once_their_epoch_ends() {
+        let mock = Arc::new(MockRedisClient::new());
+        let client: Arc<dyn Client + Send + Sync> = mock.clone();
+        let config = GlobalRateLimiterConfig {
+            min_write_floor: 5,
+            global_threshold: 10_000,
+            ..config_with_floor(0)
+        };
+        let cache: Cache<String, CacheEntry> = Cache::builder().max_capacity(100).build();
+        let pending: Arc<DashSet<String>> = Arc::new(DashSet::new());
+        let epoch = epoch_from_timestamp(Utc::now(), config.window_interval);
+
+        let mut writes: HashMap<(String, i64), u64> = HashMap::new();
+        writes.insert(("cold".to_string(), epoch - 1), 4);
+        writes.insert(("warm".to_string(), epoch - 1), 6);
+        writes.insert(("cold".to_string(), epoch), 4);
+
+        GlobalRateLimiterImpl::tick(
+            &config,
+            std::slice::from_ref(&client),
+            &cache,
+            &pending,
+            &mut writes,
+            "test",
+            1,
+        )
+        .await;
+
+        assert_eq!(
+            writes.get(&("cold".to_string(), epoch - 1)),
+            None,
+            "a past epoch takes no new counts, so a sub-floor entry there can never \
+             reach the floor and must not hold a batch slot against the high-water mark"
+        );
+        assert_eq!(
+            writes.get(&("cold".to_string(), epoch)),
+            Some(&4),
+            "the current epoch can still gather counts, so its entry stays"
+        );
+
+        let written: Vec<String> = mock
+            .get_calls()
+            .into_iter()
+            .filter(|c| c.op == "batch_incr_by_expire_at")
+            .map(|c| c.key)
+            .collect();
+        let redis_key = epoch_key(&config.redis_key_prefix, "warm", epoch - 1);
+        let expire_at = epoch_expire_at(
+            "warm",
+            epoch - 1,
+            config.window_interval,
+            config.global_cache_ttl,
+        );
+        assert_eq!(
+            written,
+            vec![format!("{redis_key}=6@{expire_at}")],
+            "the previous epoch is still readable, so an entry that cleared the floor \
+             there must still be written"
+        );
     }
 
     #[tokio::test]

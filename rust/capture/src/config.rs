@@ -151,8 +151,9 @@ pub struct Config {
     pub global_rate_limit_min_sync_floor: u64,
 
     /// Accumulated count a key must reach before its counts reach Redis; `0`
-    /// writes every entry. Raise `GLOBAL_RATE_LIMIT_MAX_WRITE_BATCH_ENTRIES`
-    /// with it, and size both against the fleet's maximum pod count.
+    /// writes every entry. A key hides up to `pods * (floor - 1)` counts per
+    /// epoch, so size it against the fleet's maximum pod count, and keep
+    /// `GLOBAL_RATE_LIMIT_MAX_WRITE_BATCH_ENTRIES` above one epoch of keys per pod.
     #[envconfig(default = "0")]
     pub global_rate_limit_min_write_floor: u64,
 
@@ -176,7 +177,7 @@ pub struct Config {
     /// limiter. Merges are always accepted; at the cap, updates for new keys
     /// are dropped and counted (fail-open). Bounds limiter memory under
     /// unique-key floods that outrun the per-tick write drain.
-    #[envconfig(default = "200000")]
+    #[envconfig(default = "400000")]
     pub global_rate_limit_max_write_batch_entries: usize,
 
     /// Max keys held in the pending-sync set per limiter. At the cap, new sync
