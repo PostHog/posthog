@@ -108,7 +108,7 @@ class ObjectMediaPreviewViewSet(
             "-updated_at", "-id"
         )
 
-    @action(methods=["GET"], detail=False, url_path="preferred_for_event")
+    @action(methods=["GET"], detail=False, url_path="preferred_for_event", required_scopes=["event_definition:read"])
     def preferred_for_event(self, request, *args, **kwargs):
         """
         Get the preferred media preview for an event definition.
