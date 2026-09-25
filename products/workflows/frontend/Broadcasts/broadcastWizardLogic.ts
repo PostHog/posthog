@@ -44,6 +44,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
@@ -798,9 +799,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // The AI assistant edits the saved broadcast, so the content step needs one to exist even
             // when the stepper skipped past the Continue that would have created it. A Continue or launch
             // save still in flight creates the draft itself, so a create here would make a second one.
+            const saves = getSaveQueue(cache, values)
             if (
                 values.broadcastId ||
-                cache.draftCreation ||
+                saves.inFlight > 0 ||
                 values.saving ||
                 values.launching ||
                 props.id !== 'new' ||
@@ -809,13 +811,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
-            cache.draftCreation = hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
             try {
-                actions.draftAutosaved(await cache.draftCreation)
+                await saves.run(async () => {
+                    actions.draftAutosaved(await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any))
+                })
             } catch (error: any) {
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
-            } finally {
-                cache.draftCreation = null
             }
         },
         setEmail: async (_, breakpoint) => {
@@ -823,80 +824,55 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // sees rather than from the last Continue.
             // The editor is live while the draft is still being created, so wait for it before the
             // draft check. Otherwise edits made during the create never reach the saved draft.
-            await cache.draftCreation?.catch(() => null)
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
             if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
                 return
             }
             cache.emailEditPending = true
             await breakpoint(1000)
-            // An earlier autosave or a Continue still in flight moves updated_at when it lands. Wait for it,
-            // or this save sends the old base, gets a 409, and the reload drops what the user typed since.
-            while ((cache.autosavesInFlight ?? 0) > 0 || values.saving) {
-                await breakpoint(100)
-            }
-            const broadcastId = values.broadcastId
-            if (!broadcastId || !values.currentProjectId) {
+            if (!values.broadcastId || !values.currentProjectId) {
                 return
             }
             const projectId = String(values.currentProjectId)
-            cache.autosavesInFlight = (cache.autosavesInFlight ?? 0) + 1
             try {
-                const saved = await hogFlowsPartialUpdate(projectId, broadcastId, {
-                    ...buildBroadcastPayload(values),
-                    // The assistant can save between two keystrokes. Without this the autosave would
-                    // overwrite its edit with the editor state it had not seen yet.
-                    base_updated_at: values.broadcast?.updated_at,
-                } as any)
-                cache.emailEditPending = false
-                actions.draftAutosaved(saved)
+                // Queued behind any save still in flight, and fenced on the copy that save wrote, so the
+                // assistant's edit between two keystrokes comes back as a conflict instead of being lost.
+                await saves.run(async () => {
+                    actions.draftAutosaved(await saveWithoutClobbering(projectId, values.broadcastId!, values))
+                    cache.emailEditPending = false
+                })
             } catch (error: any) {
-                if (error?.status === 409) {
-                    const fresh = await hogFlowsRetrieve(projectId, broadcastId).catch(() => null)
-                    if (fresh) {
-                        cache.emailEditPending = false
-                        cache.autosaveConflict = true
-                        actions.applyExternalEdit(fresh, values.broadcast)
-                        lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
-                    } else {
-                        lemonToast.error(
-                            "Couldn't load the latest version of the broadcast. Reload the page to see it."
-                        )
-                    }
+                if (error instanceof EditedElsewhereError) {
+                    cache.emailEditPending = false
+                    cache.autosaveConflict = true
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
                 }
                 // Otherwise Continue saves the same state and reports the failure there.
-            } finally {
-                cache.autosavesInFlight -= 1
             }
             actions.replayDeferredEdit()
         },
         saveBroadcastFinished: () => {
             actions.replayDeferredEdit()
         },
+        launchBroadcastFinished: () => {
+            actions.replayDeferredEdit()
+        },
         replayDeferredEdit: () => {
-            if ((cache.autosavesInFlight ?? 0) === 0 && !values.saving && cache.deferredEdit) {
-                const deferred = cache.deferredEdit
-                cache.deferredEdit = null
+            const deferred = getSaveQueue(cache, values).takeDeferred()
+            if (deferred) {
                 actions.resourceEdited(deferred)
             }
         },
         resourceEdited: async ({ event }, breakpoint) => {
             const broadcast = values.broadcast
             if (
-                event.resource_type !== 'HogFlow' ||
                 !broadcast ||
-                event.resource_id !== broadcast.id ||
                 broadcast.status !== 'draft' ||
-                !values.currentProjectId
+                !values.currentProjectId ||
+                getSaveQueue(cache, values).classify(event) !== 'external'
             ) {
-                return
-            }
-            // Our own save echoes back through the same stream, possibly before its HTTP response.
-            // Park the event until the save lands, then compare against the fresh timestamp.
-            if ((cache.autosavesInFlight ?? 0) > 0 || values.saving) {
-                cache.deferredEdit = event
-                return
-            }
-            if (!dayjs(event.updated_at).isAfter(dayjs(broadcast.updated_at))) {
                 return
             }
             await breakpoint(200)
@@ -951,14 +927,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.saveBroadcastFinished(null)
                 return
             }
-            // A draft created on entering the content step must land first, or this would create a second.
-            await cache.draftCreation?.catch(() => null)
-            // An autosave in flight moves updated_at when it lands. Save after it, or this save sends the
-            // old base and fails on the user's own autosave.
+            // A draft create or autosave still in flight must land first: the create so this doesn't make
+            // a second draft, the autosave so a conflict it found stops this save.
             cache.autosaveConflict = false
-            while ((cache.autosavesInFlight ?? 0) > 0) {
-                await breakpoint(100)
-            }
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            breakpoint()
             if (cache.autosaveConflict) {
                 // That autosave loaded an edit made elsewhere and said so. Let the user review it first.
                 actions.saveBroadcastFinished(null)
@@ -966,12 +940,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
             const projectId = String(values.currentProjectId)
             try {
-                let saved: HogFlowApi
-                if (!values.broadcastId) {
-                    saved = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
-                } else {
-                    saved = await saveWithoutClobbering(projectId, values.broadcastId, values)
-                }
+                const saved = await saves.run(() =>
+                    values.broadcastId
+                        ? saveWithoutClobbering(projectId, values.broadcastId, values)
+                        : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                )
                 actions.saveBroadcastFinished(saved)
                 actions.nextStep()
             } catch (error: any) {
@@ -997,12 +970,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
-            await cache.draftCreation?.catch(() => null)
-            // Same ordering as Continue: an autosave that trails the content step must land first.
+            // Same ordering as Continue: a save that trails the content step must land first.
             cache.autosaveConflict = false
-            while ((cache.autosavesInFlight ?? 0) > 0) {
-                await breakpoint(100)
-            }
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            breakpoint()
             if (cache.autosaveConflict) {
                 actions.launchBroadcastFinished()
                 return
@@ -1011,13 +983,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             let activated: HogFlowApi | null = null
             try {
                 // Save the latest edits (creating the draft if the user skipped ahead).
-                let saved: HogFlowApi
-                if (!broadcastId) {
-                    saved = await hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
-                    broadcastId = saved.id
-                } else {
-                    saved = await saveWithoutClobbering(projectId, broadcastId, values)
-                }
+                const saved = await saves.run(() =>
+                    broadcastId
+                        ? saveWithoutClobbering(projectId, broadcastId, values)
+                        : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
+                )
+                broadcastId = saved.id
                 actions.saveBroadcastFinished(saved)
 
                 // A fresh audience preview mints the confirm token the batch dispatch expects.
@@ -1042,7 +1013,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
                 // The assistant can edit the draft during the audience request. Activate only the saved
                 // version, so the send never goes out with an email the user did not see.
-                activated = await patchWithoutClobbering(projectId, broadcastId, { status: 'active' }, saved.updated_at)
+                const toActivate = broadcastId
+                activated = await saves.run(() =>
+                    patchWithoutClobbering(projectId, toActivate, { status: 'active' }, saved.updated_at)
+                )
 
                 if (values.scheduleMode === 'now') {
                     await hogFlowsBatchJobsCreate(projectId, broadcastId, {
@@ -1131,6 +1105,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         }
     }),
 ])
+
+function getSaveQueue(cache: Record<string, any>, values: broadcastWizardLogicType['values']): ResourceSaveQueue {
+    return (cache.saveQueue ??= new ResourceSaveQueue({
+        resourceType: 'HogFlow',
+        getResourceId: () => values.broadcast?.id,
+        getLoadedStamp: () => values.broadcast?.updated_at,
+        // Continue and launch save outside an autosave, and their echo can arrive before they finish.
+        isBusy: () => values.saving || values.launching,
+    }))
+}
 
 const EDITED_ELSEWHERE_MESSAGE = 'This email changed elsewhere, so your last few seconds of edits were replaced.'
 
