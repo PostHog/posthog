@@ -24,6 +24,7 @@ interface TrendsSlopeChartProps {
 }
 
 const handleChartError = makeChartErrorHandler('trends-slope-chart')
+const PREVIEW_MARGINS = { left: 8, right: 8 }
 
 export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Element | null {
     const theme = useChartTheme()
@@ -63,6 +64,7 @@ export function TrendsSlopeChart({ context }: TrendsSlopeChartProps): JSX.Elemen
             hideXAxis: context?.hideAxes,
             showStartLabels: !context?.hideAxes,
             showEndLabels: !context?.hideAxes,
+            margins: context?.hideAxes ? PREVIEW_MARGINS : undefined,
             xTickFormatter: createXAxisTickCallback({
                 interval: interval ?? 'day',
                 allDays: currentPeriodResult?.days ?? [],
