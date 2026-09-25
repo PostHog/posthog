@@ -2472,6 +2472,17 @@ class TestIntegrationAPIKeyAccess:
         assert listed.json()["channels"][0]["is_member"] is True
         mock_slack_instance.list_channels.assert_not_called()
 
+        # A channel Slack no longer returns leaves the cached list, so the picker stops offering it.
+        mock_slack_instance.get_channel_by_id.return_value = None
+        gone_lookup = client.get(f"{base_url}?channel_id=C1&force_refresh=true")
+        assert gone_lookup.status_code == status.HTTP_200_OK
+        assert gone_lookup.json()["channels"] == []
+
+        listed_after_removal = client.get(base_url)
+        assert listed_after_removal.status_code == status.HTTP_200_OK
+        assert listed_after_removal.json()["channels"] == []
+        mock_slack_instance.list_channels.assert_not_called()
+
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",
         [

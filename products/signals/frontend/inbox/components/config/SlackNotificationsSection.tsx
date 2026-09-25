@@ -15,7 +15,7 @@ import {
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
-import { getMissingScopes } from 'lib/integrations/IntegrationScopesWarning'
+import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSlackMemberTarget, slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
@@ -168,10 +168,11 @@ function readSlackTarget(
 }
 
 /**
- * A workspace connected before PostHog requested `users:read` cannot resolve anyone's account, so
- * the save that asks Slack for it fails. Saying so here, with the reconnect, is what the failed
- * save could not do: the API answers it as a validation error on a setting the user already turned
- * on, so the only recovery left was to guess that Slack had to be reconnected.
+ * A workspace connected before PostHog requested `users:read`, or one that records no scopes at
+ * all, cannot resolve anyone's account, so the save that asks Slack for it fails. Saying so here,
+ * with the reconnect, is what the failed save could not do: the API answers it as a validation
+ * error on a setting the user already turned on, so the only recovery left was to guess that Slack
+ * had to be reconnected.
  */
 function DirectMessageUnavailable({ integration }: { integration: IntegrationType }): JSX.Element {
     const reconnectRestrictionReason = useIntegrationManagementRestriction()
@@ -191,8 +192,8 @@ function DirectMessageUnavailable({ integration }: { integration: IntegrationTyp
                       }
             }
         >
-            PostHog cannot look up members in this Slack workspace, so it cannot find your account. Reconnect Slack to
-            give it the users:read permission, or post to a channel instead.
+            PostHog cannot look up members in this Slack workspace without the users:read permission, so it cannot find
+            your account. Reconnect Slack to grant it, or post to a channel instead.
             {reconnectRestrictionReason ? ' Ask a project admin to reconnect it.' : ''}
         </LemonBanner>
     )
@@ -268,8 +269,9 @@ function PerUserNotificationCard({ integrations }: { integrations: IntegrationTy
 
     // Resolving a direct message costs a `users.info` call, so a workspace that never granted the
     // scope for it can only fail the save. Decide that here instead of sending a save Slack refuses.
-    const canDirectMessage =
-        !integration || getMissingScopes(integration, [SlackIntegrationScope.USERS_READ]).length === 0
+    // An install that records no scopes at all counts as missing it: assuming the scope is what
+    // produced the error nothing in the app could clear.
+    const canDirectMessage = !!integration && getGrantedScopes(integration).includes(SlackIntegrationScope.USERS_READ)
 
     // The toggle is view state only: switching it must never write, or an exploratory click would
     // clear a saved target. A direct message is the default because it needs no channel set up.

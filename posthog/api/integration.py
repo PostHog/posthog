@@ -1576,7 +1576,13 @@ class IntegrationViewSet(
         }
 
     @staticmethod
-    def _cache_slack_channel(key: str, channel: dict) -> None:
+    def _cache_slack_channel(key: str, channel_id: str, channel: dict | None) -> None:
+        """Write a live single-channel answer into the cached list, or drop the channel when Slack
+        returns none for it.
+
+        A channel Slack no longer returns is gone, or no longer visible to the app, so the list has
+        to stop offering it for the same reason a rejoined one has to replace its stale copy.
+        """
         backend = caches["default"]
         if not isinstance(backend, RedisCache):
             return
@@ -1590,7 +1596,11 @@ class IntegrationViewSet(
                     return
                 data = client.decode(previous)
                 channels_by_id = {item["id"]: item for item in data["channels"]}
-                channels_by_id[channel["id"]] = channel
+                if channel is None:
+                    if channels_by_id.pop(channel_id, None) is None:
+                        return
+                else:
+                    channels_by_id[channel["id"]] = channel
                 updated = client.encode({**data, "channels": list(channels_by_id.values())})
                 # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
                 if redis_client.eval(
@@ -1665,8 +1675,11 @@ class IntegrationViewSet(
                 _reraise_slack_api_error(e)
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
-                self._cache_slack_channel(key, serialized_channel)
+                self._cache_slack_channel(key, channel_id, serialized_channel)
                 return Response({"channels": [serialized_channel]})
+            # Only a forced lookup reaches Slack for a channel the cached list still holds, so this
+            # drops a channel the workspace no longer offers rather than leaving it pickable.
+            self._cache_slack_channel(key, channel_id, None)
             return Response({"channels": []})
 
         search = query_serializer.validated_data["search"]
