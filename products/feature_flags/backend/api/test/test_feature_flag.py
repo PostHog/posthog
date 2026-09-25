@@ -4517,7 +4517,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(20, 21)):
+        with self.assertNumQueries(FuzzyInt(22, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4533,7 +4533,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ).json()
 
         # Query count should stay constant regardless of flag count (no N+1)
-        with self.assertNumQueries(FuzzyInt(20, 21)):
+        with self.assertNumQueries(FuzzyInt(22, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -4557,7 +4557,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="Flag role access",
         )
 
-        with self.assertNumQueries(FuzzyInt(20, 21)):
+        with self.assertNumQueries(FuzzyInt(22, 23)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 2)
@@ -4596,7 +4596,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Capture query count with 5 flags
-        with self.assertNumQueries(FuzzyInt(18, 23)):
+        with self.assertNumQueries(FuzzyInt(20, 25)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 5)
@@ -4620,7 +4620,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
         # Query count should remain similar (not scale linearly with flag count)
-        with self.assertNumQueries(FuzzyInt(18, 25)):
+        with self.assertNumQueries(FuzzyInt(20, 27)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(len(response.json()["results"]), 30)
@@ -4671,7 +4671,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Should not cause extra queries for the targeting flags
-        with self.assertNumQueries(FuzzyInt(16, 23)):
+        with self.assertNumQueries(FuzzyInt(18, 25)):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             # Should include main_flag but not targeting flags (they're filtered out)
@@ -15385,11 +15385,25 @@ class TestScoutFeatureFlagWrites(APIBaseTest):
         assert disabled_flag.deleted
         assert response.json()["errors"][0]["id"] == active_flag.id
 
-    def test_definition_exposes_linked_product_tours(self) -> None:
+    @parameterized.expand([("linked_flag",), ("internal_targeting_flag",)])
+    def test_definition_exposes_product_tours_through_either_relation(self, relation: str) -> None:
+        # A tour generates its own internal targeting flag, so exposing only `linked_flag` leaves
+        # the commoner ownership invisible to a caller deciding whether a flag is safe to change.
         flag = FeatureFlag.objects.create(team=self.team, key="tour-flag")
-        tour = ProductTour.objects.create(team=self.team, name="Welcome tour", linked_flag=flag)
-        ProductTour.all_objects.create(team=self.team, name="Archived tour", linked_flag=flag, archived=True)
+        tour = ProductTour.objects.create(team=self.team, name="Welcome tour", **{relation: flag})
+        ProductTour.all_objects.create(team=self.team, name="Archived tour", archived=True, **{relation: flag})
         ProductTour.objects.create(team=self.team, name="Other tour")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["product_tours"] == [{"id": str(tour.id), "name": tour.name}]
+
+    def test_definition_lists_a_tour_once_when_it_owns_the_flag_through_both_relations(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="tour-flag")
+        tour = ProductTour.objects.create(
+            team=self.team, name="Welcome tour", linked_flag=flag, internal_targeting_flag=flag
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
 

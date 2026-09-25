@@ -225,7 +225,7 @@ Retained behavior follows the direction: **fully rolled out** → keep the enabl
 - Read the full definition again. Check experiments, early access features, surveys, `product_tours`, replay settings, and dependent flags. If any dependency remains, stop.
 - Call `scheduled-changes-list` with `model_name="FeatureFlag"` and `record_id` set to the flag ID. Read all pages. If a pending or recurring schedule can still run, preserve it and the flag, and report the conflict.
 
-Use `feature-flags-archive-create`, not deletion. If the API requires approval, record the pending request and stop; do not try another mutation path. Read the definition after success to verify `archived: true` and `active: false`. Update the existing cleanup report with the result, evidence, and flag link. Without these checks, leave the flag unchanged.
+Use `feature-flag-archive`, not deletion. If the API requires approval, record the pending request and stop; do not try another mutation path. Read the definition after success to verify `archived: true` and `active: false`. Update the existing cleanup report with the result, evidence, and flag link. Without these checks, leave the flag unchanged.
 
 `partial` rollout, a targeted multivariate flag, a flag serving payloads, inconsistent configuration, ambiguous intent, several plausible repositories, or call sites spread across repos → `requires_human_input`, and only when the report hands someone a concrete decision. Otherwise keep the evidence in memory and move on.
 

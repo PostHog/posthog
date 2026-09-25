@@ -1539,7 +1539,7 @@ class TestSurvey(APIBaseTest):
         ).json()
 
         # Includes one query for the project's replay gates
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(23):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()

@@ -1209,6 +1209,9 @@ class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessS
 
 
 class FeatureFlagLinkedProductTourSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the product tour that runs on this flag.")
+    name = serializers.CharField(read_only=True, help_text="Name of the product tour that runs on this flag.")
+
     class Meta:
         model = ProductTour
         fields = ["id", "name"]
@@ -1244,8 +1247,8 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
-    product_tours = FeatureFlagLinkedProductTourSerializer(
-        source="product_tours_linked_flag", many=True, read_only=True
+    product_tours = serializers.SerializerMethodField(
+        help_text="Unarchived product tours that run on this flag, through either the tour's linked flag or its internal targeting flag."
     )
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
@@ -1348,6 +1351,17 @@ class FeatureFlagSerializer(
         from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
+
+    @extend_schema_field(FeatureFlagLinkedProductTourSerializer(many=True))
+    def get_product_tours(self, feature_flag: FeatureFlag) -> list[dict]:
+        # A tour can name the same flag in both columns, so merge on id rather than concatenating.
+        tours = {
+            tour.id: tour
+            for relation in ("product_tours_linked_flag", "product_tours_internal_targeting_flag")
+            for tour in getattr(feature_flag, relation).all()
+        }
+        ordered = sorted(tours.values(), key=lambda tour: str(tour.id))
+        return FeatureFlagLinkedProductTourSerializer(ordered, many=True).data
 
     def get_surveys(self, feature_flag: FeatureFlag) -> dict:
         from products.surveys.backend.api.survey import SurveyAPISerializer
@@ -3476,6 +3490,10 @@ class FeatureFlagViewSet(
             Prefetch(
                 "product_tours_linked_flag",
                 queryset=ProductTour.objects.only("id", "name", "linked_flag_id"),
+            ),
+            Prefetch(
+                "product_tours_internal_targeting_flag",
+                queryset=ProductTour.objects.only("id", "name", "internal_targeting_flag_id"),
             ),
         )
 
