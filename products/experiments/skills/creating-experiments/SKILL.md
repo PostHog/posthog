@@ -133,14 +133,14 @@ Key details:
 
 - Minimum 2, maximum 20 variants. No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant (override with `stats_config.baseline_variant_key`). Convention: key the baseline `"control"` unless the user asks for specific keys.
 - `filters.groups[0].rollout_percentage` defaults to 100 if omitted.
-- Bucketing and `ensure_experience_continuity` come from step 0. Keep user-id bucketing unless the page crosses identification. Only then, in this order: device-id bucketing when every flag call carries a device ID, else persistence when no SDK evaluates the flag locally, else user-id bucketing. On a mobile surface device-id bucketing is unavailable, because mobile events carry no device ID, so the choice is persistence or user-id bucketing. A project that has never used either is not a reason to skip them here. Leave `ensure_experience_continuity` out unless you are choosing persistence: when omitted, the team's persistence default applies.
+- Bucketing and `ensure_experience_continuity`: default to user-id bucketing and leave `ensure_experience_continuity` out, so the team's persistence default applies. Report the surface's identity mix from step 0 and what device-id bucketing or persistence would each need, then let the user choose. The identity mix does not decide it: see "Bucketing and persistence" in `configuring-experiment-rollout`.
 - Stats follow the team's defaults (method, confidence level). Only set `stats_config` if the user asks for a different method.
 
 ## After creation
 
 1. **Report the draft in three groups**, so the user can review it quickly:
    - **Set with confidence**: the choice and the fact behind it ("linked the shared metric 'Signups': it counts the signup event per person, as you asked").
-   - **Best guess, please check**: the choice, the fact, and what would change it ("user-id bucketing: 94% of visitors are not identified; switch to device id if identified users also see this page").
+   - **Best guess, please check**: the choice, the fact, and what would change it ("a funnel metric, because your last four experiments measured conversion that way; say so if you want a count per user instead").
    - **Not decided**: what is missing and how to decide it ("the flag is also evaluated on your server with local evaluation; check the server and browser use the same distinct ID").
 
    Also say what you could not read: a missing tool, or a section whose status was not `ok`.
