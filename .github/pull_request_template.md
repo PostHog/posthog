@@ -67,7 +67,7 @@
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - link to session and the tool names used, but do not include tool call results.
      - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
-     - CodeRabbit CLI pass (local tasks only): each finding and its disposition (fixed, or rejected with the reason), or that the person declined CLI setup. Cloud and CI skips need no entry. The findings only appeared in the terminal, so this is their only record.
+     - CodeRabbit CLI pass (local tasks only): each finding and its disposition (fixed, or rejected with the reason), or why the local pass was skipped (CLI missing, signed out with no person available, setup declined, or rate limited). Cloud and CI skips need no entry. The findings only appeared in the terminal, so this is their only record.
      - decisions made along the way: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes instead, where a reviewer will actually see it.
      - anything else that helps reviewers
      Write reviewer-facing prose. Do not paste user prompts verbatim — paraphrase the intent in your own words.

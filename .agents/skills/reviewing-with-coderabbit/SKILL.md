@@ -90,7 +90,7 @@ cr auth status                   # confirms the session and the organization
 5. Fix what holds, and commit the fixes.
 6. Record the outcome under Agent context in the PR description, as the PR template asks.
    After a run, that is whether it ran with `--deep`, and each finding's disposition.
-   After a local skip, record whether the person declined setup or the CLI was rate limited. Cloud and CI skips need no entry.
+   After a local skip, record why: CLI missing, signed out with no person available, setup declined, or rate limited. Cloud and CI skips need no entry.
 7. Continue the normal flow: `hogli ci:preflight`, then `gh pr create`.
 
 ## After the PR opens
