@@ -164,13 +164,9 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
 }
 
 /**
- * The line a lazy entry chunk starts with: it registers the chunk's stylesheets under its import
- * map specifier, and `window.ESBUILD_IMPORT` waits for them before the chunk's import resolves, so
- * the chunk never renders unstyled. `import.meta.resolve` reads each group's URL from the import
- * map, and the group's rank tells the loader where to insert it.
- *
- * A browser without `import.meta.resolve` (Chromium 89 to 104 has import maps but not this)
- * registers `null`, which asks for the full stylesheet instead.
+ * The line a lazy entry chunk starts with: it registers the chunk's stylesheets for
+ * `window.ESBUILD_IMPORT` to wait on. Without `import.meta.resolve` (Chromium 89 to 104 has import
+ * maps but not this) it registers `null`, which asks for the full stylesheet instead.
  */
 export function cssPrelude(specifier, groupNames, rankOfGroup) {
     const entries = groupNames.map(

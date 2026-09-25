@@ -155,9 +155,6 @@ describe('planCssGroups', () => {
 describe('cssPrelude', () => {
     const SPECIFIER = '@c/eSCENE'
 
-    // Runs the prelude as a plain function body, not an async one. A lazy chunk must not use
-    // top-level await: WebKit before Safari 27 resolves a second import() of a module paused at one
-    // before the module's body has run, and the scene then renders with its bindings undefined.
     function runPrelude(
         groupNames: string[],
         rankOfGroup: Map<string, number>,
@@ -185,8 +182,6 @@ describe('cssPrelude', () => {
         })
     })
 
-    // A browser without import.meta.resolve cannot look up group URLs, so the chunk asks for the
-    // full stylesheet instead of resolving anything.
     it('registers the full stylesheet instead when import.meta.resolve is unavailable', () => {
         expect(runPrelude(['lazy-a'], new Map([['lazy-a', 0]]), { hasImportMetaResolve: false })).toEqual({
             [SPECIFIER]: null,

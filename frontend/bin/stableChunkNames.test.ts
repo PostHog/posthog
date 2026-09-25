@@ -122,7 +122,6 @@ describe('planStableChunks', () => {
         expect(withPrelude.stableFile).not.toBe(plan(sources).get('dist/Scene-AAAA1111.js')!.stableFile)
     })
 
-    // The import waits for the stylesheets the chunk registers, so the chunk itself needs no top-level await.
     it('imports a chunk with a prelude dynamically through the stylesheet-aware loader, and statically as is', () => {
         const outputs = {
             ...OUTPUTS,
