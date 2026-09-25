@@ -18,6 +18,8 @@ import type {
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasCommentDetailApi,
+    CanvasCommentsResponseApi,
     CanvasConnectorCallApi,
     CanvasConnectorCallResultApi,
     CanvasConnectorsResponseApi,
@@ -47,6 +49,8 @@ import type {
     CanvasValidateResponseApi,
     CanvasViewResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesCommentsListParams,
+    CanvasesCommentsRetrieveParams,
     CanvasesConnectorsRetrieveParams,
     CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
@@ -248,6 +252,74 @@ export const canvasesBuildActionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(canvasBuildActionApi),
+    })
+}
+
+export const getCanvasesCommentsListUrl = (projectId: string, id: string, params?: CanvasesCommentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/comments/`
+}
+
+/**
+ * The comment threads on this canvas, newest first. Open threads only unless include_resolved is set.
+ */
+export const canvasesCommentsList = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesCommentsListParams,
+    options?: RequestInit
+): Promise<CanvasCommentsResponseApi> => {
+    return apiMutator<CanvasCommentsResponseApi>(getCanvasesCommentsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesCommentsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: CanvasesCommentsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/comments/${rootCommentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/comments/${rootCommentId}/`
+}
+
+/**
+ * One comment thread on this canvas: the root comment and its replies, oldest first.
+ */
+export const canvasesCommentsRetrieve = async (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: CanvasesCommentsRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasCommentDetailApi> => {
+    return apiMutator<CanvasCommentDetailApi>(getCanvasesCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

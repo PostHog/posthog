@@ -917,7 +917,12 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
         activities: zod
             .array(
                 zod.object({
-                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    task_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe(
+                            'Task whose displayed activity should be marked read. Optional when activity_id is set.'
+                        ),
                     activity_id: zod
                         .uuid()
                         .nullish()

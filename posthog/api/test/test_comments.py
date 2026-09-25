@@ -636,11 +636,22 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
         )
         assert [row["id"] for row in relisted.json()["results"]] == [created.json()["id"]]
+        reply = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "Still relevant",
+                "scope": "desktop_canvas",
+                "item_id": str(canvas.id),
+                "source_comment": created.json()["id"],
+            },
+        )
+        assert reply.status_code == status.HTTP_201_CREATED
 
+    @parameterized.expand([("with_task", True), ("without_task", False)])
     @mock.patch("posthog.api.comments.send_mention_notifications")
     @mock.patch("posthog.api.comments.produce_discussion_mention_events")
     def test_private_canvas_comments_follow_space_membership(
-        self, produce_events: mock.Mock, send_notifications: mock.Mock
+        self, _name: str, with_task: bool, produce_events: mock.Mock, send_notifications: mock.Mock
     ) -> None:
         channel_model = apps.get_model("tasks", "Channel")
         membership_model = apps.get_model("tasks", "ChannelMembership")
@@ -665,13 +676,13 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             channel=channel,
             name="Private canvas",
             created_by=self.user,
-            generation_task_id=task.id,
+            generation_task_id=task.id if with_task else None,
         )
         payload = {
             "content": "Review this canvas",
             "scope": "desktop_canvas",
             "item_id": str(canvas.id),
-            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "item_context": {"anchor": {"kind": "document"}, **({"taskId": str(task.id)} if with_task else {})},
             "mentions": [invited.id, non_member.id],
         }
 

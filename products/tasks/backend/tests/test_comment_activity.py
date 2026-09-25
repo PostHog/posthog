@@ -117,20 +117,35 @@ class TestCommentActivity(CommentActivityTestCase):
             assert row.channel_id == canvas.channel_id
             assert row.channel_name == channel.name
 
-    def test_canvas_comment_resolves_its_owner_when_the_caller_passes_none(self):
+    @parameterized.expand([("with_task", True), ("without_task", False)])
+    def test_canvas_comment_resolves_its_owner_when_the_caller_passes_none(self, _name: str, with_task: bool):
         canvas = Canvas.objects.create(
             team=self.team,
             channel=self.channel,
             name="Launch canvas",
             created_by=self.author,
-            generation_task_id=self.task.id,
+            generation_task_id=self.task.id if with_task else None,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(
+            scope="desktop_canvas",
+            item_id=str(canvas.id),
+            item_context={"anchor": {"kind": "document"}, **({"taskId": str(self.task.id)} if with_task else {})},
+        )
 
         self._record_activity(comment)
 
         row = TaskCommentActivity.objects.get(team=self.team, user=self.author, comment=comment)
         assert row.kind == TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
+        assert row.task_id == (self.task.id if with_task else None)
+        feed_row = next(
+            entry
+            for entry in tasks_facade.list_task_activity(self.team.id, self.author.id).results
+            if entry.id == row.id
+        )
+        assert (feed_row.task_id, feed_row.task_title, feed_row.is_unread) == (row.task_id, canvas.name, True)
+        assert (
+            tasks_facade.mark_task_activity_read(self.team.id, self.author.id, [(None, row.activity_at, row.id)]) == 1
+        )
 
     def test_feed_renders_the_comment_author_and_text(self):
         comment = self._comment()

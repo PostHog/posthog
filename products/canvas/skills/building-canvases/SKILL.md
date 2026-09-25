@@ -148,6 +148,8 @@ matching shape above. The pattern is a hint; the user's actual request remains a
 
 1. Read the current source and version pointer with `canvas-source-retrieve`.
    Remember `current_version_id` — your publish must be guarded on it.
+   When `canvas-comments-list` is available, read the open comment threads too.
+   They are user feedback on the canvas. Address the ones that the request covers.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
    the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
    fetch or your own PostHog client), make every figure verifiable — an insight-backed metric

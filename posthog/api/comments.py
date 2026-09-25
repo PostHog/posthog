@@ -227,6 +227,20 @@ def _record_task_comment_activity(
         )
 
 
+def _stored_task_context_id(comment: Comment) -> str | None:
+    item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    task_id = item_context.get("taskId")
+    return task_id if isinstance(task_id, str) else None
+
+
+def _stored_comment_task_id(comment: Comment) -> str | None:
+    if comment.scope == "desktop_canvas":
+        return None
+    if comment.scope == "task":
+        return comment.item_id
+    return _stored_task_context_id(comment)
+
+
 def _mentions_allowed_for_comment_target(
     *, team_id: int, scope: str, item_id: str | None, item_context: dict | None, mentioned_user_ids: list[int]
 ) -> list[int]:
@@ -434,10 +448,14 @@ class CommentSerializer(serializers.ModelSerializer):
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
+            if target_scope == "desktop_canvas" and (
+                source_comment is not None or (instance is not None and task_id == _stored_task_context_id(instance))
+            ):
+                task_id = None
             if not task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
                 user_id=request.user.id,
-                task_id=task_id or "",
+                task_id=task_id,
                 scope=target_scope,
                 item_id=target_item_id,
             ):
@@ -865,12 +883,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         if comment is None or comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
             return
-        item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
-        task_id = comment.item_id if comment.scope == "task" else item_context.get("taskId")
         if not task_comment_target_is_accessible(
             team_id=self.team_id,
             user_id=self.request.user.id,
-            task_id=task_id or "",
+            task_id=_stored_comment_task_id(comment),
             scope=comment.scope,
             item_id=comment.item_id,
         ):
@@ -881,11 +897,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         lookup_value = self.kwargs[lookup_url_kwarg]
         comment = get_object_or_404(queryset, **{self.lookup_field: lookup_value})
         if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
-            task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
             if not task_comment_target_is_accessible(
                 team_id=self.team_id,
                 user_id=self.request.user.id,
-                task_id=task_id or "",
+                task_id=_stored_comment_task_id(comment),
                 scope=comment.scope,
                 item_id=comment.item_id,
             ):
@@ -943,7 +958,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 if not task_comment_target_is_accessible(
                     team_id=self.team_id,
                     user_id=self.request.user.id,
-                    task_id=task_id or "",
+                    task_id=None if scope == "desktop_canvas" else task_id,
                     scope=scope,
                     item_id=item_id,
                 ):

@@ -1,5 +1,5 @@
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -111,15 +111,28 @@ def _decode_cursor(cursor: str) -> tuple[datetime, UUID]:
         raise InvalidTaskCommentCursor from None
 
 
+TargetNames = Callable[[Sequence[Comment]], dict[tuple[str, str], str]]
+
+
+def _without_emoji(comments: QuerySet[Comment]) -> QuerySet[Comment]:
+    return comments.filter(
+        Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False)
+    )
+
+
 def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
     task_id_string = str(task_id)
-    return (
-        Comment.objects.filter(team_id=team_id, deleted=False)
-        .filter(
+    return _without_emoji(
+        Comment.objects.filter(team_id=team_id, deleted=False).filter(
             Q(scope="task", item_id=task_id_string)
             | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
         )
-        .filter(Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False))
+    )
+
+
+def _canvas_comments(team_id: int, canvas_id: UUID) -> QuerySet[Comment]:
+    return _without_emoji(
+        Comment.objects.filter(team_id=team_id, deleted=False, scope="desktop_canvas", item_id=str(canvas_id))
     )
 
 
@@ -234,9 +247,49 @@ def list_comments(
     limit: int,
     cursor: str | None,
 ) -> contracts.TaskCommentPageDTO:
-    roots_qs = _comments(team_id, task_id).filter(source_comment_id__isnull=True)
+    comments = _comments(team_id, task_id)
+    roots_qs = comments.filter(source_comment_id__isnull=True)
     if artifact_id:
         roots_qs = roots_qs.filter(scope__in=["task_artifact", "desktop_canvas"], item_id=artifact_id)
+    return _list_page(
+        comments=comments,
+        roots_qs=roots_qs,
+        target_names=lambda roots: _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots),
+        include_resolved=include_resolved,
+        limit=limit,
+        cursor=cursor,
+    )
+
+
+def list_canvas_comments(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    canvas_name: str,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
+    comments = _canvas_comments(team_id, canvas_id)
+    return _list_page(
+        comments=comments,
+        roots_qs=comments.filter(source_comment_id__isnull=True),
+        target_names=lambda roots: {("canvas", str(canvas_id)): canvas_name},
+        include_resolved=include_resolved,
+        limit=limit,
+        cursor=cursor,
+    )
+
+
+def _list_page(
+    *,
+    comments: QuerySet[Comment],
+    roots_qs: QuerySet[Comment],
+    target_names: TargetNames,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
     scan_cursor = _decode_cursor(cursor) if cursor else None
     result: list[contracts.TaskCommentSummaryDTO] = []
     next_cursor = None
@@ -252,7 +305,7 @@ def list_comments(
         if not roots:
             break
         root_ids = [root.id for root in roots]
-        reply_qs = _comments(team_id, task_id).filter(source_comment_id__in=root_ids)
+        reply_qs = comments.filter(source_comment_id__in=root_ids)
         human_replies = reply_qs.filter(
             Q(item_context__isnull=True)
             | ~Q(item_context__has_key="threadState")
@@ -267,7 +320,7 @@ def list_comments(
             .values_list("source_comment_id", "item_context")
             if isinstance(item_context, dict)
         }
-        target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots)
+        names = target_names(roots)
         for root in roots:
             resolved = _resolved(root, latest_states.get(root.id))
             if resolved and not include_resolved:
@@ -282,7 +335,7 @@ def list_comments(
             result.append(
                 contracts.TaskCommentSummaryDTO(
                     id=root.id,
-                    target=_target(root, target_names),
+                    target=_target(root, names),
                     content=content,
                     content_truncated=content_next_offset is not None,
                     selected_text=selected_text,
@@ -326,29 +379,62 @@ def retrieve_comment(
     content_comment_id: UUID | None,
     content_offset: int,
 ) -> contracts.TaskCommentDetailDTO | None:
-    root = (
-        _comments(team_id, task_id)
-        .select_related("created_by")
-        .filter(id=comment_id, source_comment_id__isnull=True)
-        .first()
+    return _retrieve_thread(
+        comments=_comments(team_id, task_id),
+        target_names=lambda roots: _target_names_for_roots(team_id=team_id, task_id=task_id, roots=roots),
+        comment_id=comment_id,
+        limit=limit,
+        cursor=cursor,
+        content_comment_id=content_comment_id,
+        content_offset=content_offset,
     )
+
+
+def retrieve_canvas_comment(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    canvas_name: str,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
+) -> contracts.TaskCommentDetailDTO | None:
+    return _retrieve_thread(
+        comments=_canvas_comments(team_id, canvas_id),
+        target_names=lambda roots: {("canvas", str(canvas_id)): canvas_name},
+        comment_id=comment_id,
+        limit=limit,
+        cursor=cursor,
+        content_comment_id=content_comment_id,
+        content_offset=content_offset,
+    )
+
+
+def _retrieve_thread(
+    *,
+    comments: QuerySet[Comment],
+    target_names: TargetNames,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
+) -> contracts.TaskCommentDetailDTO | None:
+    root = comments.select_related("created_by").filter(id=comment_id, source_comment_id__isnull=True).first()
     if root is None:
         return None
     latest_state_reply = (
-        _comments(team_id, task_id)
-        .filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
+        comments.filter(source_comment_id=root.id, item_context__threadState__in=COMMENT_STATES)
         .order_by("-created_at", "-id")
         .first()
     )
-    thread_comments_qs = (
-        _comments(team_id, task_id)
-        .filter(Q(id=root.id) | Q(source_comment_id=root.id))
-        .filter(
-            Q(id=root.id)
-            | Q(item_context__isnull=True)
-            | ~Q(item_context__has_key="threadState")
-            | ~Q(item_context__threadState__in=COMMENT_STATES)
-        )
+    thread_comments_qs = comments.filter(Q(id=root.id) | Q(source_comment_id=root.id)).filter(
+        Q(id=root.id)
+        | Q(item_context__isnull=True)
+        | ~Q(item_context__has_key="threadState")
+        | ~Q(item_context__threadState__in=COMMENT_STATES)
     )
     if content_comment_id is not None:
         content_comment = thread_comments_qs.select_related("created_by").filter(id=content_comment_id).first()
@@ -381,10 +467,9 @@ def retrieve_comment(
             if has_more and comment_models
             else None
         )
-    target_names = _target_names_for_roots(team_id=team_id, task_id=task_id, roots=[root])
     return contracts.TaskCommentDetailDTO(
         id=root.id,
-        target=_target(root, target_names),
+        target=_target(root, target_names([root])),
         resolved=_resolved(
             root,
             _item_context(latest_state_reply).get("threadState") if latest_state_reply else None,

@@ -303,7 +303,7 @@ class TaskActivityDTO:
     """
 
     id: UUID
-    task_id: UUID
+    task_id: UUID | None
     task_title: str
     channel_id: UUID | None
     channel_name: str | None

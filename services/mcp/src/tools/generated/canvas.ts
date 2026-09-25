@@ -38,6 +38,70 @@ const canvasBuildsRetrieve = (): ToolBase<
     },
 })
 
+const CanvasCommentsListSchema = () => {
+    const CanvasesCommentsListParams = orvalSchemas.CanvasesCommentsListParams()
+    const CanvasesCommentsListQueryParams = orvalSchemas.CanvasesCommentsListQueryParams()
+    return CanvasesCommentsListParams.omit({ project_id: true })
+        .extend(CanvasesCommentsListQueryParams.shape)
+        .extend({ id: CanvasesCommentsListParams.shape['id'].describe('ID of the canvas whose comments to list.') })
+}
+
+const canvasCommentsList = (): ToolBase<
+    ReturnType<typeof CanvasCommentsListSchema>,
+    Schemas.CanvasCommentsResponse
+> => ({
+    name: 'canvas-comments-list',
+    schema: CanvasCommentsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasCommentsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasCommentsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/comments/`,
+            query: {
+                cursor: params.cursor,
+                include_resolved: params.include_resolved,
+                limit: params.limit,
+            },
+        })
+        return result
+    },
+})
+
+const CanvasCommentsRetrieveSchema = () => {
+    const CanvasesCommentsRetrieveParams = orvalSchemas.CanvasesCommentsRetrieveParams()
+    const CanvasesCommentsRetrieveQueryParams = orvalSchemas.CanvasesCommentsRetrieveQueryParams()
+    return CanvasesCommentsRetrieveParams.omit({ project_id: true })
+        .extend(CanvasesCommentsRetrieveQueryParams.shape)
+        .extend({
+            id: CanvasesCommentsRetrieveParams.shape['id'].describe('ID of the canvas the thread is on.'),
+            root_comment_id: CanvasesCommentsRetrieveParams.shape['root_comment_id'].describe(
+                'Root comment id from canvas-comments-list.'
+            ),
+        })
+}
+
+const canvasCommentsRetrieve = (): ToolBase<
+    ReturnType<typeof CanvasCommentsRetrieveSchema>,
+    Schemas.CanvasCommentDetail
+> => ({
+    name: 'canvas-comments-retrieve',
+    schema: CanvasCommentsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof CanvasCommentsRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.CanvasCommentDetail>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/comments/${encodeURIComponent(String(params.root_comment_id))}/`,
+            query: {
+                comment_id: params.comment_id,
+                content_offset: params.content_offset,
+                cursor: params.cursor,
+                limit: params.limit,
+            },
+        })
+        return result
+    },
+})
+
 const CanvasConnectorsRetrieveSchema = () => {
     const CanvasesConnectorsRetrieveQueryParams = orvalSchemas.CanvasesConnectorsRetrieveQueryParams()
     return CanvasesConnectorsRetrieveQueryParams
@@ -634,6 +698,8 @@ const canvasValidateCreate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'canvas-builds-retrieve': canvasBuildsRetrieve,
+    'canvas-comments-list': canvasCommentsList,
+    'canvas-comments-retrieve': canvasCommentsRetrieve,
     'canvas-connectors-retrieve': canvasConnectorsRetrieve,
     'canvas-create': canvasCreate,
     'canvas-draft-create': canvasDraftCreate,

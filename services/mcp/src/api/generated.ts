@@ -18489,6 +18489,123 @@ export namespace Schemas {
       connectors_added: CanvasConnectorDeclaration[];
     }
 
+    export interface CanvasCommentAnchor {
+      /** Anchor kind: text or region. */
+      kind?: string;
+      /** Selected text. */
+      quote?: string;
+      /** Text immediately before the selection. */
+      prefix?: string;
+      /** Text immediately after the selection. */
+      suffix?: string;
+      /**
+         * Selection start offset.
+         * @minimum 0
+         */
+      start?: number;
+      /**
+         * Selection end offset.
+         * @minimum 1
+         */
+      end?: number;
+      /**
+         * Horizontal region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      x?: number;
+      /**
+         * Vertical region position.
+         * @minimum 0
+         * @maximum 1
+         */
+      y?: number;
+      /**
+         * Region width.
+         * @minimum 0
+         * @maximum 1
+         */
+      width?: number;
+      /**
+         * Region height.
+         * @minimum 0
+         * @maximum 1
+         */
+      height?: number;
+    }
+
+    export interface CanvasCommentEntry {
+      /** Comment id. */
+      id: string;
+      /** Byte-bounded comment body chunk. */
+      content: string;
+      /** Whether this comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Byte offset for the next body chunk, or null when complete.
+         * @nullable
+         */
+      content_next_offset: number | null;
+      /**
+         * Display name of the comment author.
+         * @nullable
+         */
+      author: string | null;
+      /** When the comment was created. */
+      created_at: string;
+      /** Normalized text or region anchor. */
+      anchor: CanvasCommentAnchor | null;
+      /**
+         * Canvas version that was live when the comment was written.
+         * @nullable
+         */
+      canvas_version_id: string | null;
+    }
+
+    export interface CanvasCommentDetail {
+      /** Root comment id. */
+      id: string;
+      /** Whether the comment thread is resolved. */
+      resolved: boolean;
+      /** Comments in this page, oldest first. */
+      comments: CanvasCommentEntry[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
+    }
+
+    export interface CanvasCommentSummary {
+      /** Root comment id. */
+      id: string;
+      /** Bounded excerpt of the root comment body. */
+      content: string;
+      /** Whether the root comment body has more content. */
+      content_truncated: boolean;
+      /**
+         * Text selected when the comment was created.
+         * @nullable
+         */
+      selected_text: string | null;
+      /** When the root comment was created. */
+      created_at: string;
+      /** Number of human replies. */
+      reply_count: number;
+      /** Whether the comment thread is resolved. */
+      resolved: boolean;
+    }
+
+    export interface CanvasCommentsResponse {
+      /** Root comments on the canvas, newest first. */
+      comments: CanvasCommentSummary[];
+      /**
+         * Opaque cursor for the next page, or null.
+         * @nullable
+         */
+      next: string | null;
+    }
+
     /**
      * The renderable build of one component referenced by a grid layout, shaped
      * like the builds endpoint's response so clients reuse one lifecycle reader.
@@ -96817,7 +96934,8 @@ export namespace Schemas {
      */
     export interface TaskActivityDTO {
       id: string;
-      task_id: string;
+      /** @nullable */
+      task_id: string | null;
       task_title: string;
       /** @nullable */
       channel_id: string | null;
@@ -96851,8 +96969,11 @@ export namespace Schemas {
     }
 
     export interface TaskActivityReadMarker {
-      /** Task whose displayed activity should be marked read. */
-      task_id: string;
+      /**
+         * Task whose displayed activity should be marked read. Optional when activity_id is set.
+         * @nullable
+         */
+      task_id?: string | null;
       /**
          * Comment activity row to mark read. Omit for collapsed task activity.
          * @nullable
@@ -107267,6 +107388,49 @@ export namespace Schemas {
      * Include the retained ready build for this historical source version.
      */
     version_id?: string;
+    };
+
+    export type CanvasesCommentsListParams = {
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean;
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type CanvasesCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string;
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number;
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string;
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
     };
 
     export type CanvasesDraftsRetrieveParams = {

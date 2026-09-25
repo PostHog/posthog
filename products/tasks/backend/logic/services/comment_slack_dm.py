@@ -61,7 +61,9 @@ _HEADINGS: Mapping[str, str] = {
 }
 
 
-def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipients: Mapping[int, str]) -> None:
+def send_comment_slack_dms(
+    *, team_id: int, comment_id: UUID, task_id: UUID | None, recipients: Mapping[int, str]
+) -> None:
     """DM each recipient who has not opted out, can still see the comment, and has linked Slack.
 
     ``recipients`` is the map ``comment_activity`` just projected: user id to activity kind.
@@ -94,8 +96,12 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     # deploy. Skipped in local dev, where flags evaluate against the developer's own instance and
     # the gate would otherwise fail closed on every machine — the same default-on-in-dev treatment
     # the desktop flags get.
-    task = Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
-    if task is None:
+    task = (
+        Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
+        if task_id is not None
+        else None
+    )
+    if task is None and comment.scope != "desktop_canvas":
         return _skip(comment_id, "task_missing")
     link = _link_target(comment=comment, task=task)
     if link is None:
@@ -136,7 +142,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         if not task_comment_target_is_accessible(
             team_id=team_id,
             user_id=user_id,
-            task_id=task_id,
+            task_id=None if comment.scope == "desktop_canvas" else task_id,
             scope=comment.scope,
             item_id=comment.item_id,
         ):
@@ -378,7 +384,7 @@ class _LinkTarget:
     url: str
 
 
-def _link_target(*, comment: Comment, task: Task) -> _LinkTarget | None:
+def _link_target(*, comment: Comment, task: Task | None) -> _LinkTarget | None:
     """The item the heading names and links to.
 
     A canvas comment links to the canvas, not to the task that generated it. Canvas access follows
@@ -386,6 +392,8 @@ def _link_target(*, comment: Comment, task: Task) -> _LinkTarget | None:
     link would then name a task they cannot open and leak its title.
     """
     if comment.scope != "desktop_canvas":
+        if task is None:
+            return None
         return _LinkTarget(title=task.title or "a task", url=_bridge_url(comment=comment, task=task))
     if not comment.item_id:
         return None

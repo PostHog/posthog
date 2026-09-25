@@ -448,6 +448,123 @@ export interface CanvasBuildActionApi {
     build_id: string
 }
 
+export interface CanvasCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment thread is resolved. */
+    resolved: boolean
+}
+
+export interface CanvasCommentsResponseApi {
+    /** Root comments on the canvas, newest first. */
+    comments: CanvasCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface CanvasCommentAnchorApi {
+    /** Anchor kind: text or region. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
+}
+
+export interface CanvasCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Byte-bounded comment body chunk. */
+    content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
+    /**
+     * Display name of the comment author.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or region anchor. */
+    anchor: CanvasCommentAnchorApi | null
+    /**
+     * Canvas version that was live when the comment was written.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface CanvasCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Whether the comment thread is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: CanvasCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
 /**
  * Tool arguments, validated against the tool's input schema.
  */
@@ -1759,6 +1876,49 @@ export type CanvasesBuildsRetrieveParams = {
      * Include the retained ready build for this historical source version.
      */
     version_id?: string
+}
+
+export type CanvasesCommentsListParams = {
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type CanvasesCommentsRetrieveParams = {
+    /**
+     * Comment id whose truncated body should continue. Use with content_offset.
+     */
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type CanvasesDraftsRetrieveParams = {

@@ -116,6 +116,10 @@ has `content_truncated: true`, call `tasks-comments-retrieve` again with that en
 2. Pass the returned id as `artifact_id` to `tasks-comments-list` through `exec`.
 3. Retrieve every relevant root and all replies through `exec`.
 
+A canvas can also have threads that no task wrote, or that another task wrote.
+To read all threads on a canvas, call `canvas-comments-list` with the canvas id through `exec`.
+Then read each relevant thread with `canvas-comments-retrieve`.
+
 ### Act on feedback
 
 1. Read all relevant open roots and complete replies before editing.
