@@ -36,6 +36,7 @@ logger = get_write_only_logger()
 # "trace_not_settled" and "session_not_settled" are the aggregate-evaluation settle probes, whose
 # retry schedule is the poll loop. Each settle target keeps its own type, so a new target must
 # list its type here too; `_NOT_SETTLED_ERROR_TYPES` is tested against this set.
+# The "tagger_" types are runs RunTaggerWorkflow skips; `SKIPPED_RESULT_ERROR_TYPES` is tested against this set.
 EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
     {
         "trace_not_settled",
@@ -45,6 +46,11 @@ EXPECTED_CONTROL_FLOW_ERROR_TYPES = frozenset(
         "AIFeaturesCloudOnly",
         "SandboxRateLimitedError",
         "SandboxControlPlaneUnavailableError",
+        "tagger_disabled",
+        "tagger_parse_error",
+        "tagger_provider_key_required",
+        "tagger_key_invalid",
+        "tagger_no_default_model",
     }
 )
 

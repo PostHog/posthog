@@ -515,6 +515,7 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
                 user_id: zod.number().describe('Member this rule applies to.'),
                 setting: zod
                     .enum([
+                        'data_catalog_weekly_digest',
                         'discussions_mentioned',
                         'error_tracking_issue_assigned',
                         'error_tracking_weekly_digest_project_enabled',
@@ -527,10 +528,10 @@ export const NotificationLocksBulkUpdateCreateBody = /* @__PURE__ */ zod.object(
                         'web_analytics_weekly_digest_project_enabled',
                     ])
                     .describe(
-                        '\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                        '\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
                     )
                     .describe(
-                        'Notification setting to lock or unlock.\n\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
+                        'Notification setting to lock or unlock.\n\n\* `data_catalog_weekly_digest` - data_catalog_weekly_digest\n\* `discussions_mentioned` - discussions_mentioned\n\* `error_tracking_issue_assigned` - error_tracking_issue_assigned\n\* `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled\n\* `materialized_view_sync_failed` - materialized_view_sync_failed\n\* `materialized_view_sync_failed_daily` - materialized_view_sync_failed_daily\n\* `materialized_view_sync_failed_immediate` - materialized_view_sync_failed_immediate\n\* `organization_member_join_email_disabled` - organization_member_join_email_disabled\n\* `pipeline_notifications_disabled` - pipeline_notifications_disabled\n\* `project_weekly_digest_disabled` - project_weekly_digest_disabled\n\* `web_analytics_weekly_digest_project_enabled` - web_analytics_weekly_digest_project_enabled'
                     ),
                 scope_id: zod
                     .string()
@@ -661,6 +662,45 @@ export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
         password_required: zod.boolean().optional(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+/**
+ * Submit a one-column HogQL query for event deletion.
+ */
+export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+    submission_id: zod.uuid().describe('Client-generated identifier that makes request submission idempotent.'),
+})
+
+/**
+ * Validate a one-column HogQL query and count the selected event UUIDs.
+ */
+export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.string().describe('HogQL query that selects one event UUID column.'),
+    variables: zod
+        .record(
+            zod.string(),
+            zod.object({
+                code_name: zod.string(),
+                isNull: zod.union([zod.boolean(), zod.null()]).optional(),
+                value: zod.unknown().optional(),
+                variableId: zod.string(),
+            })
+        )
+        .optional()
+        .describe('Variables referenced by the HogQL query.'),
+})
 
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({

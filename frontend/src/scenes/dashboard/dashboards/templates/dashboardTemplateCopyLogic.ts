@@ -5,7 +5,6 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -191,7 +190,7 @@ export const dashboardTemplateCopyLogic = kea<dashboardTemplateCopyLogicType>([
                     : {}
             )
             dashboardTemplatesLogic.findMounted({ scope: 'default', templatesTabList: true })?.actions.getAllTemplates()
-            router.actions.push(urls.dashboards(), { tab: DashboardsTab.Templates })
+            router.actions.push(urls.dashboards(), { templates: '1' })
         },
     })),
     afterMount(({ actions, props, values }) => {

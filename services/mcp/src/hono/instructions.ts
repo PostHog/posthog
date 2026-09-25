@@ -200,8 +200,10 @@ export class InstructionsBuilder {
         if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
+        // The connector's header-less `tools/list` advertises guides to every surface, so the call serves them too.
+        const { clientProfile } = state
         return {
-            guidesEnabled: state.clientProfile.isClaudeChatHost(),
+            guidesEnabled: clientProfile.isClaudeChatHost() || clientProfile.isAnthropicConnector(),
             skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
         }
     }

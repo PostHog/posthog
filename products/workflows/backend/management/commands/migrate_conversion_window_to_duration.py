@@ -6,19 +6,22 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.api.hog_flow import MAX_LEGACY_WINDOW_MINUTES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.services.timing_reschedule import parse_delay_duration_seconds
+from products.workflows.backend.utils.durations import duration_minutes
 
 MINUTES_PER_DAY = 1440
+# The ceiling the matcher clamped a legacy value to, kept here because nothing else needs it now.
+MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 
 
 @frozen
 class RewrittenWindow:
     """A conversion whose window_minutes has been respelled as a duration string."""
 
-    conversion: dict
+    conversion: dict[str, Any]
     window: str
     minutes: int
 
@@ -45,12 +48,27 @@ class Command(BaseCommand):
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--team-id", default=None, type=int, help="Limit to a specific team ID")
         parser.add_argument("--live-run", action="store_true", help="Apply changes (default is dry-run)")
+        parser.add_argument(
+            "--strip-inert",
+            action="store_true",
+            help=(
+                "Delete window_minutes wherever it cannot change what a workflow measures: null, zero, a "
+                "row that already carries window, or a value above the legacy ceiling the matcher clamped "
+                "anyway. Refuses to touch a row the convert pass would still convert, so run without this "
+                "flag first."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         live_run = options.get("live_run", False)
         team_id = options.get("team_id")
+        strip_inert = options.get("strip_inert", False)
         mode = "LIVE RUN" if live_run else "DRY RUN"
         self.stdout.write(f"Starting migrate_conversion_window_to_duration ({mode})")
+
+        if strip_inert:
+            self.strip_inert(live_run, team_id, mode)
+            return
 
         flows = HogFlow.objects.filter(conversion__isnull=False)
         if team_id:
@@ -63,8 +81,11 @@ class Command(BaseCommand):
         for flow in flows.iterator():
             conversion = flow.conversion or {}
             minutes = conversion.get("window_minutes")
-            # A row that already carries a window was written by a client that knows the new field.
-            if conversion.get("window") or not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
+            # A row that already carries a usable window was written by a client that knows the new
+            # field. Anything the worker cannot read leaves the legacy value as what it measures.
+            if has_usable_window(conversion):
+                continue
+            if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
                 continue
 
             if minutes > MAX_LEGACY_WINDOW_MINUTES:
@@ -96,12 +117,128 @@ class Command(BaseCommand):
 
         drafts = drafts_with_rows + self.convert_drafts(live_run, team_id)
         revisions = self.convert_revisions(live_run, team_id)
+        templates = self.convert_templates(live_run, team_id)
 
         self.report_needs_review(needs_review)
 
         verb = "converted" if live_run else "to convert"
         self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {converted} flow(s) {verb}"))
-        self.stdout.write(self.style.SUCCESS(f"  plus {drafts} draft(s) and {revisions} revision snapshot(s)"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  plus {drafts} draft(s), {revisions} revision snapshot(s) and {templates} template(s)"
+            )
+        )
+
+    def strip_inert(self, live_run: bool, team_id: int | None, mode: str) -> None:
+        """Delete the key everywhere it is dead weight, so nothing is left to read or restore."""
+        flows = HogFlow.objects.filter(conversion__isnull=False)
+        drafted = HogFlow.objects.filter(draft__isnull=False)
+        if team_id:
+            flows = flows.filter(team_id=team_id)
+            drafted = drafted.filter(team_id=team_id)
+            self.stdout.write(f"Filtering to team_id={team_id}")
+
+        verb = "Stripping" if live_run else "Would strip"
+        still_convertible = 0
+        flows_stripped = 0
+        for flow in flows.iterator():
+            if converted_conversion(flow.conversion) is not None:
+                still_convertible += 1
+                continue
+            if stripped_conversion(flow.conversion) is None:
+                continue
+            value = (flow.conversion or {}).get("window_minutes")
+            self.stdout.write(f"  {verb} flow id={flow.id} team_id={flow.team_id}: window_minutes={value!r}")
+            if live_run:
+                with transaction.atomic():
+                    locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
+                    fresh = stripped_conversion(locked.conversion)
+                    if fresh is None:
+                        continue
+                    HogFlow.objects.filter(pk=flow.pk).update(conversion=fresh)
+            flows_stripped += 1
+
+        drafts_stripped = 0
+        for flow in drafted.iterator():
+            draft = flow.draft
+            if not isinstance(draft, dict):
+                continue
+            if converted_conversion(draft.get("conversion")) is not None:
+                # Publishing this draft later would drop a window the convert pass could still save.
+                still_convertible += 1
+                continue
+            if stripped_conversion(draft.get("conversion")) is None:
+                continue
+            self.stdout.write(f"  {verb} draft on flow id={flow.id} team_id={flow.team_id}")
+            if live_run:
+                with transaction.atomic():
+                    locked = HogFlow.objects.select_for_update().get(pk=flow.pk)
+                    locked_draft = locked.draft
+                    if not isinstance(locked_draft, dict):
+                        continue
+                    fresh = stripped_conversion(locked_draft.get("conversion"))
+                    if fresh is None:
+                        continue
+                    HogFlow.objects.filter(pk=flow.pk).update(draft={**locked_draft, "conversion": fresh})
+            drafts_stripped += 1
+
+        revisions = HogFlowRevision.objects.for_team(team_id) if team_id else HogFlowRevision.objects.unscoped().all()
+        revisions_stripped = 0
+        for revision in revisions.iterator():
+            content = revision.content
+            if not isinstance(content, dict):
+                continue
+            if converted_conversion(content.get("conversion")) is not None:
+                # Restoring this snapshot later would drop a window the convert pass could still save.
+                still_convertible += 1
+                continue
+            fresh = stripped_conversion(content.get("conversion"))
+            if fresh is None:
+                continue
+            self.stdout.write(f"  {verb} revision id={revision.id} flow={revision.hog_flow_id} v{revision.version}")
+            if live_run:
+                HogFlowRevision.objects.for_team(revision.team_id).filter(pk=revision.pk).update(
+                    content={**content, "conversion": fresh}
+                )
+            revisions_stripped += 1
+
+        templates = HogFlowTemplate.objects.filter(conversion__isnull=False)
+        if team_id:
+            templates = templates.filter(team_id=team_id)
+        templates_stripped = 0
+        for template in templates.iterator():
+            if converted_conversion(template.conversion) is not None:
+                # A workflow created from this template would get the default window instead of its own.
+                still_convertible += 1
+                continue
+            if stripped_conversion(template.conversion) is None:
+                continue
+            self.stdout.write(f"  {verb} template id={template.id} team_id={template.team_id}")
+            if live_run:
+                with transaction.atomic():
+                    locked_template = HogFlowTemplate.objects.select_for_update().get(pk=template.pk)
+                    fresh = stripped_conversion(locked_template.conversion)
+                    if fresh is None:
+                        continue
+                    HogFlowTemplate.objects.filter(pk=template.pk).update(conversion=fresh)
+            templates_stripped += 1
+
+        if still_convertible:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  {still_convertible} flow(s), draft(s), snapshot(s) or template(s) still carry a "
+                    "convertible value and were left alone. Run the command without --strip-inert first, "
+                    "then repeat this pass."
+                )
+            )
+        done = "stripped" if live_run else "to strip"
+        self.stdout.write(self.style.SUCCESS(f"Completed ({mode}): {flows_stripped} flow(s) {done}"))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"  plus {drafts_stripped} draft(s), {revisions_stripped} revision snapshot(s) and "
+                f"{templates_stripped} template(s)"
+            )
+        )
 
     def convert_drafts(self, live_run: bool, team_id: int | None) -> int:
         """Drafts whose live conversion needed no change of its own. The pass above already rewrote a
@@ -163,6 +300,32 @@ class Command(BaseCommand):
             count += 1
         return count
 
+    def convert_templates(self, live_run: bool, team_id: int | None) -> int:
+        """Templates a new workflow copies its conversion from. The flow API drops window_minutes, so a
+        template left on the old field gives every workflow created from it the default window instead."""
+        templates = HogFlowTemplate.objects.filter(conversion__isnull=False)
+        if team_id:
+            templates = templates.filter(team_id=team_id)
+
+        count = 0
+        for template in templates.iterator():
+            rewritten = converted_conversion(template.conversion)
+            if rewritten is None:
+                continue
+            self.stdout.write(
+                f"  {'Converting' if live_run else 'Would convert'} template id={template.id} "
+                f"team_id={template.team_id}: window={rewritten.window}"
+            )
+            if live_run:
+                with transaction.atomic():
+                    locked = HogFlowTemplate.objects.select_for_update().get(pk=template.pk)
+                    fresh = converted_conversion(locked.conversion)
+                    if fresh is None:
+                        continue
+                    HogFlowTemplate.objects.filter(pk=template.pk).update(conversion=fresh.conversion)
+            count += 1
+        return count
+
     def convert_locked(self, pk: uuid.UUID) -> ConvertedFlow | None:
         # Re-read the row under a lock and convert the value it holds now, not the one the scan read.
         # A customer saving the workflow between the scan and this write would otherwise lose that edit
@@ -211,13 +374,42 @@ class Command(BaseCommand):
         )
 
 
+def stripped_conversion(conversion: object) -> dict[str, Any] | None:
+    """The same conversion without window_minutes, or None when the key must stay or is already gone.
+
+    A row the convert pass would still rewrite is left alone: dropping its value there would move the
+    window it measures, which is the one thing this whole change must not do."""
+    if not isinstance(conversion, dict) or "window_minutes" not in conversion:
+        return None
+    if converted_conversion(conversion) is not None:
+        return None
+    return {k: v for k, v in conversion.items() if k != "window_minutes"}
+
+
+def has_usable_window(conversion: dict[str, Any]) -> bool:
+    """True when conversion.window holds a window the matcher can actually read.
+
+    One rule for both passes, and the matcher's own: it honors `window` only when the shared duration
+    grammar parses it to a positive value (nodejs/src/cdp/services/hogflows/conversion-watcher.ts), so
+    a missing, non-string, unparseable or non-positive one leaves the legacy value as what the row
+    measures. Treating any of those as migrated would let the strip pass delete the only readable
+    window, which is the one outcome this change must not produce."""
+    window = conversion.get("window")
+    if not isinstance(window, str):
+        return False
+    minutes = duration_minutes(window)
+    return minutes is not None and minutes > 0
+
+
 def converted_conversion(conversion: object) -> RewrittenWindow | None:
     """The same conversion with window_minutes spelled as a duration string, or None when it must not
     be touched: already migrated, no usable value, or above the ceiling where the reading is in doubt."""
     if not isinstance(conversion, dict):
         return None
     minutes = conversion.get("window_minutes")
-    if conversion.get("window") or not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
+    if has_usable_window(conversion):
+        return None
+    if not isinstance(minutes, int) or isinstance(minutes, bool) or minutes <= 0:
         return None
     if minutes > MAX_LEGACY_WINDOW_MINUTES:
         return None

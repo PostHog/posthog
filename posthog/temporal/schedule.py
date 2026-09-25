@@ -92,6 +92,7 @@ from products.customer_analytics.backend.facade.temporal import (
     create_calendar_sync_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
 )
+from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
 from products.data_quality.backend.facade.temporal import (
     create_cleanup_data_quality_check_runs_schedule,
     create_reconcile_metric_schedules_schedule,
@@ -941,6 +942,7 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
     create_logs_volume_tick_schedule,

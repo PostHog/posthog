@@ -18,6 +18,7 @@ from products.workflows.backend.api.hog_flow import (
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
 BATCH_TRIGGER = {
     "type": "batch",
@@ -304,6 +305,24 @@ class TestProcessDueSchedules(APIBaseTest):
         assert batch_job.status == "queued"
         assert batch_job.variables == {"greeting": "Hello"}
         mock_dispatch.assert_called_once()
+
+    def test_workflow_stopped_after_the_status_check_creates_no_batch_job(self, mock_dispatch):
+        hog_flow, _ = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        real_compute = compute_next_occurrences
+
+        def stop_then_compute(*args, **kwargs):
+            HogFlow.objects.filter(id=hog_flow.id).update(status="draft")
+            return real_compute(*args, **kwargs)
+
+        with unittest.mock.patch(
+            "products.workflows.backend.utils.rrule_utils.compute_next_occurrences", side_effect=stop_then_compute
+        ):
+            response = self._post()
+
+        assert response.status_code == 200
+        assert response.json()["processed"] == []
+        assert not HogFlowBatchJob.objects.filter(hog_flow=hog_flow).exists()
+        mock_dispatch.assert_not_called()
 
     def test_inactive_workflow_clears_next_run_at(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(

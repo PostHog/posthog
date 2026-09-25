@@ -98,6 +98,10 @@ SnowflakeErrors = {
     # "check all connection details" message, so people re-enter correct credentials repeatedly.
     "Duo Security authentication is denied": _MFA_ENFORCED_MESSAGE.format(action="try again."),
     "MFA authentication is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
+    # Snowflake error 250001 (08001): the account enforces TOTP-based MFA instead of Duo, so the
+    # connector's password-only login is rejected asking for a live TOTP passcode. A distinct phrase
+    # from the "MFA authentication is required" case above.
+    "MFA with TOTP is required": _MFA_ENFORCED_MESSAGE.format(action="try again."),
 }
 
 
@@ -289,6 +293,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # retrying never succeeds. The codes and host in the message are volatile, so we match the
             # stable phrase.
             "Multi-factor authentication is required for this account": "Snowflake rejected the login because this account requires multi-factor authentication enrollment. Automated syncs can't complete MFA — connect with a service user that uses key-pair authentication or is exempt from MFA, then resync.",
+            # Snowflake error 250001 (08001): the account enforces TOTP-based MFA, so a password-only
+            # login is rejected asking for a live TOTP passcode. An unattended sync can't answer that
+            # prompt, so retrying never succeeds. Distinct phrase from "MFA authentication is
+            # required" above, so it needs its own entry.
+            "MFA with TOTP is required": _MFA_ENFORCED_MESSAGE.format(action="resync."),
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
             # Snowflake error 250001 (08001): the supplied username or password is wrong, so the
