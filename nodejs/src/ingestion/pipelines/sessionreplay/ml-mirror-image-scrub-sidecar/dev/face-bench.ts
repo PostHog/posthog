@@ -52,6 +52,11 @@ const DOWNLOADS: { file: string; url: string; sha256: string }[] = [
         url: `${ZOO}/face_detection_yunet_2026may.onnx`,
         sha256: 'ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0',
     },
+    {
+        file: 'models/candidates/yunet_n_dynamic.onnx',
+        url: 'https://github.com/ShiqiYu/libfacedetection.train/raw/dca340aa082c71081a68d17db8e58b33a58a914b/onnx/yunet_n_dynamic.onnx',
+        sha256: '104ee26c71d5c270ce79a6b3dced91c91013260d29a6bf18f9296c5b8c4c2b12',
+    },
     // WIDER FACE is CC BY-NC-ND 4.0: an internal eval only, and nothing derived from it is committed.
     {
         file: 'test-data/face-bench/wider/wider_face_split.zip',
@@ -93,6 +98,9 @@ const DETECTORS: DetectorSpec[] = [
     { name: 'yunet-2026 fixed', file: 'models/candidates/yunet_2026may.onnx', input: 'fixed' },
     { name: 'yunet-2026 native', file: 'models/candidates/yunet_2026may.onnx', input: 'native' },
     { name: 'yunet-2026-int8 native', file: 'models/candidates/yunet_2026may_int8.onnx', input: 'native' },
+    // YuNet-n is the larger of the two released YuNet sizes; production and the 2026 export are YuNet-s.
+    { name: 'yunet-n native', file: 'models/candidates/yunet_n_dynamic.onnx', input: 'native' },
+    { name: 'yunet-n-int8 native', file: 'models/candidates/yunet_n_dynamic_int8.onnx', input: 'native' },
 ]
 
 const YUNET_SIDE = 640
