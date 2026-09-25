@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER } from '~/lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -103,11 +104,12 @@ export const PromptsList: Story = {}
 export const History: Story = {
     parameters: {
         pageUrl: `${urls.aiObservabilityPrompts()}?tab=history`,
+        featureFlags: [FEATURE_FLAGS.AUDIT_LOGS_ACCESS],
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/activity_log/': {
+                '/api/projects/:team_id/activity_log': {
                     results: [
                         {
                             id: 'activity-003',
