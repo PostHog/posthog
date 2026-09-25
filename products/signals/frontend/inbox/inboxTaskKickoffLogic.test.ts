@@ -535,7 +535,10 @@ describe('inboxTaskKickoffLogic', () => {
             ['answer-only', makeReport({ status: SignalReportStatus.RESOLVED })],
             ['unknown', null],
         ])('offers consent-first feedback saving for an %s report', (_label, report) => {
-            const prompt = buildDiscussReportPrompt(report, url, 'Why did this happen?')
+            const prompt = buildDiscussReportPrompt(report, url, 'This behavior is intentional.')
+            expect(prompt).toContain(
+                'The opening question has a separate, best-effort scout-note forwarding path. Only offer to save new feedback learned after the opening turn; do not offer to save the opening question again.'
+            )
             expect(prompt).toContain('a correction, a preference, context the report missed, or a fact you verified')
             expect(prompt).toContain(
                 'When both destinations are available and the chat token has signal_scout:write and llm_skill:write, present both choices and let the user select a destination before confirming the text.'

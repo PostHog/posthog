@@ -195,7 +195,11 @@ describe("buildDiscussReportPrompt", () => {
         reportId: "abc123",
         isDevBuild: false,
         reportContext,
+        question: "This behavior is intentional.",
       });
+      expect(prompt).toContain(
+        "The opening question has a separate, best-effort scout-note forwarding path. Only offer to save new feedback learned after the opening turn; do not offer to save the opening question again.",
+      );
       expect(prompt).toContain(
         "a correction, a preference, context the report missed, or a fact you verified",
       );
