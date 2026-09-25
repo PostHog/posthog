@@ -744,6 +744,7 @@ export interface ProjectType extends ProjectBasicType {
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
+    can_cancel_deletion: boolean
     tags?: string[]
 }
 

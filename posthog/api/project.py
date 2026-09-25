@@ -557,7 +557,21 @@ def team_evaluation_context_suggestions_view(team: Team, request: request.Reques
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class CancelDeletionEligibilitySerializerMixin(serializers.Serializer):
+    """Answers the cancel window server-side, so a skewed client clock cannot decide it."""
+
+    can_cancel_deletion = serializers.SerializerMethodField(
+        help_text="Whether the scheduled deletion of this project can still be canceled."
+    )
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_cancel_deletion(self, project: Project) -> bool:
+        return project.can_cancel_deletion()
+
+
+class ProjectSerializer(
+    CancelDeletionEligibilitySerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
+):
     """The project as the app context serves it, which is where the frontend reads it on page load.
 
     projectLogic bootstraps `currentProject` from the app context and only calls the API when that
@@ -577,12 +591,21 @@ class ProjectSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "created_at",
             "is_pending_deletion",
             "deletion_scheduled_at",
+            "can_cancel_deletion",
             "tags",
         ]
-        read_only_fields = ["id", "organization_id", "created_at", "is_pending_deletion", "deletion_scheduled_at"]
+        read_only_fields = [
+            "id",
+            "organization_id",
+            "created_at",
+            "is_pending_deletion",
+            "deletion_scheduled_at",
+            "can_cancel_deletion",
+        ]
 
 
 class ProjectBackwardCompatSerializer(
+    CancelDeletionEligibilitySerializerMixin,
     TaggedItemSerializerMixin,
     UserAccessControlSerializerMixin,
     ProjectBackwardCompatBasicSerializer,
@@ -739,6 +762,7 @@ class ProjectBackwardCompatSerializer(
             "available_setup_task_ids",  # Compat with TeamSerializer
             "is_pending_deletion",
             "deletion_scheduled_at",
+            "can_cancel_deletion",
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
@@ -765,6 +789,7 @@ class ProjectBackwardCompatSerializer(
             "organization",
             "is_pending_deletion",
             "deletion_scheduled_at",
+            "can_cancel_deletion",
             "effective_membership_level",
             "has_group_types",
             "group_types",
@@ -1631,8 +1656,7 @@ class ProjectViewSet(
 
         from posthog.temporal.delete_teams.dispatch import project_deletion_delay, start_delete_project_data_workflow
 
-        deletion_delay = project_deletion_delay(project)
-        deletion_scheduled_at = timezone.now() + (deletion_delay or timedelta())
+        deletion_scheduled_at = timezone.now() + project_deletion_delay(project)
         claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
             is_pending_deletion=True,
             deletion_scheduled_at=deletion_scheduled_at,
@@ -1651,9 +1675,7 @@ class ProjectViewSet(
                 project_id=project_id,
                 user_id=user.id,
                 project_name=project_name,
-                start_delay=(
-                    max(deletion_scheduled_at - timezone.now(), timedelta()) if deletion_delay is not None else None
-                ),
+                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
             )
         except Exception:
             Project.objects.filter(pk=project.pk, deletion_scheduled_at=deletion_scheduled_at).update(
@@ -1694,6 +1716,17 @@ class ProjectViewSet(
             request=self.request,
         )
 
+    def _report_deletion_cancellation(self, request: request.Request, project: Project, outcome: str) -> None:
+        """Capture every cancel attempt, so a lockout the user cannot escape is measurable."""
+        report_user_action(
+            cast(User, request.user),
+            "project deletion canceled",
+            {"project_name": project.name, "outcome": outcome},
+            team=project.passthrough_team,
+            organization=project.organization,
+            request=request,
+        )
+
     @extend_schema(
         description="Cancel a scheduled project deletion and restore access to the project.",
         request=None,
@@ -1713,8 +1746,10 @@ class ProjectViewSet(
             raise exceptions.PermissionDenied("You don't have sufficient permissions in the project.")
         now = timezone.now()
         if not project.is_deletion_pending():
+            self._report_deletion_cancellation(request, project, "not_pending_deletion")
             raise exceptions.ValidationError("This project is not pending deletion.")
         if not project.can_cancel_deletion(at=now):
+            self._report_deletion_cancellation(request, project, "deletion_already_started")
             raise exceptions.ValidationError("This project deletion has already started.")
 
         deletion_scheduled_at = project.deletion_scheduled_at
@@ -1726,6 +1761,7 @@ class ProjectViewSet(
             deletion_scheduled_at__gt=now,
         ).update(deletion_scheduled_at=cancellation_claimed_at)
         if not claimed_cancellation:
+            self._report_deletion_cancellation(request, project, "deletion_state_changed")
             raise exceptions.ValidationError(
                 "This project deletion can no longer be canceled. Refresh the page to see its current status."
             )
@@ -1733,7 +1769,7 @@ class ProjectViewSet(
         from posthog.temporal.delete_teams.dispatch import cancel_delete_project_data_workflow
 
         try:
-            cancel_delete_project_data_workflow(project_id=project.pk)
+            cancellation = cancel_delete_project_data_workflow(project_id=project.pk)
         except Exception:
             Project.objects.filter(
                 pk=project.pk,
@@ -1741,6 +1777,7 @@ class ProjectViewSet(
                 deletion_scheduled_at=cancellation_claimed_at,
             ).update(deletion_scheduled_at=deletion_scheduled_at)
             logger.exception("Failed to cancel the project deletion workflow", project_id=project.pk)
+            self._report_deletion_cancellation(request, project, "workflow_cancel_failed")
             raise exceptions.ValidationError("Project deletion could not be canceled. Please try again.")
 
         cleared_cancellation = Project.objects.filter(
@@ -1749,6 +1786,7 @@ class ProjectViewSet(
             deletion_scheduled_at=cancellation_claimed_at,
         ).update(is_pending_deletion=False, deletion_scheduled_at=None)
         if not cleared_cancellation:
+            self._report_deletion_cancellation(request, project, "deletion_state_changed")
             raise exceptions.ValidationError(
                 "This project deletion can no longer be canceled. Refresh the page to see its current status."
             )
@@ -1779,6 +1817,7 @@ class ProjectViewSet(
             activity="restored",
             detail=Detail(name=str(project.name)),
         )
+        self._report_deletion_cancellation(request, project, cancellation.value)
 
         return response.Response(ProjectSerializer(project, context=self.get_serializer_context()).data)
 

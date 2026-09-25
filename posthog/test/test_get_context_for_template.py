@@ -1,5 +1,6 @@
 import json
 import time
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
@@ -9,6 +10,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
 from django.test import RequestFactory
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -93,6 +95,29 @@ class TestGetContextForTemplate(APIBaseTest):
 
         app_context = json.loads(actual["posthog_app_context"])
         assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
+
+    @parameterized.expand(
+        [
+            ("window_open", timedelta(hours=1), True),
+            ("window_closed", timedelta(hours=-1), False),
+        ]
+    )
+    def test_bootstraps_cancel_deletion_eligibility_into_app_context(self, _name, offset, expected):
+        # The lockout screen reads this flag to decide whether to offer the cancel button, and a full
+        # page load renders it from the app context, so dropping the field here strands the user.
+        project = self.team.project
+        project.is_pending_deletion = True
+        project.deletion_scheduled_at = timezone.now() + offset
+        project.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+
+        request = RequestFactory().get("/")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        actual = get_context_for_template("layout", request)
+
+        app_context = json.loads(actual["posthog_app_context"])
+        assert app_context["current_project"]["can_cancel_deletion"] is expected
 
     @parameterized.expand(
         [

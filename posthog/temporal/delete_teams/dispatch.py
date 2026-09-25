@@ -1,11 +1,13 @@
 import asyncio
 from datetime import timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 
 from temporalio.client import WorkflowFailureError
 from temporalio.common import WorkflowIDConflictPolicy
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.delete_teams.types import DeleteOrganizationWorkflowInputs, DeleteProjectDataWorkflowInputs
@@ -14,15 +16,24 @@ if TYPE_CHECKING:
     from posthog.models.project import Project
 
 PROJECT_DELETION_DELAY = timedelta(hours=48)
+PROJECT_DELETION_DELAY_WITHOUT_DATA = timedelta(hours=1)
 
 
-def project_deletion_delay(project: "Project") -> timedelta | None:
-    """How long to wait before the project deletion workflow starts, or None to start it at once.
+class ProjectDeletionCancellation(StrEnum):
+    """Why the scheduled deletion is off. Both values mean the project keeps its data."""
+
+    CANCELED = "canceled"
+    WORKFLOW_NOT_RUNNING = "workflow_not_running"
+
+
+def project_deletion_delay(project: "Project") -> timedelta:
+    """How long to wait before the project deletion workflow starts.
 
     The delay is a recovery window for a deletion the user did not mean to request. A project
-    where no environment ever ingested an event holds nothing to recover, so it deletes at once.
+    where no environment ever ingested an event holds no events to recover, but it still holds
+    the configuration the user built, so its window is short rather than absent.
     """
-    return PROJECT_DELETION_DELAY if project.has_ingested_data() else None
+    return PROJECT_DELETION_DELAY if project.has_ingested_data() else PROJECT_DELETION_DELAY_WITHOUT_DATA
 
 
 def start_delete_project_data_workflow(
@@ -53,17 +64,25 @@ def start_delete_project_data_workflow(
     asyncio.run(_start())
 
 
-def cancel_delete_project_data_workflow(*, project_id: int) -> None:
-    async def _cancel() -> None:
+def cancel_delete_project_data_workflow(*, project_id: int) -> ProjectDeletionCancellation:
+    async def _cancel() -> ProjectDeletionCancellation:
         client = await async_connect()
         handle = client.get_workflow_handle(f"delete-project-{project_id}")
-        await handle.cancel()
+        try:
+            await handle.cancel()
+        except RPCError as error:
+            # NOT_FOUND covers "never started" and "already closed". Neither leaves a workflow
+            # that can still delete the project, so the deletion is off in both cases.
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
+            return ProjectDeletionCancellation.WORKFLOW_NOT_RUNNING
         try:
             await handle.result(follow_runs=False)
         except WorkflowFailureError:
             pass
+        return ProjectDeletionCancellation.CANCELED
 
-    asyncio.run(_cancel())
+    return asyncio.run(_cancel())
 
 
 def start_delete_organization_workflow(

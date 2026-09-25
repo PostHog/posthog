@@ -197,6 +197,7 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     created_at: '2020-06-30T09:53:35.932534Z',
     is_pending_deletion: false,
     deletion_scheduled_at: null,
+    can_cancel_deletion: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
