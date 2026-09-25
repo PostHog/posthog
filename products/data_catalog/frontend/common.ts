@@ -1,5 +1,7 @@
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
+export const HOGQL_METRIC_DEFINITION_KIND = 'HogQLQuery'
+
 /** Values typed in the new metric modal, carried into the SQL editor's "Save as metric" dialog. */
 export interface MetricFormPrefill {
     name?: string
@@ -19,7 +21,7 @@ export function humanizeDefinitionKind(kind: string | null): string {
     if (!kind) {
         return 'Stub'
     }
-    if (kind === 'HogQLQuery') {
+    if (kind === HOGQL_METRIC_DEFINITION_KIND) {
         return 'SQL'
     }
     if (kind === 'MarkdownDefinition') {

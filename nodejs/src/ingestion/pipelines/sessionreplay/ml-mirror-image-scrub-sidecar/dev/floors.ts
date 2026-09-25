@@ -3,7 +3,8 @@
  * Detection floors for faces and codes, against the floor at which each still carries information in
  * the stored artifact. The text version of this lives in glyph-floor.ts; the same question has to be
  * asked separately for each detector, because their inputs are sized on different rules: DBNet scales
- * with the frame, YuNet letterboxes into a fixed 640 square, and zxing works on the frame directly.
+ * with the frame, YuNet letterboxes into a fixed 640 square, and zxing reads the frame at the plan's
+ * code scale.
  *
  * For each subject size it reports two things:
  *   detected   – the production detector finds it at the detection resolution
@@ -121,7 +122,7 @@ async function codeFloors(): Promise<void> {
         const frame = await place(code, sidePx)
         const det = await atScale(frame, DETECT_PX)
         const art = await atScale(frame, STORE_PX)
-        const detected = (await detectCodes(det)).length > 0
+        const detected = (await detectCodes(det, PLAN.code.scale)).length > 0
         const decodable = (await detectCodes(art)).length > 0
         const inArtifact = sidePx * Math.sqrt(STORE_PX / (FRAME_W * FRAME_H))
         console.log(

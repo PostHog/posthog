@@ -29,6 +29,36 @@
         },
         "feature_entitlement": "access_control"
     },
+    "access-control-default-rule-set-execute": {
+        "description": "Step 2 of 2 for change the default access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear the default access rule for a scope (execute)",
+        "title": "Set or clear the default access rule for a scope (execute)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "access_control"
+    },
+    "access-control-default-rule-set-prepare": {
+        "description": "Step 1 of 2 for change the default access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear the default access rule for a scope (prepare)",
+        "title": "Set or clear the default access rule for a scope (prepare)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "access_control"
+    },
     "access-control-defaults-get": {
         "description": "The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or a role.",
         "category": "Access control",
@@ -74,6 +104,36 @@
         },
         "feature_entitlement": "access_control"
     },
+    "access-control-member-rule-set-execute": {
+        "description": "Step 2 of 2 for change a member's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level one organization member gets for one scope. A member rule applies to that person only and wins over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's rule, so they fall back to their role rules or the default. An empty result means the rule is cleared. When several people need the same change, prefer a role rule. Read access-control-members-list with `member_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one member's access rule for a scope (execute)",
+        "title": "Set or clear one member's access rule for a scope (execute)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "access_control"
+    },
+    "access-control-member-rule-set-prepare": {
+        "description": "Step 1 of 2 for change a member's access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level one organization member gets for one scope. A member rule applies to that person only and wins over their role rules and the default. The scope is the project (`resource: project` with the project id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's rule, so they fall back to their role rules or the default. An empty result means the rule is cleared. When several people need the same change, prefer a role rule. Read access-control-members-list with `member_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one member's access rule for a scope (prepare)",
+        "title": "Set or clear one member's access rule for a scope (prepare)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "access_control"
+    },
     "access-control-members-list": {
         "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access skill explains how the levels combine.",
         "category": "Access control",
@@ -111,6 +171,36 @@
         "summary": "List a role's property rules",
         "title": "List a role's property rules",
         "required_scopes": ["access_control:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_entitlement": "role_based_access"
+    },
+    "access-control-role-rule-set-execute": {
+        "description": "Step 2 of 2 for change a role's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one role's access rule for a scope (execute)",
+        "title": "Set or clear one role's access rule for a scope (execute)",
+        "required_scopes": ["access_control:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_entitlement": "role_based_access"
+    },
+    "access-control-role-rule-set-prepare": {
+        "description": "Step 1 of 2 for change a role's access rule. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and the new level before you ask for confirmation. Requires human typed confirmation.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Set or clear one role's access rule for a scope (prepare)",
+        "title": "Set or clear one role's access rule for a scope (prepare)",
+        "required_scopes": ["access_control:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2823,7 +2913,7 @@
         }
     },
     "dashboard-create-tile": {
-        "description": "Add a dashboard tile. Set `type` to text or image. Use Markdown headings, dividers, or notes for a text tile. The desktop grid is 12 columns wide. A typical text heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the bottom with the default size. Use dashboard-reorder-tiles for precise placement. An image tile body must contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The image URL must be reachable by dashboard viewers. Use `layouts` to control the tile size.",
+        "description": "Add a dashboard tile. Set `type` to text or image. Use Markdown headings, dividers, or notes for a text tile. The desktop grid is 12 columns wide. A typical text heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the dashboard places the tile at the bottom with the default size. Use `layouts` to control the size and placement of this text or image tile. To lay out insight tiles or create a mixed layout, first call dashboard-get to get tile IDs, then use dashboard-update with complete `layouts.sm` boxes. An image tile body must contain exactly one Markdown image, such as `![Accessible description](https://example.com/image.png)`. The image URL must be reachable by dashboard viewers.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Create dashboard tile",
@@ -2893,7 +2983,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the layout parameter only when every tile should use the same size: `two_column` makes every tile 6-wide, `three_column` makes every tile 4-wide, and `full_width` makes every tile 12-wide. For a mixed layout, set each tile's `layouts` with dashboard-update instead.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved. Use the layout parameter only when every tile should use the same size: `two_column` makes every tile 6-wide, `three_column` makes every tile 4-wide, and `full_width` makes every tile 12-wide. For a mixed layout, set each tile's `layouts` with dashboard-update instead. This tool repacks only the tiles in `tile_order`. To repack the whole dashboard, include every tile ID. Tiles omitted from `tile_order` keep their positions and can overlap the repacked tiles. This tool does not set different sizes or positions for individual tiles.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -2948,8 +3038,22 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-transfer-tile": {
+        "description": "Transfer a tile from the source dashboard to another dashboard. This does not resize or reposition the tile. To resize or reposition tiles on a dashboard, use dashboard-update. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Transfer dashboard tile",
+        "title": "Transfer dashboard tile",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To resize or move tiles, pass `tiles` with each tile's `id` from dashboard-get and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, insight tiles included. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only for a whole-dashboard repack where every tile should use the same size. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -3047,20 +3151,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
-    },
-    "dashboards-move-tile-partial-update": {
-        "description": "Move a tile from the source dashboard (path ID) to another dashboard. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
-        "category": "Dashboards",
-        "feature": "dashboards",
-        "summary": "Move dashboard tile",
-        "title": "Move dashboard tile",
-        "required_scopes": ["dashboard:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
         }
     },
     "data-catalog-certification-certify-execute": {

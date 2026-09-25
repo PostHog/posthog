@@ -3082,6 +3082,17 @@ class TaskRun(models.Model):
             return False
         return True
 
+    def failure_sandbox_backend_properties(self) -> dict[str, str]:
+        state = self.state if isinstance(self.state, dict) else {}
+        if not state.get("sandbox_id"):
+            return {}
+        backend = state.get("sandbox_backend")
+        if backend in ("modal", "hogland"):
+            return {"sandbox_backend": backend}
+        if backend is None:
+            return {"sandbox_backend": "modal"}
+        return {}
+
     def _duration_seconds(self) -> float:
         if self.completed_at and self.created_at:
             return round((self.completed_at - self.created_at).total_seconds(), 1)
@@ -3136,6 +3147,7 @@ class TaskRun(models.Model):
                 "error_message": truncate_error_message(error),
                 "error_type": error_type or "unspecified",
                 "duration_seconds": self._duration_seconds(),
+                **self.failure_sandbox_backend_properties(),
             },
         )
         from products.tasks.backend.push_dispatcher import notify_task_run_failed

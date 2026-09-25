@@ -240,6 +240,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    MEMBER_GOVERNANCE = 'member_governance',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
@@ -5938,6 +5939,7 @@ export const API_SCOPE_OBJECTS = [
     'mcp_analytics',
     'metrics',
     'notebook',
+    'offline_evaluation_ingestion',
     'organization',
     'organization_integration',
     'organization_member',

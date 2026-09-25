@@ -1,6 +1,6 @@
 /**
- * DBNet text-region detection via onnxruntime-node (native). Model: PP-OCRv3 detection (a DB head),
- * ~2.4MB ONNX. Outputs a per-pixel text-probability map; we threshold it, horizontally dilate it
+ * DBNet text-region detection via onnxruntime-node (native). Model: PP-OCRv6 tiny detection (a DB
+ * head), ~1.8MB ONNX. Outputs a per-pixel text-probability map; we threshold it, horizontally dilate it
  * (so words on a line bridge into one box that reaches the line end), find connected components,
  * and return their expanded axis-aligned boxes. Axis-aligned is enough since we only blur.
  *
@@ -24,9 +24,10 @@ export interface DetectOpts {
     padY?: number
 }
 
+// The two thresholds are the model's own `thresh` and `box_thresh`, from the inference.yml it ships with.
 const DEFAULTS: Required<DetectOpts> = {
-    probThreshold: numFromEnv('PROB_T', 0.3, 0.05, 0.9),
-    boxScoreMin: numFromEnv('BOX_SCORE', 0.5, 0.05, 0.95),
+    probThreshold: numFromEnv('PROB_T', 0.2, 0.05, 0.9),
+    boxScoreMin: numFromEnv('BOX_SCORE', 0.4, 0.05, 0.95),
     minAreaPx: numFromEnv('MIN_AREA', 16, 1, 1024),
     dilateX: numFromEnv('DILATE_X', 6, 0, 64),
     padX: numFromEnv('PAD_X', 0.25, 0, 2),
@@ -90,10 +91,11 @@ async function preprocess(
         .toBuffer({ resolveWithObject: true })
     const chw = new Float32Array(3 * rw * rh)
     const plane = rw * rh
+    // PaddleOCR decodes with OpenCV, so the model takes BGR planes, with the statistics applied in that order.
     for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-        chw[p] = (data[i] / 255 - MEAN[0]) / STD[0]
+        chw[p] = (data[i + 2] / 255 - MEAN[0]) / STD[0]
         chw[plane + p] = (data[i + 1] / 255 - MEAN[1]) / STD[1]
-        chw[2 * plane + p] = (data[i + 2] / 255 - MEAN[2]) / STD[2]
+        chw[2 * plane + p] = (data[i] / 255 - MEAN[2]) / STD[2]
     }
     return { data: chw, rw, rh, sx: src.W / cw, sy: src.H / ch }
 }

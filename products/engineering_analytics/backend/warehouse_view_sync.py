@@ -17,7 +17,11 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.facade.warehouse_views import get_expected_warehouse_views
-from products.engineering_analytics.backend.logic.sources import WORKFLOW_JOBS_SCHEMA, WORKFLOW_RUNS_SCHEMA
+from products.engineering_analytics.backend.logic.sources import (
+    DEPOT_JOB_ATTEMPTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+)
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -25,9 +29,12 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# The view joins both endpoints, so only a load of one of them can change its contents. Ignore
-# every other schema (pull_requests, and non-GitHub sources) so unrelated syncs stay cheap.
-_RELEVANT_SCHEMAS = (WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA)
+# The view joins both endpoints and the Depot CI attempts, so only a load of one of them can change
+# its contents. Ignore every other schema so unrelated syncs stay cheap.
+_RELEVANT_SCHEMAS: dict[str, tuple[str, ...]] = {
+    ExternalDataSourceType.GITHUB: (WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA),
+    ExternalDataSourceType.DEPOT: (DEPOT_JOB_ATTEMPTS_SCHEMA,),
+}
 
 
 def sync_engineering_analytics_views(schema: ExternalDataSchema, source: ExternalDataSource) -> None:
@@ -39,7 +46,7 @@ def sync_engineering_analytics_views(schema: ExternalDataSchema, source: Externa
     yet has no view to expose, so the viewset row isn't created until both endpoints exist.
     """
     try:
-        if source.source_type != ExternalDataSourceType.GITHUB or schema.name not in _RELEVANT_SCHEMAS:
+        if schema.name not in _RELEVANT_SCHEMAS.get(source.source_type, ()):
             return
 
         managed_viewset = DataWarehouseManagedViewSet.objects.filter(

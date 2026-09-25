@@ -148,6 +148,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'metrics:write',
     'notebook:read',
     'notebook:write',
+    'offline_evaluation_ingestion:read',
+    'offline_evaluation_ingestion:write',
     'organization:read',
     'organization:write',
     'organization_integration:read',

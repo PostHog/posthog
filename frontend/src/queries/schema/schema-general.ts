@@ -4710,6 +4710,8 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
+    /** Return only attribute keys that exactly match an entry in this list. */
+    attributeKeys?: string[]
 }
 
 export interface LogAttributeResult {

@@ -198,8 +198,17 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
 - Access control: resource `activity_log`, default level `viewer`.
-- Entitlement: the advanced endpoint is gated by `AvailableFeature.AUDIT_LOGS` and applies the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). The plain list the side panel reads is not gated the same way. Writes always happen.
+- Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
+
+Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
+MCP supplies bounded reader instructions only when its filtered catalog advertises `advanced-activity-logs-list`, and adds SQL instructions only when `execute-sql` is also advertised.
+Tools-mode clients receive these instructions inline. Exec clients receive them in the command reference; Claude web/desktop loads them from the analytics guide, with an inline fallback when guide loading is disabled.
+The universal scout skills carry only availability and stop guidance, so they do not send clients searching for readers they cannot access.
+The SQL table enforces the same entitlement, retention, and access controls; it is not a bypass.
+When a reader is unavailable, stop using that reader for the run and record the limitation. Other advertised, authorized readers remain usable: per-object endpoints such as feature-flag activity do not share the project-wide Audit Logs entitlement gate. Skip only checks that have no available reader.
+To audit scheduled scout writes, use the server-derived `scout:<skill_name>` client tag and the run window. The tag identifies a scout, not a run; inspect actors, items, and timestamps when runs overlap.
+Do not infer that no configuration change occurred from missing access.
 
 A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
 Most scenes do not need this; the side panel and deep links work without it.

@@ -224,13 +224,12 @@ export type CreatedByFilter = "anyone" | "me" | "others";
 export type AttentionFilter = "any" | "needs_input" | "unread";
 export type PinnedFilter = "any" | "pinned";
 export type EnvironmentFilter = "any" | ChannelItemEnvironment;
-/** `ANY_SOURCE`, or an `origin_product` key like `slack`. */
-export type SourceFilter = string;
+export type SourceFilter = readonly string[];
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
 export type KindFilter = "any" | "task" | "canvas";
 
-export const ANY_SOURCE = "any";
+export const ANY_SOURCE: SourceFilter = [];
 export const DESKTOP_SOURCE = "user_created";
 
 export interface ChannelItemFilters {
@@ -239,7 +238,7 @@ export interface ChannelItemFilters {
   attention: AttentionFilter;
   pinned: PinnedFilter;
   environment: EnvironmentFilter;
-  source: SourceFilter;
+  sources: SourceFilter;
 }
 
 export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
@@ -248,7 +247,7 @@ export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
   attention: "any",
   pinned: "any",
   environment: "any",
-  source: ANY_SOURCE,
+  sources: ANY_SOURCE,
 };
 
 /** Newest activity first, which is what a session list is for. */
@@ -286,8 +285,24 @@ export function hasActiveChannelItemFilters(
     filters.attention !== defaults.attention ||
     filters.pinned !== defaults.pinned ||
     filters.environment !== defaults.environment ||
-    filters.source !== defaults.source
+    !sameSources(filters.sources, defaults.sources)
   );
+}
+
+export function sameSources(a: SourceFilter, b: SourceFilter): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((source) => set.has(source));
+}
+
+export function migrateSourceFilter({
+  source,
+  ...rest
+}: Partial<ChannelItemFilters> & {
+  source?: unknown;
+}): Partial<ChannelItemFilters> {
+  if (typeof source !== "string" || rest.sources) return rest;
+  return { ...rest, sources: source === "any" ? ANY_SOURCE : [source] };
 }
 
 /**
@@ -346,7 +361,10 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
+    if (
+      filters.sources.length > 0 &&
+      (item.source === null || !filters.sources.includes(item.source))
+    ) {
       return false;
     }
     return true;
