@@ -1,7 +1,7 @@
 """TypeSafe incarnation of the egress transport.
 
 ``typesafe_request`` is the one way to call TypeSafe from anywhere in the codebase: it gates on the
-instance's shared account budget and records telemetry by construction. It stays token-agnostic
+selected account budget and records telemetry by construction. It stays token-agnostic
 like the other incarnations, so the caller owns where the API key comes from:
 :mod:`posthog.egress.typesafe.client` reads it from settings.
 """
@@ -31,7 +31,7 @@ class TypeSafeClient(EgressClient):
         return {"Accept": "application/json", "Content-Type": "application/json"}
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_typesafe_sync(priority=priority, source=source)
+        return consume_typesafe_sync(scope=scope, priority=priority, source=source)
 
     def _budget_exhausted_error(self, scope: str) -> TypeSafeEgressBudgetExhausted:
         return TypeSafeEgressBudgetExhausted("TypeSafe egress budget exhausted; degrading", scope=scope)
@@ -51,6 +51,7 @@ def typesafe_request(
     api_key: str,
     source: str,
     endpoint: str,
+    scope: str = ACCOUNT_SCOPE_ID,
     priority: Priority = Priority.NORMAL,
     timeout: float | tuple[float, float] = DEFAULT_TIMEOUT,
     **kwargs: Any,
@@ -67,8 +68,8 @@ def typesafe_request(
         method,
         url,
         source=source,
-        headers={"Authorization": f"Bearer {api_key}"},
-        scope=ACCOUNT_SCOPE_ID,
+        headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+        scope=scope,
         priority=priority,
         endpoint=endpoint,
         timeout=timeout,

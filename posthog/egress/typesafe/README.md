@@ -13,14 +13,18 @@ Every caller meets these rules before it merges, and a reviewer blocks a caller 
 - **A launch that sends customer data needs an explicit opt-in.** Each customer turns it on before any of their data goes to TypeSafe. Use the approved opt-in copy. Until that copy exists, no caller sends customer data.
 - **A launch that sends customer data needs sign-off from leadership** before it ships, in addition to the opt-in.
 
-A self-hosted instance has no `TYPESAFE_API_KEY`, so it sends nothing.
+A self-hosted instance without `TYPESAFE_API_KEY` makes no default-service requests unless a caller passes an explicit credential.
 
 ## Identity
 
-An instance holds a single TypeSafe API key.
-The whole instance draws from one budget under the key `typesafe:account:default`.
+Calls with the configured instance TypeSafe API key draw from one budget under `typesafe:account:default`.
+An explicit credential for the official endpoint uses that same budget when it matches the instance key.
+Other credentials and compatible endpoints use a fingerprint of the base URL and credential as their scope.
+The same connection shares a budget across workers and projects; different credentials or endpoints have separate budgets.
+No credential or custom URL reaches a metric label.
 TypeSafe does not say whether it meters its limits per API key or per account, so treat that as unverified.
-With one key per instance, both readings give the same single budget.
+For customer-owned keys, a credential scope is a conservative local budget, not a claim that separate keys on one vendor account have separate quotas.
+Provider rate-limit responses remain the backstop.
 
 ## Budget
 
@@ -38,13 +42,15 @@ At typical request sizes of a few hundred tokens, the request budget keeps the t
 At the 64k-token maximum, 600 requests a minute would exceed it, and TypeSafe answers with a 429.
 A caller that sends large states lowers its own request rate.
 Raise both settings when real traffic outgrows them.
+Compatible endpoints use these same settings as operator ceilings; their vendor limits are unverified.
 
 ## Lanes and callers
 
 The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
-No caller exists on master yet. Each new caller adds itself here with its lane and its feature flag.
+AI observability uses `llma_evaluations` as its source, `BATCH` for evaluation runs, and `NORMAL` for synthetic connection validation.
+The evaluation caller must meet the usage policy above before launch.
 
 ## Rate-limit headers
 
@@ -56,14 +62,17 @@ The counter is `typesafe_api_requests_total`, labeled `account, method, endpoint
 
 ## Auth
 
-`TYPESAFE_API_KEY` authenticates every call as a bearer token.
-An instance without one makes no request at all: `system_one` raises `TypeSafeNotConfigured`.
+`system_one` uses `TYPESAFE_API_KEY` when no credential is passed.
+An explicit `api_key` selects a caller-owned bearer token; an empty string selects no authentication for a compatible endpoint.
+The official endpoint always requires a key and raises `TypeSafeNotConfigured` without one.
+Custom URLs supplied by users require a DNS-pinned session; AI observability validates them as public HTTPS URLs and supplies that session.
+Redirects are disabled for every request.
 
 ## Typed client
 
 Callers use `client.py` rather than `typesafe_request`.
 `system_one(state=..., questions=..., source=..., model=...)` sends one state with a map of `NoulQuestion` and `ChoiceQuestion` entries.
-It returns a `SystemOneResult` with one `NoulAnswer` or `ChoiceAnswer` per question id, the versioned model that answered, and the input token count.
+It returns a `SystemOneResult` with one `NoulAnswer` or `ChoiceAnswer` per question id, the versioned model that answered, and available input and output token counts.
 It raises `TypeSafeRequestFailed` on an HTTP error, and on a body that lacks the answering model or a complete answer for any question.
 A choice outside the options the caller sent, or a choice without a probability for every option, counts as incomplete.
 `model` defaults to the `jev-latest` alias. A caller that tunes thresholds against one version pins that version's id, such as `jev-1.13.0`.

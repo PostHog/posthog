@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from ipaddress import ip_address
 from typing import Any, cast
 
 import pytest
@@ -133,8 +134,10 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
         "evaluation_config": {"prompt": "Is the response polite?"},
     }
     with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.system_one.pinned_request", return_value=response) as request,
+        patch("requests.Session.request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
@@ -160,8 +163,10 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
 
 def test_system_one_numeric_mapping_is_not_enabled() -> None:
     with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.system_one.pinned_request") as request,
+        patch("requests.Session.request") as request,
         pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(provider="typesafe")
@@ -179,9 +184,11 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
 def test_system_one_rejected_requests_disable_without_model_cost_attribution(status: int) -> None:
     key = MagicMock(provider="typesafe", encrypted_config={"api_key": "example-token"})
     with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
-            "products.ai_observability.backend.llm.system_one.pinned_request",
+            "requests.Session.request",
             return_value=MagicMock(status_code=status, text="Invalid request"),
         ),
     ):
@@ -202,14 +209,17 @@ def test_system_one_rejected_requests_disable_without_model_cost_attribution(sta
     assert "provider" not in result
 
 
-def test_typesafe_rate_limit_retries_without_disabling_the_evaluation() -> None:
+@pytest.mark.parametrize("budget_granted", [True, False])
+def test_typesafe_rate_limit_retries_without_disabling_the_evaluation(budget_granted: bool) -> None:
     key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
     with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=budget_granted),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
-            "products.ai_observability.backend.llm.system_one.pinned_request",
+            "requests.Session.request",
             return_value=MagicMock(status_code=429, headers={"Retry-After": "15"}),
-        ),
+        ) as request,
         pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -222,7 +232,9 @@ def test_typesafe_rate_limit_retries_without_disabling_the_evaluation() -> None:
             allows_na=False,
         )
     assert not error.value.non_retryable
-    assert error.value.next_retry_delay == timedelta(seconds=15)
+    assert error.value.next_retry_delay == (timedelta(seconds=15) if budget_granted else None)
+    if not budget_granted:
+        request.assert_not_called()
     assert terminal_user_error_result_from_application_error(error.value, allows_na=False) is None
 
 

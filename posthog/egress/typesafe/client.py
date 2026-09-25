@@ -21,8 +21,12 @@ from typing import cast
 
 from django.conf import settings
 
+import requests
+
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.observability.observability import scope_fingerprint
+from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID
 from posthog.egress.typesafe.transport import DEFAULT_TIMEOUT, typesafe_request
 
 TYPESAFE_API_BASE = "https://api.typesafe.ai"
@@ -48,9 +52,12 @@ class TypeSafeRequestFailed(Exception):
     match the documented shape). ``status_code`` is set for an HTTP error, so a caller can defer a
     429 or 529 and drop the rest."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self, message: str, *, status_code: int | None = None, response: requests.Response | None = None
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.response = response
 
 
 @frozen
@@ -115,6 +122,7 @@ class SystemOneResult:
     model: str
     answers: Mapping[str, Answer]
     input_tokens: int | None
+    output_tokens: int | None = None
 
 
 def _as_mapping(value: object) -> Mapping[str, object] | None:
@@ -169,6 +177,9 @@ def system_one(
     model: str = JEV_LATEST,
     priority: Priority = Priority.NORMAL,
     timeout: float | tuple[float, float] = DEFAULT_TIMEOUT,
+    api_key: str | None = None,
+    base_url: str = f"{TYPESAFE_API_BASE}/v1",
+    session: requests.Session | None = None,
 ) -> SystemOneResult:
     """Evaluate ``state`` against every question in one call. TypeSafe answers the questions in
     parallel, so a caller asks everything it needs in one request.
@@ -180,19 +191,30 @@ def system_one(
     """
     if not questions:
         raise ValueError("system_one needs at least one question")
-    api_key = settings.TYPESAFE_API_KEY
-    if not api_key:
+    base_url = base_url.rstrip("/")
+    if api_key is None and base_url != f"{TYPESAFE_API_BASE}/v1":
+        raise ValueError("Pass an explicit credential or an empty string for a custom endpoint")
+    resolved_api_key = settings.TYPESAFE_API_KEY if api_key is None else api_key
+    if not resolved_api_key and base_url == f"{TYPESAFE_API_BASE}/v1":
         raise TypeSafeNotConfigured("No TYPESAFE_API_KEY configured")
+    # Customer credentials and custom endpoints must not share the instance account's budget.
+    scope = (
+        ACCOUNT_SCOPE_ID
+        if base_url == f"{TYPESAFE_API_BASE}/v1" and resolved_api_key == settings.TYPESAFE_API_KEY
+        else scope_fingerprint(base_url, resolved_api_key)
+    )
 
     response = typesafe_request(
         "POST",
-        f"{TYPESAFE_API_BASE}{SYSTEM_ONE_ENDPOINT}",
-        api_key=api_key,
+        f"{base_url}/systemone",
+        api_key=resolved_api_key,
+        scope=scope,
         source=source,
         endpoint=SYSTEM_ONE_ENDPOINT,
         priority=priority,
         timeout=timeout,
         allow_redirects=False,
+        session=session,
         json={
             "model": model,
             "state": state,
@@ -200,10 +222,12 @@ def system_one(
         },
     )
 
-    if not response.ok:
+    if response.status_code != 200:
         # A 422 body echoes the offending field, which can carry the state, so keep the body out of
         # the exception that gets logged.
-        raise TypeSafeRequestFailed(f"TypeSafe returned HTTP {response.status_code}", status_code=response.status_code)
+        raise TypeSafeRequestFailed(
+            f"TypeSafe returned HTTP {response.status_code}", status_code=response.status_code, response=response
+        )
     try:
         payload: object = response.json()
     except ValueError as exc:
@@ -219,11 +243,17 @@ def system_one(
 
     usage = _as_mapping(body.get("usage")) or {}
     input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
     return SystemOneResult(
         model=answered_model,
         answers={
             question_id: _parse_answer(question_id, question, raw_answers.get(question_id))
             for question_id, question in questions.items()
         },
-        input_tokens=input_tokens if isinstance(input_tokens, int) and not isinstance(input_tokens, bool) else None,
+        input_tokens=input_tokens
+        if isinstance(input_tokens, int) and not isinstance(input_tokens, bool) and input_tokens >= 0
+        else None,
+        output_tokens=output_tokens
+        if isinstance(output_tokens, int) and not isinstance(output_tokens, bool) and output_tokens >= 0
+        else None,
     )

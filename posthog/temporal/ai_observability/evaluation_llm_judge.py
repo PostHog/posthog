@@ -12,6 +12,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.typesafe.client import NoulAnswer, NoulQuestion, Question
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -49,10 +50,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.system_one import (
-    NoulAnswer,
-    NoulQuestion,
     SystemOneClient,
-    SystemOneQuestion,
     SystemOneRateLimitError,
     SystemOneRequestRejectedError,
 )
@@ -471,7 +469,7 @@ def call_llm_judge(
             if provider_key is not None and provider_key.provider != provider:
                 raise ProviderMismatchError(provider_key.provider, provider)
             prompt = evaluation["evaluation_config"]["prompt"]
-            questions: dict[str, SystemOneQuestion] = {"verdict": NoulQuestion(instructions=prompt)}
+            questions: dict[str, Question] = {"verdict": NoulQuestion(instructions=prompt)}
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
@@ -493,10 +491,10 @@ def call_llm_judge(
             if allows_na:
                 applicability_answer = system_one_result.answers["applicable"]
                 assert isinstance(applicability_answer, NoulAnswer)
-                applicable = applicability_answer.noul >= 0.5
+                applicable = applicability_answer.probability >= 0.5
             verdict_answer = system_one_result.answers["verdict"]
             assert isinstance(verdict_answer, NoulAnswer)
-            probability = verdict_answer.noul
+            probability = verdict_answer.probability
             parsed = (
                 BooleanWithNAEvalResult(
                     reasoning="",
@@ -511,9 +509,9 @@ def call_llm_judge(
                 model=model,
                 parsed=parsed,
                 usage=Usage(
-                    input_tokens=system_one_result.usage.input_tokens,
-                    output_tokens=system_one_result.usage.output_tokens,
-                    total_tokens=system_one_result.usage.input_tokens + system_one_result.usage.output_tokens,
+                    input_tokens=(system_one_result.input_tokens or 0),
+                    output_tokens=(system_one_result.output_tokens or 0),
+                    total_tokens=(system_one_result.input_tokens or 0) + (system_one_result.output_tokens or 0),
                 ),
             )
         else:

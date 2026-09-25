@@ -1,7 +1,8 @@
 """TypeSafe egress budget.
 
-A PostHog instance holds a single TypeSafe API key, so the whole instance draws from one shared
-budget under a constant scope. The per-minute default stays at half of TypeSafe's published request
+A PostHog instance's TypeSafe API key draws from one shared budget under a constant scope.
+Caller-owned credentials and compatible endpoints use separate fingerprinted scopes.
+The per-minute default stays at half of TypeSafe's published request
 limit, because TypeSafe changes its limits without notice. The hourly default is an operator ceiling
 on spend, because TypeSafe bills every input token.
 
@@ -27,12 +28,13 @@ register_policy(
 )
 
 
-def typesafe_account_key() -> str:
-    """Limiter key for the instance's single TypeSafe API key."""
-    return f"{TYPESAFE_DOMAIN}:account:{ACCOUNT_SCOPE_ID}"
+def typesafe_account_key(scope: str = ACCOUNT_SCOPE_ID) -> str:
+    return f"{TYPESAFE_DOMAIN}:account:{scope}"
 
 
-def consume_typesafe_sync(n: int = 1, *, priority: Priority = Priority.NORMAL, source: str = "unknown") -> bool:
-    """Reserve ``n`` requests against the instance's TypeSafe budget. Returns False when the budget
+def consume_typesafe_sync(
+    n: int = 1, *, scope: str = ACCOUNT_SCOPE_ID, priority: Priority = Priority.NORMAL, source: str = "unknown"
+) -> bool:
+    """Reserve ``n`` requests against the scope's TypeSafe budget. Returns False when the budget
     (or this ``priority``'s reserved floor) is exhausted, so degrade gracefully rather than calling out."""
-    return get_outbound_rate_limiter().consume_sync(typesafe_account_key(), n, priority=priority, source=source)
+    return get_outbound_rate_limiter().consume_sync(typesafe_account_key(scope), n, priority=priority, source=source)

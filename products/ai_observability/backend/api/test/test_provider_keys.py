@@ -1,3 +1,4 @@
+from ipaddress import ip_address
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -153,8 +154,10 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", **expected_config)
 
-    @patch("products.ai_observability.backend.llm.system_one.pinned_request")
-    def test_custom_system_one_connection_round_trip(self, request: Mock) -> None:
+    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
+    @patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True)
+    @patch("requests.Session.request")
+    def test_custom_system_one_connection_round_trip(self, request: Mock, _budget: Mock, _dns: Mock) -> None:
         request.return_value = Mock(status_code=200)
         request.return_value.json.return_value = {
             "model": "custom-model",
@@ -178,7 +181,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(Client.list_models("typesafe", **key.provider_extra_kwargs()), ["custom-model"])
         model_config = LLMModelConfiguration(provider="typesafe", model="custom-model", provider_key=key)
         self.assertEqual(model_config.get_available_models(), ["custom-model"])
-        self.assertEqual(request.call_args.kwargs["headers"], {})
+        self.assertNotIn("Authorization", request.call_args.kwargs["headers"])
         request.reset_mock()
         response = self.client.patch(f"{url}{key.id}/", {"base_url": "https://other.example.com/v1"})
         self.assertEqual(response.status_code, 400)
@@ -200,7 +203,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.data)
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["base_url"], "https://other.example.com/v1")
-        self.assertEqual(request.call_args.kwargs["headers"], {"Authorization": "Bearer fake-token"})
+        self.assertEqual(request.call_args.kwargs["headers"]["Authorization"], "Bearer fake-token")
         response = self.client.post(f"{url}{key.id}/validate/")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(request.call_args.args[1], "https://other.example.com/v1/systemone")

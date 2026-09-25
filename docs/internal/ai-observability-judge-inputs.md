@@ -53,9 +53,8 @@ Saving a connection validates it with a short synthetic input and a Noul questio
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
-The client accepts typed Noul, Score, and Choice questions independently of PostHog's evaluation output types.
-The client preserves raw Score values and Choice labels without applying evaluation policy.
-Mapping Score and Choice answers onto numeric and categorical evaluations is separate from this integration.
+The integration reuses the typed Noul client, rate limiter, and request telemetry in `posthog/egress/typesafe`.
+Numeric and categorical support is separate from this integration.
 Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
 API compatibility does not guarantee equivalent judgments or calibration across models.
 Compare results on representative inputs when changing models.
@@ -68,10 +67,12 @@ Evaluations that allow N/A send a separate Noul question about whether the crite
 Uncertainty alone does not produce N/A.
 System One answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
 
-Rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
+Each endpoint and credential pair has a separate, hashed rate-limit scope shared across workers.
+Evaluations use the batch lane; connection validation uses the normal lane.
+Local budget exhaustion, rate limits, and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
 If retries fail, the run fails and the evaluation stays enabled.
 Blocked endpoints and rejected requests disable the evaluation and mark the connection for revalidation, without recording model usage.
-Invalid probabilities, missing answers, mismatched answer types, and invalid score scales skip the item as an unparsable response.
+Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
 See TypeSafe's [API reference](https://docs.typesafe.ai/api) and [model limits and pricing](https://docs.typesafe.ai/models).
 

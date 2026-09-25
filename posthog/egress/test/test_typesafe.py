@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -10,6 +10,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority, resolve_policy
+from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.typesafe.client import (
     ChoiceAnswer,
     ChoiceQuestion,
@@ -65,18 +66,42 @@ def _with_answer(question_id: str, answer: dict[str, Any]) -> str:
 
 @override_settings(TYPESAFE_API_KEY=_FAKE_API_KEY)
 class TestTypeSafeEgress(SimpleTestCase):
-    def test_sends_the_documented_request_and_records_it_without_the_key(self) -> None:
-        consume = MagicMock(return_value=True)
-        before = REGISTRY.get_sample_value("typesafe_api_requests_total", _COUNTER_LABELS) or 0.0
+    @parameterized.expand(
+        [
+            ("instance_key", None, "https://api.typesafe.ai/v1"),
+            ("explicit_instance_key", _FAKE_API_KEY, "https://api.typesafe.ai/v1"),
+            ("customer_key", "fake-customer-key", "https://api.typesafe.ai/v1"),
+            ("custom_endpoint", "fake-customer-key", "https://decisions.example.com/v1"),
+            ("custom_no_auth", "", "https://decisions.example.com/v1"),
+        ]
+    )
+    def test_sends_the_documented_request_and_records_it_without_the_key(
+        self, _name: str, api_key: str | None, base_url: str
+    ) -> None:
+        resolved_key = _FAKE_API_KEY if api_key is None else api_key
+        scope = (
+            "default"
+            if base_url == "https://api.typesafe.ai/v1" and resolved_key == _FAKE_API_KEY
+            else scope_fingerprint(base_url, resolved_key)
+        )
+        labels = {**_COUNTER_LABELS, "account": scope}
+        before = REGISTRY.get_sample_value("typesafe_api_requests_total", labels) or 0.0
         with (
-            patch("posthog.egress.typesafe.transport.consume_typesafe_sync", consume),
+            patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True) as consume,
             patch("requests.request", return_value=_response(200, json.dumps(_ANSWERS))) as request,
         ):
-            result = system_one(state={"ticket": "Payouts fail"}, questions=_QUESTIONS, source="test")
+            result = system_one(
+                state={"ticket": "Payouts fail"},
+                questions=_QUESTIONS,
+                source="test",
+                api_key=api_key,
+                base_url=base_url,
+            )
 
-        assert request.call_args.args == ("POST", "https://api.typesafe.ai/v1/systemone")
+        assert request.call_args.args == ("POST", f"{base_url}/systemone")
         kwargs = request.call_args.kwargs
-        assert kwargs["headers"]["Authorization"] == f"Bearer {_FAKE_API_KEY}"
+        assert kwargs["headers"].get("Authorization") == (f"Bearer {resolved_key}" if resolved_key else None)
+        assert kwargs["allow_redirects"] is False
         assert kwargs["json"] == {
             "model": "jev-latest",
             "state": {"ticket": "Payouts fail"},
@@ -95,14 +120,20 @@ class TestTypeSafeEgress(SimpleTestCase):
             "team": ChoiceAnswer(choice="billing", confidence=0.81, probabilities={"billing": 0.88, "support": 0.12}),
         }
         assert result.input_tokens == 296
-        assert consume.call_args.kwargs["priority"] is Priority.NORMAL
-        assert REGISTRY.get_sample_value("typesafe_api_requests_total", _COUNTER_LABELS) == before + 1
-        assert _FAKE_API_KEY not in str(list(REGISTRY.collect()))
+        assert result.output_tokens == 20
+        assert consume.call_args.args[0] == typesafe_account_key(scope)
+        assert consume.call_args.args[3] is Priority.NORMAL
+        assert REGISTRY.get_sample_value("typesafe_api_requests_total", labels) == before + 1
+        metrics = str(list(REGISTRY.collect()))
+        assert _FAKE_API_KEY not in metrics
+        assert "fake-customer-key" not in metrics
+        assert "decisions.example.com" not in metrics
 
     @parameterized.expand(
         [
             ("rate_limited", 429, json.dumps({"error": "rate limited"}), 429),
             ("overloaded", 529, json.dumps({"error": "overloaded"}), 529),
+            ("redirect", 302, "", 302),
             ("non_json_body", 200, "<html>bad gateway</html>", None),
             (
                 "missing_answer",
@@ -149,17 +180,32 @@ class TestTypeSafeEgress(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_configured_key", "", Priority.NORMAL, TypeSafeNotConfigured),
-            ("critical_lane_skips_the_spend_ceiling", _FAKE_API_KEY, Priority.CRITICAL, ValueError),
+            ("no_configured_key", "", "https://api.typesafe.ai/v1", Priority.NORMAL, TypeSafeNotConfigured),
+            (
+                "critical_lane_skips_the_spend_ceiling",
+                _FAKE_API_KEY,
+                "https://api.typesafe.ai/v1",
+                Priority.CRITICAL,
+                ValueError,
+            ),
+            (
+                "custom_endpoint_cannot_inherit_instance_key",
+                _FAKE_API_KEY,
+                "https://decisions.example.com/v1",
+                Priority.NORMAL,
+                ValueError,
+            ),
         ]
     )
-    def test_never_calls_out(self, _name: str, api_key: str, priority: Priority, error: type[Exception]) -> None:
+    def test_never_calls_out(
+        self, _name: str, api_key: str, base_url: str, priority: Priority, error: type[Exception]
+    ) -> None:
         with (
             override_settings(TYPESAFE_API_KEY=api_key),
             patch("requests.request") as request,
             self.assertRaises(error),
         ):
-            system_one(state="hi", questions=_QUESTIONS, source="test", priority=priority)
+            system_one(state="hi", questions=_QUESTIONS, source="test", priority=priority, base_url=base_url)
         request.assert_not_called()
 
     @override_settings(TYPESAFE_EGRESS_PER_MINUTE_BUDGET=7, TYPESAFE_EGRESS_HOURLY_BUDGET=11)
