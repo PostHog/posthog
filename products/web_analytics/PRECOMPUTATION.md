@@ -293,7 +293,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 A cold or expired shape's first read serves the live path and only warms in the background — but for high-traffic teams the dashboard's main tiles are requested constantly, and there's no reason to let the first user of every cycle take that live-path miss. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
 
 - **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
-- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
+- **Schedule**: `53 * * * *` (hourly, with its start outside the demand warmer's release window); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
 - **Window**: trailing 28 days. The lazy precompute stores per-day buckets, so a 28-day warm naturally covers any sub-window the dashboard asks for.
 - **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`).
 - **Per-query toggle**: every warmer query sets `useWebAnalyticsPrecompute=True` explicitly. Precompute now defaults on for enrolled teams (only an explicit `False` opts out), so this is redundant — kept to make the warmer's intent explicit.
