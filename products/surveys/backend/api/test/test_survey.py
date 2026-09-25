@@ -7527,7 +7527,7 @@ class TestSurveyLifecycleActions(APIBaseTest):
 
 
 class TestSurveyApprovalGate(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
             {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
@@ -7559,10 +7559,11 @@ class TestSurveyApprovalGate(APIBaseTest):
             created_by=self.user,
         )
 
-    def test_update_under_flag_update_policy_returns_approval_conflict(self):
+    def test_update_under_flag_update_policy_returns_approval_conflict(self) -> None:
         survey = self._create_survey()
         flag = survey.internal_targeting_flag
         assert flag is not None
+        filters_before = flag.filters
 
         self._add_flag_update_policy()
 
@@ -7576,9 +7577,14 @@ class TestSurveyApprovalGate(APIBaseTest):
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.content
         assert response.json()["change_request_id"]
-        # update() is deliberately not atomic, so the pending request the 409 points at must
-        # survive the exception rather than be rolled back with it.
         assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
+
+        # Half the write lands before the gate fires. Locked in here because making update()
+        # atomic to avoid that would also roll back the ChangeRequest the 409 points at.
+        survey.refresh_from_db()
+        flag.refresh_from_db()
+        assert survey.end_date is None
+        assert flag.filters == filters_before
 
 
 class TestSurveyListTypeFilter(APIBaseTest):

@@ -1774,6 +1774,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return instance
 
+    # Not @transaction.atomic: the targeting flag writes below route through the feature flag
+    # approval gate, which can raise ApprovalRequired (surfacing as a 409 plus a pending
+    # ChangeRequest). A transaction would roll that ChangeRequest back as the exception
+    # propagates, leaving the 409 pointing at a request that no longer exists. The cost is that
+    # super().update() has already saved the survey row by then, so a 409 leaves the survey
+    # changed while its flags keep their old state. Mirrors product tours and experiments.
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
