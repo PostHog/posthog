@@ -22,6 +22,10 @@
             "description": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
             "type": "boolean"
         },
+        "domain_id": {
+            "description": "Accepted product domain ID used when scope=domain.",
+            "type": "string"
+        },
         "has_implementation_pr": {
             "description": "Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
             "type": "boolean"
@@ -42,12 +46,16 @@
             "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.",
             "type": "string"
         },
+        "owning_role_id": {
+            "description": "Responsible team ID used when scope=team.",
+            "type": "string"
+        },
         "priority": {
             "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
             "type": "string"
         },
         "scope": {
-            "description": "Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.",
+            "description": "Inbox scope: for_me, entire_project, teammate, team, domain, or unclassified. Use teammate_uuid, owning_role_id, or domain_id for the corresponding scope.",
             "type": "string"
         },
         "scout": {
@@ -99,7 +107,7 @@
             "type": "boolean"
         },
         "view": {
-            "description": "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, all, or for_you. The flag-gated for_you shortlist selects the caller’s P0–P2 reports needing attention, up to five per page, highest priority then newest first. It omits personally snoozed reports for seven days. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.",
+            "description": "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.",
             "type": "string"
         }
     },
