@@ -212,7 +212,12 @@ export function failureKindDescription(kind: FailureKind): string {
     return FAILURE_KINDS[kind].description
 }
 
-/** Why a failed or ineligible scan produced no result, short enough for a table cell: the message when there is one, else the kind's description. */
+/**
+ * Why a failed or ineligible scan produced no result, short enough for a table cell.
+ *
+ * A failure's encoded message is an upstream exception string, so the cell reads the curated copy and
+ * the raw text stays on the detail surfaces. An ineligible message is product-written, so it is kept.
+ */
 export function unsuccessfulScanReason(
     status: ReplayObservationApi['status'],
     errorReason: string | null | undefined
@@ -222,7 +227,7 @@ export function unsuccessfulScanReason(
     }
     if (status === 'failed') {
         const parsed = parseFailureReason(errorReason)
-        return parsed ? parsed.message || failureKindDescription(parsed.kind) : errorReason
+        return failureKindDescription(parsed?.kind ?? 'internal_error')
     }
     const parsed = parseIneligibleReason(errorReason)
     return parsed ? parsed.message || ineligibleKindDescription(parsed.kind) : errorReason
