@@ -60,21 +60,25 @@ class TestQuerySingleFlight(SimpleTestCase):
 
     def test_heartbeat_extends_only_the_leaders_own_lock(self):
         key = _cache_key()
-        leader = QuerySingleFlight(key, BUDGET_INTERACTIVE)
-        self.addCleanup(leader.release)
-        leader.acquire()
         client = storage.query_cache_raw_client()
-        client.pexpire(leader.lock_key, 1)  # about to expire, as if the leader had gone quiet
-        assert leader.extend() is True
-        assert client.pttl(leader.lock_key) > 1000
+        # A TTL far longer than the test can take, so an extension is the only thing that moves a
+        # lock past the mark it is set to, and no lock can expire while the test reads it.
+        marker_ms = 60_000
+        with mock.patch.multiple(single_flight, FLIGHT_LOCK_TTL=600.0, FLIGHT_HEARTBEAT_INTERVAL=600.0):
+            leader = QuerySingleFlight(key, BUDGET_INTERACTIVE)
+            self.addCleanup(leader.release)
+            leader.acquire()
+            client.pexpire(leader.lock_key, marker_ms)
+            assert leader.extend() is True
+            assert client.pttl(leader.lock_key) > marker_ms
 
-        client.delete(leader.lock_key)
-        replacement = QuerySingleFlight(key, BUDGET_INTERACTIVE)
-        self.addCleanup(replacement.release)
-        replacement.acquire()
-        client.pexpire(replacement.lock_key, 500)
-        assert leader.extend() is False  # not the owner any more
-        assert client.pttl(replacement.lock_key) <= 500
+            client.delete(leader.lock_key)
+            replacement = QuerySingleFlight(key, BUDGET_INTERACTIVE)
+            self.addCleanup(replacement.release)
+            replacement.acquire()
+            client.pexpire(replacement.lock_key, marker_ms)
+            assert leader.extend() is False  # not the owner any more
+            assert client.pttl(replacement.lock_key) <= marker_ms
 
     def test_a_dead_leaders_lock_expires_and_followers_get_released(self):
         key = _cache_key()
