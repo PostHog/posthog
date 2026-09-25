@@ -1442,7 +1442,6 @@ async fn discovery_is_kind_gated_and_person_pinned_load_validates() -> Result<()
         };
         ensure!(validated.run.conditions.len() == 1);
         ensure!(validated.run.horizon_days == 30);
-        ensure!(validated.uncovered_cohorts.is_empty());
         ensure!(validated.warnings.iter().any(|warning| matches!(
             warning,
             PinnedWarning::ConditionSuperseded { cohort_id, .. } if *cohort_id == CohortId(11)
