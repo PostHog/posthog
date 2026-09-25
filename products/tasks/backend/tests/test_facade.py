@@ -542,18 +542,26 @@ class TestFacadeReadsAndMappers(TestCase):
         assert latest_terminal is not None
         self.assertEqual(latest_terminal.id, terminal.id)
 
-    def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
+    def test_get_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
 
-        live_task = self._make_task(github_integration=integration)
-        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        oldest_task = self._make_task(github_integration=integration, title="Oldest live task")
+        TaskRun.objects.create(task=oldest_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=oldest_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        newer_task = self._make_task(github_integration=integration, title="Newer live task")
+        TaskRun.objects.create(task=newer_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         other_task = self._make_task(github_integration=other_integration)
         TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id, integration.id), 1)
-        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id + 999, integration.id), 0)
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id),
+            contracts.InProgressGithubRunsDTO(count=2, oldest_task_title="Oldest live task"),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id + 999, integration.id),
+            contracts.InProgressGithubRunsDTO(count=0),
+        )
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
