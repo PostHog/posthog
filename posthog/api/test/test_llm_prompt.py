@@ -1372,6 +1372,7 @@ class TestLLMPromptTagsAPI(APIBaseTest):
         assert response.json() == {"tags": ["onboarding"]}
         assert self._list_tags() == {"my-prompt": ["onboarding"]}
         log = ActivityLog.objects.filter(team_id=self.team.id, scope="LLMPrompt", activity="updated").get()
+        assert log.detail is not None
         assert log.detail["changes"][0]["before"] == ["support"]
         assert log.detail["changes"][0]["after"] == ["onboarding"]
 

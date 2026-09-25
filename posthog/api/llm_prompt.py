@@ -50,12 +50,12 @@ from posthog.api.services.llm_prompt import (
     LLMPromptVersionLimitError,
     archive_prompt,
     duplicate_prompt,
-    filter_prompts_by_tags,
     get_active_prompt_queryset,
     get_labeled_prompts_queryset,
     get_latest_prompts_queryset,
     get_prompt_by_name_from_db,
     get_prompt_labels,
+    get_tagged_prompt_names,
     publish_prompt_version,
     remove_prompt_label,
     resolve_versions_page,
@@ -390,7 +390,7 @@ class LLMPromptViewSet(
 
         tags = params.get("tags")
         if tags:
-            queryset = filter_prompts_by_tags(self.team, queryset, tags)
+            queryset = queryset.filter(name__in=get_tagged_prompt_names(self.team, tags))
 
         order_by = params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")

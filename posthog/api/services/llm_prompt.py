@@ -193,15 +193,14 @@ def get_prompt_labels(team: Team, prompt_name: str) -> QuerySet[LLMPromptLabel]:
     )
 
 
-def filter_prompts_by_tags(team: Team, queryset: QuerySet[LLMPrompt], tags: Iterable[str]) -> QuerySet[LLMPrompt]:
-    """Keep the prompts that carry any of the tags.
+def get_tagged_prompt_names(team: Team, tags: Iterable[str]) -> QuerySet[LLMPrompt, str]:
+    """Names of the prompts that carry any of the tags, as a subquery.
 
-    Matches by name through the latest version, because a labeled list row is often an older version.
+    Filter by name, not by row, because a labeled list row is often an older version.
     """
-    tagged_names = LLMPrompt.objects.filter(
+    return LLMPrompt.objects.filter(
         team=team, deleted=False, is_latest=True, tagged_items__tag__name__in=normalize_tag_names(tags)
-    ).values("name")
-    return queryset.filter(name__in=tagged_names)
+    ).values_list("name", flat=True)
 
 
 def copy_prompt_tags(source: LLMPrompt, target: LLMPrompt) -> None:
