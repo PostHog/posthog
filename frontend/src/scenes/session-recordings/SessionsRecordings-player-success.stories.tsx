@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 import { combineUrl, router } from 'kea-router'
-import { HttpResponse } from 'msw'
+import { HttpResponse, delay } from 'msw'
 
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
@@ -236,6 +236,35 @@ export const RecentRecordingsEmpty: Story = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
+            },
+        }),
+    ],
+}
+
+/**
+ * A shared link carries the recording id, so the player mounts from the URL while the list is still
+ * loading. The list response is held back here, so a regression that puts the player back behind
+ * the list shows the loading screen in place of the replayer.
+ */
+export const DeepLinkWhileListLoads: Story = {
+    parameters: {
+        pageUrl: sceneUrl(urls.replay(), { sessionRecordingId: recordings[0].id }),
+        // The list stays loading for the whole snapshot, which is the point of the story.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/session_recordings': async ({ request }) => {
+                    const url = new URL(request.url)
+                    // The scene's own "does this project have recordings" probe reads one row, and
+                    // holding it back would hide the whole scene. Only the playlist's page never
+                    // answers.
+                    if (url.searchParams.get('limit') !== '1') {
+                        await delay('infinite')
+                    }
+                    return [200, { has_next: false, results: recordings, version: '1' }]
+                },
             },
         }),
     ],

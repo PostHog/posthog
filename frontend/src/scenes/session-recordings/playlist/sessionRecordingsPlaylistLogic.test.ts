@@ -24,6 +24,7 @@ import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    LIST_LOAD_STALL_MS,
     LIST_MEMO_WINDOW_MS,
     type SessionRecordingPlaylistLogicProps,
     asUniversalFilters,
@@ -2042,6 +2043,40 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(erroring.values.sessionRecordingsAPIErrored).toBe(false)
             erroring.unmount()
+        })
+
+        it('offers a retry once a first-page load stalls, and the retry reads again', async () => {
+            // A stalled list load left the player area on the loading screen with no way out but a
+            // page reload, because nothing timed the load out and nothing re-read on refocus.
+            jest.useFakeTimers()
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementationOnce(() => new Promise(() => {}) as ReturnType<typeof api.recordings.list>)
+                .mockImplementation(
+                    () =>
+                        Promise.resolve({ results: [aRecording], has_next: false } as unknown) as ReturnType<
+                            typeof api.recordings.list
+                        >
+                )
+
+            const stalling = sessionRecordingsPlaylistLogic({ logicKey: 'stalled-first-page' })
+            stalling.mount()
+            await jest.advanceTimersByTimeAsync(500)
+            expect(listSpy).toHaveBeenCalledTimes(1)
+            expect(stalling.values.listLoadStalled).toBe(false)
+
+            await jest.advanceTimersByTimeAsync(LIST_LOAD_STALL_MS)
+            expect(stalling.values.listLoadStalled).toBe(true)
+
+            stalling.actions.loadAllRecordings()
+            await jest.advanceTimersByTimeAsync(500)
+
+            expect(listSpy).toHaveBeenCalledTimes(2)
+            expect(stalling.values.listLoadStalled).toBe(false)
+            expect(stalling.values.sessionRecordings).toEqual([aRecording])
+
+            stalling.unmount()
+            jest.useRealTimers()
         })
 
         it('hands the host page the status and the detail, with whether it was the first page', async () => {

@@ -160,6 +160,15 @@ interface BackendEventsMatching {
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
 
+/**
+ * How long a list load may run before the player-area loading screen offers a retry. The list query
+ * is capped and throttled server-side, so a load still running after this either sat in a
+ * backgrounded tab or will not answer at all. Both need a way out that is not a page reload.
+ */
+export const LIST_LOAD_STALL_MS = 20000
+
+const STALL_TIMER_KEY = 'listLoadStallTimer'
+
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
@@ -625,6 +634,7 @@ export interface sessionRecordingsPlaylistLogicValues {
         order_direction: RecordingsQuery['order_direction']
     }
     sessionRecordingsResponseLoading: boolean
+    listLoadStalled: boolean
     showFilters: boolean
     showSettings: boolean
     totalFiltersCount: number
@@ -839,6 +849,9 @@ export interface sessionRecordingsPlaylistLogicActions {
             userModifiedFilters: Record<string, any> | undefined
         }
     }
+    markListLoadStalled: () => {
+        value: true
+    }
     maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => {
         direction: 'newer' | 'older' | undefined
     }
@@ -1020,6 +1033,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
+        markListLoadStalled: true,
         loadSessionRecordings: (
             direction?: 'newer' | 'older',
             userModifiedFilters?: Record<string, any>,
@@ -1436,6 +1450,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setSelectedRecordingId: (_, { id }) => id ?? null,
             },
         ],
+        listLoadStalled: [
+            false,
+            {
+                loadSessionRecordings: () => false,
+                loadSessionRecordingsSuccess: () => false,
+                loadSessionRecordingsFailure: () => false,
+                markListLoadStalled: () => true,
+            },
+        ],
         sessionRecordingsAPIErrored: [
             false,
             {
@@ -1759,7 +1782,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 actions.loadSessionRecordings(direction)
             },
 
+            loadSessionRecordings: ({ direction }) => {
+                // Only a first-page load holds the player area behind a loading screen, so only
+                // that one arms the stall timer. A hidden tab is where a load stalls for minutes,
+                // so the timer has to keep running while the tab is away.
+                cache.disposables.dispose(STALL_TIMER_KEY)
+                if (!direction) {
+                    cache.disposables.add(
+                        () => {
+                            const timer = window.setTimeout(actions.markListLoadStalled, LIST_LOAD_STALL_MS)
+                            return () => clearTimeout(timer)
+                        },
+                        STALL_TIMER_KEY,
+                        { pauseOnPageHidden: false }
+                    )
+                }
+            },
+
             loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
+                cache.disposables.dispose(STALL_TIMER_KEY)
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
                 // A load without a direction replaces the list rather than paging it, the same
                 // reading the `sessionRecordings` reducer takes.
@@ -1769,6 +1810,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             loadSessionRecordingsFailure: ({ error, errorObject }) => {
+                cache.disposables.dispose(STALL_TIMER_KEY)
                 // The status rides alongside the message so a host page can tell a refusal the
                 // backend states on purpose from a transport failure. What it offers for either is
                 // its own decision, and the two differ: the shelf on the experiment recordings tab
@@ -2451,10 +2493,27 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions, props, values }) => {
+    afterMount(({ actions, props, values, cache }) => {
         if (props.onlyPinned) {
             return
         }
+
+        // A backgrounded tab throttles the fetch the list load is waiting on, so a load started
+        // before the tab was hidden can still be in flight minutes later. Coming back to the tab
+        // is the moment the viewer wants rows, so re-read the one that stalled.
+        cache.disposables.add(
+            () => {
+                const onVisibilityChange = (): void => {
+                    if (document.visibilityState === 'visible' && values.listLoadStalled) {
+                        actions.loadAllRecordings()
+                    }
+                }
+                document.addEventListener('visibilitychange', onVisibilityChange)
+                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+            },
+            undefined,
+            { pauseOnPageHidden: false }
+        )
 
         // The filters reducer persists to localStorage and rehydrates without validation, so a stale
         // or malformed entry poisons state and makes every later filter change fall back to defaults.
