@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from itertools import batched, chain
 from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
@@ -109,6 +110,30 @@ def reports_with_active_claim(*, team_id: int, actor: ArtefactAttribution | None
             actor_task_id=actor.task_id,
             actor_agent=actor.agent_name,
         )
+    return Q(id__in=claims.values("report_id")) | Q(id__in=legacy.values("report_id"))
+
+
+def reports_owned_by_user(*, team_id: int, user_id: int) -> Q:
+    claims = active_claims(team_id=team_id)
+    legacy = legacy_claims(team_id=team_id)
+    candidate_task_ids = chain(
+        claims.filter(created_by_id__isnull=True, task_id__isnull=False)
+        .order_by()
+        .values_list("task_id", flat=True)
+        .distinct()
+        .iterator(chunk_size=500),
+        legacy.filter(actor_user_id__isnull=True, actor_task_id__isnull=False)
+        .order_by()
+        .values_list("actor_task_id", flat=True)
+        .distinct()
+        .iterator(chunk_size=500),
+    )
+    # Resolve only current claimants in bounded batches; task querysets stay inside their product.
+    task_ids: set[UUID] = set()
+    for batch in batched((task_id for task_id in candidate_task_ids if task_id is not None), 500, strict=False):
+        task_ids.update(tasks_facade.task_ids_created_by_user(team_id=team_id, user_id=user_id, task_ids=batch))
+    claims = claims.filter(Q(created_by_id=user_id) | Q(created_by_id__isnull=True, task_id__in=task_ids))
+    legacy = legacy.filter(Q(actor_user_id=user_id) | Q(actor_user_id__isnull=True, actor_task_id__in=task_ids))
     return Q(id__in=claims.values("report_id")) | Q(id__in=legacy.values("report_id"))
 
 

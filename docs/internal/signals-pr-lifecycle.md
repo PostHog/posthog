@@ -23,6 +23,20 @@ Slack notifications for a ready report include only reviewers who have access to
 The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 
+## Current ownership and personal routing
+
+Suggested owners are distinct from active claims. Removing yourself records a durable report exclusion; it never releases work you have claimed. Domain exclusions apply to the accepted primary domain, not every product named in evidence. Shared team/domain scopes remain available after personal exclusions.
+
+The routing policy checks every suggested-reviewer write, auto-start, GitHub assignment and personal report notification. Current team membership limits candidates for an assigned team. A queued reviewer notification rechecks the current suggestion list. Explicit human claims retain their existing assignment semantics.
+
+The `signals-current-ownership` flag exposes web and Desktop routing controls. Deploy the additive backend API and migrations before the Desktop client. Keep the flag disabled until the correction flow has been checked with a reviewed domain/team seed. Rollback the new entry points without deleting stored preferences or weakening policy enforcement; existing private APIs remain available for preference recovery.
+
+Domain definitions are reviewed and maintained by people in the project. Automated classification, repository imports and inferred personal rules are follow-up work.
+
+Bulk exclusion starts with a saved preview. Apply enables the private rule immediately and queues bounded cleanup. The worker skips active ownership and concurrent changes. Undo restores only its own unchanged removals, preserving subsequent edits and rules. Disabling a rule permits future suggestions without refilling the backlog.
+
+`signals_routing_changed` records successful correction, preview, apply, undo and cleanup outcomes using the existing analytics client. It contains action/outcome and counts, without report text, domain labels, recipient lists or private rule content. Monitor repeated corrections, cleanup failures/skips, and owner-reviewed false exclusions alongside adoption; report clicks and merge rates alone do not establish routing quality.
+
 ## Report links
 
 Only scouts and the signals pipeline create and manage typed, directed report links.
@@ -97,15 +111,3 @@ Missing data, failed checks, and inconclusive results do not establish that the 
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
-
-## For you relevance pilot
-
-`signals-relevance-pilot` gates a personal shortlist in the web inbox and Desktop. It starts disabled. The backend must deploy before the Desktop companion. The existing queue, suggested reviewers, notifications, scout feedback, and work execution are unchanged.
-
-The pilot shows up to five reports suggested to the caller, using the existing P0–P2 judgments, highest priority then newest first. A report must have a known-open PR ready for review, or actionable work/human input with no active claim or implementation PR. Running, resolved, dismissed, already-handled, low-priority, and untriaged reports remain outside the shortlist. The UI explains these rules and provides **Browse all reports**. This is a heuristic to test, not a learned relevance score; current reviewer suggestions and priority judgments can still be wrong.
-
-**Not now** hides a report from only that person's shortlist for seven days. **Undo** restores eligibility. Both use the existing per-person report-action store; they never dismiss the shared report, remove reviewers, change a thumbs rating, or train a broader exclusion. API-origin snoozes do not count as evidence of human consumption for scout inactivity.
-
-To test locally, enable the flag for the test user in both server and client flag evaluation. Open the web inbox or Desktop, inspect the shortlist, open a report, snooze it, undo, and browse the wider queue. The list contract is `GET /api/projects/:id/signals/reports/?view=for_you`; the existing list response is capped at five per page. `POST .../reports/:report_id/snooze/` accepts `{ "snoozed": true }` or `false` and returns `snoozed_until`. Both are server-gated. Missing or failed flag evaluation keeps the pilot unavailable.
-
-Use existing `Inbox reports impressed` events with `tab=for_you_pilot`, report-open/work-action outcomes, and `Inbox report action` with `surface=shortlist` to follow the pilot. Judge it by useful work completed and time spent reviewing/sorting, alongside direct feedback on missed or irrelevant reports. A click or merge alone does not establish relevance. Validate the P0–P2 cutoff and seven-day snooze with the pilot before expanding exposure. Taxonomy, classifiers, domain preferences, and a learned ranker are outside this pilot.

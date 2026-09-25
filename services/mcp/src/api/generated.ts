@@ -65881,6 +65881,66 @@ export namespace Schemas {
       results: SessionRecordingPlaylist[];
     }
 
+    export interface SignalProductDomain {
+      /** Stable product-domain ID. Renaming preserves personal rules. */
+      readonly id: string;
+      /**
+         * Name of the capability that needs attention.
+         * @maxLength 100
+         */
+      name: string;
+      /**
+         * Responsibility boundaries, including examples and exclusions.
+         * @maxLength 4000
+         */
+      description: string;
+      /**
+         * Role representing the current responsible team, in this project's organization.
+         * @nullable
+         */
+      owning_role_id?: string | null;
+      /**
+         * Responsible team's current display name.
+         * @nullable
+         */
+      readonly owning_role_name: string | null;
+      /** Archived domains retain routing history and preferences. */
+      archived?: boolean;
+      /** Definition revision used to detect stale routing and previews. */
+      readonly revision: number;
+    }
+
+    export interface SignalDomainPreference {
+      /** Personal routing preference ID. */
+      readonly id: string;
+      /** The domain this rule applies to. */
+      readonly domain: SignalProductDomain;
+      /** Whether to exclude this user from automatic suggestions for the domain. */
+      readonly excluded: boolean;
+      /** Preference version; older cleanup operations stop after a change. */
+      readonly revision: number;
+      /** When this preference last changed. */
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalDomainPreferenceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalDomainPreference[];
+    }
+
+    export interface PaginatedSignalProductDomainList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalProductDomain[];
+    }
+
     /**
      * * `video_segment` - Video Segment
      * * `safety_judgment` - Safety Judgment
@@ -66115,6 +66175,47 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportCheck[];
+    }
+
+    /**
+     * * `human` - Human correction
+     * * `agent` - Report classification
+     * * `code` - Repository ownership
+     */
+    export type SignalReportRoutingSourceEnum = typeof SignalReportRoutingSourceEnum[keyof typeof SignalReportRoutingSourceEnum];
+
+
+    export const SignalReportRoutingSourceEnum = {
+      Human: 'human',
+      Agent: 'agent',
+      Code: 'code',
+    } as const;
+
+    export interface SignalReportRouting {
+      /** Primary product domain; null when unclassified. */
+      readonly domain: SignalProductDomain | null;
+      /**
+         * Persistent responsible team assignment.
+         * @nullable
+         */
+      readonly owning_role_id: string | null;
+      /**
+         * Responsible team's current name.
+         * @nullable
+         */
+      readonly owning_role_name: string | null;
+      /** Where this routing decision came from.
+       *
+       * * `human` - Human correction
+       * * `agent` - Report classification
+       * * `code` - Repository ownership */
+      readonly source: SignalReportRoutingSourceEnum;
+      /** Evidence supporting the routing decision. */
+      readonly explanation: string;
+      /** Whether automatic classification must preserve this correction. */
+      readonly human_override: boolean;
+      /** Only accepted primary domains affect personal domain rules. */
+      readonly accepted: boolean;
     }
 
     /**
@@ -66422,6 +66523,8 @@ export namespace Schemas {
       readonly title: string | null;
       /** @nullable */
       readonly summary: string | null;
+      /** Product domain, responsible team, and the evidence used for routing. */
+      readonly routing: SignalReportRouting | null;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -66529,6 +66632,121 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportList[];
+    }
+
+    /**
+     * * `preparing` - Preparing preview
+     * * `preview` - Preview
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     * * `undoing` - Undoing
+     * * `undone` - Undone
+     * * `cancelled` - Rule changed
+     */
+    export type SignalRoutingBatchStatusEnum = typeof SignalRoutingBatchStatusEnum[keyof typeof SignalRoutingBatchStatusEnum];
+
+
+    export const SignalRoutingBatchStatusEnum = {
+      Preparing: 'preparing',
+      Preview: 'preview',
+      Pending: 'pending',
+      Running: 'running',
+      Complete: 'complete',
+      Failed: 'failed',
+      Undoing: 'undoing',
+      Undone: 'undone',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface SignalRoutingBatch {
+      /** Operation ID used to apply, inspect, retry, or undo this preview. */
+      readonly id: string;
+      /** The product domain matched by this operation. */
+      readonly domain_id: string;
+      /** Preview, cleanup, or undo progress.
+       *
+       * * `preparing` - Preparing preview
+       * * `preview` - Preview
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `complete` - Complete
+       * * `failed` - Failed
+       * * `undoing` - Undoing
+       * * `undone` - Undone
+       * * `cancelled` - Rule changed */
+      readonly status: SignalRoutingBatchStatusEnum;
+      /** Number of report suggestions included in the saved preview. */
+      readonly total: number;
+      /** Suggestions removed by this operation. */
+      readonly changed: number;
+      /** Reports preserved because the user has taken ownership. */
+      readonly skipped_claims: number;
+      /** Reports skipped because subsequent edits or rules superseded the operation. */
+      readonly skipped_changes: number;
+      /** Stable failure category, empty when no failure occurred. */
+      readonly error: string;
+      /** When the preview snapshot was created. */
+      readonly created_at: string;
+      /** Most recent operation update. */
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalRoutingBatchList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalRoutingBatch[];
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `removed` - Removed
+     * * `claimed` - Active ownership
+     * * `changed` - Changed since preview
+     * * `restored` - Restored
+     * * `cancelled` - Cancelled before removal
+     */
+    export type SignalRoutingBatchChangeStatusEnum = typeof SignalRoutingBatchChangeStatusEnum[keyof typeof SignalRoutingBatchChangeStatusEnum];
+
+
+    export const SignalRoutingBatchChangeStatusEnum = {
+      Pending: 'pending',
+      Removed: 'removed',
+      Claimed: 'claimed',
+      Changed: 'changed',
+      Restored: 'restored',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface SignalRoutingBatchReport {
+      /** Report included in this preview. */
+      readonly report_id: string;
+      /** Current report title. */
+      readonly title: string;
+      /** Outcome for this report in the operation.
+       *
+       * * `pending` - Pending
+       * * `removed` - Removed
+       * * `claimed` - Active ownership
+       * * `changed` - Changed since preview
+       * * `restored` - Restored
+       * * `cancelled` - Cancelled before removal */
+      readonly status: SignalRoutingBatchChangeStatusEnum;
+      /** Whether the preference owner currently owns active work on this report. */
+      readonly has_active_claim: boolean;
+    }
+
+    export interface PaginatedSignalRoutingBatchReportList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalRoutingBatchReport[];
     }
 
     /**
@@ -76664,6 +76882,35 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface PatchedSignalProductDomain {
+      /** Stable product-domain ID. Renaming preserves personal rules. */
+      readonly id?: string;
+      /**
+         * Name of the capability that needs attention.
+         * @maxLength 100
+         */
+      name?: string;
+      /**
+         * Responsibility boundaries, including examples and exclusions.
+         * @maxLength 4000
+         */
+      description?: string;
+      /**
+         * Role representing the current responsible team, in this project's organization.
+         * @nullable
+         */
+      owning_role_id?: string | null;
+      /**
+         * Responsible team's current display name.
+         * @nullable
+         */
+      readonly owning_role_name?: string | null;
+      /** Archived domains retain routing history and preferences. */
+      archived?: boolean;
+      /** Definition revision used to detect stale routing and previews. */
+      readonly revision?: number;
+    }
+
     /**
      * Body for replacing the content of an existing artefact (addressed by id).
      *
@@ -85789,6 +86036,8 @@ export namespace Schemas {
       readonly title: string | null;
       /** @nullable */
       readonly summary: string | null;
+      /** Product domain, responsible team, and the evidence used for routing. */
+      readonly routing: SignalReportRouting | null;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -89295,6 +89544,25 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
+    export interface SignalDomainPreferenceWrite {
+      /** Product domain in this project. */
+      domain_id: string;
+      /** Enable or disable this personal rule. Enabling here affects future routing without a backlog operation. */
+      excluded: boolean;
+    }
+
+    export interface SignalDomainPreview {
+      /** Domain whose existing suggestions should be previewed for removal. */
+      domain_id: string;
+    }
+
+    export interface SignalPersonalCorrection {
+      /** Whether an explicit per-report Not me correction is active for the current user. */
+      excluded: boolean;
+      /** Whether this user still owns active work on the report; removing a suggestion does not release it. */
+      has_active_claim: boolean;
+    }
+
     /**
      * Body for appending an artefact to a report.
      *
@@ -89671,17 +89939,11 @@ export namespace Schemas {
       report_id: string;
     }
 
-    export interface SignalReportSnoozeRequest {
-      /** Hide from your For you shortlist for seven days. False undoes this. */
-      snoozed: boolean;
-    }
-
-    export interface SignalReportSnoozeResponse {
-      /**
-         * When this personal snooze expires, or null after undo.
-         * @nullable
-         */
-      snoozed_until: string | null;
+    export interface SignalReportRoutingState {
+      /** Current accepted or proposed domain/team routing. */
+      routing: SignalReportRouting | null;
+      /** The current user's correction and active ownership. */
+      personal: SignalPersonalCorrection;
     }
 
     export interface SignalReportStateRequest {
@@ -89832,6 +90094,33 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+    }
+
+    export interface SignalRoutingCorrection {
+      /**
+         * Primary product domain in this project, or null to leave it unclassified.
+         * @nullable
+         */
+      domain_id: string | null;
+      /**
+         * Responsible team override. When omitted, use the domain's current team.
+         * @nullable
+         */
+      owning_role_id?: string | null;
+      /**
+         * Why this domain or team owns the work.
+         * @maxLength 500
+         */
+      explanation?: string;
+    }
+
+    export interface SignalRoutingRole {
+      /** Organization role ID representing a responsible team. */
+      id: string;
+      /** Team display name. */
+      name: string;
+      /** Whether the current user belongs to this team and can access the project. */
+      is_member: boolean;
     }
 
     /**
@@ -106096,6 +106385,8 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `SignalTeamConfig` - SignalTeamConfig
+     * * `SignalProductDomain` - SignalProductDomain
+     * * `SignalReportRouting` - SignalReportRouting
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -106199,6 +106490,8 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       SignalTeamConfig: 'SignalTeamConfig',
+      SignalProductDomain: 'SignalProductDomain',
+      SignalReportRouting: 'SignalReportRouting',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
@@ -106288,6 +106581,8 @@ export namespace Schemas {
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * * `SignalTeamConfig` - SignalTeamConfig
+     * * `SignalProductDomain` - SignalProductDomain
+     * * `SignalReportRouting` - SignalReportRouting
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
@@ -106379,6 +106674,8 @@ export namespace Schemas {
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
       SignalTeamConfig: 'SignalTeamConfig',
+      SignalProductDomain: 'SignalProductDomain',
+      SignalReportRouting: 'SignalReportRouting',
       StreamlitApp: 'StreamlitApp',
       Metric: 'Metric',
       TableCertification: 'TableCertification',
@@ -114902,6 +115199,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsDomainsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -114935,6 +115243,10 @@ export namespace Schemas {
      */
     count_only?: boolean;
     /**
+     * Accepted product domain ID used when scope=domain.
+     */
+    domain_id?: string;
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean;
@@ -114955,11 +115267,15 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Responsible team ID used when scope=team.
+     */
+    owning_role_id?: string;
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
     /**
-     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     * Inbox scope: for_me, entire_project, teammate, team, domain, or unclassified. Use teammate_uuid, owning_role_id, or domain_id for the corresponding scope.
      */
     scope?: string;
     /**
@@ -115011,7 +115327,7 @@ export namespace Schemas {
      */
     use_priority_preference?: boolean;
     /**
-     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, all, or for_you. The flag-gated for_you shortlist selects the caller’s P0–P2 reports needing attention, up to five per page, highest priority then newest first. It omits personally snoozed reports for seven days. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
+     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
      */
     view?: string;
     };
@@ -115113,6 +115429,39 @@ export namespace Schemas {
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
      */
     report_ids: string;
+    };
+
+    export type SignalsRoutingBatchesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalsRoutingBatchesReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalsRoutingPreferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SignalsScoutConfigListParams = {

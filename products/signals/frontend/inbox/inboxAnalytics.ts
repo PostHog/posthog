@@ -73,7 +73,6 @@ type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
 /** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
 export type InboxReportActionSurface =
-    | 'shortlist'
     | 'detail_pane'
     | 'detail_footer'
     | 'list_row'
@@ -108,8 +107,6 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
-    | 'snooze'
-    | 'undo_snooze'
     | 'dismiss'
     | 'resolve'
     | 'discuss'

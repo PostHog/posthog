@@ -39,7 +39,9 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportGithubComment,
+    SignalReviewerExclusion,
 )
+from products.signals.backend.ownership import enforce_current_reviewers
 from products.signals.backend.recurrence import latest_recurrence_report
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP
 
@@ -257,6 +259,14 @@ def _merge_source_into(
 ) -> MergedSource:
     released_claim = _release_source_claim(source, attribution)
 
+    for exclusion in SignalReviewerExclusion.objects.for_team(source.team_id).filter(report=source):
+        SignalReviewerExclusion.objects.for_team(source.team_id).get_or_create(
+            team_id=source.team_id,
+            report=survivor,
+            user_id=exclusion.user_id,
+            defaults={"github_login": exclusion.github_login},
+        )
+
     moved_artefacts = (
         SignalReportArtefact.objects.filter(
             team_id=source.team_id, report_id=source.id, type__in=sorted(_MOVED_ARTEFACT_TYPES)
@@ -416,6 +426,8 @@ def merge_reports(
             # `add_log` enforces the `report_link` invariants, so a merge that would close a
             # duplicate_of cycle is a merge the caller cannot have, not a server fault.
             raise ReportMergeError(str(e))
+
+        enforce_current_reviewers(team_id=team.id, report_id=survivor.id, attribution=attribution)
 
         SignalReportArtefact.add_log(
             team_id=team.id,
