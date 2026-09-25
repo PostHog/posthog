@@ -2641,9 +2641,9 @@ snapshots:
     errortracking-exceptioncard--exception-card-header-widths--light:
         hash: v1.k794b7964.96ab37bc32797721d97410925e8c89bf739322a340ff8ee62dbd014a139a7f59.HCV39CI_4XqbwUW8QD8DDxSw_CeL5cui9smBv0MDeY0
     errortracking-exceptioncard--exception-card-header-widths-with-action--dark:
-        hash: v1.k794b7964.b80263f67c0d7d1e25bc2a91d738d80474ce40c97df64d2636bcc6a5dfa38e97.1uYHWbCS1ez7dIDtoz0c3GGZhBI3vHTN-1zaky50yqI
+        hash: v1.k794b7964.e5d179c8bb9e8050483f71ba5ac47c4a9fbaaa2ff45f79d1e171698f889c4826.l010c4CIjmGpP4aHyvo6Y5Ea_agMGI15o-M62-j04Tk
     errortracking-exceptioncard--exception-card-header-widths-with-action--light:
-        hash: v1.k794b7964.25974971fa0cf2dbe86348ce1144e8b8a0ff7c1a7e172ecc941e6b345144841f.dT_74I4ZqX-DFX_ayPWR8lutK4EVque9Zyjbci6Hj6I
+        hash: v1.k794b7964.410bdcb566fdb8220fddc25c9ef6b4b3e7da5b4e8b7be054ea0d3a41d34e53d5.AgDZnI2gib-rONt1m4WFQIFf42obuDrcO8wt2oHHz1w
     errortracking-exceptioncard--exception-card-logs--dark:
         hash: v1.k794b7964.1030bfe45ba31d3fe94873ce09cdaeda8f81e86c0f71072d64a6267c551c6242.0pD2zOgFDmK5w5r-MnEbEzSAtOGpgYFKzEI8oJ8gUcs
     errortracking-exceptioncard--exception-card-logs--light:
@@ -6425,17 +6425,17 @@ snapshots:
     products-growth-enrichment-scoring--editor--light:
         hash: v1.k794b7964.4e3a26ba9261ac9badbbab6602781468a3cc0a2746677d9263b4a0dd1c0f3fa2.So35PP7D_QTamLzmsCGvHLsdI30hi4EJn405tccaHJk
     products-growth-enrichment-scoring--narrow--dark:
-        hash: v1.k794b7964.a0378ecd11a5209461fe1fcfa01f63dd160b102664bfd838a8d82d986702e53e.ZaiqALrBG3MhtUKyjPYrdmuP9NAkv9WnjgWZiGIa98s
+        hash: v1.k794b7964.2333671eb4e0490d65c0260d99a8714d45ea5fb1e6210a1e550b61e01e75cd6a.vofTTnCvWW290DRbsMYY-zto2QIV8o6Iu3m2k79N_v4
     products-growth-enrichment-scoring--narrow--light:
-        hash: v1.k794b7964.bcf5e8a1c4106b3b60bb51537d6749d132852ef5a5d6949436ebda180518170a.D9oDam0OdHRXDRSC1Kuk0BlgLjxALOWK7Ge3yvhW0oQ
+        hash: v1.k794b7964.11ec5c0394fcdfdf313c4e0a84c075f018b5a470982acb960fbda1e7d98127b0.cyR_V-HeGFkaWqDsPTw-fFx_j9RvMk0t9W7SoC_rj5g
     products-growth-enrichment-scoring--no-configuration--dark:
         hash: v1.k794b7964.e3a5f1d56c017a276dcd334793a624d9ffc496f571985bdb88e866008887d6de.wPo_sGguqY6YNkKNBB7K8C1O-20DTXnJ7xdDivI_16w
     products-growth-enrichment-scoring--no-configuration--light:
         hash: v1.k794b7964.a4aff979e5624560d22320582eb17a90d475e4addcecc17e539a56d01f33244d.Qi0Dsas0WCDOyoJ2cKEbnqGVUQvQ5mA3vN4FFd2U2gs
     products-growth-enrichment-scoring--ten-companies--dark:
-        hash: v1.k794b7964.7076ffb8f4a8580158b2acf5ec5832fdee3b919e2e7847fed1b6498991e1cf56.UV1nDDMCRTUMYKCxRG7iBRUliLEz3lyCnqMeNO8hLek
+        hash: v1.k794b7964.5575a94301cc7408a1063385d5981c5050a02ebf53358be58f2df872c5717c70._N82eezqQ-Jfne8f4Or1qXplOfrovsUDfcPO846o5PY
     products-growth-enrichment-scoring--ten-companies--light:
-        hash: v1.k794b7964.358bcb74edafe29ceb578725ae7a5ae4abcf4bd095a15019931cef07fd2dccc1.8SW1GX7QBdyEKIJJKO3Dzck8peLKCRJAqVRkcvfcEn0
+        hash: v1.k794b7964.0408b3b6fd529316505baa5fead85a26cbac63ccc65cd2c969e1e76429ac7378.gGeycoxbfN15Ye7CZYv6cM1xGDS3zD_ba9rJKHpj354
     products-mcp-analytics-feedback-prompt--contextual-copy--dark:
         hash: v1.k794b7964.b9a43443a726379620a7b8fcb5a97d6f42eb092717a96a050c1d60e4850d7f29.pqYVY5w4VqCVPWENMeYL5kO5uRWJ3YGEAh2gPbkpg_U
     products-mcp-analytics-feedback-prompt--contextual-copy--light:
