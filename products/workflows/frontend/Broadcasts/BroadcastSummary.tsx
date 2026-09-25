@@ -39,16 +39,14 @@ export function BroadcastSummary(): JSX.Element {
         movingToDraft,
     } = useValues(broadcastWizardLogic)
     const { moveToDraft } = useActions(broadcastWizardLogic)
-    const hasActiveSchedule = !!broadcast?.schedules?.some((schedule) => schedule.status === 'active')
 
     const confirmMoveToDraft = (): void => {
         LemonDialog.open({
-            title: 'Move this broadcast to draft?',
-            description: hasActiveSchedule
-                ? 'The scheduled send stops. You can edit the broadcast, and nothing sends until you launch it again.'
-                : 'You can edit the broadcast. Nothing sends until you launch it again.',
+            title: 'Stop this broadcast and edit it?',
+            description:
+                'The scheduled send stops and the broadcast goes back to draft. Nothing sends until you launch it again.',
             primaryButton: {
-                children: 'Move to draft',
+                children: 'Stop and edit',
                 onClick: moveToDraft,
                 'data-attr': 'broadcast-move-to-draft-confirm',
             },
@@ -119,7 +117,7 @@ export function BroadcastSummary(): JSX.Element {
                             loading={movingToDraft}
                             data-attr="broadcast-move-to-draft"
                         >
-                            {hasActiveSchedule ? 'Stop and edit' : 'Move to draft'}
+                            Stop and edit
                         </LemonButton>
                     ) : null}
                 </div>

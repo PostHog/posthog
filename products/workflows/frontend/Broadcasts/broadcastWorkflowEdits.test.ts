@@ -45,15 +45,19 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     })
 
     it.each([
-        ['a scheduled broadcast', 'active', [], undefined, true],
-        ['a broadcast whose last run finished', 'active', ['completed'], undefined, true],
-        ['a broadcast mid-send', 'active', ['active'], undefined, false],
-        ['a broadcast with an older run still queued', 'active', ['completed', 'queued'], undefined, false],
-        ['a broadcast whose runs have not loaded', 'active', null, undefined, false],
-        ['a draft', 'draft', [], undefined, false],
-        ['a workflow the wizard cannot edit', 'active', [], '{{ inputs.owner }}', false],
-    ])('lets %s move to draft: %s', (_, status, jobStatuses, recipient, expected) => {
-        const broadcast = { status, actions: [trigger(), email(recipient), exit], edges }
+        ['a scheduled broadcast', 'active', ['active'], [], undefined, true],
+        ['a recurring broadcast between runs', 'active', ['active'], ['completed'], undefined, true],
+        ['a broadcast whose schedule was paused', 'active', ['paused'], [], undefined, true],
+        ['a broadcast sent right away', 'active', [], ['completed'], undefined, false],
+        ['a one-time broadcast that already sent', 'active', ['completed'], ['completed'], undefined, false],
+        ['a broadcast mid-send', 'active', ['active'], ['active'], undefined, false],
+        ['a broadcast with an older run still queued', 'active', ['active'], ['completed', 'queued'], undefined, false],
+        ['a broadcast whose runs have not loaded', 'active', ['active'], null, undefined, false],
+        ['a draft', 'draft', ['active'], [], undefined, false],
+        ['a workflow the wizard cannot edit', 'active', ['active'], [], '{{ inputs.owner }}', false],
+    ])('lets %s be stopped: %s', (_, status, scheduleStatuses, jobStatuses, recipient, expected) => {
+        const schedules = scheduleStatuses.map((scheduleStatus) => ({ status: scheduleStatus }))
+        const broadcast = { status, schedules, actions: [trigger(), email(recipient), exit], edges }
         const jobs = jobStatuses === null ? null : jobStatuses.map((jobStatus) => ({ status: jobStatus }))
         expect(canMoveToDraft(broadcast as any, jobs as any)).toBe(expected)
     })

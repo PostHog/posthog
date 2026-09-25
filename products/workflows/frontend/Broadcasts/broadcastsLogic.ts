@@ -75,11 +75,13 @@ export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: F
 
 /** Null batch jobs means they haven't loaded, so whether a send is running is still unknown. */
 export function canMoveToDraft(
-    broadcast: Pick<HogFlowApi, 'status' | 'actions' | 'edges'> | null,
+    broadcast: Pick<HogFlowApi, 'status' | 'actions' | 'edges' | 'schedules'> | null,
     batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
 ): boolean {
     return (
         broadcast?.status === 'active' &&
+        // Only a send still to come can be stopped. Relaunching one that already went out would resend it.
+        !!broadcast.schedules?.some((schedule) => schedule.status !== 'completed') &&
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
