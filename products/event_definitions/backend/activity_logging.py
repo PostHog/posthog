@@ -7,7 +7,7 @@ mistaken-delete review, and the row has to say enough to rebuild the definition 
 
 from typing import Any
 
-from posthog.models.tagged_items_relation import Taggable
+from posthog.api.tagged_item import current_tag_names
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -15,13 +15,6 @@ from products.event_definitions.backend.models.property_definition import Proper
 # Only present on the enterprise subclasses, so each is read with a default.
 _EVENT_DEFINITION_ENTERPRISE_FIELDS = ("description", "owner", "verified", "hidden", "default_columns")
 _PROPERTY_DEFINITION_ENTERPRISE_FIELDS = ("description", "verified", "hidden")
-
-
-def _tag_names(instance: Taggable) -> list[str]:
-    prefetched = getattr(instance, "prefetched_tags", None)
-    if prefetched is not None:
-        return sorted(tagged_item.tag.name for tagged_item in prefetched)
-    return sorted(instance.tagged_items.values_list("tag__name", flat=True))
 
 
 def _with_enterprise_fields(state: dict[str, Any], instance: Any, fields: tuple[str, ...]) -> dict[str, Any]:
@@ -36,7 +29,7 @@ def event_definition_state(instance: EventDefinition) -> dict[str, Any]:
     """The event definition fields a person needs to recreate the definition."""
     state: dict[str, Any] = {
         "name": instance.name,
-        "tags": _tag_names(instance),
+        "tags": sorted(current_tag_names(instance)),
         "enforcement_mode": instance.enforcement_mode,
         "primary_property": instance.primary_property,
     }
@@ -47,8 +40,7 @@ def property_definition_state(instance: PropertyDefinition) -> dict[str, Any]:
     """The property definition fields a person needs to recreate the definition."""
     state: dict[str, Any] = {
         "name": instance.name,
-        "tags": _tag_names(instance),
-        "type": PropertyDefinition.Type(instance.type).label,
+        "tags": sorted(current_tag_names(instance)),
         "property_type": instance.property_type,
         "is_numerical": instance.is_numerical,
         "group_type_index": instance.group_type_index,

@@ -266,7 +266,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert activity_log.scope == "EventDefinition"
         assert activity_log.detail is not None
         assert activity_log.detail["name"] == str(event_definition.name)
-        # The row is a hard delete, so the entry is the only copy of what the definition held.
         changes = {change["field"]: change for change in activity_log.detail["changes"]}
         assert changes["name"]["before"] == "test_event"
         assert changes["tags"]["before"] == ["pii"]
