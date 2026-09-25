@@ -1,7 +1,11 @@
 from django import forms
 from django.contrib import admin
 
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.models.team_experiments_config import (
+    TeamExperimentsConfig,
+    legacy_from_recalculation_times,
+    recalculation_times_from_legacy,
+)
 
 
 class TeamExperimentsConfigInlineForm(forms.ModelForm):
@@ -10,6 +14,17 @@ class TeamExperimentsConfigInlineForm(forms.ModelForm):
         # writes when precomputation_enabled_set_by is null or "auto".
         if "experiment_precomputation_enabled" in self.changed_data:
             self.instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
+        # The two recalculation fields must stay coherent while both exist: writing one
+        # syncs the other, matching the experiments_config serializer.
+        if "experiment_recalculation_times" in self.changed_data:
+            self.instance.experiment_recalculation_times = self.instance.experiment_recalculation_times or None
+            self.instance.experiment_recalculation_time = legacy_from_recalculation_times(
+                self.instance.experiment_recalculation_times
+            )
+        elif "experiment_recalculation_time" in self.changed_data:
+            self.instance.experiment_recalculation_times = recalculation_times_from_legacy(
+                self.instance.experiment_recalculation_time
+            )
         return super().save(commit)
 
 
