@@ -1,0 +1,285 @@
+---
+title: Send AWS CloudWatch logs to PostHog
+sidebar: Docs
+showTitle: true
+---
+
+CloudWatch holds the logs that AWS writes for you: Lambda, RDS, ECS, API Gateway, VPC flow logs, and anything your own code sends to a log group. PostHog accepts them through an [Amazon Data Firehose](https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html) HTTP endpoint, so you don't have to run a forwarder.
+
+A CloudWatch subscription filter copies each log group into a Firehose stream, and the stream posts batches to PostHog. Everything runs in your AWS account, so you control which log groups are included and can stop the stream at any time.
+
+## Before you start
+
+You need:
+
+- Your project API key, from **Settings > Project > Project API key**.
+- Permission in AWS to create a Firehose stream, two IAM roles, an S3 bucket, and a subscription filter.
+- The names of the log groups you want to send.
+
+Firehose bills for the data it ingests. Check the [Firehose pricing page](https://aws.amazon.com/kinesis/data-firehose/pricing/) before you subscribe a high-volume log group.
+
+## Your endpoint URL
+
+| PostHog Cloud | Endpoint URL                                      |
+| ------------- | ------------------------------------------------- |
+| US            | `https://us.i.posthog.com/i/v1/logs/aws/firehose` |
+| EU            | `https://eu.i.posthog.com/i/v1/logs/aws/firehose` |
+
+If you self-host, use your own ingestion host with the same path. Firehose delivers only to HTTPS endpoints, so the host needs to be reachable from AWS over HTTPS with a valid certificate.
+
+## Set it up with CloudFormation
+
+The template below creates the stream, the roles, a backup bucket, and a subscription filter for one log group.
+
+1. Save it as `posthog-cloudwatch-logs.yaml`.
+2. Open **CloudFormation > Create stack > With new resources**, choose **Upload a template file**, and pick the file.
+3. Fill in `PostHogEndpointUrl`, `PostHogAccessKey` (your project API key), and `LogGroupName`.
+4. Create the stack.
+
+To add more log groups later, create another subscription filter pointing at the `DeliveryStreamArn` output, reusing the `LogsToFirehoseRoleArn` role. You don't need a second stream.
+
+```yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Streams one CloudWatch log group into PostHog Logs through an Amazon Data Firehose
+  HTTP endpoint destination. Add more subscription filters that point at the same stream
+  to include more log groups.
+
+Parameters:
+  PostHogEndpointUrl:
+    Type: String
+    Description: >-
+      PostHog Firehose endpoint URL. Amazon Data Firehose delivers only to HTTPS endpoints,
+      so a self-hosted PostHog must be reachable from AWS over HTTPS.
+    AllowedPattern: '^https://.+'
+  PostHogAccessKey:
+    Type: String
+    NoEcho: true
+    Description: Your PostHog project API key.
+  LogGroupName:
+    Type: String
+    Description: CloudWatch log group to stream, for example /aws/lambda/checkout-api.
+  FilterPattern:
+    Type: String
+    Default: ''
+    Description: >-
+      CloudWatch subscription filter pattern. Empty forwards every log line in the group, which is what
+      most groups want. Set a pattern such as ERROR to forward only matching lines and lower the volume
+      you are billed for in Firehose.
+  BufferSizeMB:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 4
+    Description: Firehose buffer size in MB. 1 keeps each delivery inside PostHog's request size limit once the records are encoded; PostHog rejects deliveries above 8 MB.
+  BufferIntervalSeconds:
+    Type: Number
+    Default: 60
+    MinValue: 0
+    MaxValue: 900
+    Description: Firehose buffer interval in seconds.
+  RetryDurationSeconds:
+    Type: Number
+    Default: 300
+    MinValue: 0
+    MaxValue: 7200
+    Description: How long Firehose retries a failed delivery before writing it to the backup bucket.
+
+Resources:
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    # Firehose may have written failed deliveries here; a non-empty bucket would otherwise block stack deletion.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireFailedDeliveries
+            Status: Enabled
+            ExpirationInDays: 14
+            # Firehose writes via multipart upload; an aborted part is invisible to the
+            # expiry rule above and bills until it is removed.
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt BackupBucket.Arn
+              - !Sub '${BackupBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  FirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: firehose.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: WriteBackupBucket
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:ListBucketMultipartUploads
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt BackupBucket.Arn
+                  - !Sub '${BackupBucket.Arn}/*'
+
+  DeliveryStream:
+    Type: AWS::KinesisFirehose::DeliveryStream
+    Properties:
+      DeliveryStreamType: DirectPut
+      DeliveryStreamEncryptionConfigurationInput:
+        KeyType: AWS_OWNED_CMK
+      HttpEndpointDestinationConfiguration:
+        EndpointConfiguration:
+          Name: PostHog
+          Url: !Ref PostHogEndpointUrl
+          AccessKey: !Ref PostHogAccessKey
+        RequestConfiguration:
+          ContentEncoding: GZIP
+        BufferingHints:
+          SizeInMBs: !Ref BufferSizeMB
+          IntervalInSeconds: !Ref BufferIntervalSeconds
+        RetryOptions:
+          DurationInSeconds: !Ref RetryDurationSeconds
+        RoleARN: !GetAtt FirehoseRole.Arn
+        S3BackupMode: FailedDataOnly
+        S3Configuration:
+          BucketARN: !GetAtt BackupBucket.Arn
+          RoleARN: !GetAtt FirehoseRole.Arn
+          Prefix: failed/
+          CompressionFormat: GZIP
+
+  LogsToFirehoseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: !Sub logs.${AWS::Region}.${AWS::URLSuffix}
+            Action: sts:AssumeRole
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*
+      Policies:
+        - PolicyName: PutToDeliveryStream
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                Resource: !GetAtt DeliveryStream.Arn
+
+  SubscriptionFilter:
+    Type: AWS::Logs::SubscriptionFilter
+    Properties:
+      LogGroupName: !Ref LogGroupName
+      FilterPattern: !Ref FilterPattern
+      DestinationArn: !GetAtt DeliveryStream.Arn
+      RoleArn: !GetAtt LogsToFirehoseRole.Arn
+
+Outputs:
+  DeliveryStreamArn:
+    Description: Point additional subscription filters at this stream to include more log groups.
+    Value: !GetAtt DeliveryStream.Arn
+  LogsToFirehoseRoleArn:
+    Description: Role to reuse for additional subscription filters.
+    Value: !GetAtt LogsToFirehoseRole.Arn
+  BackupBucketName:
+    Description: Deliveries that PostHog could not accept land here.
+    Value: !Ref BackupBucket
+```
+
+## Set it up in the console
+
+If you'd rather click through it:
+
+1. Open **Amazon Data Firehose > Create Firehose stream**. Set the source to **Direct PUT** and the destination to **HTTP Endpoint**.
+2. Set the endpoint URL from the table above, and paste your project API key into **Access key**. Use the settings below.
+3. Open **CloudWatch > Log groups**, pick a group, and choose **Actions > Subscription filters > Create Amazon Data Firehose subscription filter**. Select the stream and leave the filter pattern empty to forward every line.
+
+Repeat step 3 for each log group you want to send.
+
+### Stream settings
+
+| Setting          | Value            | Why                                                                                   |
+| ---------------- | ---------------- | ------------------------------------------------------------------------------------- |
+| Buffer size      | 1 MB             | Keeps each delivery inside PostHog's 8 MB request limit once the records are encoded. |
+| Buffer interval  | 60 seconds       | Logs arrive within about a minute.                                                    |
+| Content encoding | GZIP             | Cuts the bytes on the wire.                                                           |
+| Retry duration   | 300 seconds      | Rides out a short interruption before falling back to the bucket.                     |
+| S3 backup        | Failed data only | Keeps a copy of what PostHog could not accept.                                        |
+
+## What your logs look like
+
+Each CloudWatch log event becomes one log in PostHog. The message is the log body, and the event keeps its original CloudWatch timestamp.
+
+These attributes are set on every log:
+
+| Attribute             | Value                                   |
+| --------------------- | --------------------------------------- |
+| `cloud.provider`      | `aws`                                   |
+| `cloud.account.id`    | The AWS account that owns the log group |
+| `cloud.region`        | The region the stream runs in           |
+| `aws.log.group.name`  | The log group                           |
+| `aws.log.stream.name` | The log stream                          |
+
+**Service name** is taken from the log group, so logs group the way you'd expect in the Logs view. `/aws/lambda/checkout-api` becomes `checkout-api`, `/aws/rds/instance/orders-db/postgresql` becomes `orders-db`, and VPC flow logs become `vpc-flow-logs`. A log group that doesn't follow an AWS naming convention keeps its full name. To set the service name yourself, add a `service.name` common attribute to the Firehose stream.
+
+**Severity** comes from a `level`, `severity`, `log.level` or `config.log_level` key when the message is JSON, or from a leading `ERROR`, `WARN`, `INFO`, `DEBUG`, `TRACE` or `FATAL` token in a plain-text line. Common spellings such as `warning`, `err` and `critical` are recognized. A line with no level is stored as `info`.
+
+Logs appear in the [Logs view](https://app.posthog.com/logs) within a couple of minutes, depending on your buffer settings. Filter by `service.name`, severity, or any of the attributes above.
+
+## Limits and failures
+
+- A single delivery can't exceed 8 MB. With a 1 MB buffer you stay well under it. PostHog rejects a larger delivery, and Firehose writes it to the backup bucket instead of retrying.
+- Delivery is at-least-once. If PostHog fails part way through a batch, Firehose resends the whole batch and some lines can appear twice.
+- A record that PostHog can't decode is skipped, and the rest of the batch is still accepted.
+
+## Troubleshooting
+
+**No logs arrive.** Open the stream's **Monitoring** tab in the Firehose console. If `DeliveryToHttpEndpoint.Success` is flat, check the log group's subscription filter exists and points at this stream. If deliveries are failing, the **Error logs** tab shows PostHog's response.
+
+**Every delivery fails with 401.** The access key isn't a valid project API key. Copy it again from **Settings > Project > Project API key**, and check it belongs to the project you're looking at.
+
+**Every delivery fails with 413.** The buffer size is too large for the endpoint. Set it to 1 MB.
+
+**Logs arrive under the wrong service name.** Add a `service.name` common attribute to the Firehose stream, which overrides the name inferred from the log group.
