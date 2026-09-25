@@ -162,6 +162,8 @@ import type {
     TasksThreadMessagesListParams,
     TasksUserConfigResponseApi,
     TeachingCanvasApi,
+    VoiceSessionRequestApi,
+    VoiceSessionResponseApi,
     WarmTaskRequestApi,
     WarmTaskResponseApi,
     WarmTaskResumeRequestApi,
@@ -2750,6 +2752,27 @@ export const tasksThreadMessagesSendToAgentCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(taskThreadMessageDTOApi),
+    })
+}
+
+export const getTasksVoiceCreateUrl = (projectId: string, taskId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/voice/`
+}
+
+/**
+ * @summary Start voice for a task conversation
+ */
+export const tasksVoiceCreate = async (
+    projectId: string,
+    taskId: string,
+    voiceSessionRequestApi: VoiceSessionRequestApi,
+    options?: RequestInit
+): Promise<VoiceSessionResponseApi> => {
+    return apiMutator<VoiceSessionResponseApi>(getTasksVoiceCreateUrl(projectId, taskId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(voiceSessionRequestApi),
     })
 }
 

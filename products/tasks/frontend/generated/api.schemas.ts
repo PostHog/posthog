@@ -4755,6 +4755,26 @@ export interface TaskThreadMessageWriteApi {
     content: string
 }
 
+export interface VoiceSessionRequestApi {
+    /**
+     * The client's WebRTC SDP offer.
+     * @maxLength 32768
+     */
+    sdp: string
+    /** Use Responses delegation for structured desktop voice tool calls. */
+    structured_tools?: boolean
+    /**
+     * Recent conversation text for voice context.
+     * @maxLength 8000
+     */
+    context?: string
+}
+
+export interface VoiceSessionResponseApi {
+    /** OpenAI's WebRTC SDP answer. Contains no project API key. */
+    sdp: string
+}
+
 /**
  * The default AI run selection stored at team or user level.
  *

@@ -119,6 +119,7 @@ from products.tasks.backend.logic.services.space_setup import (
     build_space_setup_prompt,
     space_setup_task_title,
 )
+from products.tasks.backend.logic.services.voice_sessions import VoiceSessionService, VoiceSessionUnavailable
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
@@ -212,6 +213,8 @@ __all__ = [
     "TaskRunEnvironment",
     "TaskRunStatus",
     "WarmRunActivationUnavailable",
+    "VoiceSessionUnavailable",
+    "create_voice_session",
     "append_imported_task_run_log",
     "append_task_run_log",
     "create_imported_task",
@@ -4470,6 +4473,10 @@ def read_task_run_log_content(log_urls: list[str]) -> str:
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
+
+
+def create_voice_session(sdp: str, context: str, *, structured_tools: bool = False) -> dict[str, str]:
+    return VoiceSessionService().create(sdp, context, structured_tools=structured_tools)
 
 
 def create_task_run_connection_token(

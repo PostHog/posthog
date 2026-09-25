@@ -935,6 +935,12 @@ LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOK
 LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
 
 ####
+# OpenAI Live (outbound voice sessions, see posthog/egress/openai_live/)
+OPENAI_LIVE_API_KEY = get_from_env("OPENAI_LIVE_API_KEY", "")
+OPENAI_LIVE_EGRESS_PER_MINUTE_BUDGET = get_from_env("OPENAI_LIVE_EGRESS_PER_MINUTE_BUDGET", 6, type_cast=int)
+OPENAI_LIVE_EGRESS_HOURLY_BUDGET = get_from_env("OPENAI_LIVE_EGRESS_HOURLY_BUDGET", 30, type_cast=int)
+
+####
 # Firecrawl (outbound page scraping, see posthog/egress/firecrawl/)
 FIRECRAWL_API_KEY = get_from_env("FIRECRAWL_API_KEY", "")
 # Operator ceilings on credit spend rather than Firecrawl's own limits, which the process can't see.

@@ -3663,6 +3663,28 @@ export const TasksThreadMessagesSendToAgentCreateBody = /* @__PURE__ */ zod
     .describe("Response shape for one message in a task's thread.")
 
 /**
+ * @summary Start voice for a task conversation
+ */
+export const tasksVoiceCreateBodySdpMax = 32768
+
+export const tasksVoiceCreateBodyStructuredToolsDefault = false
+export const tasksVoiceCreateBodyContextDefault = ``
+export const tasksVoiceCreateBodyContextMax = 8000
+
+export const TasksVoiceCreateBody = /* @__PURE__ */ zod.object({
+    sdp: zod.string().max(tasksVoiceCreateBodySdpMax).describe("The client's WebRTC SDP offer."),
+    structured_tools: zod
+        .boolean()
+        .default(tasksVoiceCreateBodyStructuredToolsDefault)
+        .describe('Use Responses delegation for structured desktop voice tool calls.'),
+    context: zod
+        .string()
+        .max(tasksVoiceCreateBodyContextMax)
+        .default(tasksVoiceCreateBodyContextDefault)
+        .describe('Recent conversation text for voice context.'),
+})
+
+/**
  * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
  */
 export const TasksMeConfigCreateBody = /* @__PURE__ */ zod

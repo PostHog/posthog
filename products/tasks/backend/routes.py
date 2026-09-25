@@ -7,6 +7,7 @@ import products.tasks.backend.presentation.views.config_api as config
 import products.tasks.backend.presentation.views.channels_api as channels
 import products.tasks.backend.presentation.views.desktop_access as desktop_access
 import products.tasks.backend.presentation.views.task_usage_api as task_usage
+import products.tasks.backend.presentation.views.voice_sessions as voice_sessions
 import products.tasks.backend.presentation.views.sandbox_pricing_api as sandbox_pricing
 import products.tasks.backend.presentation.views.repo_routing_rules_api as repo_routing_rules
 
@@ -38,6 +39,9 @@ def register_routes(routers: RouterRegistry) -> None:
         r"tasks/@me/config", config.TasksUserConfigViewSet, "project_tasks_me_config", ["team_id"]
     )
     project_tasks_router = routers.projects.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
+    project_tasks_router.register(
+        r"voice", voice_sessions.VoiceSessionViewSet, "project_task_voice", ["team_id", "task_id"]
+    )
     project_task_runs_router = project_tasks_router.register(
         r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"]
     )
