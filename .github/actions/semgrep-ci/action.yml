@@ -59,7 +59,7 @@ runs:
                 -v "$GITHUB_WORKSPACE:/src" -w /src \
                 -v "$GITHUB_EVENT_PATH:/github-event.json:ro" \
                 -e SEMGREP_ENABLE_VERSION_CHECK=false \
-                -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME=push -e GITHUB_EVENT_PATH=/github-event.json \
+                -e GITHUB_ACTIONS -e GITHUB_EVENT_NAME -e GITHUB_EVENT_PATH=/github-event.json \
                 -e GITHUB_REPOSITORY -e GITHUB_SERVER_URL -e GITHUB_API_URL \
                 -e GITHUB_SHA -e GITHUB_REF -e GITHUB_HEAD_REF -e GITHUB_RUN_ID \
                 -e GITHUB_REPOSITORY_ID -e GITHUB_REPOSITORY_OWNER_ID \
