@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Awaitable
 from dataclasses import field
 from datetime import date, timedelta
-from typing import TYPE_CHECKING, Optional, TypeVar
+from typing import TYPE_CHECKING, Optional, TypeVar, cast
 
 import structlog
 from temporalio import activity, workflow
@@ -28,6 +28,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.actions.backend.models.action import Action
     from products.autoresearch.backend.access import has_autoresearch_access
+    from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
@@ -47,7 +48,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
 if TYPE_CHECKING:
-    from posthog.models import Organization, User
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -102,9 +103,19 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
     with the new champion instead of failing again on the archived one.
     """
     with HeartbeaterSync(), team_scope(inp.team_id):
-        pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
-        if pipeline.status not in _LIVE_STATUSES:
+        pipeline = AutoresearchPipeline.objects.select_related("team__organization", "created_by").get(
+            pk=inp.pipeline_id
+        )
+        if pipeline.status not in _LIVE_STATUSES or _sweep_access_block(pipeline):
             return RunInferenceResult(run_id="", rows_scored=0, status="skipped")
+        try:
+            # A bundle champion never resolves the target, so a deleted or stepless action would
+            # otherwise score and advance last_scored_at. Manual scoring refuses it the same way.
+            build_target_condition(
+                target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
+            )
+        except (ValueError, Action.DoesNotExist) as exc:
+            raise ApplicationError(f"The pipeline's target cannot be resolved: {exc}", non_retryable=True)
         model = (
             AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
             .order_by("-created_at")
@@ -228,8 +239,10 @@ _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=3)
 def activity_run_validation(inp: RunValidationInput) -> RunValidationResult:
     """Find all matured unvalidated prediction dates and validate each one."""
     with HeartbeaterSync(), team_scope(inp.team_id):
-        pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
-        if pipeline.status not in _LIVE_STATUSES:
+        pipeline = AutoresearchPipeline.objects.select_related("team__organization", "created_by").get(
+            pk=inp.pipeline_id
+        )
+        if pipeline.status not in _LIVE_STATUSES or _sweep_access_block(pipeline):
             return RunValidationResult(dates_validated=0, total_rows=0, status="skipped")
         runs = run_online_validation_for_pipeline(pipeline)
     # A per-date failure is recorded on its own run rather than raised, so inspect the
@@ -461,9 +474,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     # The gates can call out to billing and flags, so they run before the row lock is taken.
     with team_scope(inp.team_id):
         loaded = AutoresearchPipeline.objects.select_related("created_by", "team__organization").get(pk=inp.pipeline_id)
-    if loaded.created_by is not None and (
-        gate := _tasks_gate(loaded.created_by, loaded.team.organization, inp.team_id)
-    ):
+    if loaded.created_by is not None and (gate := _tasks_gate(loaded)):
         return KickoffTrainingResult(kicked_off=False, reason="tasks_gated", detail=gate)
 
     with team_scope(inp.team_id), transaction.atomic():
@@ -514,16 +525,32 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     return KickoffTrainingResult(kicked_off=True, reason="started")
 
 
-def _tasks_gate(creator: User, organization: Organization, team_id: int) -> str | None:
-    """Why the creator may not launch a paid Tasks sandbox now, or None. Mirrors the `/train` gates.
+def _sweep_access_block(pipeline: AutoresearchPipeline) -> str | None:
+    """Why the sweep may no longer act on this pipeline, or None.
 
-    The rollout is checked again because kickoff waits for scoring, hours after discovery checked it.
-    An unresolvable Desktop access decision raises, so the activity retries instead of launching.
+    Each activity checks again, because a child can start hours after discovery checked. Load the
+    pipeline with ``team__organization`` and ``created_by``.
     """
+    organization = pipeline.team.organization
     if not organization.is_active or organization.is_pending_deletion:
         return "The organization is deactivated or pending deletion"
-    if not has_autoresearch_access(creator, team_id=team_id, organization_id=str(organization.id)):
+    if pipeline.created_by is None or not has_autoresearch_access(
+        pipeline.created_by, team_id=pipeline.team_id, organization_id=str(organization.id)
+    ):
         return "Outside the autoresearch rollout"
+    return None
+
+
+def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
+    """Why the creator may not launch a paid Tasks sandbox now, or None. Mirrors the `/train` gates.
+
+    An unresolvable Desktop access decision raises, so the activity retries instead of launching.
+    """
+    if blocked := _sweep_access_block(pipeline):
+        return blocked
+    creator = cast("User", pipeline.created_by)
+    organization = pipeline.team.organization
+    team_id = pipeline.team_id
     decision = get_desktop_access_decision(creator, organization)
     if not decision.allowed:
         return f"PostHog Desktop access: {decision.value}"

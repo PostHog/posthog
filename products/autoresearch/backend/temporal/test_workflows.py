@@ -8,11 +8,12 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import User
 
-from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
 from products.autoresearch.backend.temporal.workflows import (
     InferenceWorkflowResult,
     KickoffTrainingInput,
@@ -177,13 +178,27 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         expected = AutoresearchPipeline.Status.PAUSED if creator_lost_access else AutoresearchPipeline.Status.RUNNING
         assert pipeline.status == expected
 
-    @parameterized.expand([("inference",), ("validation",)])
+    @parameterized.expand(
+        [
+            ("inference_paused", "inference", AutoresearchPipeline.Status.PAUSED, True),
+            ("validation_paused", "validation", AutoresearchPipeline.Status.PAUSED, True),
+            ("inference_rollout_withdrawn", "inference", AutoresearchPipeline.Status.RUNNING, False),
+            ("validation_rollout_withdrawn", "validation", AutoresearchPipeline.Status.RUNNING, False),
+        ]
+    )
     @patch("products.autoresearch.backend.temporal.workflows.run_online_validation_for_pipeline")
     @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
-    def test_activities_skip_a_pipeline_paused_after_discovery(
-        self, step: str, mock_inference: MagicMock, mock_validation: MagicMock
+    def test_activities_skip_a_pipeline_the_sweep_can_no_longer_run(
+        self,
+        _name: str,
+        step: str,
+        status: str,
+        in_rollout: bool,
+        mock_inference: MagicMock,
+        mock_validation: MagicMock,
     ) -> None:
-        pipeline = self._create_pipeline(status=AutoresearchPipeline.Status.PAUSED)
+        pipeline = self._create_pipeline(status=status)
+        self.mock_access.return_value = in_rollout
 
         result: RunInferenceResult | RunValidationResult
         env = ActivityEnvironment()
@@ -200,6 +215,24 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.status == "skipped"
         mock_inference.assert_not_called()
         mock_validation.assert_not_called()
+
+    @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
+    def test_inference_refuses_a_deleted_action_target(self, mock_inference: MagicMock) -> None:
+        pipeline = self._create_pipeline(target_definition={"type": "action", "action_id": 999999})
+        AutoresearchModel.objects.create(
+            pipeline=pipeline,
+            role=AutoresearchModel.Role.CHAMPION,
+            model_recipe={"stub": True},
+            recipe_hash="abc123",
+            holdout_score=0.75,
+        )
+
+        with self.assertRaises(ApplicationError):
+            ActivityEnvironment().run(
+                activity_run_inference,
+                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
+            )
+        mock_inference.assert_not_called()
 
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
     def test_kickoff_passes_pipeline_creator_to_training(self, mock_run_training: MagicMock) -> None:
