@@ -63,6 +63,8 @@ class TestIntercomSource:
         [
             "404 Client Error: Not Found for url: https://api.intercom.io/companies/scroll?scroll_param=c77e46e6-6344-4ada-a0c7-fba26d6af725",
             "404 Client Error: Not Found for url: https://api.intercom.io/companies/scroll",
+            "404 Client Error: Not Found for url: https://api.eu.intercom.io/companies/scroll",
+            "404 Client Error: Not Found for url: https://api.au.intercom.io/companies/scroll",
         ],
     )
     def test_companies_scroll_expiry_is_retryable(self, error_msg):
@@ -77,6 +79,8 @@ class TestIntercomSource:
         "error_msg",
         [
             "400 Client Error: Bad Request for url: https://api.intercom.io/companies/scroll",
+            "400 Client Error: Bad Request for url: https://api.eu.intercom.io/companies/scroll",
+            "400 Client Error: Bad Request for url: https://api.au.intercom.io/companies/scroll",
         ],
     )
     def test_companies_scroll_exists_exhaustion_is_retryable(self, error_msg):
@@ -124,7 +128,7 @@ class TestIntercomSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
     )
     def test_validate_credentials_success(self, mock_get_integration, mock_validate):
-        mock_get_integration.return_value = mock.MagicMock(access_token="token")
+        mock_get_integration.return_value = mock.MagicMock(access_token="token", config={"app.region": "US"})
         mock_validate.return_value = (True, None)
 
         is_valid, error = self.source.validate_credentials(self.config, self.team_id)
@@ -133,7 +137,7 @@ class TestIntercomSource:
         assert error is None
         mock_get_integration.assert_called_once_with(self.config.intercom_integration_id, self.team_id)
         # No pin passed (pre-creation), so the probe runs on default_version.
-        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.16")
+        mock_validate.assert_called_once_with("token", schema_name=None, api_version="2.16", region="US")
 
     @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), (None, "2.16")])
     @mock.patch(
@@ -179,7 +183,7 @@ class TestIntercomSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
     )
     def test_source_for_pipeline_plumbing(self, mock_get_integration, mock_intercom_source):
-        mock_get_integration.return_value = mock.MagicMock(access_token="token")
+        mock_get_integration.return_value = mock.MagicMock(access_token="token", config={"app.region": "US"})
         sentinel = mock.MagicMock()
         mock_intercom_source.return_value = sentinel
 
@@ -201,6 +205,7 @@ class TestIntercomSource:
             team_id=self.team_id,
             job_id="job-1",
             api_version="2.13",
+            region="US",
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",
@@ -242,3 +247,50 @@ class TestIntercomSource:
 
         with pytest.raises(ValueError, match="Intercom access token not found for job job-1"):
             self.source.source_for_pipeline(self.config, inputs)
+
+
+class TestWorkspaceRegion:
+    # Intercom rejects a request sent to another region's host, so the region the OAuth
+    # flow stored on the integration has to reach the client. Without it an EU- or
+    # AU-hosted workspace is unreachable.
+    def setup_method(self):
+        self.source = IntercomSource()
+        self.config = IntercomSourceConfig(intercom_integration_id=456)
+
+    @pytest.mark.parametrize("stored,expected", [("US", "US"), ("EU", "EU"), ("AU", "AU"), (None, None)])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
+    )
+    def test_source_for_pipeline_passes_stored_region(
+        self, mock_get_integration, mock_intercom_source, stored, expected
+    ):
+        config = {"app.region": stored} if stored is not None else {}
+        mock_get_integration.return_value = mock.MagicMock(access_token="token", config=config)
+
+        inputs = mock.MagicMock()
+        inputs.team_id = 123
+        inputs.job_id = "job-1"
+        inputs.schema_name = "contacts"
+        inputs.api_version = "2.16"
+        inputs.should_use_incremental_field = False
+
+        self.source.source_for_pipeline(self.config, inputs)
+
+        assert mock_intercom_source.call_args.kwargs["region"] == expected
+
+    @pytest.mark.parametrize("stored,expected", [("EU", "EU"), ("AU", "AU"), (None, None)])
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.validate_intercom_credentials"
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
+    )
+    def test_validate_credentials_passes_stored_region(self, mock_get_integration, mock_validate, stored, expected):
+        config = {"app.region": stored} if stored is not None else {}
+        mock_get_integration.return_value = mock.MagicMock(access_token="token", config=config)
+        mock_validate.return_value = (True, None)
+
+        self.source.validate_credentials(self.config, 123)
+
+        assert mock_validate.call_args.kwargs["region"] == expected

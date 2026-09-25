@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     INTERCOM_API_BASE,
+    INTERCOM_AU_API_BASE,
+    INTERCOM_EU_API_BASE,
     IntercomPagesPaginator,
     IntercomSearchPaginator,
     _build_paginator,
@@ -33,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _rate_limit_backoff_seconds,
     _substream_items,
     get_resource,
+    intercom_api_base,
     intercom_source,
     validate_credentials,
 )
@@ -393,7 +396,7 @@ class TestNoSourceLevelTypeCoercion:
             ),
         ]
 
-        parts = list(_substream_items(mock_session, "conversation_parts", "updated_at", None))
+        parts = list(_substream_items(mock_session, INTERCOM_API_BASE, "conversation_parts", "updated_at", None))
 
         assert [p["waiting_since"] for p in parts] == [1700000000, "1700000001", None]
 
@@ -401,7 +404,7 @@ class TestNoSourceLevelTypeCoercion:
         # Adding a substream endpoint config without wiring it into _substream_items
         # must fail loud, not silently yield nothing.
         with pytest.raises(ValueError):
-            list(_substream_items(mock.MagicMock(), "not_a_real_endpoint", None, None))
+            list(_substream_items(mock.MagicMock(), INTERCOM_API_BASE, "not_a_real_endpoint", None, None))
 
 
 class TestSubstreamGenerators:
@@ -415,7 +418,7 @@ class TestSubstreamGenerators:
             _make_response({"conversation_parts": {"conversation_parts": [{"id": "p3"}]}}),
         ]
 
-        parts = list(_conversation_parts_generator(mock_session, "updated_at", None))
+        parts = list(_conversation_parts_generator(mock_session, INTERCOM_API_BASE, "updated_at", None))
 
         assert [p["id"] for p in parts] == ["p1", "p2", "p3"]
         assert {p["conversation_id"] for p in parts} == {"c1", "c2"}
@@ -432,7 +435,7 @@ class TestSubstreamGenerators:
             _make_response({"conversation_parts": {"conversation_parts": [{"id": "p3"}]}}),
         ]
 
-        parts = list(_conversation_parts_generator(mock_session, "updated_at", None))
+        parts = list(_conversation_parts_generator(mock_session, INTERCOM_API_BASE, "updated_at", None))
 
         assert [p["id"] for p in parts] == ["p3"]
         assert {p["conversation_id"] for p in parts} == {"c2"}
@@ -447,7 +450,7 @@ class TestSubstreamGenerators:
         ]
 
         with pytest.raises(HTTPError):
-            list(_conversation_parts_generator(mock_session, "updated_at", None))
+            list(_conversation_parts_generator(mock_session, INTERCOM_API_BASE, "updated_at", None))
 
     def test_company_segments_skips_404_parent(self):
         # The scroll is drained fully before any per-company segment fetch, so
@@ -462,7 +465,7 @@ class TestSubstreamGenerators:
             _make_response({"data": [{"id": "s2"}]}),
         ]
 
-        segments = list(_company_segments_generator(mock_session))
+        segments = list(_company_segments_generator(mock_session, INTERCOM_API_BASE))
 
         assert [s["id"] for s in segments] == ["s2"]
         assert segments[0]["company_id"] == "co2"
@@ -479,7 +482,7 @@ class TestSubstreamGenerators:
         ]
 
         with pytest.raises(HTTPError):
-            list(_company_segments_generator(mock_session))
+            list(_company_segments_generator(mock_session, INTERCOM_API_BASE))
 
     def test_company_segments_injects_company_id(self):
         mock_session = mock.MagicMock()
@@ -490,7 +493,7 @@ class TestSubstreamGenerators:
             _make_response({"data": [{"id": "s2"}, {"id": "s3"}]}),
         ]
 
-        segments = list(_company_segments_generator(mock_session))
+        segments = list(_company_segments_generator(mock_session, INTERCOM_API_BASE))
 
         assert [s["id"] for s in segments] == ["s1", "s2", "s3"]
         assert segments[0]["company_id"] == "co1"
@@ -510,7 +513,7 @@ class TestSubstreamGenerators:
             _make_response({"data": [{"id": "seg2"}]}),
         ]
 
-        segments = list(_company_segments_generator(mock_session))
+        segments = list(_company_segments_generator(mock_session, INTERCOM_API_BASE))
 
         assert [s["id"] for s in segments] == ["seg1", "seg2"]
         urls = [call.args[0] for call in mock_session.get.call_args_list]
@@ -536,7 +539,7 @@ class TestSubstreamGenerators:
             _make_response({"data": [{"id": "seg1"}]}),
         ]
 
-        segments = list(_company_segments_generator(mock_session))
+        segments = list(_company_segments_generator(mock_session, INTERCOM_API_BASE))
 
         assert [s["id"] for s in segments] == ["seg1"]
         assert segments[0]["company_id"] == "co1"
@@ -554,7 +557,7 @@ class TestSubstreamGenerators:
         ]
 
         with pytest.raises(HTTPError):
-            _drain_company_ids(mock_session)
+            _drain_company_ids(mock_session, INTERCOM_API_BASE)
 
         assert mock_session.get.call_count == intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1
 
@@ -570,7 +573,7 @@ class TestSubstreamGenerators:
             _make_response({"data": [], "scroll_param": "s3"}),
         ]
 
-        companies = list(_iter_companies(mock_session))
+        companies = list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         assert [c["id"] for c in companies] == ["co1", "co2"]
         calls = mock_session.get.call_args_list
@@ -588,7 +591,7 @@ class TestSubstreamGenerators:
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [_make_response({"data": [], "scroll_param": "s1"})]
 
-        assert list(_iter_companies(mock_session)) == []
+        assert list(_iter_companies(mock_session, INTERCOM_API_BASE)) == []
         assert mock_session.get.call_count == 1
 
 
@@ -623,7 +626,7 @@ class TestCompaniesScrollExists:
         ]
 
         with mock.patch.object(intercom_module.time, "sleep") as sleep:
-            companies = list(_iter_companies(mock_session))
+            companies = list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         assert [c["id"] for c in companies] == ["co1"]
         sleep.assert_called_once_with(intercom_module._SCROLL_EXISTS_BACKOFF_SECONDS)
@@ -640,7 +643,7 @@ class TestCompaniesScrollExists:
 
         with mock.patch.object(intercom_module.time, "sleep"):
             with pytest.raises(HTTPError):
-                list(_iter_companies(mock_session))
+                list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         assert mock_session.get.call_count == intercom_module._SCROLL_EXISTS_MAX_RETRIES + 1
 
@@ -652,7 +655,7 @@ class TestCompaniesScrollExists:
 
         with mock.patch.object(intercom_module.time, "sleep") as sleep:
             with pytest.raises(HTTPError):
-                list(_iter_companies(mock_session))
+                list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         sleep.assert_not_called()
         assert mock_session.get.call_count == 1
@@ -688,7 +691,7 @@ class TestCompaniesScrollServerError:
         ]
 
         with mock.patch.object(intercom_module.time, "sleep") as sleep:
-            companies = list(_iter_companies(mock_session))
+            companies = list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         assert [c["id"] for c in companies] == ["co1", "co2"]
         sleep.assert_called_once_with(intercom_module._SCROLL_SERVER_ERROR_BACKOFF_SECONDS)
@@ -705,7 +708,7 @@ class TestCompaniesScrollServerError:
         ]
 
         with mock.patch.object(intercom_module.time, "sleep"):
-            companies = list(_iter_companies(mock_session))
+            companies = list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         assert [c["id"] for c in companies] == ["co1"]
         # The retried open carries no scroll_param.
@@ -723,7 +726,7 @@ class TestCompaniesScrollServerError:
 
         with mock.patch.object(intercom_module.time, "sleep"):
             with pytest.raises(HTTPError):
-                list(_iter_companies(mock_session))
+                list(_iter_companies(mock_session, INTERCOM_API_BASE))
 
         # One open + every continuation attempt (initial + retries) before surfacing.
         assert mock_session.get.call_count == intercom_module._SCROLL_SERVER_ERROR_MAX_RETRIES + 2
@@ -769,7 +772,7 @@ class TestRateLimitRetry:
         ]
 
         with mock.patch.object(intercom_module.time, "sleep") as sleep:
-            segments = list(_company_segments_generator(mock_session))
+            segments = list(_company_segments_generator(mock_session, INTERCOM_API_BASE))
 
         assert [s["id"] for s in segments] == ["seg1"]
         assert segments[0]["company_id"] == "co1"
@@ -786,7 +789,7 @@ class TestRateLimitRetry:
 
         with mock.patch.object(intercom_module.time, "sleep"):
             with pytest.raises(HTTPError):
-                _intercom_get(mock_session, "/companies/co1/segments")
+                _intercom_get(mock_session, INTERCOM_API_BASE, "/companies/co1/segments")
 
         assert mock_session.get.call_count == intercom_module._RATE_LIMIT_MAX_RETRIES + 1
 
@@ -886,3 +889,94 @@ class TestVersionDispatch:
 
         config = mock_rest.call_args.args[0]
         assert config["client"]["headers"]["Intercom-Version"] == api_version
+
+
+class TestRegionalHosts:
+    # Intercom serves a workspace only from the host of the region that hosts it, so an
+    # EU- or AU-hosted workspace fails against the US host. Every request path has to
+    # build its URLs from the region stored on the integration.
+    @pytest.mark.parametrize(
+        "region,expected",
+        [
+            ("US", "https://api.intercom.io"),
+            # `/me` reports the European region as `Europe`; the docs spell it `EU`.
+            ("Europe", "https://api.eu.intercom.io"),
+            ("EU", "https://api.eu.intercom.io"),
+            ("eu", "https://api.eu.intercom.io"),
+            ("AU", "https://api.au.intercom.io"),
+            # Missing on integrations connected before regional hosting, and unknown values
+            # must not break the sync — both stay on the US host.
+            (None, "https://api.intercom.io"),
+            ("", "https://api.intercom.io"),
+            ("mars", "https://api.intercom.io"),
+        ],
+    )
+    def test_region_maps_to_host(self, region: str | None, expected: str):
+        assert intercom_api_base(region) == expected
+
+    @pytest.mark.parametrize("region,host", [("EU", INTERCOM_EU_API_BASE), ("AU", INTERCOM_AU_API_BASE)])
+    def test_validate_credentials_probes_regional_host(self, region: str, host: str):
+        mock_session = mock.MagicMock()
+        mock_session.get.return_value = _make_response({"type": "admin"})
+
+        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+            is_valid, _ = validate_credentials("token", region=region)
+
+        assert is_valid is True
+        assert mock_session.get.call_args.args[0] == f"{host}/me"
+
+    @pytest.mark.parametrize("region,host", [("EU", INTERCOM_EU_API_BASE), ("AU", INTERCOM_AU_API_BASE)])
+    def test_session_path_walks_regional_host(self, region: str, host: str):
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
+        ]
+
+        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+            response = intercom_source(
+                access_token="token",
+                endpoint="companies",
+                team_id=1,
+                job_id="job-1",
+                api_version="2.16",
+                region=region,
+            )
+            list(cast(Iterable[dict[str, Any]], response.items()))
+
+        urls = [call.args[0] for call in mock_session.get.call_args_list]
+        assert urls == [f"{host}/companies/scroll"] * 2
+
+    @pytest.mark.parametrize("region,host", [("EU", INTERCOM_EU_API_BASE), ("AU", INTERCOM_AU_API_BASE)])
+    def test_rest_path_uses_regional_host(self, region: str, host: str):
+        with mock.patch.object(intercom_module, "rest_api_resource", return_value=object()) as mock_rest:
+            intercom_source(
+                access_token="token",
+                endpoint="contacts",
+                team_id=1,
+                job_id="job-1",
+                api_version="2.16",
+                region=region,
+            )
+
+        assert mock_rest.call_args.args[0]["client"]["base_url"] == host
+
+    def test_substream_path_uses_regional_host(self):
+        mock_session = mock.MagicMock()
+        mock_session.post.return_value = _make_response({"conversations": [{"id": "c1"}], "pages": {}})
+        mock_session.get.return_value = _make_response({"conversation_parts": {"conversation_parts": [{"id": "p1"}]}})
+
+        with mock.patch.object(intercom_module, "make_tracked_session", return_value=mock_session):
+            response = intercom_source(
+                access_token="token",
+                endpoint="conversation_parts",
+                team_id=1,
+                job_id="job-1",
+                api_version="2.16",
+                region="EU",
+            )
+            list(cast(Iterable[dict[str, Any]], response.items()))
+
+        eu = INTERCOM_EU_API_BASE
+        assert mock_session.post.call_args.args[0] == f"{eu}/conversations/search"
+        assert mock_session.get.call_args.args[0] == f"{eu}/conversations/c1"

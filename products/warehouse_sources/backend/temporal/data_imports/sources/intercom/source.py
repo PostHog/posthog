@@ -1,5 +1,7 @@
 from typing import cast
 
+from posthog.models.integration import Integration
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -18,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
+    INTERCOM_API_HOSTS,
     intercom_source,
     validate_credentials as validate_intercom_credentials,
 )
@@ -72,9 +75,12 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         # budget exhausts it and the raw error propagates — a fresh Temporal attempt opens
         # cleanly once the stale scroll has expired, so this is the same self-recovering
         # case as the 404 above, just surfaced later.
+        #
+        # The workspace's region decides the host, so every regional host is listed.
         return {
-            "Not Found for url: https://api.intercom.io/companies/scroll",
-            "Bad Request for url: https://api.intercom.io/companies/scroll",
+            f"{prefix} for url: {host}/companies/scroll"
+            for prefix in ("Not Found", "Bad Request")
+            for host in INTERCOM_API_HOSTS
         }
 
     @property
@@ -125,6 +131,15 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
+    @staticmethod
+    def _workspace_region(integration: Integration) -> str | None:
+        """The region Intercom reported for the workspace at connect time.
+
+        The OAuth flow stores it under the dotted `/me` path it was read from
+        (see the Intercom branch of `OauthIntegration._build_oauth_config`).
+        """
+        return integration.config.get("app.region")
+
     def validate_credentials(
         self, config: IntercomSourceConfig, team_id: int, schema_name: str | None = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
@@ -141,7 +156,10 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         # Probe under the source's resolved pin so a 2.13-pinned source validates against the
         # version it syncs on; `None` (pre-creation) resolves to `default_version`.
         return validate_intercom_credentials(
-            integration.access_token, schema_name=schema_name, api_version=self.resolve_api_version(api_version)
+            integration.access_token,
+            schema_name=schema_name,
+            api_version=self.resolve_api_version(api_version),
+            region=self._workspace_region(integration),
         )
 
     def source_for_pipeline(self, config: IntercomSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -156,6 +174,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
+            region=self._workspace_region(integration),
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
