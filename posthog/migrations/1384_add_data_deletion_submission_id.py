@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1381_codex_user_integration_unique_index")]
+    dependencies = [("posthog", "1383_taggeditem_untrack_legacy_keys")]
 
     operations = [
         migrations.AddField(

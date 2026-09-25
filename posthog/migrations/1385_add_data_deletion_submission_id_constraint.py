@@ -6,7 +6,7 @@ from posthog.migration_helpers import CreateIndexConcurrently
 class Migration(migrations.Migration):
     atomic = False
 
-    dependencies = [("posthog", "1382_add_data_deletion_submission_id")]
+    dependencies = [("posthog", "1384_add_data_deletion_submission_id")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

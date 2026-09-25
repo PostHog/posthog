@@ -38996,6 +38996,8 @@ export namespace Schemas {
      * * `run_completed` - run_completed
      * * `run_failed` - run_failed
      * * `pr_created` - pr_created
+     * * `pr_merged` - pr_merged
+     * * `pr_closed` - pr_closed
      * * `needs_attention` - needs_attention
      */
     export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
@@ -39005,6 +39007,8 @@ export namespace Schemas {
       RunCompleted: 'run_completed',
       RunFailed: 'run_failed',
       PrCreated: 'pr_created',
+      PrMerged: 'pr_merged',
+      PrClosed: 'pr_closed',
       NeedsAttention: 'needs_attention',
     } as const;
 
@@ -57223,7 +57227,7 @@ export namespace Schemas {
     export interface LoopNotificationChannel {
       /** Whether this channel is active. */
       enabled?: boolean;
-      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, pr_merged, pr_closed, needs_attention. */
       events?: EventsEnum[];
       /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
       params?: LoopNotificationChannelParams;

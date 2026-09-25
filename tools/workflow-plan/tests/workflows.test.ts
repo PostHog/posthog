@@ -234,6 +234,42 @@ const EXPECTATIONS: Expectation[] = [
             skipped: ['backend-coverage-report', 'dynamic-ci-filter'],
         }
     ),
+    // A product change that reaches no legacy code skips the Django suite, but the events_json
+    // rows still run the changed products' listed paths, because product jobs read the legacy
+    // events table only.
+    backend(
+        {
+            name: 'product-only PR whose products have events_json paths',
+            steps: {
+                changes: { filter: pathsFilter({ backend: true, legacy: false }) },
+                'turbo-discover': {
+                    discover: {
+                        outputs: {
+                            run_legacy: 'false',
+                            matrix: '[{"group":"a"}]',
+                            mode: '',
+                            selection: '{"json_targets_files":"products/web_analytics/backend/hogql_queries"}',
+                        },
+                    },
+                },
+            },
+        },
+        { runs: ['turbo-tests', 'django', 'django_tests'] }
+    ),
+    backend(
+        {
+            name: 'product-only PR without events_json paths',
+            steps: {
+                changes: { filter: pathsFilter({ backend: true, legacy: false }) },
+                'turbo-discover': {
+                    discover: {
+                        outputs: { run_legacy: 'false', matrix: '[{"group":"a"}]', mode: '', selection: '{"json_targets_files":""}' },
+                    },
+                },
+            },
+        },
+        { runs: ['turbo-tests', 'django_tests'], skipped: ['django'] }
+    ),
     backend(
         { name: 'draft PR labeled no-ci', github: pullRequest({ draft: true, labels: ['no-ci'] }) },
         {
