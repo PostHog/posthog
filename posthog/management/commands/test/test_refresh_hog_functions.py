@@ -224,6 +224,39 @@ class TestRefreshHogFunctions(BaseTest):
         assert mock_reload.call_count == 1
 
     @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
+    def test_keeps_every_secret_in_the_encrypted_store_and_out_of_the_plain_one(self, mock_reload):
+        # The run rewrites both input stores and then saves, which re-splits them by schema. A secret
+        # has to come back with its value intact and must never land in the plain column, whether it
+        # holds a literal credential or a template the run recompiles.
+        template = json.loads(json.dumps(generate_template_bytecode("{event.uuid}", set())))
+        fn = self._unstamped(
+            inputs={"url": {"value": "{event.uuid}", "bytecode": template}},
+            inputs_schema=[
+                {"key": "url", "type": "string"},
+                {"key": "api_key", "type": "string", "secret": True},
+                {"key": "token", "type": "string", "secret": True},
+            ],
+            encrypted_inputs={
+                "api_key": {"value": "not-a-real-key", "order": 1},
+                "token": {"value": "{event.uuid}", "bytecode": template},
+            },
+        )
+
+        out = StringIO()
+        call_command("refresh_hog_functions", hog_function_id=str(fn.id), stdout=out)
+
+        fn.refresh_from_db()
+        inputs = fn.inputs or {}
+        encrypted_inputs = fn.encrypted_inputs or {}
+        # A literal credential has no bytecode to recompile, so it comes back untouched.
+        assert encrypted_inputs["api_key"] == {"value": "not-a-real-key", "order": 1}
+        # A templated secret is recompiled and stamped, and keeps the value it was written with.
+        assert encrypted_inputs["token"]["value"] == "{event.uuid}"
+        assert encrypted_inputs["token"]["bytecode_contract"] == RUNTIME_CONTRACT
+        assert "api_key" not in inputs
+        assert "token" not in inputs
+
+    @patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
     def test_keeps_an_input_that_no_longer_compiles_and_leaves_it_unstamped(self, mock_reload):
         # A template that today's guard refuses keeps running on its old bytecode. It must not get a
         # stamp, or the runtime would read its failures as our change rather than the owner's.
