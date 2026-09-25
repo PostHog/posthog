@@ -25144,6 +25144,137 @@ export namespace Schemas {
       readonly created_by: UserBasic;
     }
 
+    export interface DataDeletionConflict {
+      /** Reason the deletion request could not be created in the current state. */
+      readonly detail: string;
+    }
+
+    export interface DataDeletionPreview {
+      /** Number of event UUIDs selected when the preview ran. */
+      readonly count: number;
+    }
+
+    /**
+     * Submitted HogQL variable snapshot.
+     */
+    export type DataDeletionRequestVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    /**
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed
+     */
+    export type RequestStatusEnum = typeof RequestStatusEnum[keyof typeof RequestStatusEnum];
+
+
+    export const RequestStatusEnum = {
+      Draft: 'draft',
+      Pending: 'pending',
+      Approved: 'approved',
+      InProgress: 'in_progress',
+      Queued: 'queued',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface DataDeletionRequest {
+      /** Deletion request identifier. */
+      readonly id: string;
+      /** Current deletion workflow status.
+       *
+       * * `draft` - Draft
+       * * `pending` - Pending
+       * * `approved` - Approved
+       * * `in_progress` - In Progress
+       * * `queued` - Queued
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: RequestStatusEnum;
+      /** Submitted HogQL query snapshot. */
+      readonly query: string;
+      /** Submitted HogQL variable snapshot. */
+      readonly variables: DataDeletionRequestVariables;
+      /**
+         * Client-generated idempotency identifier.
+         * @nullable
+         */
+      readonly submission_id: string | null;
+      /**
+         * Number of selected events, when calculated.
+         * @nullable
+         */
+      readonly count: number | null;
+      /**
+         * Identifier of the user who submitted the request.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /**
+         * Whether the submitter was a PostHog staff user.
+         * @nullable
+         */
+      readonly created_by_staff: boolean | null;
+      /** Time when the request was submitted. */
+      readonly created_at: string;
+      /** Time when the request last changed. */
+      readonly updated_at: string;
+      /**
+         * Time when the request was approved, if approved.
+         * @nullable
+         */
+      readonly approved_at: string | null;
+      /**
+         * Time when selection statistics were calculated, if available.
+         * @nullable
+         */
+      readonly stats_calculated_at: string | null;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestCreateVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestCreate {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestCreateVariables;
+      /** Client-generated identifier that makes request submission idempotent. */
+      submission_id: string;
+    }
+
+    /**
+     * Variables referenced by the HogQL query.
+     */
+    export type DataDeletionRequestInputVariables = {[key: string]: {
+      code_name: string;
+      isNull?: boolean | null;
+      value?: unknown;
+      variableId: string;
+    }};
+
+    export interface DataDeletionRequestInput {
+      /** HogQL query that selects one event UUID column. */
+      query: string;
+      /** Variables referenced by the HogQL query. */
+      variables?: DataDeletionRequestInputVariables;
+    }
+
     /**
      * * `never` - never
      * * `live` - live
@@ -62814,6 +62945,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DataColorTheme[];
+    }
+
+    export interface PaginatedDataDeletionRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: DataDeletionRequest[];
     }
 
     export interface PaginatedDataModelingJobList {
@@ -107636,6 +107776,17 @@ export namespace Schemas {
     };
 
     export type DataColorThemesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataDeletionRequestsListParams = {
     /**
      * Number of results to return per page.
      */
