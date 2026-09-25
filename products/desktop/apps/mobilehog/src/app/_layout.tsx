@@ -8,6 +8,7 @@ import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { useAuth } from "@/lib/auth";
+import { usePushNotifications } from "@/lib/notifications";
 import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
 import { useSeenReports } from "@/lib/reports";
@@ -28,6 +29,7 @@ function AuthGate() {
   const hydrateRepo = useRepo((s) => s.hydrate);
   const hydratePrefs = usePrefs((s) => s.hydrate);
   const hydrateSeen = useSeenReports((s) => s.hydrate);
+  usePushNotifications();
   useEffect(() => {
     hydrate();
     hydrateRepo();

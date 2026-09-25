@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { GlassCircleButton } from "@/components/Glass";
 import { useAuth } from "@/lib/auth";
+import { unregisterPushToken } from "@/lib/notifications";
 import { type AppearanceMode, usePrefs } from "@/lib/prefs";
 import { colors, fonts, radius } from "@/lib/theme";
 
@@ -75,6 +76,7 @@ export default function SettingsSheet() {
       <Pressable
         onPress={async () => {
           router.back();
+          await unregisterPushToken();
           await logout();
         }}
         style={({ pressed }) => [styles.logout, pressed && { opacity: 0.7 }]}
