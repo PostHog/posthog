@@ -260,3 +260,60 @@ describe('TicketListFilters count', () => {
         expect(screen.queryByText('Status: Open')).not.toBeInTheDocument()
     })
 })
+
+describe('TicketListFilters saved views', () => {
+    let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [TICKET], count: 1 }],
+                '/api/projects/:team_id/conversations/views/': () => [200, { results: [] }],
+                '/api/organizations/:organization_id/members/': () => [200, { results: [] }],
+                '/api/projects/:team_id/tags': () => [200, []],
+            },
+        })
+        initKeaTests()
+        router.actions.push(urls.supportTickets())
+        logic = supportTicketsSceneLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        cleanup()
+    })
+
+    it('marks the saved views button as edited and offers to save the change', async () => {
+        act(() => {
+            logic.actions.applyView({
+                id: 'view-old',
+                short_id: 'view-old',
+                name: 'Old view',
+                filters: { status: ['pending'] },
+                created_at: '2026-06-12T00:00:00Z',
+                created_by: null,
+                is_favorited: false,
+            })
+        })
+
+        render(
+            <Provider>
+                <TicketListFilters />
+            </Provider>
+        )
+
+        expect(await screen.findByText('Old view')).toBeInTheDocument()
+
+        act(() => {
+            logic.actions.setPriorityFilter(['high'])
+        })
+
+        const editedButton = await screen.findByText('Old view (edited)')
+        await userEvent.click(editedButton)
+
+        expect(await screen.findByText('Save changes')).toBeInTheDocument()
+        expect(screen.getByText('Discard changes')).toBeInTheDocument()
+    })
+})

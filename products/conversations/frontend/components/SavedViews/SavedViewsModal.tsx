@@ -81,9 +81,10 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
     )
 }
 
-function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isSaveModalOpen, viewName, currentFilters, isSavingView } = useValues(ticketViewsLogic({ id }))
-    const { closeSaveModal, setViewName, saveView } = useActions(ticketViewsLogic({ id }))
+function SaveViewModal({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
+    const logic = ticketViewsLogic({ ticketListProps })
+    const { isSaveModalOpen, viewName, currentFilters, isSavingView } = useValues(logic)
+    const { closeSaveModal, setViewName, saveView } = useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
@@ -123,13 +124,12 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
     )
 }
 
-export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
-    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } = useValues(
-        ticketViewsLogic({ id })
-    )
-    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } = useActions(
-        ticketViewsLogic({ id })
-    )
+export function SavedViewsModal({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
+    const logic = ticketViewsLogic({ ticketListProps })
+    const { isModalOpen, filteredViews, viewsLoading, currentFilters, favoritingShortIds, searchTerm } =
+        useValues(logic)
+    const { closeModal, openSaveModal, deleteView, loadView, updateView, toggleFavorite, setSearchTerm } =
+        useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
@@ -307,7 +307,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     />
                 </div>
             </LemonModal>
-            <SaveViewModal id={id} />
+            <SaveViewModal ticketListProps={ticketListProps} />
         </>
     )
 }

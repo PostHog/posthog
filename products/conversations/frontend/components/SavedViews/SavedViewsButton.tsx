@@ -7,17 +7,17 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { supportTicketsSceneLogic } from '../../scenes/tickets/supportTicketsSceneLogic'
 import { SavedViewsModal } from './SavedViewsModal'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
-function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
-    const { favoriteViews, viewsLoading } = useValues(ticketViewsLogic({ id }))
-    const { openModal, openSaveModal, loadView, loadViews } = useActions(ticketViewsLogic({ id }))
-    const { activeView } = useValues(supportTicketsSceneLogic)
-    const { resetFilters } = useActions(supportTicketsSceneLogic)
+function SavedViewsButtonInner({ ticketListProps }: TicketViewsLogicProps): JSX.Element {
+    const logic = ticketViewsLogic({ ticketListProps })
+    const { favoriteViews, viewsLoading, activeView, viewWithUnsavedChanges: editedView } = useValues(logic)
+    const { openModal, openSaveModal, loadView, loadViews, saveViewChanges, restoreLoadedView, resetFilters } =
+        useActions(logic)
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
+    const shownView = activeView ?? editedView
 
     return (
         <>
@@ -25,6 +25,25 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                 placement="bottom-start"
                 onVisibilityChange={(visible) => visible && loadViews()}
                 items={[
+                    ...(editedView
+                        ? [
+                              {
+                                  title: `Edited "${editedView.name}"`,
+                                  items: [
+                                      {
+                                          label: 'Save changes',
+                                          onClick: saveViewChanges,
+                                          disabledReason: editDisabledReason,
+                                          'data-attr': 'tickets-save-view-changes',
+                                      },
+                                      {
+                                          label: 'Discard changes',
+                                          onClick: restoreLoadedView,
+                                      },
+                                  ],
+                              },
+                          ]
+                        : []),
                     {
                         title: 'Favorites',
                         items: favoriteViews.length
@@ -56,10 +75,16 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                     size="small"
                     type="secondary"
                     icon={<IconBookmark />}
-                    active={!!activeView}
-                    tooltip={activeView ? `Viewing "${activeView.name}"` : undefined}
+                    active={!!shownView}
+                    tooltip={
+                        editedView
+                            ? `"${editedView.name}" has filter changes you haven't saved`
+                            : activeView
+                              ? `Viewing "${activeView.name}"`
+                              : undefined
+                    }
                     sideAction={
-                        activeView
+                        shownView
                             ? {
                                   icon: <IconX />,
                                   onClick: resetFilters,
@@ -68,14 +93,21 @@ function SavedViewsButtonInner({ id }: TicketViewsLogicProps): JSX.Element {
                             : undefined
                     }
                 >
-                    {activeView ? <span className="max-w-50 truncate">{activeView.name}</span> : 'Saved views'}
+                    {shownView ? (
+                        <span className="max-w-50 truncate">
+                            {shownView.name}
+                            {editedView ? ' (edited)' : ''}
+                        </span>
+                    ) : (
+                        'Saved views'
+                    )}
                 </LemonButton>
             </LemonMenu>
-            <SavedViewsModal id={id} />
+            <SavedViewsModal ticketListProps={ticketListProps} />
         </>
     )
 }
 
-export function SavedViewsButton({ id }: TicketViewsLogicProps): JSX.Element | null {
-    return <SavedViewsButtonInner id={id} />
+export function SavedViewsButton({ ticketListProps }: TicketViewsLogicProps): JSX.Element | null {
+    return <SavedViewsButtonInner ticketListProps={ticketListProps} />
 }
