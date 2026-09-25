@@ -7,7 +7,7 @@ from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -4587,6 +4587,28 @@ def _server_notification_key(entry: dict) -> str | None:
     return json.dumps(entry, sort_keys=True)
 
 
+def _entry_time(entry: dict) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(entry["timestamp"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _merge_by_timestamp(entries: list[dict], extra: list[dict]) -> list[dict]:
+    """Slots each of ``extra`` in before the first of ``entries`` stamped later, keeping both orders."""
+    merged: list[dict] = []
+    pending = list(extra)
+    for entry in entries:
+        entry_time = _entry_time(entry)
+        while pending and entry_time is not None and (pending_time := _entry_time(pending[0])) is not None:
+            if pending_time > entry_time:
+                break
+            merged.append(pending.pop(0))
+        merged.append(entry)
+    return [*merged, *pending]
+
+
 def read_task_run_history(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int
 ) -> list[dict] | None:
@@ -4595,7 +4617,8 @@ def read_task_run_history(
     The logs hold every run, and the run's live stream adds what its log has not caught up with
     yet. The agent stamps one event id in both stores, so a stream entry the logs already cover is
     dropped, the way the thread's stream view merges them. An agent that stamps no ids keeps the
-    whole run in an untrimmed stream, which then stands in for the run's own log.
+    whole run in an untrimmed stream, which then stands in for the run's own log, apart from the
+    server notifications that only the log holds.
 
     Returns ``None`` without downloading any log when the logs to read are over ``max_bytes``, and
     an empty list when the run is not visible.
@@ -4615,10 +4638,21 @@ def read_task_run_history(
         and not any(entry.get("event_id") for entry in stream_entries)
         and _holds_user_prompt(stream_entries)
     )
-    logs_to_read = log_urls[:-1] if stream_is_whole_run else log_urls
-    if logs_to_read and get_task_run_log_size(logs_to_read) > max_bytes:
+    if log_urls and get_task_run_log_size(log_urls) > max_bytes:
         return None
-    log_entries = list(parse_task_run_log_entries(read_task_run_log_content(logs_to_read))) if logs_to_read else []
+    if stream_is_whole_run:
+        earlier_entries = (
+            list(parse_task_run_log_entries(read_task_run_log_content(log_urls[:-1]))) if log_urls[:-1] else []
+        )
+        # A server notification can reach the log after its live write failed or was skipped for want of a watcher.
+        streamed = {_server_notification_key(entry) for entry in stream_entries}
+        persisted_only = [
+            entry
+            for entry in parse_task_run_log_entries(read_task_run_log_content(log_urls[-1:]))
+            if (key := _server_notification_key(entry)) is not None and key not in streamed
+        ]
+        return [*earlier_entries, *_merge_by_timestamp(stream_entries, persisted_only)]
+    log_entries = list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
     backlog = TaskRunStreamBacklogIndex(log_entries)
     persisted_server_notifications = {
         key for key in (_server_notification_key(entry) for entry in log_entries) if key is not None

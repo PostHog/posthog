@@ -28,6 +28,14 @@ def _frame(event_id: str) -> dict:
     return {"type": "notification", "event_id": event_id, "notification": {"method": "session/update"}}
 
 
+def _frame_without_id() -> dict:
+    return {"type": "notification", "notification": {"method": "session/update"}}
+
+
+def _stamped_at(entry: dict, timestamp: str) -> dict:
+    return {**entry, "timestamp": timestamp}
+
+
 class TestStreamNotifications(BaseTest):
     def setUp(self):
         super().setUp()
@@ -38,7 +46,10 @@ class TestStreamNotifications(BaseTest):
             origin_product=Task.OriginProduct.POSTHOG_AI,
             created_by=self.user,
         )
-        self.task_run = task.create_run(mode="interactive")
+        self.task_run = task.create_run(
+            mode="interactive",
+            extra_state={"use_dedicated_stream": False, "stream_presence_gated": False},
+        )
         stream_key = get_task_run_stream_key(str(self.task_run.id))
         get_tasks_stream_redis_sync().delete(stream_key)
         self.addCleanup(get_tasks_stream_redis_sync().delete, stream_key)
@@ -119,6 +130,13 @@ class TestStreamNotifications(BaseTest):
                 [_frame("b-1"), SERVER_NOTIFICATION],
                 [_frame("b-1"), SERVER_NOTIFICATION],
                 [_frame("b-1"), SERVER_NOTIFICATION],
+            ),
+            # A persisted server notification whose live write was skipped comes from the log, in timestamp order.
+            (
+                "unstamped_stream_keeps_a_server_notification_only_the_log_holds",
+                [USER_PROMPT, _stamped_at(_frame_without_id(), "2026-01-01T00:00:01+00:00")],
+                [_frame("b-1"), SERVER_NOTIFICATION],
+                [USER_PROMPT, SERVER_NOTIFICATION, _stamped_at(_frame_without_id(), "2026-01-01T00:00:01+00:00")],
             ),
             # An unstamped stream at the length cap may be a trimmed tail, so the log is still read.
             (
