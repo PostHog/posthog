@@ -15,7 +15,7 @@ from unittest import TestCase
 from unittest.mock import Mock, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -1304,6 +1304,26 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             # The first access built every deferred view; later lookups reuse them.
             database.get_table("revenue_analytics.events.purchase.mrr_events_revenue_view")
             assert builder.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("transient", OperationalError("server closed the connection unexpectedly"), False),
+            ("real_failure", ValueError("revenue view builder is broken"), True),
+        ]
+    )
+    def test_revenue_source_failure_reporting(self, _name, error, expect_capture):
+        self._configure_revenue_events()
+        with (
+            patch(
+                "products.revenue_analytics.backend.views.orchestrator.list_revenue_source_handles",
+                side_effect=error,
+            ),
+            patch("posthog.hogql.database.database.capture_exception") as capture_exception,
+        ):
+            database = Database.create_for(team=self.team)
+
+        assert capture_exception.called is expect_capture
+        assert not database.has_table("revenue_analytics.events.purchase.charge_events_revenue_view")
 
     def test_deferred_revenue_views_serialize_identically_to_eager(self):
         self._configure_revenue_events()

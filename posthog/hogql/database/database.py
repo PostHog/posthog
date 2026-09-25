@@ -173,6 +173,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.week_start_day import WeekStartDay
 
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
@@ -2020,7 +2021,18 @@ class Database(BaseModel):
                         else:
                             revenue_views = list(build_all_revenue_analytics_views(team, timings))
                 except Exception as e:
-                    capture_exception(e)
+                    if is_transient_db_error(e):
+                        # A dropped app-DB connection while reading the team's revenue sources
+                        # clears on its own, and the build continues without revenue views, so it
+                        # is an infrastructure blip rather than a fault here.
+                        logger.warning(
+                            "revenue_analytics_views: transient app-DB error, building without revenue views",
+                            team_id=team.pk,
+                            error=str(e),
+                            exc_info=True,
+                        )
+                    else:
+                        capture_exception(e)
 
         # Materialized views store their backing table under the saved-query-specific S3 path.
         # Exclude that private storage table so the view owns access control, even after a rename.
