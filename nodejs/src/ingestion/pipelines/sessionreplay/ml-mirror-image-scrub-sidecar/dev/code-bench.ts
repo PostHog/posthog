@@ -24,10 +24,10 @@ import sharp from 'sharp'
 import { prepareZXingModule, writeBarcode } from 'zxing-wasm/writer'
 
 import { bindingRatio } from '../src/floors.ts'
-import { type Box } from '../src/geometry.ts'
 import { detectCodes } from '../src/qr.ts'
 import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc } from '../src/src-image.ts'
+import { coverage } from './bench-common.ts'
 
 // src-image.ts loads image-input.ts, which blocks the SVG loader for the whole process, and the codes
 // are drawn from zxing's SVG output.
@@ -172,27 +172,6 @@ async function decodableFromStored(src: Src, stored: { width: number; height: nu
     return false
 }
 
-function coverage(boxes: Box[], gt: [number, number, number, number]): number {
-    const [x0, y0, x1, y1] = gt
-    const W = x1 - x0
-    const H = y1 - y0
-    const mask = new Uint8Array(W * H)
-    for (const b of boxes) {
-        const l = Math.max(x0, b.left)
-        const t = Math.max(y0, b.top)
-        const r = Math.min(x1, b.left + b.width)
-        const bt = Math.min(y1, b.top + b.height)
-        for (let y = t; y < bt; y++) {
-            mask.fill(1, (y - y0) * W + (l - x0), (y - y0) * W + (r - x0))
-        }
-    }
-    let n = 0
-    for (const v of mask) {
-        n += v
-    }
-    return n / (W * H)
-}
-
 interface Result {
     file: string
     frame: string
@@ -215,25 +194,28 @@ function arg(name: string): string | undefined {
 async function main(): Promise<void> {
     const limit = Number(arg('limit') ?? 1e9)
     const limits = limitsFromEnv()
+    const combinations = FRAMES.flatMap((frame) =>
+        CODES.flatMap((code) =>
+            CODE_FRACTIONS.flatMap((fraction) =>
+                DEGRADATIONS.map((degradation) => ({ frame, code, fraction, degradation }))
+            )
+        )
+    )
     const samples: Sample[] = []
-    let n = 0
-    for (const frame of FRAMES) {
-        for (const code of CODES) {
-            for (const fraction of CODE_FRACTIONS) {
-                for (const degradation of DEGRADATIONS) {
-                    const s = await makeSample(frame, code, fraction, degradation, n++)
-                    if (s) {
-                        samples.push(s)
-                    }
-                }
-            }
+    for (const [seed, { frame, code, fraction, degradation }] of combinations.entries()) {
+        if (samples.length >= limit) {
+            break
+        }
+        const s = await makeSample(frame, code, fraction, degradation, seed)
+        if (s) {
+            samples.push(s)
         }
     }
-    console.log(`${Math.min(limit, samples.length)} images`)
+    console.log(`${samples.length} images`)
 
     const [shard, shards] = (arg('shard') ?? '0/1').split('/').map(Number)
     const results: Result[] = []
-    for (const [i, s] of samples.slice(0, limit).entries()) {
+    for (const [i, s] of samples.entries()) {
         if (i % shards !== shard) {
             continue
         }

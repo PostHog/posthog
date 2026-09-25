@@ -4,6 +4,7 @@
  * frames the production plan hands the text stage.
  *
  * Setup, once:
+ *   npm run setup                              # the production model, which the ppocrv3 entries use
  *   tsx dev/text-det-setup.ts                  # candidate models + labelled public images
  *   tsx dev/text-det-corpus.ts                 # synthetic web images with exact boxes
  *   tsx dev/text-det-corpus.ts --calibration   # a disjoint synthetic set, for int8 calibration only
@@ -540,6 +541,9 @@ async function loadSets(sets: string[], limit: number): Promise<{ set: string; g
         const images = JSON.parse(await readFile(path, 'utf8')) as GtImage[]
         out.push(...images.slice(0, limit).map((gt) => ({ set, gt })))
     }
+    if (out.length === 0) {
+        throw new Error(`no images in ${sets.join(', ')}: run the setup commands at the top of this file first`)
+    }
     return out
 }
 
@@ -572,8 +576,10 @@ async function quality(): Promise<void> {
     const limit = Number(arg('limit') ?? 1e9)
     const images = await loadSets(sets, limit)
     const detectors = await Promise.all(specs.map((s) => loadDetector(s, !process.argv.includes('--no-kleidiai'))))
-    const prodModel = await loadDbnet(join(ROOT, 'models/dbnet_det.onnx'))
-    const baseline = detectors.find((d) => d.spec.name === 'ppocrv3 (prod)')
+    const baselineDetector = detectors.find((d) => d.spec.name === 'ppocrv3 (prod)')
+    const baseline = baselineDetector
+        ? { detector: baselineDetector, prodModel: await loadDbnet(join(ROOT, baselineDetector.spec.file)) }
+        : null
     console.log(`${images.length} images, detectors: ${specs.map((s) => s.name).join(', ')}\n`)
 
     const words: WordResult[] = []
@@ -589,8 +595,8 @@ async function quality(): Promise<void> {
             warmed = true
         }
         if (baseline) {
-            const ours = await detect(baseline, image.src, image.prodText)
-            const theirs = await detectTextDbnet(prodModel, image.src, image.prodText)
+            const ours = await detect(baseline.detector, image.src, image.prodText)
+            const theirs = await detectTextDbnet(baseline.prodModel, image.src, image.prodText)
             if (JSON.stringify(ours.boxes) !== JSON.stringify(theirs)) {
                 mismatches++
             }

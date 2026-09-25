@@ -1,36 +1,27 @@
 /* eslint-disable no-console -- CLI output script: console output is the whole point */
 /**
- * Synthetic web images with an exact ground-truth box for every run of text, for dev/text-det-bench.ts.
+ * Synthetic web images with an exact ground-truth box for every word, for dev/text-det-bench.ts.
  *
  *   tsx dev/text-det-corpus.ts [--calibration]
  *
  * The labelled public sets cover scans, receipts and banners, but their boxes are hand-drawn and
- * their text sizes are whatever the set happened to contain. These images control both: every run's
- * box is its measured ink, and sizes, fonts, contrast and backgrounds are swept on purpose, including
- * the cases a detector finds hardest (small text, low contrast, light on dark, text over texture).
+ * their text sizes are whatever the set happened to contain. These images control both: every word's
+ * box is its measured ink in the rendered image, and sizes, fonts, contrast and backgrounds are swept on
+ * purpose, including the cases a detector finds hardest (small text, low contrast, light on dark, text
+ * over texture).
  *
  * Seeded, so the same command always writes the same images.
  */
 import { mkdir, writeFile } from 'node:fs/promises'
 import sharp from 'sharp'
 
+import { mulberry32 } from './bench-common.ts'
 import { type GtImage, type GtWord } from './text-det-setup.ts'
 
 // --calibration writes a disjoint seed range to its own set, for int8 calibration that never sees an eval image.
 const CALIBRATION = process.argv.includes('--calibration')
 const OUT = new URL(`../test-data/text-det/${CALIBRATION ? 'calibration' : 'synthetic'}/`, import.meta.url).pathname
 const FIRST_SEED = CALIBRATION ? 100 : 0
-
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0
-        let t = a
-        t = Math.imul(t ^ (t >>> 15), t | 1)
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-    }
-}
 
 const PHRASES = [
     'Dashboard',
@@ -181,25 +172,90 @@ interface Run {
 const escapeXml = (s: string): string =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-function textElement(run: Omit<Run, 'buttonFill'>, x: number, baseline: number): string {
+type RunStyle = Omit<Run, 'x' | 'baseline' | 'buttonFill'>
+
+/** Relative to the run's origin (x, baseline). */
+interface Ink {
+    left: number
+    top: number
+    width: number
+    height: number
+}
+
+function textElement(run: RunStyle, x: number, baseline: number): string {
     return `<text x="${x}" y="${baseline}" font-family="${run.font}" font-size="${run.fontPx}" font-weight="${run.weight}" fill="${run.color}">${escapeXml(run.text)}</text>`
 }
 
-/** Relative to the run's origin (x, baseline). */
-async function measureInk(
-    run: Omit<Run, 'x' | 'baseline' | 'buttonFill'>
-): Promise<{ left: number; top: number; width: number; height: number }> {
+/** A canvas that holds the whole run, with the run's origin at (pad, baseline). */
+function measurementCanvas(run: RunStyle): { pad: number; baseline: number; width: number; height: number } {
     const pad = Math.ceil(run.fontPx * 2)
-    const width = Math.ceil(run.text.length * run.fontPx * 1.1) + 2 * pad
-    const height = Math.ceil(run.fontPx * 3) + 2 * pad
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${textElement({ ...run, x: 0, baseline: 0 }, pad, pad + run.fontPx * 2)}</svg>`
-    const { info } = await sharp(Buffer.from(svg)).trim({ threshold: 1 }).toBuffer({ resolveWithObject: true })
     return {
-        left: -(info.trimOffsetLeft ?? 0) - pad,
-        top: -(info.trimOffsetTop ?? 0) - (pad + run.fontPx * 2),
+        pad,
+        baseline: pad + run.fontPx * 2,
+        width: Math.ceil(run.text.length * run.fontPx * 1.1) + 2 * pad,
+        height: Math.ceil(run.fontPx * 3) + 2 * pad,
+    }
+}
+
+function svgOnCanvas(run: RunStyle, canvas: ReturnType<typeof measurementCanvas>): Buffer {
+    return Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">${textElement(run, canvas.pad, canvas.baseline)}</svg>`
+    )
+}
+
+async function measureInk(run: RunStyle): Promise<Ink> {
+    const canvas = measurementCanvas(run)
+    const { info } = await sharp(svgOnCanvas(run, canvas)).trim({ threshold: 1 }).toBuffer({ resolveWithObject: true })
+    return {
+        left: -(info.trimOffsetLeft ?? 0) - canvas.pad,
+        top: -(info.trimOffsetTop ?? 0) - canvas.baseline,
         width: info.width,
         height: info.height,
     }
+}
+
+// Rasterizing a longer string changes a few alpha values of the glyphs already drawn by a few levels, while a glyph
+// that moves by a fraction of a pixel changes its edge pixels by far more than this.
+const ALPHA_NOISE = 16
+
+// Word k's ink is what the prefix through word k adds to the prefix before it. Appending text never moves the glyphs
+// already laid out, so these are the pixels word k has inside the whole run. Rendering a word alone, or hiding its
+// neighbors in separate spans, loses the kerning at its edges and shifts it.
+async function measureWordInks(run: RunStyle): Promise<{ text: string; ink: Ink }[]> {
+    const canvas = measurementCanvas(run)
+    const words = run.text.split(' ')
+    const inks: { text: string; ink: Ink }[] = []
+    let previousAlpha = new Uint8Array(canvas.width * canvas.height)
+    for (const [k, word] of words.entries()) {
+        const prefix = { ...run, text: words.slice(0, k + 1).join(' ') }
+        const alpha = new Uint8Array(
+            await sharp(svgOnCanvas(prefix, canvas)).ensureAlpha().extractChannel(3).raw().toBuffer()
+        )
+        let [left, top, right, bottom] = [canvas.width, canvas.height, -1, -1]
+        for (let i = 0; i < alpha.length; i++) {
+            const added = alpha[i] - previousAlpha[i]
+            if (added < -ALPHA_NOISE) {
+                throw new Error(`appending "${word}" to "${words.slice(0, k).join(' ')}" moved the prefix`)
+            }
+            if (added > ALPHA_NOISE) {
+                const x = i % canvas.width
+                const y = Math.floor(i / canvas.width)
+                left = Math.min(left, x)
+                top = Math.min(top, y)
+                right = Math.max(right, x + 1)
+                bottom = Math.max(bottom, y + 1)
+            }
+        }
+        if (right < 0) {
+            throw new Error(`"${word}" in "${run.text}" renders no ink`)
+        }
+        inks.push({
+            text: word,
+            ink: { left: left - canvas.pad, top: top - canvas.baseline, width: right - left, height: bottom - top },
+        })
+        previousAlpha = alpha
+    }
+    return inks
 }
 
 async function makeImage(layout: Layout, seed: number): Promise<{ png: Buffer; gt: GtImage }> {
@@ -209,8 +265,8 @@ async function makeImage(layout: Layout, seed: number): Promise<{ png: Buffer; g
     const logMin = Math.log(layout.cssFontPxRange[0] * layout.devicePixelRatio)
     const logMax = Math.log(layout.cssFontPxRange[1] * layout.devicePixelRatio)
     const runs: Run[] = []
+    const runBoxes: [number, number, number, number][] = []
     const words: GtWord[] = []
-    const sizes: number[] = []
 
     let top = margin
     while (top < layout.height - margin) {
@@ -238,11 +294,14 @@ async function makeImage(layout: Layout, seed: number): Promise<{ png: Buffer; g
                 continue
             }
             runs.push({ ...run, x, baseline, buttonFill: button })
-            words.push({
-                box: [x + ink.left, baseline + ink.top, x + ink.left + ink.width, baseline + ink.top + ink.height],
-                text: run.text,
-            })
-            sizes.push(fontPx)
+            runBoxes.push([x + ink.left, baseline + ink.top, x + ink.left + ink.width, baseline + ink.top + ink.height])
+            for (const { text, ink: w } of await measureWordInks(run)) {
+                words.push({
+                    box: [x + w.left, baseline + w.top, x + w.left + w.width, baseline + w.top + w.height],
+                    text,
+                    fontPx,
+                })
+            }
             rowHeight = Math.max(rowHeight, ink.height)
             placed++
             x += ink.left + ink.width + Math.round(fontPx * (2 + random() * 6))
@@ -253,7 +312,7 @@ async function makeImage(layout: Layout, seed: number): Promise<{ png: Buffer; g
     const buttons = runs
         .filter((r) => r.buttonFill)
         .map((r, i) => {
-            const w = words[runs.indexOf(r)].box
+            const w = runBoxes[runs.indexOf(r)]
             const padX = Math.round(r.fontPx * 0.8)
             const padY = Math.round(r.fontPx * 0.45)
             return `<rect id="b${i}" x="${w[0] - padX}" y="${w[1] - padY}" width="${w[2] - w[0] + 2 * padX}" height="${w[3] - w[1] + 2 * padY}" rx="${padY}" fill="${r.buttonFill}"/>`
@@ -272,7 +331,7 @@ async function makeImage(layout: Layout, seed: number): Promise<{ png: Buffer; g
             file,
             width: layout.width,
             height: layout.height,
-            words: words.map((w, i) => ({ ...w, fontPx: sizes[i] })),
+            words,
             tolerancePx: 0,
         },
     }
@@ -290,7 +349,7 @@ async function main(): Promise<void> {
     }
     await writeFile(OUT + 'gt.json', JSON.stringify(images))
     console.log(
-        `${CALIBRATION ? 'calibration' : 'synthetic'}: ${images.length} images, ${images.reduce((n, im) => n + im.words.length, 0)} runs in ${OUT}`
+        `${CALIBRATION ? 'calibration' : 'synthetic'}: ${images.length} images, ${images.reduce((n, im) => n + im.words.length, 0)} words in ${OUT}`
     )
 }
 

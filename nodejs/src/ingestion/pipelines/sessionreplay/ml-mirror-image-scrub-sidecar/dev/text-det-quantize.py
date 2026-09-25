@@ -1,5 +1,6 @@
 """
-Static int8 quantization of a text detector, calibrated on inputs dumped by dev/text-det-bench.ts.
+Static int8 quantization of a detector, calibrated on inputs dumped by dev/text-det-bench.ts or
+dev/face-bench.ts.
 
     tsx dev/text-det-bench.ts --dump-calibration "ppocrv3 (prod)"
     uv run --with onnxruntime --with onnx python dev/text-det-quantize.py \
@@ -14,6 +15,7 @@ convolution in int8.
 
 import sys
 import json
+import argparse
 import tempfile
 from pathlib import Path
 
@@ -58,8 +60,13 @@ def at_least_opset_13(model: onnx.ModelProto) -> onnx.ModelProto:
 
 
 def main() -> None:
-    source, calibration_dir, destination = (Path(p) for p in sys.argv[1:4])
-    conv_only = "--conv-only" in sys.argv
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("source", type=Path)
+    parser.add_argument("calibration_dir", type=Path)
+    parser.add_argument("destination", type=Path)
+    parser.add_argument("--conv-only", action="store_true", help="quantize only the Conv nodes")
+    args = parser.parse_args()
+    source, calibration_dir, destination = args.source, args.calibration_dir, args.destination
     with tempfile.TemporaryDirectory() as scratch:
         lifted = Path(scratch) / "lifted.onnx"
         onnx.save(at_least_opset_13(constants_to_initializers(onnx.load(str(source)))), str(lifted))
@@ -78,7 +85,7 @@ def main() -> None:
             activation_type=QuantType.QUInt8,
             weight_type=QuantType.QInt8,
             calibrate_method=CalibrationMethod.MinMax,
-            op_types_to_quantize=["Conv"] if conv_only else None,
+            op_types_to_quantize=["Conv"] if args.conv_only else None,
         )
     sys.stdout.write(f"wrote {destination}\n")
 

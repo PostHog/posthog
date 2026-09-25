@@ -4,8 +4,12 @@
  * the frames the production plan hands the face stage.
  *
  *   tsx dev/face-bench.ts --setup                 # models, WIDER FACE val, portraits, composites
+ *   tsx dev/face-bench.ts --dump-calibration      # int8 calibration inputs, in out/face-calibration
+ *   uv run --with onnxruntime --with onnx python dev/text-det-quantize.py \
+ *       models/candidates/yunet_2026may.onnx out/face-calibration models/candidates/yunet_2026may_int8.onnx
+ *   uv run --with onnxruntime --with onnx python dev/text-det-quantize.py \
+ *       models/candidates/yunet_n_dynamic.onnx out/face-calibration models/candidates/yunet_n_dynamic_int8.onnx
  *   ORT_THREADS=1 tsx dev/face-bench.ts [--detectors a,b] [--sets a,b] [--limit N] [--label name]
- *   tsx dev/face-bench.ts --dump-calibration      # inputs for dev/text-det-quantize.py (int8 builds)
  *
  * Production letterboxes every frame into YuNet's fixed 640x640 input, so a frame smaller than 640
  * is upscaled and a 16:9 frame is padded with black to a square. The plan counts the face stage's
@@ -32,6 +36,7 @@ import { type Box } from '../src/geometry.ts'
 import { limitsFromEnv, planScales } from '../src/scale-plan.ts'
 import { type Src, decodeSrc, probeDims, srcSharp } from '../src/src-image.ts'
 import { type YunetModel, detectFacesYunet, detectionWindowsForTest, loadYunet } from '../src/yunet.ts'
+import { coverage, mulberry32 } from './bench-common.ts'
 
 const ROOT = new URL('..', import.meta.url).pathname
 const DATA = join(ROOT, 'test-data/face-bench')
@@ -224,17 +229,6 @@ async function downloadPortraits(): Promise<void> {
     console.log(`  portraits: ${(await readdir(dir)).length}`)
 }
 
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0
-    return () => {
-        a = (a + 0x6d2b79f5) >>> 0
-        let t = a
-        t = Math.imul(t ^ (t >>> 15), t | 1)
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-    }
-}
-
 const COMPOSITE_FRAMES = [
     { name: 'desktop', width: 1920, height: 1080 },
     { name: 'laptop', width: 1280, height: 720 },
@@ -352,29 +346,38 @@ function iou(a: Box, b: Box): number {
     return inter === 0 ? 0 : inter / (a.width * a.height + b.width * b.height - inter)
 }
 
+// --dump-calibration builds its tensors here too, so that the int8 builds calibrate on the inputs the native variants see.
+async function nativeInput(
+    src: Src,
+    win: Box
+): Promise<{ chw: Float32Array; dw: number; dh: number; cw: number; ch: number }> {
+    const scale = Math.min(1, YUNET_SIDE / Math.max(win.width, win.height))
+    const dw = Math.max(1, Math.round(win.width * scale))
+    const dh = Math.max(1, Math.round(win.height * scale))
+    const cw = upToStride(dw)
+    const ch = upToStride(dh)
+    const whole = win.width === src.W && win.height === src.H
+    const { data } = await (whole ? srcSharp(src) : srcSharp(src).extract(win))
+        .resize(dw, dh, { fit: 'fill' })
+        .extend({ top: 0, left: 0, right: cw - dw, bottom: ch - dh, background: '#000' })
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+    const chw = new Float32Array(3 * cw * ch)
+    const plane = cw * ch
+    for (let i = 0, p = 0; i < data.length; i += 3, p++) {
+        chw[p] = data[i + 2]
+        chw[plane + p] = data[i + 1]
+        chw[2 * plane + p] = data[i]
+    }
+    return { chw, dw, dh, cw, ch }
+}
+
 /** The native canvas: src/yunet.ts's windows and decode, without the upscale or the square padding. */
 async function detectNative(model: YunetModel, src: Src): Promise<Box[]> {
     const { W, H } = src
     const cand: { b: Box; s: number }[] = []
     for (const win of detectionWindowsForTest(W, H)) {
-        const scale = Math.min(1, YUNET_SIDE / Math.max(win.width, win.height))
-        const dw = Math.max(1, Math.round(win.width * scale))
-        const dh = Math.max(1, Math.round(win.height * scale))
-        const cw = upToStride(dw)
-        const ch = upToStride(dh)
-        const whole = win.width === W && win.height === H
-        const { data } = await (whole ? srcSharp(src) : srcSharp(src).extract(win))
-            .resize(dw, dh, { fit: 'fill' })
-            .extend({ top: 0, left: 0, right: cw - dw, bottom: ch - dh, background: '#000' })
-            .raw()
-            .toBuffer({ resolveWithObject: true })
-        const chw = new Float32Array(3 * cw * ch)
-        const plane = cw * ch
-        for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-            chw[p] = data[i + 2]
-            chw[plane + p] = data[i + 1]
-            chw[2 * plane + p] = data[i]
-        }
+        const { chw, dw, dh, cw, ch } = await nativeInput(src, win)
         const out = await model.session.run({ [model.inputName]: new ort.Tensor('float32', chw, [1, 3, ch, cw]) })
         const sx = win.width / dw
         const sy = win.height / dh
@@ -424,27 +427,6 @@ function modelScale(spec: DetectorSpec, W: number, H: number): number {
     const windows = detectionWindowsForTest(W, H)
     const long = Math.max(windows[0].width, windows[0].height)
     return spec.input === 'fixed' ? YUNET_SIDE / long : Math.min(1, YUNET_SIDE / long)
-}
-
-function coverage(boxes: Box[], gt: [number, number, number, number]): number {
-    const [x0, y0, x1, y1] = gt
-    const W = Math.max(1, x1 - x0)
-    const H = Math.max(1, y1 - y0)
-    const mask = new Uint8Array(W * H)
-    for (const b of boxes) {
-        const l = Math.max(x0, b.left)
-        const t = Math.max(y0, b.top)
-        const r = Math.min(x1, b.left + b.width)
-        const bt = Math.min(y1, b.top + b.height)
-        for (let y = t; y < bt; y++) {
-            mask.fill(1, (y - y0) * W + (l - x0), (y - y0) * W + (r - x0))
-        }
-    }
-    let n = 0
-    for (const v of mask) {
-        n += v
-    }
-    return n / (W * H)
 }
 
 interface FaceResult {
@@ -618,25 +600,7 @@ async function dumpCalibration(): Promise<void> {
     for (const [n, { gt }] of images.entries()) {
         const buf = await readFile(join(DATA, gt.file))
         const src = await decodeSrc(buf, planScales({ width: gt.width, height: gt.height }, limits).frame)
-        const win = detectionWindowsForTest(src.W, src.H)[0]
-        const scale = Math.min(1, YUNET_SIDE / Math.max(win.width, win.height))
-        const dw = Math.max(1, Math.round(win.width * scale))
-        const dh = Math.max(1, Math.round(win.height * scale))
-        const cw = upToStride(dw)
-        const ch = upToStride(dh)
-        const { data } = await srcSharp(src)
-            .extract(win)
-            .resize(dw, dh, { fit: 'fill' })
-            .extend({ top: 0, left: 0, right: cw - dw, bottom: ch - dh, background: '#000' })
-            .raw()
-            .toBuffer({ resolveWithObject: true })
-        const chw = new Float32Array(3 * cw * ch)
-        const plane = cw * ch
-        for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-            chw[p] = data[i + 2]
-            chw[plane + p] = data[i + 1]
-            chw[2 * plane + p] = data[i]
-        }
+        const { chw, cw, ch } = await nativeInput(src, detectionWindowsForTest(src.W, src.H)[0])
         const file = `face_${n}.bin`
         await writeFile(join(dir, file), Buffer.from(chw.buffer))
         index.push({ file, shape: [1, 3, ch, cw] })
