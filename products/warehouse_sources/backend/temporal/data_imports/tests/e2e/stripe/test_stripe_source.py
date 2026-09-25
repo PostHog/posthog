@@ -1197,7 +1197,7 @@ class TestCreateWebhook:
 
         assert result.success is False
         assert result.error is not None
-        assert "permission" in result.error.lower()
+        assert "Give it Write access on Webhook endpoints in Stripe, then select Try again" in result.error
 
     def test_source_pins_the_resolved_version_on_the_endpoint(self):
         endpoint = mock.MagicMock()
