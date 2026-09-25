@@ -12806,6 +12806,18 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
     } as const;
 
+    export interface BackfillCreate {
+      /** Inclusive lower bound of the historical window to scan. */
+      window_start: string;
+      /** Exclusive upper bound of the window; clamped server-side to now. */
+      window_end: string;
+      /**
+         * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
+         * @minimum 0
+         */
+      max_total_credits: number;
+    }
+
     export interface BackfillEstimateResponse {
       /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
       total_sessions: number;
@@ -37995,6 +38007,11 @@ export namespace Schemas {
       readonly dispatched_count: number;
       /** Units the live path had already covered, so nothing was dispatched. */
       readonly skipped_count: number;
+      /**
+         * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+         * @nullable
+         */
+      readonly remaining_count: number | null;
       /** User who started the backfill. */
       readonly created_by: UserBasic | null;
       /** When the backfill was created. */
@@ -38009,6 +38026,8 @@ export namespace Schemas {
     export interface EvaluationBackfillEstimate {
       /** Units that would be evaluated. */
       total_units: number;
+      /** Units in the range this evaluation has already judged. They are excluded from total_units unless rerun_existing is set. */
+      already_evaluated_units: number;
       /** What one unit is: a generation, a trace, or a session.
        *
        * * `generation` - Generation
@@ -68777,7 +68796,8 @@ export namespace Schemas {
       readonly first_enabled_at: string | null;
       /** When the alert was created. */
       readonly created_at: string;
-      readonly created_by: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -78172,7 +78192,8 @@ export namespace Schemas {
       readonly first_enabled_at?: string | null;
       /** When the alert was created. */
       readonly created_at?: string;
-      readonly created_by?: UserBasic;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by?: UserBasic | null;
       /**
          * When the alert was last modified.
          * @nullable
@@ -99653,20 +99674,147 @@ export namespace Schemas {
      * * `slack` - slack
      * * `webhook` - webhook
      */
-    export type VisionAlertCreateDestinationTypeEnum = typeof VisionAlertCreateDestinationTypeEnum[keyof typeof VisionAlertCreateDestinationTypeEnum];
+    export type VisionAlertDestinationTypeEnum = typeof VisionAlertDestinationTypeEnum[keyof typeof VisionAlertDestinationTypeEnum];
 
 
-    export const VisionAlertCreateDestinationTypeEnum = {
+    export const VisionAlertDestinationTypeEnum = {
       Slack: 'slack',
       Webhook: 'webhook',
     } as const;
+
+    export interface VisionAlertDestinationConfig {
+      /** HogFunctions backing the created destination, one per event kind. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook */
+      type: VisionAlertDestinationTypeEnum;
+      /** Whether every HogFunction in the group is enabled, so the destination notifies on every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace, for Slack destinations. */
+      slack_workspace_id?: number;
+      /** Slack channel ID, for Slack destinations. */
+      slack_channel_id?: string;
+      /** Webhook endpoint reduced to scheme and host, because the path, query and userinfo can carry a secret. */
+      webhook_url?: string;
+    }
+
+    export interface VisionAlertConfigurationDetail {
+      /** Unique identifier for this alert. */
+      readonly id: string;
+      /** Scanner whose observations this alert watches. Immutable after creation. */
+      scanner_id: string;
+      /**
+         * Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is active. Disabling a metric alert resets its state to not_firing. */
+      enabled?: boolean;
+      /** 'metric' fires when a metric crosses a threshold over a rolling window; 'match' fires on every observation that matches the selection. Immutable after creation.
+       *
+       * * `metric` - Metric
+       * * `match` - Match */
+      kind: VisionAlertKindEnum;
+      /** Which observations count. Empty matches every observation of the scanner. */
+      selection?: VisionAlertSelection;
+      /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
+       *
+       * * `count` - Count matching observations
+       * * `avg_score` - Average score */
+      metric?: VisionAlertMetricEnum;
+      /** Metric alerts only: whether the alert fires at or above, or at or below, the threshold.
+       *
+       * * `above` - At or above
+       * * `below` - At or below */
+      direction?: VisionAlertDirectionEnum;
+      /**
+         * Metric alerts only: the threshold value. Required for metric alerts, must be omitted for match alerts.
+         * @nullable
+         */
+      threshold?: number | null;
+      /** Metric alerts only: rolling window in days. Allowed values: [1, 3, 7, 14, 30]. */
+      window_days?: number;
+      /**
+         * Metric alerts only: evaluation cadence in minutes, at least 15.
+         * @minimum 15
+         */
+      check_interval_minutes?: number;
+      /** Current lifecycle state. Always not_firing for match alerts. Server-managed.
+       *
+       * * `not_firing` - Not firing
+       * * `firing` - Firing
+       * * `pending_resolve` - Pending resolve
+       * * `errored` - Errored
+       * * `snoozed` - Snoozed
+       * * `broken` - Broken */
+      readonly state: LogsAlertConfigurationStateEnum;
+      /**
+         * Metric alerts only: total check periods in the sliding evaluation window (M in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Metric alerts only: how many periods must breach to fire (N in N-of-M).
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Metric alerts only: minimum minutes between repeated notifications. 0 means no cooldown.
+         * @minimum 0
+         */
+      cooldown_minutes?: number;
+      /** Blocked local time windows when the alert must not notify. Times use the project timezone. Null disables quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.
+         * @nullable
+         */
+      snooze_until?: string | null;
+      /**
+         * When the next evaluation is scheduled. Server-managed.
+         * @nullable
+         */
+      readonly next_check_at: string | null;
+      /**
+         * When the last notification was sent. Server-managed.
+         * @nullable
+         */
+      readonly last_notified_at: string | null;
+      /**
+         * When the alert was last evaluated. Server-managed.
+         * @nullable
+         */
+      readonly last_checked_at: string | null;
+      /** Consecutive evaluation failures. Resets on success. Server-managed. */
+      readonly consecutive_failures: number;
+      /**
+         * When the alert was first enabled. Null means still a draft.
+         * @nullable
+         */
+      readonly first_enabled_at: string | null;
+      /** When the alert was created. */
+      readonly created_at: string;
+      /** User who created the alert; null once that user is deleted. */
+      readonly created_by: UserBasic | null;
+      /**
+         * When the alert was last modified.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /** This alert's notification destinations, one entry per destination, with credential-bearing URL parts removed. */
+      readonly destinations: readonly VisionAlertDestinationConfig[];
+    }
 
     export interface VisionAlertCreateDestination {
       /** Notification destination type.
        *
        * * `slack` - slack
        * * `webhook` - webhook */
-      type: VisionAlertCreateDestinationTypeEnum;
+      type: VisionAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -103618,6 +103766,69 @@ export namespace Schemas {
     export interface _TracingSparklineResponse {
       /** One row per time bucket and service, ordered by time. */
       results: _TracingSparklineRow[];
+    }
+
+    export interface _TracingTraceAiEvent {
+      /** Event UUID. */
+      uuid: string;
+      /** The LLM analytics event kind: `$ai_generation`, `$ai_span` or `$ai_embedding`. */
+      event: string;
+      /** When the call started. Add `latency_seconds` for when it finished. Normalized across OpenTelemetry-sourced events, which are stamped at the start, and SDK-sourced events, which are stamped at the finish. */
+      started_at: string;
+      /** The `$ai_trace_id` of the event, which opens it in LLM analytics. */
+      ai_trace_id: string;
+      /**
+         * The `$ai_span_id` of the event.
+         * @nullable
+         */
+      ai_span_id: string | null;
+      /**
+         * The `$ai_parent_id` of the event. For OpenTelemetry-sourced events this is the parent span's id.
+         * @nullable
+         */
+      ai_parent_id: string | null;
+      /**
+         * The `$ai_span_name`, set on `$ai_span` events.
+         * @nullable
+         */
+      span_name: string | null;
+      /**
+         * How long the call took, in seconds.
+         * @nullable
+         */
+      latency_seconds: number | null;
+      /**
+         * The model the call used.
+         * @nullable
+         */
+      model: string | null;
+      /**
+         * The provider the call went to.
+         * @nullable
+         */
+      provider: string | null;
+      /**
+         * Prompt tokens.
+         * @nullable
+         */
+      input_tokens: number | null;
+      /**
+         * Completion tokens.
+         * @nullable
+         */
+      output_tokens: number | null;
+      /**
+         * Total cost of the call, in USD.
+         * @nullable
+         */
+      total_cost_usd: number | null;
+      /** Whether the call failed. */
+      is_error: boolean;
+    }
+
+    export interface _TracingTraceAiEventsResponse {
+      /** AI events in the trace, earliest start first. */
+      results: _TracingTraceAiEvent[];
     }
 
     export interface _TracingTraceRequest {
