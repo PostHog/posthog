@@ -1,10 +1,15 @@
-import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
+import {
+    CLICK_TARGETS,
+    containsUnstableGeneratedId,
+    elementToSelector,
+    matchesStableDataAttribute,
+} from 'lib/utils/actions'
 
 import { ActionStepType, ElementType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
     const element = elements[index]
-    if (element.attr_id) {
+    if (element.attr_id && !containsUnstableGeneratedId(element.attr_id)) {
         return `[id="${element.attr_id}"] > ${parts}`
     }
     if (index > 0) {
@@ -38,7 +43,9 @@ export function applyDataAttributeSelector(
     }
     for (let i = 0; i < elements.length; i++) {
         const element = elements[i]
-        if (matchesDataAttribute(element, dataAttributes) || element.attr_id) {
+        const hasStableDataAttribute = !!matchesStableDataAttribute(element, dataAttributes)
+        const hasStableId = !!element.attr_id && !containsUnstableGeneratedId(element.attr_id)
+        if (hasStableDataAttribute || hasStableId) {
             let selector = elementToSelector(element, dataAttributes)
             if (i > 0 && !CLICK_TARGETS.includes(element.tag_name)) {
                 const clickedTagName = elements[0].tag_name
