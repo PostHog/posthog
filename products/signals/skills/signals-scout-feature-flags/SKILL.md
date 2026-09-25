@@ -32,6 +32,12 @@ One mechanical fact anchors everything: **deactivating a flag does not stop `$fe
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file a report only for a localized, validated contradiction you'd stand behind as a standalone inbox item a human will act on. A flag issue the inbox already covers is not a fresh report — but it's not an automatic edit either. **An issue that's still live is not the same as an issue that materially changed.** Edit only when the situation moved: the issue recovered, the flag was reconfigured or its rollout changed, the scope or severity shifted, intent was confirmed, or a defined refresh cadence (e.g. daily) has elapsed. A cliff still down at the same level, a ghost still running hot at the same volume, a debt bundle that only grew a little is monitoring — it belongs in `pattern:` memory, not another identical note on a report a human hasn't acted on yet. The harness prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe, and the edit rules); this body adds only the feature-flag-specific framing.
 
+## Activity-history availability
+
+Activity history is optional. Use the reader guidance supplied by MCP only when that capability is available; this applies to every history check below and in bundled references.
+
+If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
+
 ## Quick close-out: are flags even in use?
 
 Read `recent_feature_flags` off `scout-project-profile-get`. Two caveats before shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50 by volume — so confirm the traffic side with one cheap count rather than trusting either alone:
