@@ -69,6 +69,27 @@ describe("task response normalization", () => {
     });
   });
 
+  it("keeps only well-formed exposed ports", () => {
+    expect(
+      normalizeTaskRunResponse(
+        {
+          id: "run-1",
+          exposed_ports: [
+            { port: 3000, name: "Web app" },
+            { port: 5173 },
+            { port: "8000", name: "Not a number" },
+            { name: "No port" },
+            null,
+          ],
+        },
+        { teamId: 123 },
+      ).exposed_ports,
+    ).toEqual([
+      { port: 3000, name: "Web app" },
+      { port: 5173, name: null },
+    ]);
+  });
+
   it("keeps PostHog reference metadata without requiring file storage", () => {
     expect(
       normalizeTaskRunResponse(

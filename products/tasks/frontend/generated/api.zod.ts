@@ -3342,6 +3342,28 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
+ * Register a port where an HTTP app listens inside this run's sandbox, so clients can show it as a preview. Exposing a port again replaces its name. The list belongs to the current sandbox and resets when the run moves to a new sandbox.
+ * @summary Expose a sandbox port for a task run
+ */
+export const tasksRunsExposePortCreateBodyPortMin = 1024
+export const tasksRunsExposePortCreateBodyPortMax = 65535
+
+export const tasksRunsExposePortCreateBodyNameMax = 60
+
+export const TasksRunsExposePortCreateBody = /* @__PURE__ */ zod.object({
+    port: zod
+        .number()
+        .min(tasksRunsExposePortCreateBodyPortMin)
+        .max(tasksRunsExposePortCreateBodyPortMax)
+        .describe('Port inside the sandbox where an HTTP app listens on all interfaces.'),
+    name: zod
+        .string()
+        .max(tasksRunsExposePortCreateBodyNameMax)
+        .nullish()
+        .describe('Short name for the app, shown to the user beside the port.'),
+})
+
+/**
  * Relay a message from this run to a peer agent run. The body is delivered below a server-composed provenance envelope as a queued (non-steer) turn; attachments are copied into the target run's own artifact storage. `accepted` means queued for delivery, never delivered — the sandbox handoff happens later inside the target's workflow.
  * @summary Send a message to a peer agent run
  */
@@ -3365,6 +3387,21 @@ export const TasksRunsPeersMessageCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot."
         ),
+})
+
+/**
+ * Returns a short-lived URL for an HTTP app running inside this run's sandbox, for clients that show the app in their own view and cannot follow the `preview/` redirect with their credentials. A fresh sandbox access token is minted on every request and is never persisted.
+ * @summary Start a preview session for a task run
+ */
+export const tasksRunsPreviewSessionCreateBodyPortMax = 65535
+
+export const TasksRunsPreviewSessionCreateBody = /* @__PURE__ */ zod.object({
+    port: zod
+        .number()
+        .min(1)
+        .max(tasksRunsPreviewSessionCreateBodyPortMax)
+        .optional()
+        .describe('Exposed port to open. Omit to open the dev stack preview.'),
 })
 
 /**

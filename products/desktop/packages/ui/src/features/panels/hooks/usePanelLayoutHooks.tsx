@@ -1,6 +1,7 @@
 import {
   ChartLineUp,
   ChatCenteredText,
+  Globe,
   PackageIcon,
   Terminal,
 } from "@phosphor-icons/react";
@@ -121,6 +122,8 @@ export function useTabInjection(
             const BlockIcon =
               INJECTED_BLOCK_PRESENTATION[tab.data.block.kind].icon;
             icon = <BlockIcon size={14} />;
+          } else if (tab.data.type === "preview") {
+            icon = <Globe size={14} />;
           } else if (tab.data.type === "autoresearch") {
             icon = <ChartLineUp size={14} />;
           } else if (tab.data.type === "posthog-object") {

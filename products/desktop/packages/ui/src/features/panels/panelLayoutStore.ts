@@ -74,6 +74,10 @@ interface PanelLayoutStore {
       objectKind?: string;
     },
   ) => void;
+  openPreviewTab: (
+    taskId: string,
+    preview: { runId: string; port: number; label: string },
+  ) => void;
   openPostHogObjectTab: (
     taskId: string,
     object: { kind: string; id: string; name: string },
@@ -298,6 +302,27 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
                   runId: artifact.runId,
                   artifactId: artifact.artifactId,
                   objectKind: artifact.objectKind,
+                },
+                "main",
+              ) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      openPreviewTab: (taskId, preview) => {
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreOpenReadonlyTab(
+                layout,
+                `preview-${preview.runId}-${preview.port}`,
+                preview.label,
+                {
+                  type: "preview",
+                  runId: preview.runId,
+                  port: preview.port,
                 },
                 "main",
               ) as Partial<TaskLayout>,

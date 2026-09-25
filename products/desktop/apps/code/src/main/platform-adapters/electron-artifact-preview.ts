@@ -1,5 +1,4 @@
-import path from "node:path";
-import type { BrowserWindow, WebContents, WebPreferences } from "electron";
+import type { WebContents, WebPreferences } from "electron";
 import {
   ARTIFACT_PREVIEW_ARG,
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
@@ -81,21 +80,4 @@ export function lockDownArtifactPreview(guest: WebContents): void {
     },
     (_details, callback) => callback({ cancel: true }),
   );
-}
-
-export function setupArtifactPreviewWebviews(window: BrowserWindow): void {
-  const preloadPath = path.join(__dirname, "preload.js");
-
-  window.webContents.on("will-attach-webview", (event, preferences, params) => {
-    if (!isAllowedArtifactPreview(params.src, params.partition)) {
-      event.preventDefault();
-      log.warn("Blocked an unsupported webview attachment");
-      return;
-    }
-    hardenArtifactPreviewPreferences(preferences, preloadPath);
-  });
-
-  window.webContents.on("did-attach-webview", (_event, guest) => {
-    lockDownArtifactPreview(guest);
-  });
 }

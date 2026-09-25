@@ -74,6 +74,7 @@ import type {
   TaskRun,
   TaskRunArtefact,
   TaskRunArtifact,
+  TaskRunPreviewSession,
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
@@ -4737,6 +4738,33 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async createTaskRunPreviewSession(
+    taskId: string,
+    runId: string,
+    port: number,
+  ): Promise<TaskRunPreviewSession> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/preview_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ port }) },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start task preview session: ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as Partial<TaskRunPreviewSession>;
+    return {
+      outcome: data.outcome ?? "unavailable",
+      url: typeof data.url === "string" ? data.url : null,
+    };
   }
 
   async createTaskRun(

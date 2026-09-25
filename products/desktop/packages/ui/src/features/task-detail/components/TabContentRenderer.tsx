@@ -9,6 +9,7 @@ import type { Tab } from "../../panels/panelTypes";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { PostHogObjectPage } from "../../posthog-objects/PostHogObjectPage";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
+import { TaskPreviewPanel } from "../../task-preview/TaskPreviewPanel";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
 import { ChangesPanel } from "./ChangesPanel";
@@ -84,6 +85,16 @@ export function TabContentRenderer({
           runId={data.runId}
           artifactId={data.artifactId}
           name={tab.label}
+        />
+      );
+
+    case "preview":
+      return (
+        <TaskPreviewPanel
+          taskId={taskId}
+          runId={data.runId}
+          port={data.port}
+          label={tab.label}
         />
       );
 

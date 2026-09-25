@@ -136,6 +136,7 @@ import {
 } from "@posthog/ui/features/settings/devModeClient";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";
 import { TrpcTaskCreationHost } from "@posthog/ui/features/task-detail/taskCreationHostImpl";
+import { TASK_PREVIEW_FRAME_COMPONENT } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
 import {
   SHELL_CLIENT,
   type ShellClient,
@@ -154,6 +155,7 @@ import {
   reviewHost,
 } from "@renderer/features/code-review/reviewHost";
 import { ElectronArtifactHtmlFrame } from "@renderer/platform-adapters/electron-artifact-html-frame";
+import { ElectronTaskPreviewFrame } from "@renderer/platform-adapters/electron-task-preview-frame";
 import {
   taskDeletionHost,
   taskDeletionWorkspaceClient,
@@ -307,6 +309,9 @@ container.bind<ReviewHost>(REVIEW_HOST).toConstantValue(reviewHost);
 container
   .bind(ARTIFACT_HTML_FRAME_COMPONENT)
   .toConstantValue(ElectronArtifactHtmlFrame);
+container
+  .bind(TASK_PREVIEW_FRAME_COMPONENT)
+  .toConstantValue(ElectronTaskPreviewFrame);
 
 // sessions MCP tool renderer slot
 container.bind(MCP_TOOL_BLOCK_COMPONENT).toConstantValue(McpToolBlock);

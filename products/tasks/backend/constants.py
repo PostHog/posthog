@@ -88,6 +88,14 @@ def is_same_run_resume_idle_state(state: Mapping[str, Any] | None) -> bool:
 DEV_STACK_PREVIEW_STATE_KEY = "dev_stack_preview"
 DEV_STACK_PREVIEW_FEATURE_FLAG = "tasks-dev-stack-preview"
 DEV_STACK_PREVIEW_PORT = 8020
+DEV_STACK_PREVIEW_NAME = "PostHog dev stack"
+
+EXPOSED_PORTS_STATE_KEY = "exposed_ports"
+EXPOSED_PORTS_MAX_PER_RUN = 10
+EXPOSED_PORT_NAME_MAX_CHARS = 60
+EXPOSED_PORT_MIN = 1024
+EXPOSED_PORT_MAX = 65535
+EXPOSED_PORT_RESERVED = frozenset({8080, 8181})
 
 
 def get_required_model_flag(model: str | None) -> str | None:

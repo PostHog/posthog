@@ -113,6 +113,7 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunExposePortRequestApi,
     TaskRunLivingArtifactChartRequestApi,
     TaskRunLivingArtifactChartResponseApi,
     TaskRunLivingArtifactCreateRequestApi,
@@ -125,6 +126,8 @@ import type {
     TaskRunPeersResponseApi,
     TaskRunPostHogReferencesRequestApi,
     TaskRunPostHogReferencesResponseApi,
+    TaskRunPreviewSessionRequestApi,
+    TaskRunPreviewSessionResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunResponseApi,
@@ -152,6 +155,7 @@ import type {
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
+    TasksRunsPreviewRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
     TasksRunsStreamTokenRetrieveParams,
@@ -2148,6 +2152,29 @@ export const tasksRunsConnectionTokenRetrieve = async (
     })
 }
 
+export const getTasksRunsExposePortCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/expose_port/`
+}
+
+/**
+ * Register a port where an HTTP app listens inside this run's sandbox, so clients can show it as a preview. Exposing a port again replaces its name. The list belongs to the current sandbox and resets when the run moves to a new sandbox.
+ * @summary Expose a sandbox port for a task run
+ */
+export const tasksRunsExposePortCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunExposePortRequestApi: TaskRunExposePortRequestApi,
+    options?: RequestInit
+): Promise<TaskRunDetailDTOApi> => {
+    return apiMutator<TaskRunDetailDTOApi>(getTasksRunsExposePortCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunExposePortRequestApi),
+    })
+}
+
 export const getTasksRunsPeersRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/peers/`
 }
@@ -2200,23 +2227,64 @@ export const tasksRunsPeersMessageCreate = async (
     )
 }
 
-export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
-    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
+export const getTasksRunsPreviewRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsPreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
 }
 
 /**
- * Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted or returned in a response body. When the run has no preview, or its sandbox has stopped, this renders a short HTML page instead.
- * @summary Open the dev stack preview for a task run
+ * Redirects to an HTTP app running inside this run's sandbox: the PostHog dev stack by default, or the exposed port given in `port`. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted. When the run has no such preview, or its sandbox has stopped, this renders a short HTML page instead.
+ * @summary Open a preview for a task run
  */
 export const tasksRunsPreviewRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
+    params?: TasksRunsPreviewRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id), {
+    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsPreviewSessionCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview_session/`
+}
+
+/**
+ * Returns a short-lived URL for an HTTP app running inside this run's sandbox, for clients that show the app in their own view and cannot follow the `preview/` redirect with their credentials. A fresh sandbox access token is minted on every request and is never persisted.
+ * @summary Start a preview session for a task run
+ */
+export const tasksRunsPreviewSessionCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunPreviewSessionRequestApi?: TaskRunPreviewSessionRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPreviewSessionResponseApi> => {
+    return apiMutator<TaskRunPreviewSessionResponseApi>(getTasksRunsPreviewSessionCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunPreviewSessionRequestApi),
     })
 }
 

@@ -6,6 +6,7 @@ import {
   type TaskRun,
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,
+  type TaskRunExposedPort,
   type TaskRunStatus,
   taskRunStateSchema,
 } from "@posthog/shared/domain-types";
@@ -39,10 +40,11 @@ export type TaskRunArtifactDTO = Omit<
 };
 
 type TaskRunResponseDTO = Partial<
-  Omit<Schemas.TaskRunDetailDTO, "artifacts" | "state">
+  Omit<Schemas.TaskRunDetailDTO, "artifacts" | "state" | "exposed_ports">
 > & {
   id: string;
   artifacts?: Array<TaskRunArtifactDTO> | null;
+  exposed_ports?: unknown;
   state?: unknown;
   team?: number | null;
 };
@@ -189,6 +191,18 @@ export function normalizeTaskRunArtifact(
   };
 }
 
+function normalizeExposedPorts(entries: unknown[]): TaskRunExposedPort[] {
+  return entries.flatMap((entry) => {
+    if (!isRecord(entry) || !Number.isInteger(entry.port)) return [];
+    return [
+      {
+        port: entry.port as number,
+        name: typeof entry.name === "string" ? entry.name : null,
+      },
+    ];
+  });
+}
+
 export function normalizeTaskRunResponse(
   dto: TaskRunResponseDTO,
   context: { teamId: number; taskId?: string },
@@ -217,6 +231,9 @@ export function normalizeTaskRunResponse(
     ...(dto.artifacts == null
       ? {}
       : { artifacts: dto.artifacts.map(normalizeTaskRunArtifact) }),
+    ...(Array.isArray(dto.exposed_ports)
+      ? { exposed_ports: normalizeExposedPorts(dto.exposed_ports) }
+      : {}),
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
     completed_at: dto.completed_at ?? null,

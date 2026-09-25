@@ -47,12 +47,13 @@ from products.tasks.backend.facade.contracts import (
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
+    TaskRunExposedPortDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
-from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES, TaskRunPreviewSessionOutcome
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -475,6 +476,17 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskRunExposedPortSerializer(DataclassSerializer):
+    port = serializers.IntegerField(help_text="Port inside the run's sandbox that serves an HTTP app.")
+    name = serializers.CharField(
+        allow_null=True, required=False, help_text="Short name for the app on this port, set by the agent."
+    )
+
+    class Meta:
+        dataclass = TaskRunExposedPortDTO
+        fields = ["port", "name"]
+
+
 class TaskRunDetailSerializer(DataclassSerializer):
     """Detail response for a task run.
 
@@ -524,6 +536,14 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "access token on every request."
         ),
     )
+    exposed_ports = TaskRunExposedPortSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "HTTP apps that this run's sandbox serves, one entry per port. Open one through the run's "
+            "`preview/` or `preview_session/` endpoint with its port."
+        ),
+    )
     task_summary = serializers.CharField(
         allow_null=True,
         help_text="Latest summary for this task, including a summary inherited from an earlier run.",
@@ -553,6 +573,7 @@ class TaskRunDetailSerializer(DataclassSerializer):
             "completed_at",
             "scheduled_at",
             "preview_available",
+            "exposed_ports",
         ]
 
 
@@ -1218,6 +1239,62 @@ class DesktopAccessResponseSerializer(serializers.Serializer):
 class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
     has_access = serializers.BooleanField(help_text="Whether the current project can use PostHog Desktop.")
     has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
+
+
+class TaskRunExposePortRequestSerializer(serializers.Serializer):
+    port = serializers.IntegerField(
+        min_value=tasks_facade.EXPOSED_PORT_MIN,
+        max_value=tasks_facade.EXPOSED_PORT_MAX,
+        help_text="Port inside the sandbox where an HTTP app listens on all interfaces.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=tasks_facade.EXPOSED_PORT_NAME_MAX_CHARS,
+        trim_whitespace=True,
+        help_text="Short name for the app, shown to the user beside the port.",
+    )
+
+    def validate_port(self, value: int) -> int:
+        if not tasks_facade.is_exposable_port(value):
+            raise serializers.ValidationError("This port is reserved for the sandbox and cannot be exposed.")
+        return value
+
+
+class TaskRunPreviewQuerySerializer(serializers.Serializer):
+    port = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=tasks_facade.EXPOSED_PORT_MAX,
+        help_text="Exposed port to open. Omit to open the dev stack preview.",
+    )
+
+
+class TaskRunPreviewSessionRequestSerializer(serializers.Serializer):
+    port = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=tasks_facade.EXPOSED_PORT_MAX,
+        help_text="Exposed port to open. Omit to open the dev stack preview.",
+    )
+
+
+class TaskRunPreviewSessionResponseSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(
+        choices=TaskRunPreviewSessionOutcome.choices,
+        help_text=(
+            "`ready` when `url` opens the app. `not_ready` when the port is not exposed yet, `ended` when "
+            "the sandbox has stopped, and `unavailable` when the app does not answer."
+        ),
+    )
+    url = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Short-lived URL that opens the app, with its access token. Null unless `outcome` is `ready`. "
+            "Do not store or share it."
+        ),
+    )
 
 
 class TaskRunErrorResponseSerializer(serializers.Serializer):
