@@ -15,7 +15,7 @@ const visibilityOnlyTeamView: AccountViewApi = {
     id: '11111111-2222-4333-8444-555555555555',
     name: 'Restricted team view',
     visibility: 'team',
-    content: createAccountViewContent([{ nodeId: 'usage-one', kind: 'usage', title: 'Usage' }]),
+    content: createAccountViewContent([{ nodeId: 'usage-one', kind: 'usage', span: 12, title: 'Usage' }]),
     text_content: 'Usage',
     version: 1,
     created_by: 2,
@@ -25,6 +25,12 @@ const visibilityOnlyTeamView: AccountViewApi = {
     can_edit: false,
     can_delete: true,
     can_change_visibility: true,
+}
+
+const editableCustomSpanView: AccountViewApi = {
+    ...visibilityOnlyTeamView,
+    content: createAccountViewContent([{ nodeId: 'usage-one', kind: 'usage', span: 7, title: 'Usage' }]),
+    can_edit: true,
 }
 
 jest.mock('../../generated/api', () => ({
@@ -61,6 +67,19 @@ describe('AccountViewEditorModal', () => {
     afterEach(() => {
         cleanup()
         featureFlagLogic.unmount()
+    })
+
+    it('shows the actual value for a stored custom tile span', async () => {
+        mockAccountViewsList.mockResolvedValue([editableCustomSpanView])
+        const logic = accountViewsLogic({ projectId: 1 })
+        logic.mount()
+        render(<AccountViewEditorModal projectId={1} />)
+
+        await waitFor(() => expect(logic.values.views).toEqual([editableCustomSpanView]))
+        act(() => logic.actions.openEditEditor(editableCustomSpanView))
+
+        expect(screen.getByText('Custom (7/12)')).toBeInTheDocument()
+        logic.unmount()
     })
 
     it('allows a visibility-only team view editor to save only the visibility', async () => {

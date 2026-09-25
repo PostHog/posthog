@@ -14,14 +14,24 @@ jest.mock('./AccountViewTile', () => {
     const React = jest.requireActual<typeof import('react')>('react')
 
     return {
-        AccountViewTile: ({ component }: { component: { config?: { searchTerm?: string } } }) => {
+        AccountViewTile: ({
+            component,
+            spanClassName,
+        }: {
+            component: { nodeId: string; config?: { searchTerm?: string } }
+            spanClassName: string
+        }) => {
             const [mountedSearchTerm] = React.useState(component.config?.searchTerm)
-            return React.createElement('span', { 'data-attr': 'mounted-search-term' }, mountedSearchTerm)
+            return React.createElement(
+                'span',
+                { 'data-attr': `account-view-tile-${component.nodeId}`, 'data-span-class': spanClassName },
+                React.createElement('span', { 'data-attr': 'mounted-search-term' }, mountedSearchTerm)
+            )
         },
     }
 })
 
-function createView(searchTerm: string): AccountViewApi {
+function createView(searchTerm: string, span = 12): AccountViewApi {
     return {
         id: '11111111-2222-4333-8444-555555555555',
         name: 'Account view',
@@ -30,6 +40,7 @@ function createView(searchTerm: string): AccountViewApi {
             {
                 nodeId: 'tile-1',
                 kind: 'notes',
+                span,
                 config: { searchTerm },
             },
         ]),
@@ -55,6 +66,27 @@ describe('AccountViewRenderer', () => {
     afterEach(() => {
         cleanup()
         featureFlagLogic.unmount()
+    })
+
+    it('renders a tile in a responsive twelve-column grid', () => {
+        const { container } = render(
+            <AccountViewRenderer
+                view={createView('custom span', 7)}
+                projectId={1}
+                accountId="account-1"
+                externalId="external-account-1"
+            />
+        )
+
+        expect(container.querySelector('[data-attr="account-view-content"]')).toHaveClass(
+            '@container/account-view',
+            'grid',
+            'grid-cols-12'
+        )
+        expect(container.querySelector('[data-attr="account-view-tile-tile-1"]')).toHaveAttribute(
+            'data-span-class',
+            '@min-[48rem]/account-view:col-span-7'
+        )
     })
 
     it('remounts a tile only after a failed save reloads persisted config at the same version', () => {

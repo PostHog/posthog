@@ -199,6 +199,13 @@ export interface accountViewsLogicActions {
     setConfigureOpen: (open: boolean) => {
         open: boolean
     }
+    setEditorComponentSpan: (
+        nodeId: string,
+        span: number
+    ) => {
+        nodeId: string
+        span: number
+    }
     setEditorConflict: (conflict: boolean) => {
         conflict: boolean
     }
@@ -321,6 +328,7 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
         deleteViewFailure: true,
         deleteViewSuccess: (viewId: string) => ({ viewId }),
         setConfigureOpen: (open: boolean) => ({ open }),
+        setEditorComponentSpan: (nodeId: string, span: number) => ({ nodeId, span }),
         openConfigure: (config: AccountDetailTabsConfigApi | null) => ({ config }),
         setConfigDraft: (config: AccountDetailTabsConfigApi) => ({ config }),
         saveConfig: true,
@@ -458,6 +466,12 @@ export const accountViewsLogic = kea<accountViewsLogicType>([
                     components.splice(toIndex, 0, moved)
                     return { ...state, components }
                 },
+                setEditorComponentSpan: (state, { nodeId, span }: { nodeId: string; span: number }) => ({
+                    ...state,
+                    components: state.components.map((component) =>
+                        component.nodeId === nodeId ? { ...component, span } : component
+                    ),
+                }),
             },
         ],
         editorSaving: [
