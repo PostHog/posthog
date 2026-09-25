@@ -8,6 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import type { ScoutChatRequest } from '../../../logics/scoutFleetLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { scoutNewModalLogic } from '../../../logics/scoutNewModalLogic'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 
 /** Matches `SCOUT_AUTHOR_USER_PROMPT_MAX_LENGTH` on the chat endpoint. */
@@ -55,7 +56,8 @@ export interface ScoutChatModalProps {
 export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: ScoutChatModalProps): JSX.Element {
     const [prompt, setPrompt] = useState(initialPrompt)
     const [templateId, setTemplateId] = useState<string | null>(null)
-    const [showEmptyPromptError, setShowEmptyPromptError] = useState(false)
+    const { emptyPromptErrorShown } = useValues(scoutNewModalLogic)
+    const { showEmptyPromptError } = useActions(scoutNewModalLogic)
     const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const { startScoutChatTask } = useActions(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
@@ -73,7 +75,7 @@ export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: 
         }
         // An empty prompt shows an error on the field. A disabled button only explains itself on hover.
         if (!trimmedPrompt) {
-            setShowEmptyPromptError(true)
+            showEmptyPromptError()
             return
         }
         const request: ScoutChatRequest = { userPrompt: trimmedPrompt, templateId }
@@ -123,7 +125,7 @@ export function ScoutChatModal({ initialPrompt = '', onClose, onSwitchToForm }: 
             <div className="flex flex-col gap-3">
                 <LemonField.Pure
                     error={
-                        showEmptyPromptError && !trimmedPrompt
+                        emptyPromptErrorShown && !trimmedPrompt
                             ? 'Describe what the scout should watch, or pick a starter below.'
                             : undefined
                     }
