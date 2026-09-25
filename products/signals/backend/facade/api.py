@@ -1178,9 +1178,9 @@ def repair_report_actionability_cache(
 def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     """Whether to offer the user scout creation on the team's project.
 
-    The user needs access to the requested project, as the create endpoint's permission checks. Two
-    more checks run on the canonical project: it runs scouts (enrollment in the `signals-scout` flag
-    payload), and the user passes the scout create endpoint's own check (editor access to skills).
+    The create endpoint's permission checks run on the requested team: project access and editor
+    access to skills. Two more checks run on the canonical project: it runs scouts (enrollment in the
+    `signals-scout` flag payload), and the user passes the endpoint's own check (editor access to skills).
     """
     from products.signals.backend.scout_harness.team_limits import (
         team_is_enrolled,  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
@@ -1190,7 +1190,10 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     user = User.objects.filter(id=user_id, is_active=True).first()
     if team is None or user is None:
         return False
-    if not UserAccessControl(user=user, team=team).has_project_access:
+    requested_team_access = UserAccessControl(user=user, team=team)
+    if not requested_team_access.has_project_access:
+        return False
+    if not requested_team_access.check_access_level_for_resource("llm_skill", "editor"):
         return False
     canonical_team = team.parent_team or team
     if not team_is_enrolled(canonical_team.id):

@@ -37,11 +37,14 @@ class TestScoutCreationAvailable(BaseTest):
             user_access_control.return_value.check_access_level_for_resource.return_value = False
             assert scout_creation_available(team_id=self.team.id, user_id=self.user.id) is False
 
-    def test_requires_access_to_the_requested_project(self):
+    @parameterized.expand([("project_access", "has_project_access"), ("skill_editor_access", "skill_editor")])
+    def test_requires_the_create_endpoint_access_on_the_requested_team(self, _name: str, denied: str):
         with (
             patch(f"{TEAM_LIMITS}._read_flag_payload", return_value={"guaranteed_team_ids": ["*"]}),
             patch(f"{FACADE}.UserAccessControl") as user_access_control,
         ):
-            user_access_control.return_value.has_project_access = False
+            access = user_access_control.return_value
+            access.has_project_access = denied != "has_project_access"
+            access.check_access_level_for_resource.return_value = denied != "skill_editor"
             assert scout_creation_available(team_id=self.team.id, user_id=self.user.id) is False
         assert user_access_control.call_args.kwargs["team"].id == self.team.id
