@@ -112,6 +112,17 @@ def reports_with_active_claim(*, team_id: int, actor: ArtefactAttribution | None
     return Q(id__in=claims.values("report_id")) | Q(id__in=legacy.values("report_id"))
 
 
+def reports_owned_by_user(*, team_id: int, user_id: int) -> Q:
+    task_ids = tasks_facade.task_ids_created_by_user_subquery(team_id=team_id, user_id=user_id)
+    claims = active_claims(team_id=team_id).filter(
+        Q(created_by_id=user_id) | Q(created_by_id__isnull=True, task_id__in=task_ids)
+    )
+    legacy = legacy_claims(team_id=team_id).filter(
+        Q(actor_user_id=user_id) | Q(actor_user_id__isnull=True, actor_task_id__in=task_ids)
+    )
+    return Q(id__in=claims.values("report_id")) | Q(id__in=legacy.values("report_id"))
+
+
 def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
     return (
         claim.actor_kind == actor.kind

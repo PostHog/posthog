@@ -112,6 +112,8 @@ ActivityScope = Literal[
     "SignalReport",
     "SignalScoutConfig",
     "SignalTeamConfig",
+    "SignalProductDomain",
+    "SignalReportRouting",
     "StreamlitApp",
     "Metric",
     "TableCertification",

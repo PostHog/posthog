@@ -10,6 +10,15 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
+
+@frozen
+class RoutingRole:
+    id: UUID
+    name: str
+    member_user_ids: frozenset[int]
+
 
 class PropertyAccessLevel(str, Enum):
     """Effective access level for a property."""

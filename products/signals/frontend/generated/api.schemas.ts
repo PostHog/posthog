@@ -87,6 +87,108 @@ export interface SignalTeamConfigApi {
     readonly updated_at: string
 }
 
+export interface SignalProductDomainApi {
+    /** Stable product-domain ID. Renaming preserves personal rules. */
+    readonly id: string
+    /**
+     * Name of the capability that needs attention.
+     * @maxLength 100
+     */
+    name: string
+    /**
+     * Responsibility boundaries, including examples and exclusions.
+     * @maxLength 4000
+     */
+    description: string
+    /**
+     * Role representing the current responsible team, in this project's organization.
+     * @nullable
+     */
+    owning_role_id?: string | null
+    /**
+     * Responsible team's current display name.
+     * @nullable
+     */
+    readonly owning_role_name: string | null
+    /**
+     * Optional owner/repository used to ground this domain's code locations.
+     * @maxLength 200
+     */
+    repository?: string
+    /**
+     * Optional repository paths or patterns supporting domain classification.
+     * @maxItems 100
+     * @items.maxLength 500
+     */
+    code_paths?: string[]
+    /** Archived domains retain routing history and preferences. */
+    archived?: boolean
+    /** Definition revision used to detect stale routing and previews. */
+    readonly revision: number
+    /** Repository import provenance, last refresh, and fields preserved after human edits. */
+    readonly import_state: unknown
+}
+
+export interface PaginatedSignalProductDomainListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalProductDomainApi[]
+}
+
+export interface PatchedSignalProductDomainApi {
+    /** Stable product-domain ID. Renaming preserves personal rules. */
+    readonly id?: string
+    /**
+     * Name of the capability that needs attention.
+     * @maxLength 100
+     */
+    name?: string
+    /**
+     * Responsibility boundaries, including examples and exclusions.
+     * @maxLength 4000
+     */
+    description?: string
+    /**
+     * Role representing the current responsible team, in this project's organization.
+     * @nullable
+     */
+    owning_role_id?: string | null
+    /**
+     * Responsible team's current display name.
+     * @nullable
+     */
+    readonly owning_role_name?: string | null
+    /**
+     * Optional owner/repository used to ground this domain's code locations.
+     * @maxLength 200
+     */
+    repository?: string
+    /**
+     * Optional repository paths or patterns supporting domain classification.
+     * @maxItems 100
+     * @items.maxLength 500
+     */
+    code_paths?: string[]
+    /** Archived domains retain routing history and preferences. */
+    archived?: boolean
+    /** Definition revision used to detect stale routing and previews. */
+    readonly revision?: number
+    /** Repository import provenance, last refresh, and fields preserved after human edits. */
+    readonly import_state?: unknown
+}
+
+export interface SignalRoutingRoleApi {
+    /** Organization role ID representing a responsible team. */
+    id: string
+    /** Team display name. */
+    name: string
+    /** Whether the current user belongs to this team and can access the project. */
+    is_member: boolean
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -114,6 +216,54 @@ export interface PauseResponseApi {
     status: string
     /** The timestamp the pipeline is paused until. */
     paused_until: string
+}
+
+/**
+ * * `human` - Human correction
+ * * `agent` - Report classification
+ * * `code` - Repository ownership
+ */
+export type SignalReportRoutingSourceEnumApi =
+    (typeof SignalReportRoutingSourceEnumApi)[keyof typeof SignalReportRoutingSourceEnumApi]
+
+export const SignalReportRoutingSourceEnumApi = {
+    Human: 'human',
+    Agent: 'agent',
+    Code: 'code',
+} as const
+
+export interface SignalReportRoutingApi {
+    /** Primary product domain; null when unclassified. */
+    readonly domain: SignalProductDomainApi | null
+    /**
+     * Persistent responsible team assignment.
+     * @nullable
+     */
+    readonly owning_role_id: string | null
+    /**
+     * Responsible team's current name.
+     * @nullable
+     */
+    readonly owning_role_name: string | null
+    /** Where this routing decision came from.
+     *
+     * * `human` - Human correction
+     * * `agent` - Report classification
+     * * `code` - Repository ownership */
+    readonly source: SignalReportRoutingSourceEnumApi
+    /** Evidence supporting the routing decision. */
+    readonly explanation: string
+    /**
+     * Classifier score, not calibrated accuracy.
+     * @nullable
+     */
+    readonly confidence: number | null
+    /** Classifier or definition version used for the decision. */
+    readonly classifier_version: string
+    /** Whether automatic classification must preserve this correction. */
+    readonly human_override: boolean
+    /** Only accepted primary domains affect personal domain rules. */
+    readonly accepted: boolean
 }
 
 /**
@@ -533,6 +683,8 @@ export interface SignalReportListApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** Product domain, responsible team, and the evidence used for routing. */
+    readonly routing: SignalReportRoutingApi | null
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -719,6 +871,8 @@ export interface SignalReportApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** Product domain, responsible team, and the evidence used for routing. */
+    readonly routing: SignalReportRoutingApi | null
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -2839,6 +2993,114 @@ export interface PaginatedSignalReportCheckListApi {
     results: SignalReportCheckApi[]
 }
 
+/**
+ * * `agent` - Research agent
+ * * `code` - Code paths
+ * * `jev` - Jev
+ */
+export type SignalRoutingProposalMethodEnumApi =
+    (typeof SignalRoutingProposalMethodEnumApi)[keyof typeof SignalRoutingProposalMethodEnumApi]
+
+export const SignalRoutingProposalMethodEnumApi = {
+    Agent: 'agent',
+    Code: 'code',
+    Jev: 'jev',
+} as const
+
+export interface SignalRoutingProposalApi {
+    readonly id: string
+    readonly domain: SignalProductDomainApi | null
+    /** @nullable */
+    readonly domain_revision: number | null
+    readonly report_revision: string
+    readonly method: SignalRoutingProposalMethodEnumApi
+    readonly version: string
+    /** @nullable */
+    readonly confidence: number | null
+    readonly explanation: string
+    readonly evidence: unknown
+    readonly updated_at: string
+}
+
+export interface SignalPersonalCorrectionApi {
+    /** Whether an explicit per-report Not me correction is active for the current user. */
+    excluded: boolean
+    /** Whether this user still owns active work on the report; removing a suggestion does not release it. */
+    has_active_claim: boolean
+}
+
+export interface SignalReportRoutingStateApi {
+    /** Current accepted or proposed domain/team routing. */
+    routing: SignalReportRoutingApi | null
+    /** Shadow classifications for review. They do not change accepted ownership. */
+    readonly proposals: readonly SignalRoutingProposalApi[]
+    /** The current user's correction and active ownership. */
+    personal: SignalPersonalCorrectionApi
+}
+
+export interface SignalRoutingCorrectionApi {
+    /**
+     * Primary product domain in this project, or null to leave it unclassified.
+     * @nullable
+     */
+    domain_id: string | null
+    /**
+     * Responsible team override. When omitted, use the domain's current team.
+     * @nullable
+     */
+    owning_role_id?: string | null
+    /**
+     * Why this domain or team owns the work.
+     * @maxLength 500
+     */
+    explanation?: string
+}
+
+export interface SignalRoutingProposalWriteApi {
+    /**
+     * Proposed primary domain, or null to abstain.
+     * @nullable
+     */
+    domain_id: string | null
+    /**
+     * Revision of the domain definition used by this classifier.
+     * @minimum 1
+     * @nullable
+     */
+    domain_revision?: number | null
+    /** Report updated_at value on which this proposal is based. */
+    report_revision: string
+    /** Classifier under evaluation.
+     *
+     * * `agent` - Research agent
+     * * `code` - Code paths
+     * * `jev` - Jev */
+    method: SignalRoutingProposalMethodEnumApi
+    /**
+     * Model/prompt version identifying this comparison.
+     * @maxLength 100
+     */
+    version: string
+    /**
+     * Score for evaluation, never a routing authorization.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence?: number | null
+    /**
+     * Why this capability needs fixing, or why classification abstained.
+     * @maxLength 500
+     */
+    explanation: string
+    /**
+     * Bounded evidence references, not raw customer content.
+     * @maxItems 10
+     * @items.maxLength 500
+     */
+    evidence?: string[]
+}
+
 export interface SignalReportBulkStateRequestApi {
     /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
      *
@@ -2980,6 +3242,160 @@ export interface SignalReportRefundSummaryResponseApi {
     period_billable_credits: number
     /** Whether autonomous PR generation is currently paused for this project because the organization is over its self-driving credits quota. Read from the quota limiter, so it reflects the same state the pipeline gates enforce. */
     quota_limited: boolean
+}
+
+/**
+ * * `preparing` - Preparing preview
+ * * `preview` - Preview
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `complete` - Complete
+ * * `failed` - Failed
+ * * `undoing` - Undoing
+ * * `undone` - Undone
+ * * `cancelled` - Rule changed
+ */
+export type SignalRoutingBatchStatusEnumApi =
+    (typeof SignalRoutingBatchStatusEnumApi)[keyof typeof SignalRoutingBatchStatusEnumApi]
+
+export const SignalRoutingBatchStatusEnumApi = {
+    Preparing: 'preparing',
+    Preview: 'preview',
+    Pending: 'pending',
+    Running: 'running',
+    Complete: 'complete',
+    Failed: 'failed',
+    Undoing: 'undoing',
+    Undone: 'undone',
+    Cancelled: 'cancelled',
+} as const
+
+export interface SignalRoutingBatchApi {
+    /** Operation ID used to apply, inspect, retry, or undo this preview. */
+    readonly id: string
+    /** The product domain matched by this operation. */
+    readonly domain_id: string
+    /** Preview, cleanup, or undo progress.
+     *
+     * * `preparing` - Preparing preview
+     * * `preview` - Preview
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `complete` - Complete
+     * * `failed` - Failed
+     * * `undoing` - Undoing
+     * * `undone` - Undone
+     * * `cancelled` - Rule changed */
+    readonly status: SignalRoutingBatchStatusEnumApi
+    /** Number of report suggestions included in the saved preview. */
+    readonly total: number
+    /** Suggestions removed by this operation. */
+    readonly changed: number
+    /** Reports preserved because the user has taken ownership. */
+    readonly skipped_claims: number
+    /** Reports skipped because subsequent edits or rules superseded the operation. */
+    readonly skipped_changes: number
+    /** Stable failure category, empty when no failure occurred. */
+    readonly error: string
+    /** When the preview snapshot was created. */
+    readonly created_at: string
+    /** Most recent operation update. */
+    readonly updated_at: string
+}
+
+export interface PaginatedSignalRoutingBatchListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalRoutingBatchApi[]
+}
+
+/**
+ * * `pending` - Pending
+ * * `removed` - Removed
+ * * `claimed` - Active ownership
+ * * `changed` - Changed since preview
+ * * `restored` - Restored
+ */
+export type SignalRoutingBatchChangeStatusEnumApi =
+    (typeof SignalRoutingBatchChangeStatusEnumApi)[keyof typeof SignalRoutingBatchChangeStatusEnumApi]
+
+export const SignalRoutingBatchChangeStatusEnumApi = {
+    Pending: 'pending',
+    Removed: 'removed',
+    Claimed: 'claimed',
+    Changed: 'changed',
+    Restored: 'restored',
+} as const
+
+export interface SignalRoutingBatchReportApi {
+    /** Report included in this preview. */
+    readonly report_id: string
+    /** Current report title. */
+    readonly title: string
+    /** Outcome for this report in the operation.
+     *
+     * * `pending` - Pending
+     * * `removed` - Removed
+     * * `claimed` - Active ownership
+     * * `changed` - Changed since preview
+     * * `restored` - Restored */
+    readonly status: SignalRoutingBatchChangeStatusEnumApi
+    /** Whether the preference owner currently owns active work on this report. */
+    readonly has_active_claim: boolean
+}
+
+export interface PaginatedSignalRoutingBatchReportListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalRoutingBatchReportApi[]
+}
+
+export interface SignalDomainPreferenceApi {
+    /** Personal routing preference ID. */
+    readonly id: string
+    /** The domain this rule applies to. */
+    readonly domain: SignalProductDomainApi
+    /** Whether to exclude this user from automatic suggestions for the domain. */
+    readonly excluded: boolean
+    /** Preference version; older cleanup operations stop after a change. */
+    readonly revision: number
+    /** When this preference last changed. */
+    readonly updated_at: string
+}
+
+export interface PaginatedSignalDomainPreferenceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalDomainPreferenceApi[]
+}
+
+export interface SignalDomainPreviewApi {
+    /** Domain whose existing suggestions should be previewed for removal. */
+    domain_id: string
+}
+
+export interface SignalDomainPreferenceWriteApi {
+    /** Product domain in this project. */
+    domain_id: string
+    /** Enable or disable this personal rule. Enabling here affects future routing without a backlog operation. */
+    excluded: boolean
+}
+
+export interface SignalRoutingSuggestionApi {
+    readonly domain: SignalProductDomainApi
+    /** Distinct self-removals from current reports in the last 30 days. */
+    readonly removals: number
+    /** Evidence supporting a suggestion, never an automatically saved rule. */
+    readonly explanation: string
 }
 
 export interface LLMSkillFileInputApi {
@@ -6090,6 +6506,17 @@ export interface SignalUserAutonomyConfigCreateApi {
     github_open_pull_request_ready?: boolean | null
 }
 
+export type SignalsDomainsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -6123,6 +6550,10 @@ export type SignalsReportsListParams = {
      */
     count_only?: boolean
     /**
+     * Accepted product domain ID used when scope=domain.
+     */
+    domain_id?: string
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
@@ -6143,11 +6574,15 @@ export type SignalsReportsListParams = {
      */
     ordering?: string
     /**
+     * Responsible team ID used when scope=team.
+     */
+    owning_role_id?: string
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string
     /**
-     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     * Inbox scope: for_me, entire_project, teammate, team, domain, or unclassified. Use teammate_uuid, owning_role_id, or domain_id for the corresponding scope.
      */
     scope?: string
     /**
@@ -6302,6 +6737,39 @@ export type SignalsReportsPrCiStatusesParams = {
      * Comma-separated report UUIDs to resolve CI state for, at most 100 per request.
      */
     report_ids: string
+}
+
+export type SignalsRoutingBatchesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SignalsRoutingBatchesReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type SignalsRoutingPreferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type SignalsScoutConfigListParams = {

@@ -40,6 +40,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.ownership import ReviewerRoutingPolicy, eligible_reviewer_users
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
@@ -232,6 +233,7 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
             user = entry.get("user") if isinstance(entry, dict) else None
             if isinstance(user, dict) and user.get("id"):
                 resolved_user_ids.add(int(user["id"]))
+    resolved_user_ids -= ReviewerRoutingPolicy(team_id=report.team_id, report_id=report.id).excluded_users()
     return set(report.team.all_users_with_access().filter(id__in=resolved_user_ids).values_list("id", flat=True))
 
 
@@ -874,6 +876,7 @@ def _resolve_added_reviewer_user_ids(
         *(resolve_org_users_by_uuid(report.team_id, user_uuids).values() if user_uuids else []),
     ]
     user_ids = {user.id for user in resolved_users if user.id != exclude_user_id}
+    user_ids &= {user.id for user in eligible_reviewer_users(team_id=report.team_id, report_id=report.id)}
     if not user_ids:
         return set()
     # Org membership alone isn't enough: on a private project an org member without project

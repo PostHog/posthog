@@ -120,6 +120,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.ownership import ReviewerRoutingPolicy, enforce_current_reviewers
 from products.signals.backend.pull_requests import import_report_pull_requests
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.repo_corrections import sanitized_repository
@@ -129,6 +130,7 @@ from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
     get_active_claims,
+    reports_owned_by_user,
     reports_with_active_claim,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -1053,7 +1055,7 @@ class SignalReportViewSet(
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
-    queryset = SignalReport.objects.all()
+    queryset = SignalReport.objects.select_related("routing__domain__owning_role", "routing__owning_role")
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
     _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
@@ -1459,16 +1461,36 @@ class SignalReportViewSet(
         scope = self.request.query_params.get("scope")
         if not scope or scope == "entire_project":
             return queryset
+        if scope == "unclassified":
+            return queryset.filter(
+                Q(routing__isnull=True) | Q(routing__accepted=False) | Q(routing__domain_id__isnull=True)
+            )
+        if scope in ("team", "domain"):
+            parameter = "owning_role_id" if scope == "team" else "domain_id"
+            try:
+                identifier = uuid.UUID(self.request.query_params.get(parameter, ""))
+            except ValueError:
+                raise serializers.ValidationError({parameter: "Choose a valid team or product domain."})
+            if scope == "team":
+                return queryset.filter(routing__owning_role_id=identifier)
+            return queryset.filter(routing__domain_id=identifier, routing__accepted=True)
         if scope == "for_me":
             user = cast(User, self.request.user)
-            return self._filter_signal_reports_by_suggested_reviewers(queryset, [str(user.uuid)])
+            suggestions = self._filter_signal_reports_by_suggested_reviewers(queryset, [str(user.uuid)]).exclude(
+                ReviewerRoutingPolicy.excluded_reports_for(team_id=self.team.id, user=user)
+            )
+            return queryset.filter(
+                Q(id__in=suggestions.values("id")) | reports_owned_by_user(team_id=self.team.id, user_id=user.id)
+            )
         if scope == "teammate":
             teammate_uuid = (self.request.query_params.get("teammate_uuid") or "").strip()
             if not teammate_uuid:
                 raise serializers.ValidationError({"teammate_uuid": "This field is required when scope is teammate."})
             return self._filter_signal_reports_by_suggested_reviewers(queryset, [teammate_uuid])
         raise serializers.ValidationError(
-            {"scope": f"Invalid value: {scope!r}. Allowed: for_me, entire_project, teammate."}
+            {
+                "scope": f"Invalid value: {scope!r}. Allowed: for_me, entire_project, teammate, team, domain, unclassified."
+            }
         )
 
     def _apply_signal_report_task_filter(self, queryset):
@@ -1721,6 +1743,7 @@ class SignalReportViewSet(
         )
         return queryset.annotate(
             is_suggested_reviewer=Case(
+                When(ReviewerRoutingPolicy.excluded_reports_for(team_id=self.team.id, user=user), then=Value(False)),
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
                 When(status=SignalReport.Status.FAILED, then=Value(False)),
                 When(names_the_user, then=Value(True)),
@@ -2067,7 +2090,24 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description=("Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate."),
+                description=(
+                    "Inbox scope: for_me, entire_project, teammate, team, domain, or unclassified. "
+                    "Use teammate_uuid, owning_role_id, or domain_id for the corresponding scope."
+                ),
+            ),
+            OpenApiParameter(
+                name="owning_role_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Responsible team ID used when scope=team.",
+            ),
+            OpenApiParameter(
+                name="domain_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Accepted product domain ID used when scope=domain.",
             ),
             OpenApiParameter(
                 name="teammate_uuid",
@@ -4347,6 +4387,37 @@ def append_suggested_reviewers(
                 }
             )
 
+        policy = ReviewerRoutingPolicy(team_id=team.id, report_id=report_id)
+        policy.lock_domain()
+        if not is_impersonated_session(request) and resolve_request_attribution(request, team.id).kind == "user":
+            next_index = ReviewerPayloadIndex.build(new_content)
+            policy.record_self_correction(
+                actor=actor,
+                was_suggested=prior_index.get(user_uuid=str(actor.uuid), github_login=actor.get_github_login())
+                is not None,
+                is_suggested=next_index.get(user_uuid=str(actor.uuid), github_login=actor.get_github_login())
+                is not None,
+            )
+        requested_reviewers = SuggestedReviewers.model_validate(new_content)
+        allowed_reviewers = policy.filter(requested_reviewers)
+        newly_added = SuggestedReviewers(
+            root=[
+                entry
+                for entry in requested_reviewers.root
+                if prior_index.get(user_uuid=entry.user_uuid, github_login=entry.github_login) is None
+            ]
+        )
+        if len(policy.filter(newly_added).root) != len(newly_added.root):
+            raise ReviewerWriteError(
+                "A reviewer has excluded this report or product domain. They can update their routing or take ownership."
+            )
+        new_content = allowed_reviewers.model_dump(mode="json")
+        matched_prior_ids = {
+            id(prior)
+            for entry in allowed_reviewers.root
+            if (prior := prior_index.get(user_uuid=entry.user_uuid, github_login=entry.github_login)) is not None
+        }
+
         # Append a new status row rather than mutating in place: a human reviewer edit becomes a
         # point-in-time entry in the work log, and latest-wins keeps it current. Appending a
         # reviewers status also re-evaluates auto-start (handled in `append_status`, on commit).
@@ -4860,6 +4931,7 @@ class SignalReportArtefactViewSet(
             except ArtefactContentValidationError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, SuggestedReviewers):
+            parsed_content = SuggestedReviewers.model_validate_json(artefact.content)
             # on_commit so a rolled-back write emits nothing, matching every other reviewer write path.
             transaction.on_commit(
                 partial(
@@ -5003,11 +5075,16 @@ class SignalReportArtefactViewSet(
             )
         was_reviewers = artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         report_id = str(artefact.report_id)
-        artefact.delete()
-        if was_reviewers:
-            # Deleting the latest reviewers row reverts the canonical set to the previous row (or
-            # none) — re-emit so the latest event per report tracks the surviving state.
-            transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
+        with transaction.atomic():
+            SignalReport.objects.select_for_update().get(team_id=self.team.id, id=report_id)
+            artefact.delete()
+            if was_reviewers:
+                enforce_current_reviewers(
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    attribution=resolve_request_attribution(request, self.team.id),
+                )
+                transaction.on_commit(partial(self._capture_canonical_reviewer_state, report_id))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(

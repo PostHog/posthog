@@ -35,6 +35,7 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
     SignalFinding,
     StatusArtefactContent,
+    SuggestedReviewers,
     TaskRunArtefact,
     artefact_type_for,
     parse_artefact_content,
@@ -275,6 +276,143 @@ class InvalidStatusTransition(Exception):
         self.from_status = from_status
         self.to_status = to_status
         super().__init__(f"Cannot transition from {from_status} to {to_status}")
+
+
+class SignalProductDomain(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    owning_role = models.ForeignKey("ee.Role", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    repository = models.CharField(max_length=200, blank=True)
+    code_paths = models.JSONField(default=list, blank=True)
+    import_state = models.JSONField(default=dict, blank=True)
+    archived = models.BooleanField(default=False)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "name"], name="signals_domain_team_name")]
+
+
+class SignalReportRouting(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
+    class Source(models.TextChoices):
+        HUMAN = "human", "Human correction"
+        AGENT = "agent", "Report classification"
+        CODE = "code", "Repository ownership"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.OneToOneField("SignalReport", on_delete=models.CASCADE, related_name="routing")
+    domain = models.ForeignKey(
+        SignalProductDomain, on_delete=models.SET_NULL, null=True, blank=True, related_name="reports"
+    )
+    owning_role = models.ForeignKey("ee.Role", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    source = models.CharField(max_length=10, choices=Source)
+    explanation = models.CharField(max_length=500, blank=True)
+    confidence = models.FloatField(null=True, blank=True)
+    classifier_version = models.CharField(max_length=100, blank=True)
+    domain_revision = models.PositiveIntegerField(null=True, blank=True)
+    human_override = models.BooleanField(default=False)
+    accepted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class SignalRoutingProposal(TeamScopedRootMixin, UUIDModel):
+    class Method(models.TextChoices):
+        AGENT = "agent", "Research agent"
+        CODE = "code", "Code paths"
+        JEV = "jev", "Jev"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey("SignalReport", on_delete=models.CASCADE, related_name="routing_proposals")
+    domain = models.ForeignKey(SignalProductDomain, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    method = models.CharField(max_length=10, choices=Method)
+    version = models.CharField(max_length=100)
+    domain_revision = models.PositiveIntegerField(null=True, blank=True)
+    report_revision = models.DateTimeField()
+    confidence = models.FloatField(null=True, blank=True)
+    explanation = models.CharField(max_length=500, blank=True)
+    evidence = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["report", "method"], name="signals_routing_proposal_method")]
+
+
+class SignalReviewerExclusion(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey("SignalReport", on_delete=models.CASCADE, related_name="reviewer_exclusions")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    github_login = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["report", "user"], name="signals_report_reviewer_exclusion")]
+
+
+class SignalDomainPreference(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    domain = models.ForeignKey(SignalProductDomain, on_delete=models.CASCADE, related_name="preferences")
+    excluded = models.BooleanField(default=True)
+    github_login = models.CharField(max_length=200, blank=True)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["team", "user", "domain"], name="signals_domain_preference")]
+
+
+class SignalRoutingBatch(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        PREPARING = "preparing", "Preparing preview"
+        PREVIEW = "preview", "Preview"
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETE = "complete", "Complete"
+        FAILED = "failed", "Failed"
+        UNDOING = "undoing", "Undoing"
+        UNDONE = "undone", "Undone"
+        CANCELLED = "cancelled", "Rule changed"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    preference = models.ForeignKey(SignalDomainPreference, on_delete=models.CASCADE, related_name="batches")
+    status = models.CharField(max_length=10, choices=Status, default=Status.PREVIEW)
+    preference_revision = models.PositiveIntegerField(default=1)
+    domain_revision = models.PositiveIntegerField(default=1)
+    previous_excluded = models.BooleanField(default=False)
+    undo_requested = models.BooleanField(default=False)
+    total = models.PositiveIntegerField(default=0)
+    changed = models.PositiveIntegerField(default=0)
+    skipped_claims = models.PositiveIntegerField(default=0)
+    skipped_changes = models.PositiveIntegerField(default=0)
+    error = models.CharField(max_length=200, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class SignalRoutingBatchChange(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        REMOVED = "removed", "Removed"
+        CLAIMED = "claimed", "Active ownership"
+        CHANGED = "changed", "Changed since preview"
+        RESTORED = "restored", "Restored"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    batch = models.ForeignKey(SignalRoutingBatch, on_delete=models.CASCADE, related_name="changes")
+    report = models.ForeignKey("SignalReport", on_delete=models.CASCADE, related_name="routing_changes")
+    reviewer = models.JSONField()
+    expected_artefact_id = models.UUIDField()
+    removal_artefact_id = models.UUIDField(null=True, blank=True)
+    status = models.CharField(max_length=10, choices=Status, default=Status.PENDING)
+    undone = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["batch", "report"], name="signals_routing_batch_report")]
+        indexes = [models.Index(fields=["batch", "status"], name="signals_routing_change_state")]
 
 
 class SignalReport(UUIDModel):
@@ -1447,18 +1585,28 @@ class SignalReportArtefact(UUIDModel):
             ).exists()
         ):
             raise ArtefactContentValidationError("Claim must belong to this report and team.")
-        return cls.objects.create(
-            team_id=team_id,
-            report_id=report_id,
-            type=artefact_type_for(content),
-            content=content.model_dump_json(),
-            actor_kind=attribution.kind,
-            actor_agent=attribution.agent_name,
-            created_by_id=attribution.user_id,
-            task_id=attribution.task_id,
-            claim_id=claim_id,
-            channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
-        )
+        with ExitStack() as guard:
+            if isinstance(content, SuggestedReviewers):
+                # The policy imports these models; defer here to avoid a circular import.
+                from products.signals.backend.ownership import ReviewerRoutingPolicy
+
+                guard.enter_context(transaction.atomic())
+                SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+                policy = ReviewerRoutingPolicy(team_id=team_id, report_id=report_id)
+                policy.lock_domain()
+                content = policy.filter(content, automatic=attribution.kind != "user")
+            return cls.objects.create(
+                team_id=team_id,
+                report_id=report_id,
+                type=artefact_type_for(content),
+                content=content.model_dump_json(),
+                actor_kind=attribution.kind,
+                actor_agent=attribution.agent_name,
+                created_by_id=attribution.user_id,
+                task_id=attribution.task_id,
+                claim_id=claim_id,
+                channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
+            )
 
     @classmethod
     def append_status(
@@ -1783,6 +1931,14 @@ class SignalReportArtefact(UUIDModel):
                     "task_run content.product and content.type record what ran and cannot be changed by editing"
                 )
         with ExitStack() as guard:
+            if isinstance(parsed, SuggestedReviewers):
+                from products.signals.backend.ownership import ReviewerRoutingPolicy
+
+                guard.enter_context(transaction.atomic())
+                SignalReport.objects.select_for_update().get(team_id=self.team_id, id=self.report_id)
+                policy = ReviewerRoutingPolicy(team_id=self.team_id, report_id=self.report_id)
+                policy.lock_domain()
+                parsed = policy.filter(parsed, automatic=self.actor_kind != "user")
             if isinstance(parsed, ReportLink):
                 # An edit is a second way to write a link, so it answers to the same invariants
                 # under the same lock. Without this a PATCH could point an existing row at the

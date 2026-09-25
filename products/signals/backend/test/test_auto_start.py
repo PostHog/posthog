@@ -44,6 +44,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
+    SignalReviewerExclusion,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
@@ -391,7 +392,8 @@ def test_generate_self_driving_head_branch_is_readable_and_valid(title, expected
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "concurrent_change", [None, {"summary": "A newer fix"}, {"run_count": 2}, {"content_revision_count": 1}]
+    "concurrent_change",
+    [None, {"summary": "A newer fix"}, {"run_count": 2}, {"content_revision_count": 1}, "exclusion"],
 )
 def test_create_implementation_task_if_absent_is_idempotent(organization, team, concurrent_change):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
@@ -435,6 +437,11 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
         assert _create_implementation_task_if_absent(**kwargs) is False
         mock_create.assert_not_called()
         assignment_model.all_teams.filter(report=report).update(actor_kind=None, actor_user=None)
+        if concurrent_change == "exclusion":
+            SignalReviewerExclusion.objects.for_team(team.id).create(team=team, report=report, user=user)
+            assert _create_implementation_task_if_absent(**kwargs) is False
+            mock_create.assert_not_called()
+            return
         if concurrent_change is not None:
             SignalReport.objects.filter(id=report.id).update(**concurrent_change)
             with pytest.raises(ReportChangedDuringAutostart):

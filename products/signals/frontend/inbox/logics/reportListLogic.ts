@@ -15,6 +15,23 @@ import type { UserType } from '~/types'
 import { signalsReportsRefreshMetricsCreate } from 'products/signals/frontend/generated/api'
 import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { OrganizationNotificationLockApi } from '../../../../../frontend/src/generated/core/api.schemas'
+import type { UserUIConfiguration } from '../../../../../frontend/src/queries/schema/schema-general'
+import type {
+    ColumnConfig,
+    HedgehogConfig,
+    NotificationSettings,
+    OnboardingSkippedReason,
+    OrganizationBasicType,
+    OrganizationType,
+    PendingInviteForCurrentUser,
+    Realm,
+    SceneDashboardChoice,
+    TeamBasicType,
+    UserRole,
+    UserShortcutPosition,
+    UserTheme,
+} from '../../../../../frontend/src/types'
 import { captureInboxReportAction, type InboxReportActionSurface } from '../inboxAnalytics'
 import {
     INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY,
@@ -154,7 +171,66 @@ export interface reportListLogicValues {
     countLoading: boolean
     hasMore: boolean
     isLoaded: boolean
-    listApiParams: any
+    listApiParams: {
+        active_realtime_notification_types?: readonly string[] | undefined
+        allow_impersonation?: boolean | undefined
+        allow_sidebar_suggestions?: boolean | undefined
+        anonymize_data?: boolean | undefined
+        date_joined?: string | undefined
+        distinct_id?: string | undefined
+        domain_id: string | undefined
+        email?: string | undefined
+        events_column_config?: ColumnConfig | undefined
+        first_name?: string | undefined
+        has_password?: boolean | undefined
+        has_seen_product_intro_for?: Record<string, boolean> | undefined
+        has_social_auth?: boolean | undefined
+        has_sso_enforcement?: boolean | undefined
+        hedgehog_config?: HedgehogConfig | undefined
+        hide_mcp_hints?: boolean | undefined
+        id?: number | undefined
+        is_2fa_enabled?: boolean | undefined
+        is_email_verified?: boolean | null | undefined
+        is_impersonated?: boolean | undefined
+        is_impersonated_read_only?: boolean | undefined
+        is_impersonated_reason?: string | null | undefined
+        is_impersonated_until?: string | undefined
+        is_organization_first_user?: boolean | undefined
+        is_staff?: boolean | undefined
+        last_name?: string | undefined
+        notification_locks?: OrganizationNotificationLockApi[] | undefined
+        notification_settings?: NotificationSettings | undefined
+        onboarding_delegated_to_invite?: string | null | undefined
+        onboarding_delegated_to_organization_id?: string | null | undefined
+        onboarding_delegation_accepted_at?: string | null | undefined
+        onboarding_skipped_at?: string | null | undefined
+        onboarding_skipped_organization_id?: string | null | undefined
+        onboarding_skipped_reason?: OnboardingSkippedReason | undefined
+        ordering: string
+        organization?: OrganizationType | null | undefined
+        organizations?: OrganizationBasicType[] | undefined
+        owning_role_id: string | undefined
+        passkeys_enabled_for_2fa?: boolean | undefined
+        pending_email?: string | null | undefined
+        pending_invites?: PendingInviteForCurrentUser[] | undefined
+        priority: string | undefined
+        realm?: Realm | undefined
+        requires_credential_review?: boolean | undefined
+        role_at_organization?: UserRole | null | undefined
+        scene_personalisation?: SceneDashboardChoice[] | undefined
+        scope: string
+        scout: string | undefined
+        search: string | undefined
+        sensitive_session_expires_at?: string | undefined
+        shortcut_position?: UserShortcutPosition | undefined
+        source_product: string | undefined
+        team?: TeamBasicType | null | undefined
+        teammate_uuid: string | undefined
+        theme_mode?: UserTheme | null | undefined
+        toolbar_mode?: 'disabled' | 'toolbar' | undefined
+        ui_configuration?: UserUIConfiguration | null | undefined
+        uuid?: string | undefined
+    }
     livePrReportIds: string[]
     loadedContext: {
         hasActiveFilters: boolean
@@ -315,9 +391,67 @@ export interface reportListLogicMeta {
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scope: InboxScope,
-            user: UserType | null,
             arg: any
-        ) => any
+        ) => {
+            active_realtime_notification_types?: readonly string[] | undefined
+            allow_impersonation?: boolean | undefined
+            allow_sidebar_suggestions?: boolean | undefined
+            anonymize_data?: boolean | undefined
+            date_joined?: string | undefined
+            distinct_id?: string | undefined
+            domain_id: string | undefined
+            email?: string | undefined
+            events_column_config?: ColumnConfig | undefined
+            first_name?: string | undefined
+            has_password?: boolean | undefined
+            has_seen_product_intro_for?: Record<string, boolean> | undefined
+            has_social_auth?: boolean | undefined
+            has_sso_enforcement?: boolean | undefined
+            hedgehog_config?: HedgehogConfig | undefined
+            hide_mcp_hints?: boolean | undefined
+            id?: number | undefined
+            is_2fa_enabled?: boolean | undefined
+            is_email_verified?: boolean | null | undefined
+            is_impersonated?: boolean | undefined
+            is_impersonated_read_only?: boolean | undefined
+            is_impersonated_reason?: string | null | undefined
+            is_impersonated_until?: string | undefined
+            is_organization_first_user?: boolean | undefined
+            is_staff?: boolean | undefined
+            last_name?: string | undefined
+            notification_locks?: OrganizationNotificationLockApi[] | undefined
+            notification_settings?: NotificationSettings | undefined
+            onboarding_delegated_to_invite?: string | null | undefined
+            onboarding_delegated_to_organization_id?: string | null | undefined
+            onboarding_delegation_accepted_at?: string | null | undefined
+            onboarding_skipped_at?: string | null | undefined
+            onboarding_skipped_organization_id?: string | null | undefined
+            onboarding_skipped_reason?: OnboardingSkippedReason | undefined
+            ordering: string
+            organization?: OrganizationType | null | undefined
+            organizations?: OrganizationBasicType[] | undefined
+            owning_role_id: string | undefined
+            passkeys_enabled_for_2fa?: boolean | undefined
+            pending_email?: string | null | undefined
+            pending_invites?: PendingInviteForCurrentUser[] | undefined
+            priority: string | undefined
+            realm?: Realm | undefined
+            requires_credential_review?: boolean | undefined
+            role_at_organization?: UserRole | null | undefined
+            scene_personalisation?: SceneDashboardChoice[] | undefined
+            scope: string
+            scout: string | undefined
+            search: string | undefined
+            sensitive_session_expires_at?: string | undefined
+            shortcut_position?: UserShortcutPosition | undefined
+            source_product: string | undefined
+            team?: TeamBasicType | null | undefined
+            teammate_uuid: string | undefined
+            theme_mode?: UserTheme | null | undefined
+            toolbar_mode?: 'disabled' | 'toolbar' | undefined
+            ui_configuration?: UserUIConfiguration | null | undefined
+            uuid?: string | undefined
+        }
         reports: (reportsResponse: ReportListResponse | null) => SignalReport[]
         staleMetricReportIds: (reports: SignalReport[]) => string[]
         hasMore: (reportsResponse: ReportListResponse | null) => boolean
@@ -527,7 +661,6 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.scoutFilter,
                 s.priorityFilter,
                 s.scope,
-                s.user,
                 (_, p) => p.listParams,
             ],
             (
@@ -538,11 +671,20 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 scope: InboxScope,
-                user: null | import('~/types').UserType,
                 listParams
             ) => {
-                const suggestedReviewer =
-                    scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope)
+                const apiScope =
+                    scope === INBOX_SCOPE_FOR_YOU
+                        ? 'for_me'
+                        : scope === 'unclassified'
+                          ? 'unclassified'
+                          : scope.startsWith('team:')
+                            ? 'team'
+                            : scope.startsWith('domain:')
+                              ? 'domain'
+                              : scope.startsWith('teammate:')
+                                ? 'teammate'
+                                : 'entire_project'
                 return {
                     ...listParams,
                     search: searchQuery.trim() || undefined,
@@ -550,7 +692,10 @@ export const reportListLogic = kea<reportListLogicType>([
                     source_product: sourceProductFilter.length > 0 ? sourceProductFilter.join(',') : undefined,
                     scout: scoutFilter.length > 0 ? scoutFilter.join(',') : undefined,
                     priority: priorityFilter.length > 0 ? priorityFilter.join(',') : undefined,
-                    suggested_reviewers: suggestedReviewer,
+                    scope: apiScope,
+                    teammate_uuid: teammateUuidFromScope(scope),
+                    owning_role_id: scope.startsWith('team:') ? scope.slice('team:'.length) : undefined,
+                    domain_id: scope.startsWith('domain:') ? scope.slice('domain:'.length) : undefined,
                 }
             },
         ],

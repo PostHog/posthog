@@ -18,6 +18,8 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReviewerExclusion,
+    SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -315,7 +317,8 @@ def test_dispatch_no_notification_without_team_channel_or_user_config(org_and_te
     ],
 )
 @pytest.mark.django_db
-def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_conversation, expects_mention):
+@pytest.mark.parametrize("excluded", [False, True])
+def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_conversation, expects_mention, excluded):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer2@example.com", "another-bot")
     integration = _make_slack_integration(team, user)
@@ -325,6 +328,8 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
         slack_notification_channel=target,
     )
     report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["another-bot"])
+    if excluded:
+        SignalReviewerExclusion.objects.for_team(team.id).create(team=team, report=report, user=user)
 
     fake_client = MagicMock()
     with (
@@ -337,6 +342,10 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id, source_products=["error_tracking"])
 
+    if excluded:
+        assert sent == 0
+        fake_client.chat_postMessage.assert_not_called()
+        return
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
@@ -1198,7 +1207,8 @@ def test_dispatch_caps_thread_signals_and_posts_overflow_note(org_and_team):
 
 
 @pytest.mark.django_db
-def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
+@pytest.mark.parametrize("still_suggested", [True, False])
+def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team, still_suggested):
     # Someone manually added to a READY, actionable report is pinged on their own channel,
     # even though they weren't a suggested reviewer when the report first went ready.
     org, team = org_and_team
@@ -1209,7 +1219,9 @@ def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    report = _make_ready_report(
+        team, priority=AutonomyPriority.P1, suggested_logins=["added-bot"] if still_suggested else []
+    )
 
     fake_client = MagicMock()
     with (
@@ -1222,8 +1234,11 @@ def test_reviewer_added_notifies_added_reviewer_on_own_channel(org_and_team):
         slack_cls.return_value.client = fake_client
         sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["added-bot"])
 
-    assert sent == 1
-    assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "C123"
+    assert sent == int(still_suggested)
+    if still_suggested:
+        assert fake_client.chat_postMessage.call_args.kwargs["channel"] == "C123"
+    else:
+        fake_client.chat_postMessage.assert_not_called()
 
 
 @pytest.mark.django_db
@@ -1288,7 +1303,7 @@ def test_reviewer_added_unprioritized_report(org_and_team, min_priority, expecte
         slack_notification_channel="C555|#inbox",
         slack_notification_min_priority=min_priority,
     )
-    report = _make_ready_report(team, priority=None)
+    report = _make_ready_report(team, priority=None, suggested_logins=["added-noprio-bot"])
 
     fake_client = MagicMock()
     with (
@@ -1316,7 +1331,7 @@ def test_reviewer_added_skips_when_report_not_ready(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C1|#c",
     )
-    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["added-bot2"])
     SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.IN_PROGRESS)
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
@@ -1335,7 +1350,7 @@ def test_reviewer_added_does_not_fall_back_to_team_channel(org_and_team):
     _make_slack_integration(team, user)
     _set_team_channel(team, "CTEAM|#signals")
     SignalUserAutonomyConfig.objects.create(user=user)  # no personal slack config
-    report = _make_ready_report(team, priority=AutonomyPriority.P2)
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["added-bot3"])
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["added-bot3"])
@@ -1355,7 +1370,7 @@ def test_reviewer_added_excludes_actor(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C9|#c",
     )
-    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["self-bot"])
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         sent = dispatch_reviewer_added_notifications(str(report.id), team.id, ["self-bot"], exclude_user_id=user.id)

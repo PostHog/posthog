@@ -24,11 +24,16 @@ import type {
     LighthouseAuditRequestApi,
     LighthouseAuditResponseApi,
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalDomainPreferenceListApi,
+    PaginatedSignalProductDomainListApi,
     PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportCheckListApi,
     PaginatedSignalReportListListApi,
+    PaginatedSignalRoutingBatchListApi,
+    PaginatedSignalRoutingBatchReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedPullRequestReviewCommentUpdateApi,
+    PatchedSignalProductDomainApi,
     PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalReportContentUpdateApi,
     PatchedSignalScoutConfigUpdateApi,
@@ -64,6 +69,10 @@ import type {
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
     ScratchpadEntryApi,
+    SignalDomainPreferenceApi,
+    SignalDomainPreferenceWriteApi,
+    SignalDomainPreviewApi,
+    SignalProductDomainApi,
     SignalReportApi,
     SignalReportArtefactApi,
     SignalReportArtefactLogCreateApi,
@@ -84,8 +93,15 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportRoutingStateApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalRoutingBatchApi,
+    SignalRoutingCorrectionApi,
+    SignalRoutingProposalApi,
+    SignalRoutingProposalWriteApi,
+    SignalRoutingRoleApi,
+    SignalRoutingSuggestionApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -99,6 +115,7 @@ import type {
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
+    SignalsDomainsListParams,
     SignalsProcessingListParams,
     SignalsReportArtefactsListParams,
     SignalsReportChecksListParams,
@@ -113,6 +130,9 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
+    SignalsRoutingBatchesListParams,
+    SignalsRoutingBatchesReportsListParams,
+    SignalsRoutingPreferencesListParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutMembersListParams,
@@ -181,6 +201,115 @@ export const signalsConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalTeamConfigApi),
+    })
+}
+
+export const getSignalsDomainsListUrl = (projectId: string, params?: SignalsDomainsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/domains/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/domains/`
+}
+
+export const signalsDomainsList = async (
+    projectId: string,
+    params?: SignalsDomainsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalProductDomainListApi> => {
+    return apiMutator<PaginatedSignalProductDomainListApi>(getSignalsDomainsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsDomainsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/domains/`
+}
+
+export const signalsDomainsCreate = async (
+    projectId: string,
+    signalProductDomainApi: NonReadonly<SignalProductDomainApi>,
+    options?: RequestInit
+): Promise<SignalProductDomainApi> => {
+    return apiMutator<SignalProductDomainApi>(getSignalsDomainsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalProductDomainApi),
+    })
+}
+
+export const getSignalsDomainsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/domains/${id}/`
+}
+
+export const signalsDomainsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalProductDomainApi> => {
+    return apiMutator<SignalProductDomainApi>(getSignalsDomainsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsDomainsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/domains/${id}/`
+}
+
+export const signalsDomainsUpdate = async (
+    projectId: string,
+    id: string,
+    signalProductDomainApi: NonReadonly<SignalProductDomainApi>,
+    options?: RequestInit
+): Promise<SignalProductDomainApi> => {
+    return apiMutator<SignalProductDomainApi>(getSignalsDomainsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalProductDomainApi),
+    })
+}
+
+export const getSignalsDomainsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/domains/${id}/`
+}
+
+export const signalsDomainsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSignalProductDomainApi?: NonReadonly<PatchedSignalProductDomainApi>,
+    options?: RequestInit
+): Promise<SignalProductDomainApi> => {
+    return apiMutator<SignalProductDomainApi>(getSignalsDomainsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSignalProductDomainApi),
+    })
+}
+
+export const getSignalsDomainsTeamsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/domains/teams/`
+}
+
+export const signalsDomainsTeamsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalRoutingRoleApi[]> => {
+    return apiMutator<SignalRoutingRoleApi[]>(getSignalsDomainsTeamsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1051,6 +1180,87 @@ export const signalsReportChecksDestroy = async (
     })
 }
 
+export const getSignalsReportsRoutingListUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/routing/`
+}
+
+export const signalsReportsRoutingList = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<SignalReportRoutingStateApi> => {
+    return apiMutator<SignalReportRoutingStateApi>(getSignalsReportsRoutingListUrl(projectId, reportId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRoutingCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/routing/`
+}
+
+export const signalsReportsRoutingCreate = async (
+    projectId: string,
+    reportId: string,
+    signalRoutingCorrectionApi: SignalRoutingCorrectionApi,
+    options?: RequestInit
+): Promise<SignalReportRoutingStateApi> => {
+    return apiMutator<SignalReportRoutingStateApi>(getSignalsReportsRoutingCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalRoutingCorrectionApi),
+    })
+}
+
+export const getSignalsReportsRoutingNotMeCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/routing/not_me/`
+}
+
+export const signalsReportsRoutingNotMeCreate = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<SignalReportRoutingStateApi> => {
+    return apiMutator<SignalReportRoutingStateApi>(getSignalsReportsRoutingNotMeCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsReportsRoutingProposeCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/routing/propose/`
+}
+
+export const signalsReportsRoutingProposeCreate = async (
+    projectId: string,
+    reportId: string,
+    signalRoutingProposalWriteApi: SignalRoutingProposalWriteApi,
+    options?: RequestInit
+): Promise<SignalRoutingProposalApi> => {
+    return apiMutator<SignalRoutingProposalApi>(getSignalsReportsRoutingProposeCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalRoutingProposalWriteApi),
+    })
+}
+
+export const getSignalsReportsRoutingRestoreCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/routing/restore/`
+}
+
+export const signalsReportsRoutingRestoreCreate = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<SignalReportRoutingStateApi> => {
+    return apiMutator<SignalReportRoutingStateApi>(getSignalsReportsRoutingRestoreCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getSignalsReportsAvailableReviewersRetrieveUrl = (
     projectId: string,
     params?: SignalsReportsAvailableReviewersRetrieveParams
@@ -1178,6 +1388,206 @@ export const signalsReportsRefundSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<SignalReportRefundSummaryResponseApi> => {
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsRoutingBatchesListUrl = (projectId: string, params?: SignalsRoutingBatchesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/routing_batches/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/routing_batches/`
+}
+
+export const signalsRoutingBatchesList = async (
+    projectId: string,
+    params?: SignalsRoutingBatchesListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalRoutingBatchListApi> => {
+    return apiMutator<PaginatedSignalRoutingBatchListApi>(getSignalsRoutingBatchesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsRoutingBatchesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/routing_batches/${id}/`
+}
+
+export const signalsRoutingBatchesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalRoutingBatchApi> => {
+    return apiMutator<SignalRoutingBatchApi>(getSignalsRoutingBatchesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsRoutingBatchesApplyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/routing_batches/${id}/apply/`
+}
+
+export const signalsRoutingBatchesApplyCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalRoutingBatchApi> => {
+    return apiMutator<SignalRoutingBatchApi>(getSignalsRoutingBatchesApplyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsRoutingBatchesReportsListUrl = (
+    projectId: string,
+    id: string,
+    params?: SignalsRoutingBatchesReportsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/routing_batches/${id}/reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/routing_batches/${id}/reports/`
+}
+
+export const signalsRoutingBatchesReportsList = async (
+    projectId: string,
+    id: string,
+    params?: SignalsRoutingBatchesReportsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalRoutingBatchReportListApi> => {
+    return apiMutator<PaginatedSignalRoutingBatchReportListApi>(
+        getSignalsRoutingBatchesReportsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSignalsRoutingBatchesRetryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/routing_batches/${id}/retry/`
+}
+
+export const signalsRoutingBatchesRetryCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalRoutingBatchApi> => {
+    return apiMutator<SignalRoutingBatchApi>(getSignalsRoutingBatchesRetryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsRoutingBatchesUndoCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/routing_batches/${id}/undo/`
+}
+
+export const signalsRoutingBatchesUndoCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalRoutingBatchApi> => {
+    return apiMutator<SignalRoutingBatchApi>(getSignalsRoutingBatchesUndoCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsRoutingPreferencesListUrl = (
+    projectId: string,
+    params?: SignalsRoutingPreferencesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/routing_preferences/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/routing_preferences/`
+}
+
+export const signalsRoutingPreferencesList = async (
+    projectId: string,
+    params?: SignalsRoutingPreferencesListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalDomainPreferenceListApi> => {
+    return apiMutator<PaginatedSignalDomainPreferenceListApi>(getSignalsRoutingPreferencesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsRoutingPreferencesPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/routing_preferences/preview/`
+}
+
+export const signalsRoutingPreferencesPreviewCreate = async (
+    projectId: string,
+    signalDomainPreviewApi: SignalDomainPreviewApi,
+    options?: RequestInit
+): Promise<SignalRoutingBatchApi> => {
+    return apiMutator<SignalRoutingBatchApi>(getSignalsRoutingPreferencesPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalDomainPreviewApi),
+    })
+}
+
+export const getSignalsRoutingPreferencesSetCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/routing_preferences/set/`
+}
+
+export const signalsRoutingPreferencesSetCreate = async (
+    projectId: string,
+    signalDomainPreferenceWriteApi: SignalDomainPreferenceWriteApi,
+    options?: RequestInit
+): Promise<SignalDomainPreferenceApi> => {
+    return apiMutator<SignalDomainPreferenceApi>(getSignalsRoutingPreferencesSetCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalDomainPreferenceWriteApi),
+    })
+}
+
+export const getSignalsRoutingPreferencesSuggestionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/routing_preferences/suggestions/`
+}
+
+export const signalsRoutingPreferencesSuggestionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalRoutingSuggestionApi[]> => {
+    return apiMutator<SignalRoutingSuggestionApi[]>(getSignalsRoutingPreferencesSuggestionsListUrl(projectId), {
         ...options,
         method: 'GET',
     })

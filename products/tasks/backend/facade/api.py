@@ -4520,6 +4520,10 @@ def task_created_by_user(task_id: str | UUID, team_id: int, user_id: int) -> boo
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
+def task_ids_created_by_user_subquery(*, team_id: int, user_id: int) -> QuerySet[Task, Any]:
+    return Task.objects.filter(team_id=team_id, created_by_id=user_id).values("id")
+
+
 def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID, force_proxy: bool = False) -> str | None:
     """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
 
