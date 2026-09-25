@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
  * /splits discovers a valid config+split, /rows returns rows whose image cells carry a `src` URL.
  * The dataset list below is just defaults — swap in whatever faces/text sources you want.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import sharp from 'sharp'
 
 const ROOT = new URL('..', import.meta.url).pathname
@@ -88,19 +88,30 @@ async function getBuf(url: string, tries = 3): Promise<Buffer> {
     throw new Error('unreachable')
 }
 
+const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
 async function downloadModels(): Promise<void> {
     for (const m of MODELS) {
         const dest = ROOT + m.file
         if (existsSync(dest)) {
-            continue
+            if (sha256Hex(await readFile(dest)) === m.sha256) {
+                continue
+            }
+            console.warn(`  ${m.file} does not match its pinned sha256, replacing it`)
         }
         const buf = await getBuf(m.url)
-        const digest = createHash('sha256').update(buf).digest('hex')
+        const digest = sha256Hex(buf)
         if (digest !== m.sha256) {
             throw new Error(`${m.file}: sha256 mismatch (got ${digest}, want ${m.sha256}) — refusing to write`)
         }
         await mkdir(ROOT + 'models', { recursive: true })
-        await writeFile(dest, buf)
+        const partial = `${dest}.${process.pid}.partial`
+        try {
+            await writeFile(partial, buf)
+            await rename(partial, dest)
+        } finally {
+            await rm(partial, { force: true })
+        }
     }
 }
 
