@@ -1,3 +1,4 @@
+import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -135,6 +136,35 @@ describe('dashboardTemplatesLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 500))
 
         expect(listMock.mock.calls.length).toBe(listCallsAfterOpen)
+    })
+
+    it('writes the template search to the URL once the typing settles, not once per keystroke', async () => {
+        router.actions.push('/dashboard', {})
+        const mounted = dashboardTemplatesLogic({ scope: 'default' })
+        logic = mounted
+        mounted.mount()
+
+        await expectLogic(mounted).toFinishAllListeners()
+
+        const urlWrites: string[] = []
+        let lastSearch = router.values.location.search
+        const unsubscribe = getContext().store.subscribe(() => {
+            if (router.values.location.search !== lastSearch) {
+                lastSearch = router.values.location.search
+                urlWrites.push(lastSearch)
+            }
+        })
+
+        const typed = 'needle'
+        for (let length = 1; length <= typed.length; length++) {
+            mounted.actions.setTemplateFilter(typed.slice(0, length))
+        }
+
+        await expectLogic(mounted).toFinishAllListeners()
+        unsubscribe()
+
+        expect(urlWrites).toHaveLength(1)
+        expect(router.values.searchParams.templateFilter).toEqual(typed)
     })
 
     it('still loads the template catalog when the dashboard list opens with no URL search and the catalog has not been fetched yet', async () => {
