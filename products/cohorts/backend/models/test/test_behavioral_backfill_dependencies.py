@@ -9,7 +9,16 @@ from parameterized import parameterized
 
 from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.cohort import Cohort, CohortType
-from products.cohorts.backend.models.dependencies import COHORT_REALTIME_STATE_ORPHANED_COUNTER
+from products.cohorts.backend.models.dependencies import (
+    COHORT_BACKFILL_TRIGGER_COUNTER,
+    COHORT_REALTIME_STATE_ORPHANED_COUNTER,
+)
+
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 # (name, run kind, two successive edits as `_filters` args) — the edits move only this kind's leaf
 # shape, so only this kind's receiver reacts to them even though both share one allowlist.
@@ -33,9 +42,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
         *,
         person_hash: str | None = None,
         extra_person_hash: str | None = None,
-        behavioral_hash: str | None = "stable-condition-hash",
+        behavioral_hash: str | None = "stable-conditio",
         group_type: str = "AND",
         cohort_ref: int | None = None,
+        windowless: bool = False,
     ) -> dict:
         values = []
         if window_days is not None:
@@ -48,11 +58,15 @@ class TestBehavioralBackfillDependencies(BaseTest):
                 "time_interval": "day",
                 "operator": "gte",
                 "operator_value": 2,
+                "bytecode": _BYTECODE,
             }
+            if windowless:
+                behavioral = {k: v for k, v in behavioral.items() if k not in ("time_value", "time_interval")}
+                behavioral["value"] = "performed_event"
             # Absent rather than null, which is how the API stores a leaf whose bytecode generation
             # failed: the cohort keeps `cohort_type` realtime and the leaf keeps no condition hash.
             if behavioral_hash is not None:
-                behavioral["conditionHash"] = behavioral_hash
+                behavioral["conditionHash"] = behavioral_hash[:16].ljust(16, "0")
             values.append(behavioral)
         for leaf_hash in (person_hash, extra_person_hash):
             if leaf_hash is not None:
@@ -62,7 +76,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
                         "key": "email",
                         "value": ["person@example.com"],
                         "operator": "exact",
-                        "conditionHash": leaf_hash,
+                        # The catalog wants exactly 16 characters; the cases only need the hashes
+                        # to differ from each other.
+                        "conditionHash": leaf_hash[:16].ljust(16, "0"),
+                        "bytecode": _BYTECODE,
                     }
                 )
         if cohort_ref is not None:
@@ -281,6 +298,44 @@ class TestBehavioralBackfillDependencies(BaseTest):
         enqueue.assert_not_called()
         redis.set.assert_not_called()
 
+    def test_a_cohort_the_catalog_refuses_is_named_rather_than_dropped_silently(self) -> None:
+        # No run is created, so the seeder has nothing to report the refusal with. Without this the
+        # cohort stays un-backfillable and nothing anywhere says why.
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+            self.assertLogs("products.cohorts.backend.models.dependencies", level="INFO") as logs,
+        ):
+            Cohort.objects.create(
+                team=self.team,
+                cohort_type=CohortType.REALTIME,
+                filters=self._filters(7, windowless=True),
+            )
+
+        enqueue.assert_not_called()
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL) - before, 1)
+        self.assertIn("unsupported_state_variant", "\n".join(logs.output))
+
+    def test_a_cohort_of_the_other_kind_alone_reports_no_refusal(self) -> None:
+        # Every save of a person-only cohort reaches the behavioral receiver. Counting those would
+        # bury the refusals that need a signal.
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"),
+        ):
+            self._cohort(None, person_hash="person-a")
+
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
+
+    def _refused_count(self, kind: CohortBackfillKind) -> float:
+        return COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="refused_ineligible")._value._value
+
     def _assert_one_debounced_task_per_kind(self, enqueue, redis, cohort: Cohort, trigger: str) -> None:
         self.assertEqual(
             {tuple(call.kwargs["args"][2:]) for call in enqueue.call_args_list},
@@ -474,11 +529,8 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
 
-    def test_behavioral_leaf_losing_its_hash_enqueues_only_the_behavioral_run(self) -> None:
-        # The behavioral receiver creates a run for any behavioral leaf, hashed or not, so this edit
-        # already triggers one and the composition rule must not add a person run beside it. The API
-        # reaches this state by storing the raw filters when filter validation raises, which leaves
-        # the cohort realtime with a leaf that never got a condition hash.
+    def test_behavioral_leaf_losing_its_hash_enqueues_nothing(self) -> None:
+        # The API reaches this state by storing the raw filters when filter validation raises.
         cohort = self._cohort(7, person_hash="person-a")
         redis = self._redis()
         with (
@@ -489,7 +541,8 @@ class TestBehavioralBackfillDependencies(BaseTest):
             cohort.filters = self._filters(7, person_hash="person-a", behavioral_hash=None)
             cohort.save()
 
-        self._assert_one_debounced_task(enqueue, redis, cohort, CohortBackfillKind.BEHAVIORAL)
+        enqueue.assert_not_called()
+        redis.set.assert_not_called()
 
     @parameterized.expand([("stored_hashes", False), ("null_hashes", True)])
     def test_malformed_persisted_filters_still_invalidate_on_a_leaf_edit(self, _name: str, null_hashes: bool) -> None:
@@ -592,20 +645,21 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
     @parameterized.expand(
         [
-            ("static", {"is_static": True}),
-            ("non_realtime_type", {"cohort_type": None}),
+            ("static", {"is_static": True}, {"person_hash": "person-a"}),
+            ("non_realtime_type", {"cohort_type": None}, {"person_hash": "person-a"}),
+            ("windowless_behavioral", {}, {"windowless": True}),
         ]
     )
     @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
-    def test_ineligible_create_enqueues_nothing(self, _name: str, overrides: dict) -> None:
+    def test_ineligible_create_enqueues_nothing(self, _name: str, overrides: dict, filter_kwargs: dict) -> None:
         # Creates skip the shape-changed flags and dispatch straight off kwargs["created"], so the
-        # type guard in _backfill_trigger_kind is all that keeps every ordinary (static or
-        # non-realtime) cohort create in an opted-in team from firing tasks the creators refuse.
+        # type guard in _backfill_trigger_kind and the creators' own predicates are all that keep
+        # every ordinary cohort create in an opted-in team from firing tasks the creators refuse.
         redis = self._redis()
         params: dict = {
             "team": self.team,
             "cohort_type": CohortType.REALTIME,
-            "filters": self._filters(7, person_hash="person-a"),
+            "filters": self._filters(7, **filter_kwargs),
             **overrides,
         }
         with (
