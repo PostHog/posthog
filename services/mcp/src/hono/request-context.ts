@@ -17,7 +17,7 @@ import { hash } from '@/lib/utils'
 import type { Context, Env, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
+import { getClientIpSigningKeys, getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
@@ -138,6 +138,8 @@ export class RequestContext {
                 // reach the API unattributed.
                 oauthClientName: await this.readCachedOAuthClientName(),
                 taskId: this.props.taskId,
+                clientIp: this.props.clientIp,
+                clientIpSigningKeys: getClientIpSigningKeys(),
             })
         }
         return this.apiInstance
