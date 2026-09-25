@@ -465,11 +465,11 @@ class ReportMetric(BaseModel):
             raise ValueError(f"must not exceed {MAX_METRIC_TITLE_LENGTH} characters")
         return value
 
-    @field_validator("value", "goal_value", mode="before")
+    @field_validator("value", "goal_value", "decision_window_days", "minimum_data_points", mode="before")
     @classmethod
     def value_must_not_be_a_boolean(cls, value: object) -> object:
-        # Pydantic's lax mode coerces a JSON boolean into a float (`true` becomes 1.0, `false`
-        # becomes 0.0), which would store a bogus measurement that clears the numeric guards below.
+        # Pydantic's lax mode coerces a JSON boolean into a number (`true` becomes 1, `false`
+        # becomes 0), which would store a bogus measurement that clears the numeric guards below.
         if isinstance(value, bool):
             raise ValueError("must be a number, not a boolean")
         return value

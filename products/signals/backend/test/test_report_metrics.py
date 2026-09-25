@@ -94,13 +94,14 @@ class TestReportMetric(SimpleTestCase):
             ReportMetric.model_validate(content)
 
     def test_proposed_goal_rejects_boolean_values(self) -> None:
-        content = _affected_users_metric().model_dump(mode="json")
-        content.update(goal_direction="at_most", decision_window_days=7)
-
-        for goal_value in (True, False):
-            content["goal_value"] = goal_value
-            with self.assertRaisesRegex(ValidationError, "must be a number, not a boolean"):
-                ReportMetric.model_validate(content)
+        for field_name in ("goal_value", "decision_window_days", "minimum_data_points"):
+            for boolean in (True, False):
+                content = _affected_users_metric().model_dump(mode="json")
+                content.update(goal_value=10, goal_direction="at_most", decision_window_days=7)
+                content[field_name] = boolean
+                with self.subTest(field_name=field_name, value=boolean):
+                    with self.assertRaisesRegex(ValidationError, "must be a number, not a boolean"):
+                        ReportMetric.model_validate(content)
 
     def test_proposed_duration_goal_rejects_negative_values(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
