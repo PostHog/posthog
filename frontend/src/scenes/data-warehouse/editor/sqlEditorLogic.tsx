@@ -2256,7 +2256,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
-                const selectionProblem = await findSelectionProblem(candidates)
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
 
                 // Checked once as the dialog opens rather than on every keystroke: it only depends
                 // on the SQL being saved, which cannot change while the dialog is up. A failure
@@ -2693,7 +2693,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
-                const selectionProblem = await findSelectionProblem(candidates)
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
                     title: 'Save as endpoint',
                     initialValues: {
@@ -2759,7 +2759,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             saveAsMetric: async () => {
                 const candidates = resolveSaveCandidates()
                 const selectedRef = { current: candidates.queries[candidates.initialIndex] }
-                const selectionProblem = await findSelectionProblem(candidates)
+                const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
                 LemonDialog.openForm({
                     title: 'Save as metric',
                     initialValues: {

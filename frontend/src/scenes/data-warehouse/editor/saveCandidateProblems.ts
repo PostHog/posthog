@@ -2,7 +2,7 @@ import { parseSelect } from './hogqlParserSingleton'
 import { SELECTION_LABEL, SaveCandidates } from './SaveTargetCycler'
 
 export const SELECTION_NOT_A_QUERY =
-    'The selected text is not a complete query. Close this dialog and clear the selection in the editor to save the whole query.'
+    'The selected text is not a complete query. Close this dialog and clear the selection in the editor, then save again.'
 
 /**
  * Report why the chosen save candidate cannot be saved, or null when it is fine.
@@ -13,9 +13,14 @@ export const SELECTION_NOT_A_QUERY =
  * anyone. The whole editor contents are left to the API, whose parser is the one that decides.
  *
  * Fails open. When the parser is unavailable we cannot tell a broken query from an unchecked one.
+ * Raw connection mode is skipped for the same reason: the text goes to the connection's own engine
+ * in its own dialect, so a HogQL parse of it would refuse valid SQL.
  */
-export async function findSelectionProblem(candidates: SaveCandidates): Promise<string | null> {
-    if (candidates.selectionLabel !== SELECTION_LABEL) {
+export async function findSelectionProblem(
+    candidates: SaveCandidates,
+    sendRawQueryEnabled: boolean
+): Promise<string | null> {
+    if (sendRawQueryEnabled || candidates.selectionLabel !== SELECTION_LABEL) {
         return null
     }
     const selected = candidates.queries[candidates.initialIndex] ?? ''

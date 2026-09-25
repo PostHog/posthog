@@ -15,23 +15,31 @@ const candidates = (queries: string[], selectionLabel: string | null = null): Sa
 
 describe('findSelectionProblem', () => {
     it('flags a highlighted identifier and points at the selection', async () => {
-        const problem = await findSelectionProblem(candidates(['weekly_active_users'], SELECTION_LABEL))
+        const problem = await findSelectionProblem(candidates(['weekly_active_users'], SELECTION_LABEL), false)
         expect(problem).toEqual(SELECTION_NOT_A_QUERY)
     })
 
     it('accepts a selection that is a whole query', async () => {
-        const problem = await findSelectionProblem(candidates(['SELECT 1'], SELECTION_LABEL))
+        const problem = await findSelectionProblem(candidates(['SELECT 1'], SELECTION_LABEL), false)
         expect(problem).toBeNull()
     })
 
     it('leaves the editor contents to the API when nothing is selected', async () => {
-        const problem = await findSelectionProblem(candidates(['weekly_active_users']))
+        const problem = await findSelectionProblem(candidates(['weekly_active_users']), false)
+        expect(problem).toBeNull()
+    })
+
+    it('leaves a raw connection selection alone, because it is not HogQL', async () => {
+        const problem = await findSelectionProblem(
+            candidates(['SELECT DISTINCT ON (id) id FROM t'], SELECTION_LABEL),
+            true
+        )
         expect(problem).toBeNull()
     })
 
     it('reports no problem when the parser cannot be loaded', async () => {
         ;(parseSelect as jest.Mock).mockRejectedValueOnce(new Error('parser unavailable'))
-        const problem = await findSelectionProblem(candidates(['weekly_active_users'], SELECTION_LABEL))
+        const problem = await findSelectionProblem(candidates(['weekly_active_users'], SELECTION_LABEL), false)
         expect(problem).toBeNull()
     })
 })
