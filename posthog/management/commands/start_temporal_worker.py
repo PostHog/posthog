@@ -135,13 +135,13 @@ from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
 )
-from posthog.temporal.tests.utils.workflow import (
-    ACTIVITIES as TEST_ACTIVITIES,
-    WORKFLOWS as TEST_WORKFLOWS,
-)
 from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
+)
+from posthog.temporal.waiter import (
+    ACTIVITIES as TEST_ACTIVITIES,
+    WORKFLOWS as TEST_WORKFLOWS,
 )
 from posthog.temporal.warehouse_sources_queue_partition_management import (
     ACTIVITIES as WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
