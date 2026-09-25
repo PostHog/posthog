@@ -1,4 +1,7 @@
-"""Asks Jev, TypeSafe's System One model, whether a finished PostHog AI turn deserves a follow-up and which.
+"""Asks Jev, a System One model, whether a finished PostHog AI turn deserves a follow-up and which.
+
+The ai-gateway answers with the Jev build PostHog hosts where it is configured, and TypeSafe answers
+elsewhere (see ``posthog.llm.system_one_client``).
 
 Jev answers typed questions instead of writing text, so one request carries every judgment the
 policy might need: whether to show anything now, which offer, and the speculative parameters of each
@@ -12,24 +15,29 @@ options, so their ids stay here too.
 
 from collections.abc import Mapping, Sequence
 
-from django.conf import settings
-
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.typesafe import (
+from posthog.egress.typesafe import TypeSafeEgressBudgetExhausted
+from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.system_one import (
     ChoiceAnswer,
     ChoiceQuestion,
     JsonValue,
     NoulAnswer,
     NoulQuestion,
     Question,
+    SystemOneNotConfigured,
+    SystemOneRequestFailed,
     SystemOneResult,
-    TypeSafeEgressBudgetExhausted,
-    TypeSafeNotConfigured,
-    TypeSafeRequestFailed,
-    system_one,
+)
+from posthog.llm.system_one_client import (
+    GATEWAY_MAX_CHOICE_OPTIONS,
+    SystemOneClient,
+    SystemOneModels,
+    build_system_one_client,
+    system_one_configured,
 )
 
 from products.posthog_ai.backend.turn_suggestions.transcript import (
@@ -49,11 +57,11 @@ from products.posthog_ai.backend.turn_suggestions.verdict import (
 
 logger = structlog.get_logger(__name__)
 
-# Pinned rather than `jev-latest`, because the thresholds in classifier.py are tuned against this
-# version's probabilities and an alias moves on each release.
-JUDGE_MODEL = "jev-1.13.0"
+# Pinned rather than `jev-latest`, because an alias moves on each release. The thresholds in
+# classifier.py are tuned against the TypeSafe model's probabilities.
+JUDGE_MODELS = SystemOneModels(gateway="posthog/hogference/jevk5-fp8-0.2", typesafe="jev-1.13.0")
 JUDGE_SOURCE = "posthog_ai_turn_suggestions"
-JUDGE_TIMEOUT: tuple[float, float] = (3.0, 10.0)
+JUDGE_TIMEOUT_SECONDS = 10.0
 
 _NO_MATCH = "none"
 
@@ -199,12 +207,33 @@ class TurnJudgment:
 
 
 def judge_configured() -> bool:
-    return bool(settings.TYPESAFE_API_KEY)
+    return system_one_configured()
 
 
-# A turn that lists issues can collect hundreds, past what one choice question takes. The state, the
-# questions and the answer lookup all number refs through `_numbered`, so the cap keeps them in step.
-MAX_REF_OPTIONS = 20
+def _judge_client(team_id: int | None) -> SystemOneClient:
+    return build_system_one_client(
+        models=JUDGE_MODELS,
+        ai_product=JUDGE_SOURCE,
+        typesafe_source=JUDGE_SOURCE,
+        priority=Priority.BATCH,
+        distinct_id=team_distinct_id(team_id) if team_id is not None else None,
+        properties={"team_id": str(team_id)} if team_id is not None else None,
+        timeout=JUDGE_TIMEOUT_SECONDS,
+    )
+
+
+def judge_model() -> str | None:
+    """The model the configured server is asked for, or ``None`` when no server is configured."""
+    try:
+        return _judge_client(None).model
+    except SystemOneNotConfigured:
+        return None
+
+
+# A turn that lists issues can collect hundreds, past what one choice question takes: the gateway's
+# Jev takes 16 options, one of them `_NO_MATCH`. The state, the questions and the answer lookup all
+# number refs through `_numbered`, so the cap keeps them in step.
+MAX_REF_OPTIONS = GATEWAY_MAX_CHOICE_OPTIONS - 1
 
 
 def _numbered[T](prefix: str, refs: Sequence[T]) -> dict[str, T]:
@@ -289,22 +318,20 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
     return questions
 
 
-def judge_turn(transcript: TurnTranscript, *, available: frozenset[OfferKind]) -> TurnJudgment | None:
-    """One Jev request. ``None`` means the call failed, was shed, or the instance has no key.
-    ``available`` must hold at least one offer, because the offer question needs an option."""
+def judge_turn(
+    transcript: TurnTranscript, *, available: frozenset[OfferKind], team_id: int | None = None
+) -> TurnJudgment | None:
+    """One Jev request. ``None`` means the call failed, was shed, or no server is configured.
+    ``available`` must hold at least one offer, because the offer question needs an option.
+    ``team_id`` labels the gateway's event with the team the turn belongs to."""
     try:
-        result = system_one(
-            state=build_judge_state(transcript),
-            questions=build_judge_questions(transcript, available),
-            source=JUDGE_SOURCE,
-            model=JUDGE_MODEL,
-            priority=Priority.BATCH,
-            timeout=JUDGE_TIMEOUT,
+        result = _judge_client(team_id).decide(
+            state=build_judge_state(transcript), questions=build_judge_questions(transcript, available)
         )
-    except (TypeSafeNotConfigured, TypeSafeEgressBudgetExhausted) as error:
+    except (SystemOneNotConfigured, TypeSafeEgressBudgetExhausted) as error:
         logger.info("posthog_ai_turn_suggestion_judge_skipped", reason=type(error).__name__)
         return None
-    except (TypeSafeRequestFailed, OSError):
+    except (SystemOneRequestFailed, OSError):
         logger.warning("posthog_ai_turn_suggestion_judge_failed", exc_info=True)
         return None
     return read_judgment(result, transcript, available)
