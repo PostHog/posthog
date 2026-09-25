@@ -1039,6 +1039,34 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The response is read by an incident banner in the browser, so it must carry keys only.
         assert "I AM SECRET" not in response.content.decode()
 
+    def test_update_of_one_input_keeps_the_others(self, *args):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{id}/",
+            data={"inputs": {"url": {"value": "http://localhost:2080/changed"}}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        inputs = response.json()["inputs"]
+        assert inputs["url"]["value"] == "http://localhost:2080/changed"
+        assert inputs["headers"]["value"] == {"version": "v={event.properties.$lib_version}"}
+        assert inputs["payload"]["value"]["event"] == "{event}"
+        assert inputs["method"]["value"] == "POST"
+
+        # An input the caller names with no value is still a clear, so a merge cannot trap a value.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{id}/",
+            data={"inputs": {"headers": {}}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        inputs = response.json()["inputs"]
+        assert inputs["headers"] is None
+        assert inputs["url"]["value"] == "http://localhost:2080/changed"
+
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
             "type": "destination",

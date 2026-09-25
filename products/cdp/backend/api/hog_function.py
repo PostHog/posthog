@@ -197,6 +197,19 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
     return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
 
 
+def _merge_stored_inputs(sent: Any, base: Any) -> Any:
+    """The `inputs` a partial update validates, from the object the caller sent and the base it edits.
+
+    `InputsSerializer` reads every key of `inputs_schema` out of that single object, so an input the
+    caller leaves out reaches storage empty. A one-field edit has silently removed a webhook's
+    authorization header and its request body this way. The caller can still clear one input,
+    because an explicit empty value overrides the stored one.
+    """
+    if not isinstance(sent, dict) or not isinstance(base, dict):
+        return sent
+    return {**base, **sent}
+
+
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
@@ -525,7 +538,13 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
-        data["inputs"] = data.get("inputs", instance.inputs if instance else {})
+        if "inputs" not in data:
+            data["inputs"] = instance.inputs if instance else {}
+        elif instance and self.partial:
+            # Only a partial update merges. A nested serializer validating a whole configuration, such
+            # as the one an invocation test sends, replaces the inputs it carries.
+            base = self.context.get("inputs_merge_base", instance.inputs)
+            data["inputs"] = _merge_stored_inputs(data["inputs"], base)
 
         # Always ensure filters is initialized as an empty object if it's null
         data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
@@ -1020,6 +1039,18 @@ class HogFunctionViewSet(
     log_source = "hog_function"
     app_source = "hog_function"
 
+    def get_serializer(self, *args: Any, **kwargs: Any) -> BaseSerializer:
+        serializer = super().get_serializer(*args, **kwargs)
+        # A draft-routed edit builds on the staged config, not on the live row. Merging onto the live
+        # inputs would revert an input an earlier edit staged, because `_write_draft` then replaces
+        # the draft's whole `inputs` object with this edit's.
+        if self.action in ("update", "partial_update") and self._should_route_to_draft(serializer):
+            instance = cast(HogFunction, serializer.instance)
+            draft_inputs = (instance.draft or {}).get("inputs")
+            if isinstance(draft_inputs, dict):
+                serializer.context["inputs_merge_base"] = {**(instance.inputs or {}), **draft_inputs}
+        return serializer
+
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Rerun re-executes stored invocations — it replays up to 30 days of
         # persisted event/person/group data through the current (possibly
@@ -1348,9 +1379,7 @@ class HogFunctionViewSet(
             return False
         return bool(self._sent_content_fields())
 
-    def _write_draft(
-        self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
-    ) -> None:
+    def _write_draft(self, instance: HogFunction, locked: HogFunction, validated_content: dict) -> None:
         # The draft is always a full config snapshot (live config as the base, staged draft on top,
         # this edit's validated fields last) so publish is a plain copy with no merge logic.
         # validated_content is passed in because the caller's metadata save clears validated_data.
@@ -1367,7 +1396,9 @@ class HogFunctionViewSet(
             # so a secret already staged in the draft has to win over that recovery — otherwise this
             # edit would silently revert it to the live value. Keys the draft no longer declares
             # secret drop out entirely.
-            supplied = explicit_secret_input_keys(getattr(serializer, "initial_data", {}).get("inputs"))
+            # Read from the request, like `_sent_content_fields`. The serializer's `initial_data`
+            # carries the merged inputs, so a stored value would read as one the caller supplied.
+            supplied = explicit_secret_input_keys(self.request.data.get("inputs"))
             draft_secrets = {
                 key: value if key in supplied or key not in staged else staged[key] for key, value in recovered.items()
             }
@@ -1484,7 +1515,7 @@ class HogFunctionViewSet(
                     serializer.validated_data.clear()
                     serializer.validated_data.update({**remaining, "team": self.team})
                     serializer.save()
-                self._write_draft(locked, locked, serializer, validated_content)
+                self._write_draft(locked, locked, validated_content)
             else:
                 before_content = snapshot_hog_function_content(locked) if locked else None
                 serializer.save()
@@ -1550,7 +1581,14 @@ class HogFunctionViewSet(
             }
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            # A draft is a full config snapshot, so its `inputs` replace the live ones outright. An
+            # empty merge base does that: merging here would restore an input the draft drops.
+            serializer = self.get_serializer(
+                locked,
+                data=dict(locked.draft),
+                partial=True,
+                context={**self.get_serializer_context(), "inputs_merge_base": {}},
+            )
             serializer.is_valid(raise_exception=True)
             serializer.save()
             self._record_revision(locked, before_update, before_content)
