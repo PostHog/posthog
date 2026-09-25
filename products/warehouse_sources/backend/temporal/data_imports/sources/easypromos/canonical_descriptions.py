@@ -61,6 +61,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created": "Date and time the prize was assigned. ISO-8601 in UTC.",
         },
     },
+    "prize_inventory": {
+        "description": "Prize types defined in a promotion, with the total units available and the units already awarded. Unlike `prizes`, a prize type nobody has won yet still appears here.",
+        "docs_url": DOCS_BASE,
+        "columns": {
+            "id": "Unique identifier of the prize type within its promotion.",
+            "promotion_id": "Identifier of the promotion this prize type belongs to (added by PostHog during sync).",
+            "name": "Name of the prize type.",
+            "ref": "Reference code the organizer gave the prize type.",
+            "description": "Description of the prize type.",
+            "assignation_type": "How units of this prize type are assigned to winners.",
+            "qty": "Total number of units of this prize type in the promotion.",
+            "given": "Number of units of this prize type already awarded.",
+            "image": "URL of the prize type image.",
+            "instructions": "Instructions shown to the winner for claiming the prize.",
+        },
+    },
     "coin_transactions": {
         "description": "Virtual coin transactions in a promotion — each records an amount, timestamp, coin type and the user performing the transaction.",
         "docs_url": DOCS_BASE,
