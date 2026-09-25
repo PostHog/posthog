@@ -2,14 +2,69 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections import defaultdict
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any, ClassVar
 
-from braintrust import EvalAsync, EvalCase, EvalHooks
-from braintrust.framework import EvalResultWithSummary, Evaluator, ReporterDef
+from braintrust import (
+    EvalAsync,
+    EvalCase,
+    EvalHooks,
+    framework as bt_framework,
+)
+from braintrust.framework import EvalResultWithSummary, Evaluator, ExperimentSummary, ReporterDef, ScoreSummary
 
 from .types import AggregateScore, CaseResult, EnvVarSpec, EvalSummary, ExperimentResult, ExperimentSpec, SpanKind
+
+
+def none_safe_local_summary(evaluator: Evaluator[Any, Any], results: Sequence[Any]) -> ExperimentSummary:
+    """Braintrust's offline summary, with ``score=None`` excluded from the means.
+
+    The stock ``build_local_summary`` guards on the accumulator rather than the
+    score, so it reaches ``0 + None`` and raises ``TypeError`` on the first skipped
+    score. Every ``no_send_logs`` experiment takes that path, because
+    ``no_send_logs`` is what leaves the braintrust experiment unset, so a private
+    suite whose scorers skip a check cannot summarize without this.
+
+    ``results`` is ``Sequence[Any]`` because braintrust annotates the parameter as
+    ``list[EvalResultWithSummary]`` and then passes ``EvalResult`` objects, so no
+    accurate shared type exists.
+    """
+    by_name: dict[str, tuple[float, int]] = defaultdict(lambda: (0.0, 0))
+    for result in results:
+        for name, score in result.scores.items():
+            if score is None:
+                continue
+            total, count = by_name[name]
+            by_name[name] = (total + score, count + 1)
+    longest = max((len(name) for name in by_name), default=0)
+    scores = {
+        name: ScoreSummary(
+            name=name,
+            _longest_score_name=longest,
+            score=(total / count if count else 0.0),
+            improvements=0,
+            regressions=0,
+        )
+        for name, (total, count) in by_name.items()
+    }
+    return ExperimentSummary(
+        project_name=evaluator.project_name,
+        project_id=None,
+        experiment_id=None,
+        experiment_name=evaluator.experiment_name or evaluator.project_name,
+        project_url=None,
+        experiment_url=None,
+        comparison_experiment_name=None,
+        scores=scores,
+        metrics={},
+    )
+
+
+# braintrust resolves this name as a module global inside ``EvalAsync``, so there is no per-call seam to wrap.
+# The suppression is the parameter type described above: matching the declared one would misstate what arrives.
+bt_framework.build_local_summary = none_safe_local_summary  # ty: ignore[invalid-assignment]
 
 
 def _quiet_report_eval(evaluator: Evaluator, result: EvalResultWithSummary, verbose: bool, jsonl: bool) -> bool:
@@ -72,6 +127,8 @@ class BraintrustEngine:
       not be coroutines.
     - **``update=True``.** Experiment names stay runtime/model-agnostic so history
       lines up across runs; updating keeps that history rather than forking it.
+    - **``none_safe_local_summary``.** Importing this module replaces braintrust's
+      offline summary, which crashes on a skipped score. See its docstring.
     """
 
     name: ClassVar[str] = "braintrust"
@@ -117,8 +174,9 @@ class BraintrustEngine:
     def _translate(self, result: EvalResultWithSummary) -> ExperimentResult:
         """Map braintrust's ``EvalResultWithSummary`` onto the neutral model.
 
-        ``score=None`` is preserved per-case (braintrust drops it from the
-        aggregate); a task exception becomes ``CaseResult.error`` as a string so
+        ``score=None`` is preserved per-case (the aggregate drops it — online
+        through braintrust, offline through ``none_safe_local_summary``); a task
+        exception becomes ``CaseResult.error`` as a string so
         callers never re-handle a live ``Exception``; ``summary.raw`` is the
         braintrust summary's ``as_dict()`` so the jsonl export round-trips
         byte-for-byte through ``EvalSummary.as_json()``.
