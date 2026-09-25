@@ -15,6 +15,15 @@ class NonReportableError(Exception):
     retrying can't resolve, so a tracked exception would only be noise."""
 
 
+class NonReportableWhileRetryingError(Exception):
+    """Marker for a failure the activity interceptor reports only on the last attempt the retry policy allows.
+
+    An attempt that a later attempt recovers from costs the user nothing, so one captured exception per
+    attempt overstates the impact and hides the runs that really failed. Subclass it for a transient
+    upstream or infrastructure condition the retry policy is expected to absorb. Use NonReportableError
+    instead when no attempt is ever worth reporting."""
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000

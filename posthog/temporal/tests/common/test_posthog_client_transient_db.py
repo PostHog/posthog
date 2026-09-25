@@ -1,44 +1,17 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
 from parameterized import parameterized
-from temporalio.worker import ExecuteActivityInput
 
-from posthog.dataclasses import frozen
-from posthog.temporal.common.posthog_client import _PostHogClientActivityInboundInterceptor
+from posthog.temporal.tests.common.interceptor_harness import run_and_capture
 
 
 def _wrapped_by_django(message: str, cause: Exception, error_cls: type[Exception] = OperationalError) -> Exception:
     error = error_cls(message)
     error.__cause__ = cause
     return error
-
-
-@frozen
-class _Input:
-    team_id: int
-
-
-async def _run_and_capture(error: Exception) -> MagicMock:
-    next_interceptor = AsyncMock()
-    next_interceptor.execute_activity.side_effect = error
-    interceptor = _PostHogClientActivityInboundInterceptor(next_interceptor)
-
-    mock_input = MagicMock(spec=ExecuteActivityInput)
-    mock_input.args = [_Input(team_id=1)]
-    mock_input.fn = _run_and_capture
-
-    with (
-        patch("posthog.temporal.common.posthog_client.api_key", "phc_test"),
-        patch("posthog.temporal.common.posthog_client.activity.info", return_value=MagicMock()),
-        patch("posthog.temporal.common.posthog_client.capture_exception") as mock_capture,
-    ):
-        with pytest.raises(type(error)):
-            await interceptor.execute_activity(mock_input)
-    return mock_capture
 
 
 @pytest.mark.asyncio
@@ -71,7 +44,7 @@ class TestTransientDatabaseErrorReporting:
     )
     async def test_transient_db_errors_are_not_reported(self, _name, error):
         # Temporal retries the activity, so a burst of pool timeouts must not mint an issue each.
-        mock_capture = await _run_and_capture(error)
+        mock_capture = await run_and_capture(error)
         mock_capture.assert_not_called()
 
     @parameterized.expand(
@@ -89,5 +62,5 @@ class TestTransientDatabaseErrorReporting:
         ]
     )
     async def test_other_database_errors_are_still_reported(self, _name, error):
-        mock_capture = await _run_and_capture(error)
+        mock_capture = await run_and_capture(error)
         mock_capture.assert_called_once()
