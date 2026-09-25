@@ -281,12 +281,21 @@ function latestJudgmentExplanation(
  * The report this one was merged into, read from the `duplicate_of` link the merge writes on the
  * source. Only a report archived with the `merged` reason counts: a scout can write a
  * `duplicate_of` link without merging anything, and that report still holds its own signals.
+ * Any `merged` dismissal counts, not only the latest, to match `was_merged_away` in
+ * products/signals/backend/report_merge.py. A later dismissal with another reason does not move the
+ * signals back from the survivor.
  */
 export function mergedIntoReportId(
     report: SignalReport | null,
     artefacts: SignalReportArtefact[] | null
 ): string | null {
-    if (report?.status !== SignalReportStatus.SUPPRESSED || report.dismissal_reason !== 'merged') {
+    if (report?.status !== SignalReportStatus.SUPPRESSED) {
+        return null
+    }
+    const wasMerged =
+        report.dismissal_reason === 'merged' ||
+        (artefacts ?? []).some((a) => a.type === 'dismissal' && a.content?.reason === 'merged')
+    if (!wasMerged) {
         return null
     }
     const links = (artefacts ?? []).filter(

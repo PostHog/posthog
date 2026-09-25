@@ -158,6 +158,13 @@ describe('inboxReportDetailLogic', () => {
                 content: { kind, report_id: reportId },
                 created_at: createdAt,
             }) as SignalReportArtefact
+        const dismissal = (reason: string, createdAt: string): SignalReportArtefact =>
+            ({
+                id: `dismissal-${reason}`,
+                type: 'dismissal',
+                content: { reason },
+                created_at: createdAt,
+            }) as SignalReportArtefact
         const archived = (dismissalReason: string): SignalReport =>
             ({ ...REPORT, status: SignalReportStatus.SUPPRESSED, dismissal_reason: dismissalReason }) as SignalReport
 
@@ -169,6 +176,16 @@ describe('inboxReportDetailLogic', () => {
                 report: archived('merged'),
                 artefacts: [link('older', '2026-01-01T00:00:00Z'), link('newer', '2026-01-02T00:00:00Z')],
                 expected: 'newer',
+            },
+            {
+                label: 'a merged report dismissed again keeps its survivor',
+                report: archived('analysis_wrong'),
+                artefacts: [
+                    dismissal('merged', '2026-01-01T00:00:00Z'),
+                    link('survivor', '2026-01-01T00:00:00Z'),
+                    dismissal('analysis_wrong', '2026-01-02T00:00:00Z'),
+                ],
+                expected: 'survivor',
             },
             {
                 label: 'a report dismissed for another reason has no survivor',
