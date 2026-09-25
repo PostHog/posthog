@@ -180,8 +180,7 @@ export const useSidebarStore = create<SidebarStore>()(
         return {
           ...state,
           channelItemFilters:
-            version === 0 &&
-            (filters.sources === undefined || filters.sources.length === 0)
+            version === 0 && !filters.sources?.length
               ? { ...filters, sources: [DESKTOP_SOURCE] }
               : filters,
         };

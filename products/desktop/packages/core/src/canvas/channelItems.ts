@@ -224,7 +224,6 @@ export type CreatedByFilter = "anyone" | "me" | "others";
 export type AttentionFilter = "any" | "needs_input" | "unread";
 export type PinnedFilter = "any" | "pinned";
 export type EnvironmentFilter = "any" | ChannelItemEnvironment;
-/** `origin_product` keys like `slack`. Empty matches every source. */
 export type SourceFilter = readonly string[];
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
@@ -296,26 +295,14 @@ export function sameSources(a: SourceFilter, b: SourceFilter): boolean {
   return b.every((source) => set.has(source));
 }
 
-export function toggleSource(
-  sources: SourceFilter,
-  source: string,
-): SourceFilter {
-  return sources.includes(source)
-    ? sources.filter((s) => s !== source)
-    : [...sources, source];
-}
-
-export function migrateSourceFilter<T extends Partial<ChannelItemFilters>>(
-  filters: T & { source?: unknown },
-): T {
-  const { source, ...rest } = filters;
-  if (rest.sources !== undefined || typeof source !== "string") {
-    return rest as T;
-  }
-  return {
-    ...rest,
-    sources: source === "any" ? ANY_SOURCE : [source],
-  } as T;
+export function migrateSourceFilter({
+  source,
+  ...rest
+}: Partial<ChannelItemFilters> & {
+  source?: unknown;
+}): Partial<ChannelItemFilters> {
+  if (typeof source !== "string" || rest.sources) return rest;
+  return { ...rest, sources: source === "any" ? ANY_SOURCE : [source] };
 }
 
 /**

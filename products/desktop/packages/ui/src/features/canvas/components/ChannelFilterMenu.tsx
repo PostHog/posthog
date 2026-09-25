@@ -13,7 +13,6 @@ import {
   type PinnedFilter,
   type SourceFilter,
   sameSources,
-  toggleSource,
 } from "@posthog/core/canvas/channelItems";
 import {
   Button,
@@ -132,6 +131,27 @@ function OptionDot({ tone }: { tone: DotTone }) {
   );
 }
 
+function SubmenuTrigger({
+  label,
+  value,
+  narrowed,
+}: {
+  label: string;
+  value: string;
+  narrowed: boolean;
+}) {
+  return (
+    <DropdownMenuSubTrigger className="pr-1">
+      <span>{label}</span>
+      <span
+        className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
+      >
+        {value}
+      </span>
+    </DropdownMenuSubTrigger>
+  );
+}
+
 /**
  * One filter as a submenu: its name, the choice currently in force, and the
  * radio group behind it. A group per submenu keeps the top level a list of
@@ -157,14 +177,11 @@ function FilterSubmenu<T extends string>({
 
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1">
-        <span>{label}</span>
-        <span
-          className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
-        >
-          {labelOf(options, value)}
-        </span>
-      </DropdownMenuSubTrigger>
+      <SubmenuTrigger
+        label={label}
+        value={labelOf(options, value)}
+        narrowed={narrowed}
+      />
       <DropdownMenuSubContent>
         <DropdownMenuRadioGroup
           value={value}
@@ -207,18 +224,13 @@ function SourceSubmenu({
   defaultValue: SourceFilter;
   onChange: (value: SourceFilter) => void;
 }) {
-  const narrowed = !sameSources(value, defaultValue);
-
   return (
     <DropdownMenuSub>
-      <DropdownMenuSubTrigger className="pr-1">
-        <span>Source</span>
-        <span
-          className={`flex-1 pl-4 text-right ${narrowed ? "text-primary" : "text-muted-foreground/80"}`}
-        >
-          {sourcesLabel(options, value)}
-        </span>
-      </DropdownMenuSubTrigger>
+      <SubmenuTrigger
+        label="Source"
+        value={sourcesLabel(options, value)}
+        narrowed={!sameSources(value, defaultValue)}
+      />
       <DropdownMenuSubContent>
         <DropdownMenuCheckboxItem
           checked={value.length === 0}
@@ -233,7 +245,13 @@ function SourceSubmenu({
             key={option.value}
             checked={value.includes(option.value)}
             closeOnClick={false}
-            onCheckedChange={() => onChange(toggleSource(value, option.value))}
+            onCheckedChange={(checked) =>
+              onChange(
+                checked
+                  ? [...value, option.value]
+                  : value.filter((source) => source !== option.value),
+              )
+            }
           >
             {option.label}
           </DropdownMenuCheckboxItem>
