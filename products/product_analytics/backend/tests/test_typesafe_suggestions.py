@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import InsightVizNode
+from posthog.schema import BaseMathType, CountPerActorMathType, FunnelMathType, InsightVizNode, PropertyMathType
 
 from posthog.egress.typesafe.client import ChoiceAnswer, NoulAnswer, SystemOneResult
 
@@ -15,6 +15,7 @@ from products.product_analytics.backend.presentation.typesafe_metadata import (
     SubjectContext,
     description_candidates,
     humanize_date_range,
+    math_reading,
     suggest_dashboard,
     suggest_tags,
     suggest_title,
@@ -36,7 +37,55 @@ def _result(answers: dict) -> SystemOneResult:
     return SystemOneResult(model="jev-1.13.0", answers=answers, input_tokens=10)
 
 
+def _every_series_math() -> list[tuple[str]]:
+    values = {
+        str(member.value)
+        for enum in (BaseMathType, PropertyMathType, CountPerActorMathType, FunnelMathType)
+        for member in enum
+    }
+    values.update({"hogql", "unique_group"})
+    return sorted((value,) for value in values if value != "total")
+
+
+def _series_with(math: str) -> dict:
+    node: dict = {"kind": "EventsNode", "event": "$pageview", "math": math}
+    if math in {"avg", "sum", "min", "max", "median", "p75", "p90", "p95", "p99"}:
+        node["math_property"] = "$session_duration"
+    if math == "hogql":
+        node["math_hogql"] = "count()"
+    if math == "unique_group":
+        node["math_group_type_index"] = 0
+    return node
+
+
 class TestTypesafeSuggestionCandidates(SimpleTestCase):
+    @parameterized.expand(_every_series_math())
+    def test_every_math_reads_in_a_title(self, math: str) -> None:
+        # The schema is the source of truth for maths a series can carry. A math with no reading
+        # would fall back to a bare event name and describe a different chart.
+        query = _viz({"kind": "TrendsQuery", "series": [_series_with(math)]})
+        actors = ("group", "groups") if math == "unique_group" else ("user", "users")
+        reading = math_reading(query.source.series[0], "pageviews", actors)
+        assert reading.title_base, math
+        assert "pageviews" in reading.title_base
+        assert reading.summary and "{" not in reading.summary
+        assert reading.title_base in title_candidates(SubjectContext(subject="insight", query=query))
+
+    def test_group_aggregation_names_the_group_type(self) -> None:
+        names = {0: ("organization", "organizations")}
+        by_series = SubjectContext(
+            subject="insight",
+            query=_viz({"kind": "TrendsQuery", "series": [_series_with("unique_group")]}),
+            group_type_names=names,
+        )
+        by_query = SubjectContext(
+            subject="insight",
+            query=_viz({"kind": "TrendsQuery", "series": [_series_with("dau")], "aggregation_group_type_index": 0}),
+            group_type_names=names,
+        )
+        assert title_candidates(by_series)[0] == "Unique organizations with pageviews"
+        assert title_candidates(by_query)[0] == "Unique organizations with pageviews"
+
     def test_trends_title_candidates_humanize_the_series_and_include_the_current_name(self) -> None:
         context = SubjectContext(
             subject="insight",
