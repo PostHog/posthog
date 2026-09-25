@@ -71,12 +71,16 @@ class DriftCategoryReport:
 # path deletes rows, personhog tombstones them with is_deleted. Every
 # comparison filters is_deleted on both sides so a tombstone against a
 # deleted row does not read as drift.
+# The join hashes one whole side, so carrying properties through it costs
+# memory proportional to the documents. jsonb text output is canonical
+# (sorted keys, no duplicates, fixed whitespace), so hashing it preserves
+# equality while shrinking each row to 32 bytes.
 _PERSON_SIDES = """
 WITH legacy AS (
-    SELECT team_id, uuid, properties, is_identified, created_at, version
+    SELECT team_id, uuid, md5(properties::text) AS properties_hash, is_identified, created_at, version
     FROM posthog_person WHERE NOT is_deleted
 ), personhog AS (
-    SELECT team_id, uuid, properties, is_identified, created_at, version
+    SELECT team_id, uuid, md5(properties::text) AS properties_hash, is_identified, created_at, version
     FROM personhog_person_tmp WHERE NOT is_deleted
 )
 """
@@ -85,7 +89,7 @@ WITH legacy AS (
 # mismatched_rows: version counts how many writes a row took, so a benign
 # difference in update batching shifts it without any end-state divergence.
 _PERSON_ROW_DIFFERS = """(
-    l.properties IS DISTINCT FROM p.properties
+    l.properties_hash IS DISTINCT FROM p.properties_hash
     OR l.is_identified IS DISTINCT FROM p.is_identified
     OR l.created_at IS DISTINCT FROM p.created_at)"""
 
@@ -97,7 +101,7 @@ SELECT
     count(*) FILTER (WHERE p.uuid IS NULL) AS missing_in_personhog,
     count(*) FILTER (WHERE l.uuid IS NULL) AS missing_in_legacy,
     count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
-        AND l.properties IS DISTINCT FROM p.properties) AS properties,
+        AND l.properties_hash IS DISTINCT FROM p.properties_hash) AS properties,
     count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
         AND l.is_identified IS DISTINCT FROM p.is_identified) AS is_identified,
     count(*) FILTER (WHERE l.uuid IS NOT NULL AND p.uuid IS NOT NULL
