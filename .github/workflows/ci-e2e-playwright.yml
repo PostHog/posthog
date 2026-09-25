@@ -552,6 +552,10 @@ jobs:
             INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
             AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
             AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+            # Tuned together for this runner: more Playwright workers without more Granian workers
+            # added test failures and no speedup. Talk to #team-devex before changing either.
+            GRANIAN_WORKERS: 4
+            PLAYWRIGHT_WORKERS: 6
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -900,8 +904,7 @@ jobs:
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
                   python manage.py start_temporal_worker --task-queue analytics-platform-task-queue &> /tmp/temporal-worker.log &
-                  # WARNING: Worker count is tuned together with the Playwright --workers count in the test step. Talk to #team-devex before changing.
-                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 4 &> /tmp/server.log &
+                  python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers "$GRANIAN_WORKERS" &> /tmp/server.log &
                   # Start the Node.js containers now that the database exists and migrations have run.
                   # plugins: CDP (no mode = default capabilities)
                   # ingestion-general: event ingestion (ingestion-v2-combined mode)
@@ -949,7 +952,6 @@ jobs:
                   # Empty when select-specs was skipped (full-run events) or chose a full run.
                   SELECT_MODE: ${{ needs.select-specs.outputs.mode }}
                   SELECT_SPECS: ${{ needs.select-specs.outputs.spec_files }}
-              # WARNING: Worker count is tuned together with the Granian --workers count. Talk to #team-devex before changing.
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
                   # Time the test step so the telemetry can turn "specs skipped" into
@@ -967,7 +969,7 @@ jobs:
                   # Word-splitting is intentional: SELECT_SPECS is a space-separated list
                   # of controlled spec paths (from the area map + on-disk globs).
                   # shellcheck disable=SC2086
-                  pnpm --filter=@posthog/playwright exec playwright test $specs --workers=6 --update-snapshots
+                  pnpm --filter=@posthog/playwright exec playwright test $specs --workers="$PLAYWRIGHT_WORKERS" --update-snapshots
                   rc=$?
                   echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
                   exit "$rc"
