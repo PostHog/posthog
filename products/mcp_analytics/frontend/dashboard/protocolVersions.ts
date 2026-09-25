@@ -57,26 +57,13 @@ export function formatShare(pct: number): string {
 }
 
 const GROUP_PALETTE_INDEX = { current: 0, legacy: 11 }
-const SHADE_OFFSETS = [0, 14, -14, 28]
-const OTHER_OPACITY = 0.45
+const OTHER_LIGHTEN_PCT = 30
 
-export interface SegmentStyle {
-    color: string | undefined
-    opacity?: number
-}
-
-export function segmentStyles(theme: ChartTheme, rows: MCPProtocolVersionBreakdownItem[]): SegmentStyle[] {
-    const shadeIndex = { current: 0, legacy: 0 }
-    return rows.map((row) => {
-        const group = versionGroup(row)
-        if (group === 'unknown') {
-            return { color: theme.axisColor }
-        }
-        const base = theme.colors[GROUP_PALETTE_INDEX[group]]
-        if (row.protocol_version === 'Other') {
-            return { color: shadeColor(base, 0) ?? theme.axisColor, opacity: OTHER_OPACITY }
-        }
-        const offset = SHADE_OFFSETS[shadeIndex[group]++ % SHADE_OFFSETS.length]
-        return { color: shadeColor(base, offset) ?? theme.axisColor }
-    })
+export function versionColor(theme: ChartTheme, row: MCPProtocolVersionBreakdownItem): string | undefined {
+    const group = versionGroup(row)
+    if (group === 'unknown') {
+        return theme.axisColor
+    }
+    const base = theme.colors[GROUP_PALETTE_INDEX[group]]
+    return shadeColor(base, row.protocol_version === 'Other' ? OTHER_LIGHTEN_PCT : 0) ?? theme.axisColor
 }
