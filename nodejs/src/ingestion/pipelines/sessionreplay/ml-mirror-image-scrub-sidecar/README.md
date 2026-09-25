@@ -224,6 +224,7 @@ Anything still readable in the artifact was therefore large enough to have been 
 `ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
 Faces bind at 64/21 ≈ 3.05; codes need 3, and text 4.3/3 ≈ 1.43.
 zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
+DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
 **`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**

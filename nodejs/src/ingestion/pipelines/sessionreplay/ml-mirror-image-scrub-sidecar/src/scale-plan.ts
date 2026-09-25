@@ -175,6 +175,28 @@ export function faceInputScale(dims: Dims, side: number, tileAbove: number, tile
     return Math.min(1, side / faceWindowLong(long, short, tileAbove, tileAspect))
 }
 
+/**
+ * The text detector's input, cut down to the ratio over the stored image.
+ *
+ * The canvas budget sizes text for the frame alone. Once faces or the stored-size cap make the stored image
+ * smaller than that budget allows, text reads more pixels than any readable word needs. The rule is per axis:
+ * text h px tall in the frame is h * content / frame at the model and h * stored / frame in the artifact.
+ */
+export function fitTextToStored(
+    text: { content: Dims; canvas: Dims },
+    stored: Dims,
+    ratio: number,
+    stride: number
+): { content: Dims; canvas: Dims } {
+    const content = {
+        width: Math.min(text.content.width, Math.ceil(ratio * stored.width)),
+        height: Math.min(text.content.height, Math.ceil(ratio * stored.height)),
+    }
+    const canvas = { width: upToStride(content.width, stride), height: upToStride(content.height, stride) }
+    // A cut that leaves the padded canvas as large as before saves no inference and only adds a resample.
+    return canvas.width * canvas.height < text.canvas.width * text.canvas.height ? { content, canvas } : text
+}
+
 // A resize has a fixed cost that a small reduction does not win back in zxing time, so zxing reads the frame as it
 // is unless the plan takes it below this. Reading more than the ratio asks for cannot break rule 4.
 const CODE_RESIZE_BELOW = 0.85
@@ -185,15 +207,16 @@ const CODE_RESIZE_BELOW = 0.85
  * The stored size is derived from the WEAKEST detector rather than any single one: a guarantee that
  * holds for the text detector and not the face detector is not a guarantee. Every reduction between
  * the source and each detector is already folded into its scale, so the ratio is enforced against
- * what each model really saw rather than against the budgets that were asked for.
+ * what each model really saw rather than against the budgets that were asked for. The text detector is
+ * then cut down to the ratio over the stored size, because its budget alone can ask for more.
  */
 export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
     const frame = fitToArea(source, limits.framePixels)
-    const text = fitToCanvas(frame, limits.textCanvasPixels, limits.stride)
+    const textBudget = fitToCanvas(frame, limits.textCanvasPixels, limits.stride)
     const faceScale = faceInputScale(frame, limits.faceInputSide, limits.faceTileAbove, limits.faceTileAspect)
 
     // Each detector's scale relative to the frame, so they are comparable.
-    const textScale = Math.min(text.content.width / frame.width, text.content.height / frame.height)
+    const textScale = Math.min(textBudget.content.width / frame.width, textBudget.content.height / frame.height)
     const weakest = Math.min(textScale, faceScale, 1)
 
     const ratio = bindingRatio() * limits.safetyFactor
@@ -204,7 +227,7 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
     const codeScale = Math.min(1, ratio * keptScale)
     return {
         frame,
-        text,
+        text: fitTextToStored(textBudget, stored, ratio, limits.stride),
         face: { scale: faceScale },
         code: { scale: codeScale < CODE_RESIZE_BELOW ? codeScale : 1 },
         stored,
