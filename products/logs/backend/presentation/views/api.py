@@ -29,7 +29,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
+from posthog.hogql_queries.utils.time_sliced_query import TimeSliceBudget, time_sliced_results
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -684,7 +684,13 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
         help_text="The parsed query that was executed, echoed back for confirmation.",
     )
     results = _LogEntrySerializer(many=True, help_text="Log entries matching the query.")
-    hasMore = serializers.BooleanField(help_text="True if more results exist beyond this page.")
+    hasMore = serializers.BooleanField(
+        help_text=(
+            "True when there may be more logs beyond this page: either more rows matched, or the "
+            "query stopped before it read the whole date range. Follow `nextCursor` until this is "
+            "false. The last page can come back empty."
+        ),
+    )
     nextCursor = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1424,6 +1430,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         def make_runner(date_range: DateRange) -> LogsQueryRunner:
             return LogsQueryRunner(LogsQuery(**{**query.model_dump(), "dateRange": date_range}), self.team)
 
+        budget = TimeSliceBudget()
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
@@ -1440,12 +1447,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         order_by_earliest=order_by == LogsOrderBy.EARLIEST,
                         make_runner=make_runner,
                         analytics_props=analytics_props,
+                        budget=budget,
                     )
                 )
         except QueryError as e:
             # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        has_more = len(results) > requested_limit
+        # A truncated ladder left part of the range unread, so the older logs are still out there.
+        # The cursor below already points at the last row we did read, which is where a page-two
+        # request has to start from either way.
+        has_more = len(results) > requested_limit or budget.truncated
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
         # Generate cursor for next page
@@ -1465,6 +1476,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 {
                     "results_count": len(results),
                     "has_more": has_more,
+                    # has_more alone cannot separate an ordinary next page from a page the ladder
+                    # cut short, and a cut-short page is still a 200.
+                    "truncated": budget.truncated,
+                    "truncation_reason": budget.truncation_reason,
                     "has_search_term": bool(query_data.get("searchTerm")),
                     "has_filter_group": bool(query_data.get("filterGroup")),
                     "severity_levels_count": len(query_data.get("severityLevels") or []),
