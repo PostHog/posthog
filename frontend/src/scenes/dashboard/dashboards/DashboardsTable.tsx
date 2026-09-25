@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
@@ -20,6 +21,9 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -87,6 +91,8 @@ export function DashboardsTable({
     // while the user has an active search term.
     const effectiveTableSorting = filters.search ? null : tableSorting
     const { currentTeam } = useValues(teamLogic)
+    const { homepage, homepageSaving } = useValues(sceneLogic)
+    const { setHomepage } = useActions(sceneLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
@@ -113,7 +119,7 @@ export function DashboardsTable({
         {
             title: 'Name',
             dataIndex: 'name',
-            width: 440,
+            width: 540,
             render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = accessLevelSatisfied(
@@ -170,7 +176,7 @@ export function DashboardsTable({
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof DashboardType,
-            width: 240,
+            width: 140,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? (
                     <ObjectTags
@@ -291,17 +297,37 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <LemonRow
-                                          icon={<IconHome className="size-4 text-warning" />}
-                                          fullWidth
-                                          status="warning"
-                                      >
-                                          <span className="text-secondary">
-                                              Change the default dashboard
-                                              <br />
-                                              from the <Link to={urls.projectHomepage()}>project home page</Link>.
-                                          </span>
-                                      </LemonRow>
+                                      {homepage?.id === `homepage-dashboard-${id}` ? (
+                                          <LemonRow fullWidth>Your homepage</LemonRow>
+                                      ) : (
+                                          <LemonButton
+                                              onClick={() => {
+                                                  setHomepage(
+                                                      {
+                                                          id: `homepage-dashboard-${id}`,
+                                                          pathname: urls.dashboard(id),
+                                                          search: '',
+                                                          hash: '',
+                                                          title: name || 'Untitled',
+                                                          iconType: 'dashboard',
+                                                          sceneId: Scene.Dashboard,
+                                                          sceneKey: `dashboard-${id}`,
+                                                          sceneParams: emptySceneParams,
+                                                      },
+                                                      'dashboards list'
+                                                  )
+                                                  posthog.capture('dashboard set as homepage clicked', {
+                                                      source: 'dashboards list',
+                                                  })
+                                              }}
+                                              fullWidth
+                                              data-attr="dashboard-set-as-homepage"
+                                              loading={homepageSaving}
+                                              disabled={homepageSaving}
+                                          >
+                                              Set as my homepage
+                                          </LemonButton>
+                                      )}
 
                                       <LemonDivider />
 

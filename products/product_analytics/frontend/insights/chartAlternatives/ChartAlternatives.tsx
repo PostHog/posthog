@@ -16,17 +16,15 @@ import { chartPreviewsLogic } from './chartPreviewsLogic'
 const GALLERY_WIDTH = 'w-[34rem] max-w-[calc(100vw-2rem)]'
 
 export function ChartAlternatives({
-    editMode,
     embedded,
     inSharedMode,
     insightProps,
 }: {
-    editMode?: boolean
     embedded: boolean
     inSharedMode?: boolean
     insightProps: InsightLogicProps
 }): JSX.Element {
-    const logicProps = { editMode, embedded, inSharedMode, ...insightProps }
+    const logicProps = { embedded, inSharedMode, ...insightProps }
     const logic = useMountedLogic(chartAlternativesLogic(logicProps))
     useMountedLogic(chartPreviewsLogic(logicProps))
     const { canShowAlternatives, currentOption, galleryOpen, selectionDisabledReason } = useValues(logic)
@@ -52,7 +50,6 @@ export function ChartAlternatives({
                 <ChartGallery
                     className={GALLERY_WIDTH}
                     insightProps={insightProps}
-                    editMode={editMode}
                     embedded={embedded}
                     inSharedMode={inSharedMode}
                 />

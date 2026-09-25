@@ -163,7 +163,11 @@ export interface aiFirstHomepageLogicActions {
     startNewConversation: () => {
         value: true
     } // maxLogic
-    setHomepage: (tab: SceneTab | null) => {
+    setHomepage: (
+        tab: SceneTab | null,
+        homepageSource?: 'dashboards list' | undefined
+    ) => {
+        homepageSource: 'dashboards list' | undefined
         tab: SceneTab | null
     } // sceneLogic
     setChatDraftForTab: (
