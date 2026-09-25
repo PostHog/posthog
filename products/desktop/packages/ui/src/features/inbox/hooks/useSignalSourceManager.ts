@@ -44,6 +44,7 @@ export function useSignalSourceManager() {
     handleUpdateAutostartBaseBranches:
       teamMutations.handleUpdateAutostartBaseBranches,
     handleUpdateMaxReportsPerDay: teamMutations.handleUpdateMaxReportsPerDay,
+    handleUpdatePullRequestLabel: teamMutations.handleUpdatePullRequestLabel,
 
     // User autonomy
     userAutonomyConfig,

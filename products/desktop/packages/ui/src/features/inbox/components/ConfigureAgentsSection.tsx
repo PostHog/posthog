@@ -40,6 +40,7 @@ import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { SettingsSubsection } from "@posthog/ui/features/settings/components/SettingsSubsection";
 import { DailyReportLimitSettings } from "@posthog/ui/features/settings/sections/DailyReportLimitSettings";
 import { GitHubIntegrationSection } from "@posthog/ui/features/settings/sections/GitHubIntegrationSection";
+import { PullRequestLabelSettings } from "@posthog/ui/features/settings/sections/PullRequestLabelSettings";
 import { SlackInboxNotificationsSettings } from "@posthog/ui/features/settings/sections/SlackInboxNotificationsSettings";
 import {
   resolveDefaultCloudRepository,
@@ -87,6 +88,7 @@ export function ConfigureAgentsSection() {
     teamConfig,
     teamConfigLoading,
     handleUpdateMaxReportsPerDay,
+    handleUpdatePullRequestLabel,
     userAutonomyConfig,
     userAutonomyConfigLoading,
   } = useSignalSourceManager();
@@ -135,6 +137,12 @@ export function ConfigureAgentsSection() {
           hasGithubIntegration={hasGithubIntegration}
           isLoading={isLoadingIntegrations}
           showBottomBorder={false}
+        />
+        <PullRequestLabelSettings
+          config={teamConfig}
+          onSave={handleUpdatePullRequestLabel}
+          isLoading={teamConfigLoading}
+          disabled={!hasGithubIntegration}
         />
       </SettingsSubsection>
 

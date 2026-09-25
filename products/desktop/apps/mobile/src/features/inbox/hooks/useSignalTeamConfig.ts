@@ -1,3 +1,4 @@
+import type { PullRequestLabelUpdate } from "@posthog/core/inbox/pullRequestLabel";
 import type { SignalTeamConfig } from "@posthog/shared/domain-types";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/features/auth";
@@ -31,6 +32,23 @@ export function useUpdateMaxReportsPerDay() {
       getPostHogApiClient().updateSignalTeamConfig({
         max_reports_per_day: limit,
       }),
+    onSuccess: (fresh) => {
+      queryClient.setQueryData<SignalTeamConfig>(
+        teamConfigKey(projectId),
+        fresh,
+      );
+    },
+  });
+}
+
+/** Turn the GitHub pull request label on or off, or rename it. */
+export function useUpdatePullRequestLabel() {
+  const { projectId } = useAuthStore();
+  const queryClient = useQueryClient();
+
+  return useMutation<SignalTeamConfig, Error, PullRequestLabelUpdate>({
+    mutationFn: (updates) =>
+      getPostHogApiClient().updateSignalTeamConfig(updates),
     onSuccess: (fresh) => {
       queryClient.setQueryData<SignalTeamConfig>(
         teamConfigKey(projectId),

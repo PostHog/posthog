@@ -21,6 +21,7 @@ import {
 import { DailyReportLimitRow } from "@/features/settings/components/DailyReportLimitRow";
 import { DebugInfoSection } from "@/features/settings/components/DebugInfoSection";
 import { FloatingSettingsHeader } from "@/features/settings/components/FloatingSettingsHeader";
+import { PullRequestLabelRow } from "@/features/settings/components/PullRequestLabelRow";
 import { SettingsRow } from "@/features/settings/components/SettingsRow";
 import { SettingsSection } from "@/features/settings/components/SettingsSection";
 import { SelectSheet } from "@/features/tasks/composer/SelectSheet";
@@ -467,6 +468,7 @@ export default function SettingsScreen() {
         {/* Inbox */}
         <SettingsSection title="Inbox">
           <DailyReportLimitRow />
+          <PullRequestLabelRow />
           <SettingsRow
             label="Reviewed reports"
             description={`${decidedCount} report${decidedCount === 1 ? "" : "s"} reviewed in tinder mode`}
