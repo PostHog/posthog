@@ -4,7 +4,14 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withPageOffsets,
+    omitResponseFields,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataWarehouseSourceConnectLinkSchema = () => {
@@ -103,7 +110,7 @@ const ExternalDataDestinationsListSchema = () => {
 
 const externalDataDestinationsList = (): ToolBase<
     ReturnType<typeof ExternalDataDestinationsListSchema>,
-    Schemas.PaginatedExternalDataDestinationList
+    WithPageOffsets<Schemas.PaginatedExternalDataDestinationList>
 > => ({
     name: 'external-data-destinations-list',
     schema: ExternalDataDestinationsListSchema(),
@@ -117,7 +124,8 @@ const externalDataDestinationsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -278,7 +286,7 @@ const ExternalDataSchemasListSchema = () => {
 
 const externalDataSchemasList = (): ToolBase<
     ReturnType<typeof ExternalDataSchemasListSchema>,
-    WithPostHogUrl<Schemas.PaginatedExternalDataSchemaList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedExternalDataSchemaList>>
 > => ({
     name: 'external-data-schemas-list',
     schema: ExternalDataSchemasListSchema(),
@@ -299,7 +307,8 @@ const externalDataSchemasList = (): ToolBase<
                 omitResponseFields(item, ['table.columns', 'available_columns'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/sources')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/data-management/sources')
     },
 })
 
@@ -713,7 +722,7 @@ const ExternalDataSourcesListSchema = () => {
 
 const externalDataSourcesList = (): ToolBase<
     ReturnType<typeof ExternalDataSourcesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedExternalDataSourceSerializersList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedExternalDataSourceSerializersList>>
 > => ({
     name: 'external-data-sources-list',
     schema: ExternalDataSourcesListSchema(),
@@ -728,7 +737,8 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/data-management/sources')
     },
 })
 

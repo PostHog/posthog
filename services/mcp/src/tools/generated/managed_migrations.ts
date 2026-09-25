@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/managed_migrations/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, withPageOffsets, type WithPostHogUrl, type WithPageOffsets } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ManagedMigrationsSupportGetSchema = () => {
@@ -33,7 +33,7 @@ const ManagedMigrationsSupportListSchema = () => {
 
 const managedMigrationsSupportList = (): ToolBase<
     ReturnType<typeof ManagedMigrationsSupportListSchema>,
-    WithPostHogUrl<Schemas.PaginatedBatchImportSupportListList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedBatchImportSupportListList>>
 > => ({
     name: 'managed-migrations-support-list',
     schema: ManagedMigrationsSupportListSchema(),
@@ -50,7 +50,8 @@ const managedMigrationsSupportList = (): ToolBase<
                 team_id: params.team_id,
             },
         })
-        return await withPostHogUrl(context, result, '/managed_migrations')
+        const paged = withPageOffsets(result)
+        return await withPostHogUrl(context, paged, '/managed_migrations')
     },
 })
 

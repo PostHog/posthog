@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/subscriptions/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    omitResponseFields,
+    withPageOffsets,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SubscriptionsCreateSchema = () => {
@@ -122,7 +128,7 @@ const SubscriptionsDeliveriesListSchema = () => {
 
 const subscriptionsDeliveriesList = (): ToolBase<
     ReturnType<typeof SubscriptionsDeliveriesListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSubscriptionDeliveryList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSubscriptionDeliveryList>>
 > => ({
     name: 'subscriptions-deliveries-list',
     schema: SubscriptionsDeliveriesListSchema(),
@@ -149,7 +155,8 @@ const subscriptionsDeliveriesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/subscriptions')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/subscriptions')
     },
 })
 
@@ -187,7 +194,7 @@ const SubscriptionsListSchema = () => {
 
 const subscriptionsList = (): ToolBase<
     ReturnType<typeof SubscriptionsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedSubscriptionList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedSubscriptionList>>
 > => ({
     name: 'subscriptions-list',
     schema: SubscriptionsListSchema(),
@@ -214,12 +221,13 @@ const subscriptionsList = (): ToolBase<
             ...result,
             results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['invite_message'])),
         } as typeof result
+        const paged = withPageOffsets(filtered)
         return await withPostHogUrl(
             context,
             {
-                ...filtered,
+                ...paged,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/subscriptions/${item.id}`))
+                    (paged.results ?? []).map((item) => withPostHogUrl(context, item, `/subscriptions/${item.id}`))
                 ),
             },
             '/subscriptions'

@@ -4,7 +4,13 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/error_tracking/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withPageOffsets,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithPageOffsets,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingAssignmentRulesCreateSchema = () => {
@@ -46,7 +52,7 @@ const ErrorTrackingAssignmentRulesListSchema = () => {
 
 const errorTrackingAssignmentRulesList = (): ToolBase<
     ReturnType<typeof ErrorTrackingAssignmentRulesListSchema>,
-    Schemas.PaginatedErrorTrackingAssignmentRuleList
+    WithPageOffsets<Schemas.PaginatedErrorTrackingAssignmentRuleList>
 > => ({
     name: 'error-tracking-assignment-rules-list',
     schema: ErrorTrackingAssignmentRulesListSchema(),
@@ -60,7 +66,8 @@ const errorTrackingAssignmentRulesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -97,7 +104,7 @@ const ErrorTrackingBypassRulesListSchema = () => {
 
 const errorTrackingBypassRulesList = (): ToolBase<
     ReturnType<typeof ErrorTrackingBypassRulesListSchema>,
-    Schemas.PaginatedErrorTrackingBypassRuleList
+    WithPageOffsets<Schemas.PaginatedErrorTrackingBypassRuleList>
 > => ({
     name: 'error-tracking-bypass-rules-list',
     schema: ErrorTrackingBypassRulesListSchema(),
@@ -111,7 +118,8 @@ const errorTrackingBypassRulesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -397,7 +405,7 @@ const ErrorTrackingRecommendationsListSchema = () => {
 
 const errorTrackingRecommendationsList = (): ToolBase<
     ReturnType<typeof ErrorTrackingRecommendationsListSchema>,
-    Schemas.PaginatedErrorTrackingRecommendationList
+    WithPageOffsets<Schemas.PaginatedErrorTrackingRecommendationList>
 > => ({
     name: 'error-tracking-recommendations-list',
     schema: ErrorTrackingRecommendationsListSchema(),
@@ -412,7 +420,8 @@ const errorTrackingRecommendationsList = (): ToolBase<
                 poll: params.poll,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -591,7 +600,7 @@ const ErrorTrackingSuppressionRulesListSchema = () => {
 
 const errorTrackingSuppressionRulesList = (): ToolBase<
     ReturnType<typeof ErrorTrackingSuppressionRulesListSchema>,
-    Schemas.PaginatedErrorTrackingSuppressionRuleList
+    WithPageOffsets<Schemas.PaginatedErrorTrackingSuppressionRuleList>
 > => ({
     name: 'error-tracking-suppression-rules-list',
     schema: ErrorTrackingSuppressionRulesListSchema(),
@@ -605,7 +614,8 @@ const errorTrackingSuppressionRulesList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        const paged = withPageOffsets(result)
+        return paged
     },
 })
 
@@ -675,7 +685,7 @@ const ErrorTrackingSymbolSetsListSchema = () => {
 
 const errorTrackingSymbolSetsList = (): ToolBase<
     ReturnType<typeof ErrorTrackingSymbolSetsListSchema>,
-    WithPostHogUrl<Schemas.PaginatedErrorTrackingSymbolSetList>
+    WithPostHogUrl<WithPageOffsets<Schemas.PaginatedErrorTrackingSymbolSetList>>
 > => ({
     name: 'error-tracking-symbol-sets-list',
     schema: ErrorTrackingSymbolSetsListSchema(),
@@ -707,7 +717,8 @@ const errorTrackingSymbolSetsList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/error_tracking')
+        const paged = withPageOffsets(filtered)
+        return await withPostHogUrl(context, paged, '/error_tracking')
     },
 })
 
