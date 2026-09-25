@@ -62,16 +62,6 @@ export function ObservationThumbnail({ observation, className, children }: Obser
         posthog.capture('replay vision frame load failed')
     }
 
-    // A failed frame gets its own state, so it does not look like an observation that never had one.
-    const placeholder = failed ? (
-        <div className="flex flex-col items-center gap-1 text-tertiary">
-            <IconWarning className="text-xl" aria-hidden />
-            <span className="text-xs">Frame unavailable</span>
-        </div>
-    ) : (
-        <IconVideoCamera className="text-xl text-tertiary" aria-hidden />
-    )
-
     return (
         <div className={`relative aspect-video overflow-hidden rounded border bg-surface-secondary ${className ?? ''}`}>
             {src && (
@@ -84,7 +74,17 @@ export function ObservationThumbnail({ observation, className, children }: Obser
                     onError={onError}
                 />
             )}
-            <div className="absolute inset-0 flex items-center justify-center">{children ?? (!src && placeholder)}</div>
+            {/* A failed frame gets its own state, so it does not look like an observation that never had one.
+                It shows next to the caller's overlay, so a play target still says why it has no frame. */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                {failed && (
+                    <div className="flex flex-col items-center gap-1 text-tertiary">
+                        <IconWarning className="text-xl" aria-hidden />
+                        <span className="text-xs">Frame unavailable</span>
+                    </div>
+                )}
+                {children ?? (!src && !failed && <IconVideoCamera className="text-xl text-tertiary" aria-hidden />)}
+            </div>
         </div>
     )
 }

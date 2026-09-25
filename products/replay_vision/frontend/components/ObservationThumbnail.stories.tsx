@@ -43,3 +43,10 @@ FrameFailsToLoad.decorators = [
         get: { '/api/projects/:team_id/vision/observations/:id/thumbnail/': () => [500, {}] },
     }),
 ]
+
+export const FrameFailsToLoadAsAPlayTarget: StoryFn = () => (
+    <ObservationThumbnail observation={withFrame} className="w-80">
+        <IconPlayFilled className="text-xl text-brand-red drop-shadow" />
+    </ObservationThumbnail>
+)
+FrameFailsToLoadAsAPlayTarget.decorators = FrameFailsToLoad.decorators

@@ -50,7 +50,7 @@ describe('VisualImageDiffViewer', () => {
         expect(screen.queryByAltText('New snapshot')).not.toBeInTheDocument()
         expect(screen.getByText("Couldn't load image")).toBeInTheDocument()
 
-        await user.click(screen.getByRole('button', { name: 'Try again' }))
+        await user.click(screen.getByText('Try again'))
 
         expect(screen.getByAltText('New snapshot')).toHaveAttribute('src', '/new.png')
     })
