@@ -47,11 +47,17 @@ class TestExtractJsonFromText:
             # gives the caller a fragment, and the schema error that follows blames a missing field.
             ("truncated_with_whole_inner_object", '{"duplicates": [{"id": "1-3-3"}', "Output truncated"),
             ("truncated_mid_value", '{"duplicates": [{"id": "1-3', "Output truncated"),
+            (
+                "truncated_answer_after_a_matching_sample",
+                'Sample: {"answer": 1}\nFinal:\n{"answer": "hel',
+                "Output truncated",
+                {"answer"},
+            ),
         ]
     )
-    def test_classifies_unparseable_text(self, _name, text, expected_message):
+    def test_classifies_unparseable_text(self, _name, text, expected_message, required_keys=None):
         with pytest.raises(ValueError, match=expected_message):
-            extract_json_from_text(text, label="initial turn")
+            extract_json_from_text(text, label="initial turn", required_keys=required_keys)
 
     @parameterized.expand(
         [

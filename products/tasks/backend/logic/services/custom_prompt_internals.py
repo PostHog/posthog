@@ -1105,8 +1105,9 @@ def _collect_json_values(text: str) -> tuple[list[Any], bool]:
         except json.JSONDecodeError as e:
             # Returning a nested object from a truncated reply would hand the caller a fragment, and
             # the schema error that follows names a missing field instead of the truncation. A decode
-            # that fails well before the end is just a stray brace in prose, so skip past it.
-            if e.pos >= len(text.rstrip()):
+            # that fails well before the end is just a stray brace in prose, so skip past it. The decoder
+            # reports a string that runs off the end of the text at its opening quote, not at the end.
+            if e.pos >= len(text.rstrip()) or e.msg.startswith("Unterminated string"):
                 return values, True
             start = brace_pos + 1
             continue
@@ -1133,6 +1134,9 @@ def extract_json_from_text(text: str | None, label: str, required_keys: Collecti
 
     values, truncated = _collect_json_values(text)
     if required_keys:
+        # The answer comes last, so a cut-off object at the end is the answer and an earlier match is not.
+        if truncated:
+            raise TruncatedAgentOutputError(label)
         for value in reversed(values):
             if isinstance(value, dict) and all(key in value for key in required_keys):
                 return value
