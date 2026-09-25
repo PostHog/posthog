@@ -219,14 +219,16 @@ export interface heatmapsBrowserLogicActions {
     } // heatmapDataLogic
     loadHeatmapSuccess: (
         rawHeatmap: HeatmapResponseType | null,
-        payload?: {
-            value: true
-        }
+        payload?:
+            | {
+                  value: true
+              }
+            | undefined
     ) => {
-        rawHeatmap: HeatmapResponseType | null
         payload?: {
             value: true
         }
+        rawHeatmap: HeatmapResponseType | null
     } // heatmapDataLogic
     patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => {
         filters: Partial<HeatmapFilters>

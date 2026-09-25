@@ -199,10 +199,10 @@ export interface heatmapCreationLogicValues {
     pageDataCheck: HeatmapDataCheckResult | null
     pageDataCheckLoading: boolean
     pageStepBlockReason: string | null
-    redirectDestination: string | null
     recordingBackground: RecordingBackgroundSelection | null
     recordingBackgroundData: ReplayIframeData | null
     recordingHeatmapOpen: boolean
+    redirectDestination: string | null
     reviewBlockReason: string | null
     terminalOutcome: 'created' | 'recording_handoff' | null
 }
