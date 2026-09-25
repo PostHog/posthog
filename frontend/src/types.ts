@@ -7007,6 +7007,7 @@ export type BatchExportConfiguration = {
     end_at: string | null
     paused: boolean
     model: string
+    hogql_query?: string | null
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
 }

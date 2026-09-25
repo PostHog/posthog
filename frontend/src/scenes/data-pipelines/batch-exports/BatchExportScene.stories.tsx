@@ -29,6 +29,15 @@ const EXISTING_LEGACY_S3_PARQUET_EXPORT = {
     },
 }
 
+const EXISTING_HOGQL_EXPORT = {
+    ...batchExports.results[0],
+    id: '018a6fab-2c21-0001-d451-724c2995e2c2',
+    model: 'hogql',
+    hogql_query:
+        'SELECT uuid AS uuid, timestamp AS timestamp, properties AS properties\nFROM posthog.ai_events\nWHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}',
+    filters: [],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/BatchExports',
@@ -53,6 +62,9 @@ const meta: Meta = {
                 [`/api/environments/:team_id/batch_exports/${EXISTING_LEGACY_S3_PARQUET_EXPORT.id}/backfills/`]: {
                     results: [],
                 },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_HOGQL_EXPORT.id}/`]: EXISTING_HOGQL_EXPORT,
+                [`/api/environments/:team_id/batch_exports/${EXISTING_HOGQL_EXPORT.id}/runs/`]: { results: [] },
+                [`/api/environments/:team_id/batch_exports/${EXISTING_HOGQL_EXPORT.id}/backfills/`]: { results: [] },
                 // Integration-backed destinations (Databricks, AzureBlob, BigQuery) render IntegrationChoice.
                 '/api/projects/:team_id/integrations': { results: [] },
             },
@@ -124,6 +136,12 @@ export const NewBigQueryExport: Story = {
 export const ExistingBigQueryExport: Story = {
     parameters: {
         pageUrl: urls.batchExport(EXISTING_EXPORT.id),
+    },
+}
+
+export const ExistingHogQLExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExport(EXISTING_HOGQL_EXPORT.id),
     },
 }
 

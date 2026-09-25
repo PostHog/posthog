@@ -21,6 +21,8 @@ import {
     IntegrationType,
 } from '~/types'
 
+import { ModelEnumApi } from 'products/batch_exports/frontend/generated/api.schemas'
+
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { DESTINATIONS } from './destinations'
 import { genericPersonEventFields, isSelectedCompressionOptionValid } from './destinations/common'
@@ -44,6 +46,7 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'start_at',
     'end_at',
     'model',
+    'hogql_query',
     'filters',
     'integration_id',
 ])
@@ -91,6 +94,24 @@ function buildDestinationPayload(formValues: Record<string, any>): {
     return result
 }
 
+// The test-step and the save paths must send the same body, or a passing test proves nothing
+// about what the save rejects.
+function buildBatchExportPayload(formValues: Record<string, any>): Record<string, any> {
+    const interval = formValues.interval
+    return {
+        paused: formValues.paused,
+        name: formValues.name,
+        interval,
+        timezone: interval === 'day' || interval === 'week' ? formValues.timezone : null,
+        offset_day: interval === 'week' ? formValues.offset_day : null,
+        offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
+        model: formValues.model,
+        ...(formValues.model === ModelEnumApi.Hogql ? { hogql_query: formValues.hogql_query } : {}),
+        filters: formValues.filters,
+        destination: buildDestinationPayload(formValues),
+    }
+}
+
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
     const destinationType = batchExportConfig.destination.type
     const definition = DESTINATIONS[destinationType]
@@ -108,6 +129,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         offset_day: (batchExportConfig as any).offset_day ?? null,
         offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
+        hogql_query: batchExportConfig.hogql_query ?? null,
         filters: batchExportConfig.filters,
         ...flatConfig,
     }
@@ -844,19 +866,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         })
                     }
 
-                    const formValues = values.configuration
-                    const interval = formValues.interval
-                    const data = {
-                        paused: formValues.paused,
-                        name: formValues.name,
-                        interval,
-                        timezone: interval === 'day' || interval === 'week' ? formValues.timezone : null,
-                        offset_day: interval === 'week' ? formValues.offset_day : null,
-                        offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
-                        model: formValues.model,
-                        filters: formValues.filters,
-                        destination: buildDestinationPayload(formValues),
-                    } as any
+                    const data = buildBatchExportPayload(values.configuration)
 
                     if (props.id) {
                         return await api.batchExports.runTestStep(props.id, step, data)
@@ -1021,6 +1031,9 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 selectedIntegration: IntegrationType | null
             ): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
+                if (config.model === ModelEnumApi.Hogql) {
+                    generalRequiredFields.push('hogql_query')
+                }
                 if (!service) {
                     return generalRequiredFields
                 }
@@ -1036,19 +1049,17 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         ],
     })),
     listeners(({ props, values, actions }) => ({
+        setSelectedModel: ({ model }) => {
+            // The backend rejects filters on a HogQL export, because the query itself selects the rows.
+            if (model === ModelEnumApi.Hogql && values.configuration.filters?.length) {
+                actions.setConfigurationValue('filters', [])
+            }
+        },
         updateBatchExportConfig: async ({ formdata }) => {
-            const interval = formdata.interval
-            const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
-                paused: formdata.paused,
-                name: formdata.name,
-                interval,
-                timezone: interval === 'day' || interval === 'week' ? formdata.timezone : null,
-                offset_day: interval === 'week' ? formdata.offset_day : null,
-                offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
-                model: formdata.model,
-                filters: formdata.filters,
-                destination: buildDestinationPayload(formdata) as any,
-            } as any
+            const data = buildBatchExportPayload(formdata) as Omit<
+                BatchExportConfiguration,
+                'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'
+            >
 
             try {
                 if (props.id) {
