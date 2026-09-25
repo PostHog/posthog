@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
@@ -3059,6 +3060,10 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.run_post_load_operations",
             new_callable=AsyncMock,
         ) as mock_v3_post_load,
+        # This test asserts on the delta-rs MERGE call itself (predicate, call count), so force
+        # the fallback: deltalite has no rollout gate any more and would otherwise handle the
+        # merge for real, and the MERGE below would never be called.
+        mock.patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(return_value=False)),
     ):
         # Mocking the return of the delta merge as it gets JSON'ified
         mock_merge_instance = mock_merge.return_value
