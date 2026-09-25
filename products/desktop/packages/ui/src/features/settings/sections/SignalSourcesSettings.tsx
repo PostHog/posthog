@@ -1,5 +1,6 @@
 import { ArrowRightIcon } from "@phosphor-icons/react";
 import { DataSourceSetup } from "@posthog/ui/features/inbox/components/DataSourceSetup";
+import { LinearTeamsDialog } from "@posthog/ui/features/inbox/components/LinearTeamsDialog";
 import {
   SignalSourceToggles,
   SignalSourceTogglesSkeleton,
@@ -36,6 +37,10 @@ export function SignalSourcesSettings({
     handleSetup,
     handleSetupComplete,
     handleSetupCancel,
+    linearTeamsPicker,
+    linearConfig,
+    openLinearTeamsPicker,
+    closeLinearTeamsPicker,
     teamConfig,
     teamConfigLoading,
     handleUpdateAutostartBaseBranches,
@@ -87,12 +92,22 @@ export function SignalSourcesSettings({
                   disabled={!hasGithubIntegration}
                   sourceStates={sourceStates}
                   onSetup={handleSetup}
+                  onEditLinearTeams={openLinearTeamsPicker}
                 />
               )}
             </Box>
           </Box>
         </Tooltip>
       )}
+      {linearTeamsPicker ? (
+        <LinearTeamsDialog
+          config={linearConfig}
+          enableOnSave={linearTeamsPicker.enableOnSave}
+          viaSetupWizard={linearTeamsPicker.viaSetupWizard}
+          open
+          onClose={closeLinearTeamsPicker}
+        />
+      ) : null}
       <AutostartBaseBranchesSettings
         branches={teamConfig?.autostart_base_branches ?? {}}
         onChange={(next) => void handleUpdateAutostartBaseBranches(next)}

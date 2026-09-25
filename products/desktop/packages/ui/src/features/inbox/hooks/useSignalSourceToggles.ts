@@ -64,6 +64,12 @@ const DATA_WAREHOUSE_SOURCES: Record<
   ]),
 );
 
+/** Why the Linear teams picker is open: enabling the source (its save turns it on) or editing the scope. */
+export interface LinearTeamsPickerState {
+  enableOnSave: boolean;
+  viaSetupWizard: boolean;
+}
+
 const ALL_SOURCE_PRODUCTS: SourceKey[] = [
   "conversations",
   "error_tracking",
@@ -130,6 +136,8 @@ export function useSignalSourceToggles() {
   const pendingRef = useRef(new Set<keyof SignalSourceValues>());
 
   const [setupSource, setSetupSource] = useState<SourceKey | null>(null);
+  const [linearTeamsPicker, setLinearTeamsPicker] =
+    useState<LinearTeamsPickerState | null>(null);
   const [loadingSources, setLoadingSources] = useState<
     Partial<Record<keyof SignalSourceValues, boolean>>
   >({});
@@ -170,6 +178,8 @@ export function useSignalSourceToggles() {
           externalSource?: ExternalDataSource;
           /** GitHub only: the repositories the warehouse source syncs. */
           configuredRepos?: string[];
+          /** The stored row, for cards that summarize their own per-source config. */
+          sourceConfig?: SignalSourceConfig;
         }
       >
     > = {};
@@ -187,6 +197,7 @@ export function useSignalSourceToggles() {
             product === "github" && externalSource
               ? effectiveGithubSourceRepos(externalSource.job_inputs)
               : undefined,
+          sourceConfig: config,
         };
       } else {
         states[product] = {
@@ -280,6 +291,15 @@ export function useSignalSourceToggles() {
         } finally {
           setLoadingSources((prev) => ({ ...prev, [product]: false }));
         }
+
+        // Linear asks which teams to read before it turns on; the picker's save does the toggle.
+        if (product === "linear") {
+          setLinearTeamsPicker({
+            enableOnSave: true,
+            viaSetupWizard: false,
+          });
+          return;
+        }
       }
 
       pendingRef.current.add(product);
@@ -361,7 +381,10 @@ export function useSignalSourceToggles() {
     const completedSource = setupSource;
     setSetupSource(null);
 
-    if (completedSource && client && projectId) {
+    if (completedSource === "linear") {
+      // The wizard only connects the workspace; the picker's save scopes and enables the source.
+      setLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: true });
+    } else if (completedSource && client && projectId) {
       const existing = configs?.find(
         (c) => c.source_product === completedSource,
       );
@@ -405,6 +428,16 @@ export function useSignalSourceToggles() {
     setSetupSource(null);
   }, []);
 
+  const closeLinearTeamsPicker = useCallback(
+    () => setLinearTeamsPicker(null),
+    [],
+  );
+
+  const openLinearTeamsPicker = useCallback(
+    () => setLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+    [],
+  );
+
   return {
     displayValues,
     sourceStates,
@@ -414,5 +447,9 @@ export function useSignalSourceToggles() {
     handleSetup,
     handleSetupComplete,
     handleSetupCancel,
+    linearTeamsPicker,
+    linearConfig: configs?.find((c) => c.source_product === "linear") ?? null,
+    openLinearTeamsPicker,
+    closeLinearTeamsPicker,
   };
 }
