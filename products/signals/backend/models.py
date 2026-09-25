@@ -942,11 +942,9 @@ class SignalReport(UUIDModel):
 
 
 # The status scopes the inbox is read through. `inbox-reports-list` and the project profile's
-# `existing_inbox_reports` counts both key off these, so the two surfaces cannot drift into
-# disagreeing about which reports the inbox holds.
-# Deleted reports are terminal and never reach any read surface.
+# `existing_inbox_reports` counts both key off these, so the two surfaces cannot drift apart.
 LISTABLE_REPORT_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
-# What a list returns without `include_all_statuses=true`: suppressed means a human dismissed it.
+# What a list returns without `include_all_statuses=true`, which hides human-dismissed reports.
 DEFAULT_REPORT_STATUSES = LISTABLE_REPORT_STATUSES - {SignalReport.Status.SUPPRESSED}
 
 

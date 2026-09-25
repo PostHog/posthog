@@ -2272,9 +2272,8 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         return response.json()["count"]
 
     def test_inbox_counts_agree_with_a_count_only_report_list(self) -> None:
-        # The two tools answer the same question, and a scout compares them inside one run. The
-        # counts are read live per request for that reason, so a report landing after the profile
-        # row was built must not move them apart.
+        # A scout compares these two tools inside one run, so a report that lands after the
+        # profile row was built must not move the two answers apart.
         for report_status in (
             SignalReport.Status.POTENTIAL,
             SignalReport.Status.READY,

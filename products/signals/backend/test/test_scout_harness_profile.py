@@ -473,8 +473,7 @@ class TestExistingInboxReports(BaseTest):
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
         SignalReport.objects.create(team=self.team, status=SignalReport.Status.SUPPRESSED)
         result = existing_inbox_reports(team_id=self.team.id)
-        # `total` is the default list scope, so a human-dismissed report is out of it, while
-        # `total_including_dismissed` is the wider scope a scout dedupes against.
+        # The wider total is the scope a scout dedupes against, so the dismissed report separates them.
         assert result["total"] == 3
         assert result["total_including_dismissed"] == 4
         by_status = {row["status"]: row["count"] for row in result["by_status"]}
