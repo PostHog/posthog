@@ -208,11 +208,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
-    // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
-    // query/groups/last_error_message/experiment_set fields the picker never reads;
-    // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
-    // out and rolled back independently.
-    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
+    // The cohort picker reads none of the fields `?basic=true` drops
+    // (query/groups/last_error_message/experiment_set; `filters` is kept), and the full
+    // payload detoasts the JSON columns and runs two extra queries per page.
+    const cohortsEndpointParams = { basic: true }
     const groups: TaxonomicFilterGroup[] = [
         {
             name: 'Events',

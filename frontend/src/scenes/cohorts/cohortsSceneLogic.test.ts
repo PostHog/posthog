@@ -51,11 +51,16 @@ const scenes: any = { [Scene.Dashboards]: blankScene }
 
 describe('cohortsSceneLogic', () => {
     let logic: ReturnType<typeof cohortsSceneLogic.build>
+    let listRequestUrls: string[]
 
     beforeEach(() => {
+        listRequestUrls = []
         useMocks({
             get: {
-                '/api/projects/:team/cohorts/': MOCK_COHORTS,
+                '/api/projects/:team/cohorts/': ({ request }) => {
+                    listRequestUrls.push(request.url)
+                    return MOCK_COHORTS
+                },
             },
             delete: {
                 '/api/projects/:team/cohorts/:id/': { success: true },
@@ -82,6 +87,17 @@ describe('cohortsSceneLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
                 // Check that the polling timeout disposable was registered
                 expect(logic.cache.disposables.registry.has('pollTimeout')).toBe(true)
+            })
+
+            it('asks for the trimmed payload', async () => {
+                router.actions.push(urls.cohorts())
+
+                await expectLogic(logic).toDispatchActions(['loadCohorts', 'loadCohortsSuccess'])
+
+                expect(listRequestUrls).not.toHaveLength(0)
+                for (const url of listRequestUrls) {
+                    expect(new URL(url).searchParams.get('basic')).toBe('true')
+                }
             })
         })
 

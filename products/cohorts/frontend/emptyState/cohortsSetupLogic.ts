@@ -15,7 +15,8 @@ export const cohortsSetupLogic = createSetupDetectionLogic({
     path: ['products', 'cohorts', 'frontend', 'emptyState', 'cohortsSetupLogic'],
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
-        const response = await cohortsList(projectId, { limit: 1 })
+        // Only the count matters here, so ask for the trimmed payload.
+        const response = await cohortsList(projectId, { limit: 1, basic: true })
         return response.count > 0 ? 'has-data' : 'needs-setup'
     },
 })

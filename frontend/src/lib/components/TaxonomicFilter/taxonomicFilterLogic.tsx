@@ -1807,7 +1807,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.Cohorts,
-                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, { basic: true }).url,
                         value: 'cohorts',
                         // Cohort populations comfortably fit in one page for
                         // the overwhelming majority of teams — cache the
@@ -1835,7 +1835,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Cohorts',
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.CohortsWithAllUsers,
-                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+                        endpoint: combineUrl(`api/projects/${projectId}/cohorts/`, { basic: true }).url,
                         clientFilterFirstPage: true,
                         options: COHORTS_WITH_ALL_USERS_OPTIONS,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,

@@ -3349,15 +3349,6 @@ const api = {
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
             return `/api/cohort/${cohortId}/persons?${toParams(params)}`
         },
-        async listPaginated(
-            params: {
-                limit?: number
-                offset?: number
-                search?: string
-            } = {}
-        ): Promise<CountedPaginatedResponse<CohortType>> {
-            return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
-        },
         async listBasic(
             params: {
                 limit?: number
