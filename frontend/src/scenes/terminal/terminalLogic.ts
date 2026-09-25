@@ -439,7 +439,17 @@ export const terminalLogic = kea<terminalLogicType>([
                 return
             }
             cache.projectId = projectId
-            const runtime = new TerminalRuntime((bytes) => cache.session?.view.write(bytes), actions.setDisplayOpen)
+            const runtime = new TerminalRuntime(
+                (bytes) => cache.session?.view.write(bytes),
+                actions.setDisplayOpen,
+                (message) => {
+                    if (!controller.signal.aborted) {
+                        actions.setError(message)
+                        actions.setStatus('error')
+                        disposables.dispose('terminal')
+                    }
+                }
+            )
             cache.runtime = runtime
             cache.session.view.clear()
             runtime.resize(cache.session.view.cols, cache.session.view.rows)

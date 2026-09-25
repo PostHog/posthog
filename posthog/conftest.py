@@ -507,7 +507,10 @@ TransactionTestCase._fixture_teardown = _patched_fixture_teardown  # type: ignor
 
 @pytest.fixture
 def base_test_mixin_fixture():
-    kls = PostHogTestCase()
+    # setUpTestData is a classmethod. On PostHogTestCase itself it would write the rows onto the
+    # shared base class, where a later test class that has not set up its own data yet reads a
+    # team this test already rolled back.
+    kls = type("BaseTestMixinFixture", (PostHogTestCase,), {})()
     kls.setUp()
     kls.setUpTestData()
 
