@@ -13,7 +13,7 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
 from products.skills.backend.models.skills import LLMSkill
 
 _OPERATIONAL_SCOUT = "signals-scout-inbox-validation"
-_READ_PAYLOAD = "products.signals.backend.management.commands.resume_setup_paused_operational_scouts._read_flag_payload"
+_READ_PAYLOAD = "products.signals.backend.scout_harness.config_registry._read_flag_payload"
 
 
 class TestResumeSetupPausedOperationalScouts(BaseTest):

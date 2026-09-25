@@ -199,6 +199,23 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
 
+## Resuming operational scouts the setup flow paused
+
+An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
+Those rows look like a person's pause, so the coordinator's reconcile leaves them alone.
+`resume_setup_paused_operational_scouts` resumes only operational rows paused without an attributed user within `--max-gap-seconds` (default 300) of creation.
+It skips withheld scouts and does not go past the enabled-scout cap.
+
+```bash
+# Dry run (the default): counts per scout and the first team ids
+uv run manage.py resume_setup_paused_operational_scouts
+
+# Write, optionally for one team
+uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
+```
+
+Idempotent. A resumed row no longer matches.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
