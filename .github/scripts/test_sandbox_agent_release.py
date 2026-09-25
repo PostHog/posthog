@@ -42,7 +42,7 @@ def script(source: str, step_id: str, job: str = "update-sandbox-agent-version")
 def run(tmp_path: Path, body: str, **env: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["bash", "-e", "-o", "pipefail", "-c", GH + body],
-        cwd=ROOT,
+        cwd=tmp_path,
         env={
             "PATH": os.environ["PATH"],
             "GITHUB_OUTPUT": str(tmp_path / "output"),
@@ -123,12 +123,9 @@ def test_gateway_uses_the_built_digest_on_partial_reruns(
 def test_packaging_smoke_uses_each_platform_digest(tmp_path: Path) -> None:
     image = "ghcr.io/posthog/posthog-sandbox-base"
     digests = {"amd64": "sha256:" + "c" * 64, "arm64": "sha256:" + "d" * 64}
-    dockerfile = (ROOT / "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base").read_text()
-    pinned = next(
-        line.removeprefix("ARG AGENT_VERSION=")
-        for line in dockerfile.splitlines()
-        if line.startswith("ARG AGENT_VERSION=")
-    )
+    dockerfile = tmp_path / "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+    dockerfile.parent.mkdir(parents=True)
+    dockerfile.write_text("ARG AGENT_VERSION=2.0.1\n")
     manifest = {
         "manifests": [
             {"platform": {"os": "linux", "architecture": arch}, "digest": digest} for arch, digest in digests.items()
@@ -151,7 +148,7 @@ docker() {
         docker + script(BUILD, "smoke", "sandbox_base_build"),
         IMAGE=f"{image}@{DIGEST}",
         MANIFEST=json.dumps(manifest),
-        PINNED=pinned,
+        PINNED="2.0.1",
     )
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "containers").read_text().splitlines() == [
