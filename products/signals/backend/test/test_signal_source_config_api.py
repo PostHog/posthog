@@ -538,7 +538,7 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         )
         assert self.client.get(self._child_url()).json()["results"] == []
 
-    def _child_scoped_api_key_auth(self) -> dict[str, str]:
+    def _child_scoped_api_key_auth(self) -> str:
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="child-scoped",
@@ -548,7 +548,7 @@ class TestScoutSourceCanonicalization(APIBaseTest):
             scoped_teams=[self.child_team.id],
         )
         self.client.logout()
-        return {"HTTP_AUTHORIZATION": f"Bearer {raw}"}
+        return f"Bearer {raw}"
 
     def test_child_scoped_api_key_lists_only_child_rows(self):
         SignalSourceConfig.objects.create(
@@ -557,7 +557,7 @@ class TestScoutSourceCanonicalization(APIBaseTest):
         child_row = SignalSourceConfig.objects.create(
             team=self.child_team, source_product="session_replay", source_type="session_analysis_cluster"
         )
-        response = self.client.get(self._child_url(), **self._child_scoped_api_key_auth())
+        response = self.client.get(self._child_url(), HTTP_AUTHORIZATION=self._child_scoped_api_key_auth())
         assert response.status_code == status.HTTP_200_OK
         assert [r["id"] for r in response.json()["results"]] == [str(child_row.id)]
 
@@ -570,7 +570,7 @@ class TestScoutSourceCanonicalization(APIBaseTest):
             self._child_url(str(scout_row.id)),
             {"enabled": False},
             format="json",
-            **self._child_scoped_api_key_auth(),
+            HTTP_AUTHORIZATION=self._child_scoped_api_key_auth(),
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
         scout_row.refresh_from_db()
@@ -581,7 +581,7 @@ class TestScoutSourceCanonicalization(APIBaseTest):
             self._child_url(),
             {"source_product": "signals_scout", "source_type": "cross_source_issue", "enabled": False},
             format="json",
-            **self._child_scoped_api_key_auth(),
+            HTTP_AUTHORIZATION=self._child_scoped_api_key_auth(),
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not SignalSourceConfig.objects.filter(source_product="signals_scout").exists()
