@@ -54,12 +54,13 @@ describe('sourceWizardLogic', () => {
         { name: 'AppleSearchAds', category: 'Advertising', marketingIntent: true },
         { name: 'OpenAIAds', category: 'Advertising', marketingIntent: true },
         { name: 'RoktAds', category: 'Advertising', marketingIntent: true },
-        { name: 'MetaAds', category: null, marketingIntent: true },
-        { name: 'BigQuery', category: 'Databases', marketingIntent: true },
+        { name: 'MetaAds', category: 'Advertising', marketingIntent: true },
+        { name: 'MetaAds', category: null, marketingIntent: false },
+        { name: 'BigQuery', category: 'Databases', marketingIntent: false },
         { name: 'Postgres', category: 'Databases', marketingIntent: false },
         { name: 'Hubspot', category: 'CRM', marketingIntent: false },
         { name: 'Mailchimp', category: 'Marketing & email', marketingIntent: false },
-    ])('records the expected product intents when selecting $name', async ({ name, category, marketingIntent }) => {
+    ])('records expected intents for $name ($category)', async ({ name, category, marketingIntent }) => {
         const source = buildSourceConfig({ name, category })
         const updateIntent = jest.spyOn(api.productIntents, 'update').mockResolvedValue(MOCK_DEFAULT_TEAM)
         const logic = sourceWizardLogic({ availableSources: { [name]: source } })

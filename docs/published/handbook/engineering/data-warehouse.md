@@ -15,7 +15,8 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
 Selecting a source in the `Advertising` category records Marketing analytics product intent as well as Data warehouse intent.
 This happens when the user selects the connector, before credentials are validated or data syncs.
 The category covers new advertising connectors automatically; it does not mean Marketing analytics supports their data natively.
-Existing native marketing sources, BigQuery, and supported self-managed providers keep their current intent tracking.
+Selecting a source outside this category, such as BigQuery, records only Data warehouse intent.
+Supported self-managed providers keep their separate Marketing analytics intent tracking.
 
 ## Importing your local Postgres instance
 
