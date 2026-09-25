@@ -6,6 +6,7 @@ from django.db import OperationalError
 from parameterized import parameterized
 
 from posthog.models.team import Team
+from posthog.models.team.team_caching import get_team_in_cache
 
 from products.conversations.backend.models import SigningSecret
 
@@ -49,6 +50,11 @@ class TestSigningSecret(BaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, "phs_previous_secret")
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).get().secret, "phs_previous_secret")
+        # The post_save hook cached the team mid-transaction; the failure path must
+        # rewrite that entry so the cache never holds the rolled-back tokens.
+        cached = get_team_in_cache(self.team.api_token)
+        assert cached is not None
+        self.assertEqual(cached.secret_api_token, "phs_previous_secret")
 
     def test_child_environment_keeps_its_own_team_on_save(self):
         # Environment-scoped by design: a canonicalizing save() (RootTeamMixin) would rewrite
