@@ -217,6 +217,35 @@ test('planReviewRequestChanges: never re-requests a removed or completed review'
     })
 })
 
+for (const [remover, expected] of [
+    ['pr-assigner-resolver-posthog[bot]', ['team-context-mcp']],
+    ['human', []],
+]) {
+    test(`planReviewRequestChanges: re-requests after removal by ${remover} only when the bot removed it`, () => {
+        const state = {
+            teams: [],
+            users: [],
+            events: [
+                reviewRequested('team-context-mcp', 'pr-assigner-resolver-posthog[bot]'),
+                {
+                    ...reviewRequested('team-context-mcp', remover, 2),
+                    event: 'review_request_removed',
+                },
+            ],
+        }
+
+        assert.deepEqual(
+            planReviewRequestChanges(['team-context-mcp'], [], state, 'pr-assigner-resolver-posthog[bot]'),
+            {
+                addTeams: expected,
+                addUsers: [],
+                removeTeams: [],
+                removeUsers: [],
+            }
+        )
+    })
+}
+
 test('planReviewRequestChanges: removes only stale bot requests', () => {
     const state = {
         teams: ['team-context-mcp', 'team-surveys'],

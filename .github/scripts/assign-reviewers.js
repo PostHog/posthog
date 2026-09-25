@@ -207,28 +207,40 @@ async function isCurrentHead() {
 function planReviewRequestChanges(teams, users, state, botLogin) {
     const currentTeams = new Set(state.teams)
     const currentUsers = new Set(state.users)
-    // A past request stays recorded after a review or removal, so it must not trigger another notification.
+    // A completed review or human removal must not trigger another notification.
     const requestedBefore = new Set()
     const lastRequester = new Map()
+    const lastEvent = new Map()
 
     for (const event of [...state.events].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id - b.id)) {
-        if (event.event !== 'review_requested') {
+        if (event.event !== 'review_requested' && event.event !== 'review_request_removed') {
             continue
         }
         const team = event.requested_team?.slug
         const user = event.requested_reviewer?.login
         const key = team ? `team:${team}` : user ? `user:${user}` : null
         if (key) {
-            requestedBefore.add(key)
-            lastRequester.set(key, event.actor?.login)
+            lastEvent.set(key, event)
+            if (event.event === 'review_requested') {
+                requestedBefore.add(key)
+                lastRequester.set(key, event.actor?.login)
+            }
         }
     }
 
+    const wasRemovedByBot = (key) =>
+        lastEvent.get(key)?.event === 'review_request_removed' && lastEvent.get(key)?.actor?.login === botLogin
     const desiredTeams = new Set(teams)
     const desiredUsers = new Set(users)
     return {
-        addTeams: teams.filter((team) => !currentTeams.has(team) && !requestedBefore.has(`team:${team}`)),
-        addUsers: users.filter((user) => !currentUsers.has(user) && !requestedBefore.has(`user:${user}`)),
+        addTeams: teams.filter(
+            (team) =>
+                !currentTeams.has(team) && (!requestedBefore.has(`team:${team}`) || wasRemovedByBot(`team:${team}`))
+        ),
+        addUsers: users.filter(
+            (user) =>
+                !currentUsers.has(user) && (!requestedBefore.has(`user:${user}`) || wasRemovedByBot(`user:${user}`))
+        ),
         removeTeams: state.teams.filter(
             (team) => !desiredTeams.has(team) && lastRequester.get(`team:${team}`) === botLogin
         ),
