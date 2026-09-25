@@ -1,12 +1,27 @@
 """Recognize the SQL detector queries whose history can be served from cached hourly buckets.
 
-A detector scores the whole window of bucketed values on every check, but only a query whose
-every bucket is computed from that bucket's own rows can have its older buckets reused. This
-module proves that property, or refuses.
+Only a query whose every bucket is computed from that bucket's own rows can have its older
+buckets reused. This module proves that property, or refuses. Refusal costs one full scan;
+a wrong acceptance costs correctness, so every rule fails closed.
+
+The rulebook a query must pass, in plain terms:
+
+1. Plain HogQL over the ``events`` table alone — no joins, CTEs, windows, HAVING, or fill.
+2. It buckets by ``toStartOfHour(timestamp)``, groups by exactly that bucket, and (at the
+   outermost level) orders by it ascending.
+3. Its value is an aggregate from a small allowlist (count/countIf/uniq family, plus +/-
+   between them), and every predicate reads only the row itself — never the clock.
+4. Its WHERE carries the two exact window bounds, ``timestamp >= toStartOfHour(now()) -
+   INTERVAL N HOUR`` and ``timestamp < toStartOfHour(now())``; N becomes the window.
+5. Optionally, one projection level on top: ``SELECT <bucket>, <scalar over the inner
+   aggregates> FROM (...) ORDER BY <bucket> ASC`` with at most a LIMIT.
+6. No alias may take a reserved name (``timestamp``, ``event``, ...) — ClickHouse resolves
+   select aliases inside WHERE, so a shadowing alias would bind the narrowing predicates to
+   the wrong expression.
 
 The matcher deliberately mirrors ``hogql_query_optimization`` in PR #102956, which narrows the
-scan of eligible *threshold* last-row alerts. Both need the same proof; they differ in what they
-do with it. Merge the two into one matcher once both have landed.
+scan of eligible *threshold* last-row alerts. Both need the same proof; they differ in what
+they do with it. Merge the two into one matcher once both have landed.
 """
 
 from copy import deepcopy
@@ -24,6 +39,7 @@ from posthog.dataclasses import frozen
 # Below this the window is too short for the narrowed scan to save anything.
 _MIN_WINDOW_HOURS = 2
 
+# Rule 6: aliases that would shadow a column the narrowing predicates or HogQL resolution rely on.
 _RESERVED_ALIASES = {"timestamp", "event", "distinct_id", "person_id", "properties", "events"}
 _ROW_LOCAL_FIELD_ROOTS = ("timestamp", "event", "distinct_id", "person_id", "properties")
 # Deterministic scalar functions of the row alone — no clock, no randomness, no other rows.
@@ -39,6 +55,8 @@ _ROW_LOCAL_CALLS = (
     "ifNull",
     "trim",
 )
+# Deterministic scalars a projection may combine inner aggregates with (rule 5).
+_SCALAR_CALLS = ("greatest", "least", "round", "abs", "coalesce", "if")
 
 
 @frozen
@@ -49,7 +67,7 @@ class _SeriesAliases:
 
 @frozen
 class _OuterShape:
-    """A one-level projection over the aggregation: rename the bucket, combine the aggregates."""
+    """A recognized projection level: rename the bucket, combine the inner aggregates."""
 
     bucket_alias: str
     value_alias: str
@@ -57,25 +75,31 @@ class _OuterShape:
     inner_fields: frozenset[str]
 
 
-_SCALAR_CALLS = ("greatest", "least", "round", "abs", "coalesce", "if")
+@frozen
+class _HourlySeriesShape:
+    window_hours: int
+    bucket_alias: str
+    value_alias: str
 
 
-def _scalar_reads(expr: ast.Expr) -> frozenset[str] | None:
-    """The inner aliases a deterministic per-row scalar expression reads, or None if it is not one."""
+def _projection_reads(expr: ast.Expr) -> frozenset[str] | None:
+    """The inner aliases a projection expression reads, or None when it is not a plain scalar.
+
+    Accepted: constants, bare single-name fields, +-*/ and comparisons over accepted parts,
+    and calls from ``_SCALAR_CALLS``. Anything else could depend on the clock, other rows, or
+    state, so the projection is refused.
+    """
     if isinstance(expr, ast.Constant):
         return frozenset()
     if isinstance(expr, ast.Field):
         return frozenset({str(expr.chain[0])}) if len(expr.chain) == 1 else None
-    if isinstance(expr, ast.ArithmeticOperation):
-        left, right = _scalar_reads(expr.left), _scalar_reads(expr.right)
-        return left | right if left is not None and right is not None else None
-    if isinstance(expr, ast.CompareOperation):
-        left, right = _scalar_reads(expr.left), _scalar_reads(expr.right)
+    if isinstance(expr, ast.ArithmeticOperation | ast.CompareOperation):
+        left, right = _projection_reads(expr.left), _projection_reads(expr.right)
         return left | right if left is not None and right is not None else None
     if isinstance(expr, ast.Call) and expr.name in _SCALAR_CALLS and not expr.params and not expr.distinct:
         reads: frozenset[str] = frozenset()
         for arg in expr.args:
-            found = _scalar_reads(arg)
+            found = _projection_reads(arg)
             if found is None:
                 return None
             reads |= found
@@ -84,7 +108,7 @@ def _scalar_reads(expr: ast.Expr) -> frozenset[str] | None:
 
 
 def _match_outer(query: ast.SelectQuery, column: str | None) -> _OuterShape | None:
-    """Recognize ``SELECT <bucket>, <scalar over aggregates> FROM (...) ORDER BY <bucket> ASC``."""
+    """Recognize rule 5's projection: ``SELECT <bucket>, <scalar> FROM (...) ORDER BY <bucket> ASC``."""
     allowed = {"start", "end", "type", "select", "select_from", "order_by", "limit"}
     if any(getattr(query, field_.name) for field_ in fields(query) if field_.name not in allowed):
         return None
@@ -107,18 +131,10 @@ def _match_outer(query: ast.SelectQuery, column: str | None) -> _OuterShape | No
         return None
     if not isinstance(bucket.expr, ast.Field) or len(bucket.expr.chain) != 1:
         return None
-    reads = _scalar_reads(value.expr)
+    reads = _projection_reads(value.expr)
     if not reads:
         return None
-    if not query.order_by or len(query.order_by) != 1:
-        return None
-    order = query.order_by[0]
-    if (
-        order.order != "ASC"
-        or order.with_fill
-        or not isinstance(order.expr, ast.Field)
-        or order.expr.chain != [bucket.alias]
-    ):
+    if not _ordered_by_alias_asc(query, bucket.alias):
         return None
     return _OuterShape(
         bucket_alias=bucket.alias,
@@ -128,18 +144,23 @@ def _match_outer(query: ast.SelectQuery, column: str | None) -> _OuterShape | No
     )
 
 
-@frozen
-class _HourlySeriesShape:
-    window_hours: int
-    bucket_alias: str
-    value_alias: str
+def _ordered_by_alias_asc(query: ast.SelectQuery, alias: str) -> bool:
+    if not query.order_by or len(query.order_by) != 1:
+        return False
+    order = query.order_by[0]
+    return (
+        order.order == "ASC"
+        and not order.with_fill
+        and isinstance(order.expr, ast.Field)
+        and order.expr.chain == [alias]
+    )
 
 
 class _HourlySeriesMatcher:
-    """Decide whether one parsed query is a bucket-local hourly aggregation.
+    """Decide whether one parsed query is a bucket-local hourly aggregation (rules 1-4).
 
-    With ``outer`` set, ``query`` is the inner aggregation of a recognized one-level projection:
-    its select may carry several aggregates for the projection to combine, the projection owns
+    With ``outer`` set, ``query`` is the inner aggregation of a recognized projection: its
+    select may carry several aggregates for the projection to combine, the projection owns
     ordering and the limit, and the output column names are the projection's.
     """
 
@@ -148,122 +169,43 @@ class _HourlySeriesMatcher:
         self.query = query
         self.column = column
 
-    @staticmethod
-    def _plain_call(expr: ast.Expr, name: str) -> bool:
-        return (
-            isinstance(expr, ast.Call)
-            and expr.name == name
-            and not any((expr.params, expr.distinct, expr.within_group, expr.order_by, expr.filter_expr))
-        )
+    def match(self) -> _HourlySeriesShape | None:
+        aliases = self._aliases()
+        if aliases is None:
+            return None
+        hours = self._window_hours()
+        if hours is None:
+            return None
+        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value)
 
-    @staticmethod
-    def _timestamp(expr: ast.Expr) -> bool:
-        return isinstance(expr, ast.Field) and expr.chain == ["timestamp"]
+    # --- rule 1: plain single-table shape ---------------------------------------------------
 
-    def _bucket(self, expr: ast.Expr) -> bool:
-        return (
-            isinstance(expr, ast.Call)
-            and self._plain_call(expr, "toStartOfHour")
-            and len(expr.args) == 1
-            and self._timestamp(expr.args[0])
-        )
-
-    def _end(self, expr: ast.Expr) -> bool:
-        return (
-            self._plain_call(expr, "toStartOfHour")
-            and isinstance(expr, ast.Call)
-            and len(expr.args) == 1
-            and self._plain_call(expr.args[0], "now")
-            and isinstance(expr.args[0], ast.Call)
-            and not expr.args[0].args
-        )
-
-    def _row_local(self, expr: ast.Expr) -> bool:
-        """True when the predicate reads only the row itself — never the clock.
-
-        The two window bounds are the only now()-dependent predicates the cache can account for,
-        and ``_window_hours`` recognizes those structurally before this check runs. Any other
-        now()-dependent predicate changes which rows count toward a bucket as the bucket ages, so
-        its value would depend on when it was computed.
+    def _uses_only_allowed_clauses(self) -> bool:
+        """New clauses, windows, joins, fill, CTEs and HAVING can all make one bucket depend on
+        rows outside it, so anything unrecognized refuses. The inner query of a projection owns
+        neither ordering nor the limit — an inner LIMIT without ORDER BY would be arbitrary rows.
         """
-        if isinstance(expr, ast.Constant):
-            return True
-        if isinstance(expr, ast.Field):
-            return bool(expr.chain) and expr.chain[0] in _ROW_LOCAL_FIELD_ROOTS
-        if isinstance(expr, ast.CompareOperation):
-            return (
-                expr.op
-                in (
-                    ast.CompareOperationOp.Eq,
-                    ast.CompareOperationOp.NotEq,
-                    ast.CompareOperationOp.Gt,
-                    ast.CompareOperationOp.GtEq,
-                    ast.CompareOperationOp.Lt,
-                    ast.CompareOperationOp.LtEq,
-                    ast.CompareOperationOp.In,
-                    ast.CompareOperationOp.NotIn,
-                )
-                and self._row_local(expr.left)
-                and self._row_local(expr.right)
-            )
-        if isinstance(expr, ast.And | ast.Or):
-            return all(self._row_local(part) for part in expr.exprs)
-        if isinstance(expr, ast.Not):
-            return self._row_local(expr.expr)
-        if isinstance(expr, ast.Tuple):
-            return all(self._row_local(part) for part in expr.exprs)
-        if isinstance(expr, ast.Call) and expr.name in _ROW_LOCAL_CALLS and not expr.params and not expr.distinct:
-            return all(self._row_local(arg) for arg in expr.args)
-        return False
-
-    def _hours(self, expr: ast.Expr) -> int | None:
-        if (
-            isinstance(expr, ast.Call)
-            and self._plain_call(expr, "toIntervalHour")
-            and len(expr.args) == 1
-            and isinstance(expr.args[0], ast.Constant)
-            and type(expr.args[0].value) is int
-        ):
-            return expr.args[0].value
-        return None
-
-    def _aggregate(self, expr: ast.Expr) -> bool:
-        if isinstance(expr, ast.ArithmeticOperation) and expr.op in (
-            ast.ArithmeticOperationOp.Add,
-            ast.ArithmeticOperationOp.Sub,
-        ):
-            return self._aggregate(expr.left) and self._aggregate(expr.right)
-        if not isinstance(expr, ast.Call) or not self._plain_call(expr, expr.name):
-            return False
-        if expr.name == "count":
-            return not expr.args
-        if expr.name == "countIf":
-            return len(expr.args) == 1 and self._row_local(expr.args[0])
-        if expr.name in ("uniq", "uniqExact", "uniqIf", "uniqExactIf"):
-            return len(expr.args) == (2 if expr.name.endswith("If") else 1) and all(
-                self._row_local(arg) for arg in expr.args
-            )
-        return False
-
-    def _aliases(self) -> "_SeriesAliases | None":
-        """The (bucket, value) output column names, when the shape allows reusing older buckets."""
-        query = self.query
-        # Fail closed for new clauses, as well as windows, joins, fill, CTEs and HAVING. Those can
-        # make one bucket depend on rows outside it. The inner query of a projection owns neither
-        # ordering nor the limit — an inner LIMIT without ORDER BY would make the rows arbitrary.
         allowed = {"start", "end", "type", "select", "select_from", "where", "group_by"}
         if self.outer is None:
             allowed = allowed | {"order_by", "limit"}
-        if any(getattr(query, field_.name) for field_ in fields(query) if field_.name not in allowed):
-            return None
-        source = query.select_from
+        return not any(getattr(self.query, field_.name) for field_ in fields(self.query) if field_.name not in allowed)
+
+    def _reads_events_table_only(self) -> bool:
+        source = self.query.select_from
         if not source or not isinstance(source.table, ast.Field) or source.table.chain != ["events"]:
-            return None
-        if any(
+            return False
+        return not any(
             getattr(source, field_.name)
             for field_ in fields(source)
             if field_.name not in {"start", "end", "type", "table"}
-        ):
+        )
+
+    # --- rules 2, 3 and 6: select list, aliases, grouping and ordering -----------------------
+
+    def _aliases(self) -> _SeriesAliases | None:
+        """The (bucket, value) output column names, when the select shape allows reuse."""
+        query = self.query
+        if not self._uses_only_allowed_clauses() or not self._reads_events_table_only():
             return None
         if len(query.select) < 2 or not all(isinstance(expr, ast.Alias) for expr in query.select):
             return None
@@ -297,54 +239,85 @@ class _HourlySeriesMatcher:
         if not isinstance(group, ast.Field) or group.chain != [bucket.alias]:
             return None
         if self.outer is None:
-            if not query.order_by or len(query.order_by) != 1:
+            if not _ordered_by_alias_asc(query, bucket.alias):
                 return None
-            order = query.order_by[0]
-            if (
-                order.order != "ASC"
-                or order.with_fill
-                or not isinstance(order.expr, ast.Field)
-                or order.expr.chain != [bucket.alias]
-            ):
-                return None
-            bucket_alias = bucket.alias
-        else:
-            bucket_alias = self.outer.bucket_alias
-        return _SeriesAliases(bucket=bucket_alias, value=value_alias)
+            return _SeriesAliases(bucket=bucket.alias, value=value_alias)
+        return _SeriesAliases(bucket=self.outer.bucket_alias, value=value_alias)
 
-    def _lower_bound_hours(self, predicate: ast.Expr) -> int | None:
-        """The N of a ``timestamp >= toStartOfHour(now()) - INTERVAL N HOUR`` conjunct, else None."""
-        if not isinstance(predicate, ast.CompareOperation) or not self._timestamp(predicate.left):
-            return None
-        lower = predicate.right
-        if (
-            predicate.op == ast.CompareOperationOp.GtEq
-            and isinstance(lower, ast.ArithmeticOperation)
-            and lower.op == ast.ArithmeticOperationOp.Sub
-            and self._end(lower.left)
-        ):
-            return self._hours(lower.right)
-        return None
-
-    def _is_end_bound(self, predicate: ast.Expr) -> bool:
+    def _bucket(self, expr: ast.Expr) -> bool:
+        """Rule 2's bucket expression: exactly ``toStartOfHour(timestamp)``."""
         return (
-            isinstance(predicate, ast.CompareOperation)
-            and predicate.op == ast.CompareOperationOp.Lt
-            and self._timestamp(predicate.left)
-            and self._end(predicate.right)
+            isinstance(expr, ast.Call)
+            and self._plain_call(expr, "toStartOfHour")
+            and len(expr.args) == 1
+            and self._timestamp(expr.args[0])
         )
 
+    def _aggregate(self, expr: ast.Expr) -> bool:
+        """Rule 3's value: an allowlisted aggregate over row-local arguments, or +/- of two."""
+        if isinstance(expr, ast.ArithmeticOperation) and expr.op in (
+            ast.ArithmeticOperationOp.Add,
+            ast.ArithmeticOperationOp.Sub,
+        ):
+            return self._aggregate(expr.left) and self._aggregate(expr.right)
+        if not isinstance(expr, ast.Call) or not self._plain_call(expr, expr.name):
+            return False
+        if expr.name == "count":
+            return not expr.args
+        if expr.name == "countIf":
+            return len(expr.args) == 1 and self._row_local(expr.args[0])
+        if expr.name in ("uniq", "uniqExact", "uniqIf", "uniqExactIf"):
+            return len(expr.args) == (2 if expr.name.endswith("If") else 1) and all(
+                self._row_local(arg) for arg in expr.args
+            )
+        return False
+
+    def _row_local(self, expr: ast.Expr) -> bool:
+        """Rule 3's predicate test: reads only the row itself — never the clock.
+
+        The two window bounds are the only now()-dependent predicates the cache can account
+        for, and ``_window_hours`` recognizes those structurally before this runs. Any other
+        clock-dependent predicate changes a bucket's rows as the bucket ages.
+        """
+        if isinstance(expr, ast.Constant):
+            return True
+        if isinstance(expr, ast.Field):
+            return bool(expr.chain) and expr.chain[0] in _ROW_LOCAL_FIELD_ROOTS
+        if isinstance(expr, ast.CompareOperation):
+            return (
+                expr.op
+                in (
+                    ast.CompareOperationOp.Eq,
+                    ast.CompareOperationOp.NotEq,
+                    ast.CompareOperationOp.Gt,
+                    ast.CompareOperationOp.GtEq,
+                    ast.CompareOperationOp.Lt,
+                    ast.CompareOperationOp.LtEq,
+                    ast.CompareOperationOp.In,
+                    ast.CompareOperationOp.NotIn,
+                )
+                and self._row_local(expr.left)
+                and self._row_local(expr.right)
+            )
+        if isinstance(expr, ast.And | ast.Or):
+            return all(self._row_local(part) for part in expr.exprs)
+        if isinstance(expr, ast.Not):
+            return self._row_local(expr.expr)
+        if isinstance(expr, ast.Tuple):
+            return all(self._row_local(part) for part in expr.exprs)
+        if isinstance(expr, ast.Call) and expr.name in _ROW_LOCAL_CALLS and not expr.params and not expr.distinct:
+            return all(self._row_local(arg) for arg in expr.args)
+        return False
+
+    # --- rule 4: the window bounds ------------------------------------------------------------
+
     def _window_hours(self) -> int | None:
-        """The number of hourly buckets the query asks for, when its bounds pin one.
+        """The N of rule 4's bounds, when every WHERE conjunct is a bound or row-local.
 
-        Every top-level conjunct must be one of the two exact bound shapes or contain no clock at
-        all. A now()-dependent predicate in any other shape shifts which rows a bucket holds as
-        time advances without moving the window this returns, so the cache would keep buckets a
-        full scan no longer reads.
-
-        Limits are not this matcher's concern: every scan the cache issues runs through the
-        evaluation guard that fails loud, and disables the alert, on a result the row limit cut.
-        The window bound here is only a sanity ceiling.
+        A clock-dependent predicate in any other shape shifts which rows a bucket holds as time
+        advances without moving the window this returns, so the cache would keep buckets a full
+        scan no longer reads. Limits are not this matcher's concern: every scan runs through the
+        evaluation guard that fails loud on a result the row limit cut.
         """
         query = self.query
         if not isinstance(query.where, ast.And):
@@ -368,22 +341,72 @@ class _HourlySeriesMatcher:
             return None
         return hours
 
-    def match(self) -> _HourlySeriesShape | None:
-        aliases = self._aliases()
-        if aliases is None:
+    def _lower_bound_hours(self, predicate: ast.Expr) -> int | None:
+        """The N of a ``timestamp >= toStartOfHour(now()) - INTERVAL N HOUR`` conjunct, else None."""
+        if not isinstance(predicate, ast.CompareOperation) or not self._timestamp(predicate.left):
             return None
-        hours = self._window_hours()
-        if hours is None:
-            return None
-        return _HourlySeriesShape(window_hours=hours, bucket_alias=aliases.bucket, value_alias=aliases.value)
+        lower = predicate.right
+        if (
+            predicate.op == ast.CompareOperationOp.GtEq
+            and isinstance(lower, ast.ArithmeticOperation)
+            and lower.op == ast.ArithmeticOperationOp.Sub
+            and self._end(lower.left)
+        ):
+            return self._hours(lower.right)
+        return None
+
+    def _is_end_bound(self, predicate: ast.Expr) -> bool:
+        """Exactly ``timestamp < toStartOfHour(now())``."""
+        return (
+            isinstance(predicate, ast.CompareOperation)
+            and predicate.op == ast.CompareOperationOp.Lt
+            and self._timestamp(predicate.left)
+            and self._end(predicate.right)
+        )
+
+    def _end(self, expr: ast.Expr) -> bool:
+        """Exactly ``toStartOfHour(now())``."""
+        return (
+            self._plain_call(expr, "toStartOfHour")
+            and isinstance(expr, ast.Call)
+            and len(expr.args) == 1
+            and self._plain_call(expr.args[0], "now")
+            and isinstance(expr.args[0], ast.Call)
+            and not expr.args[0].args
+        )
+
+    def _hours(self, expr: ast.Expr) -> int | None:
+        """The N of ``toIntervalHour(N)`` with a literal integer N, else None."""
+        if (
+            isinstance(expr, ast.Call)
+            and self._plain_call(expr, "toIntervalHour")
+            and len(expr.args) == 1
+            and isinstance(expr.args[0], ast.Constant)
+            and type(expr.args[0].value) is int
+        ):
+            return expr.args[0].value
+        return None
+
+    @staticmethod
+    def _plain_call(expr: ast.Expr, name: str) -> bool:
+        """A bare call — no parameters, DISTINCT, WITHIN GROUP, ORDER BY, or FILTER."""
+        return (
+            isinstance(expr, ast.Call)
+            and expr.name == name
+            and not any((expr.params, expr.distinct, expr.within_group, expr.order_by, expr.filter_expr))
+        )
+
+    @staticmethod
+    def _timestamp(expr: ast.Expr) -> bool:
+        return isinstance(expr, ast.Field) and expr.chain == ["timestamp"]
 
 
 @frozen
 class DetectorSeriesQuery:
     """A SQL detector query proven to produce one value per hour from that hour's own rows.
 
-    ``window_hours`` is read from the query's own bounds, so the cache follows whatever window the
-    user wrote rather than a setting of ours.
+    ``window_hours`` is read from the query's own bounds, so the cache follows whatever window
+    the user wrote rather than a setting of ours.
     """
 
     window_hours: int
@@ -445,7 +468,7 @@ class DetectorSeriesQuery:
         """Pin the clock and wrap the tree as a query override.
 
         Pinning replaces every ``now()`` with ``at`` rendered in the team timezone, so the
-        warehouse evaluates the bounds the caller reasoned about — a warehouse clock that crosses
+        warehouse evaluates the bounds the caller reasoned about — a warehouse clock crossing
         an hour boundary mid-check cannot shift the scan against the cache bookkeeping.
         """
         tree = _ClockPinner(at, tz).visit(tree)
@@ -459,8 +482,8 @@ class _ClockPinner(CloningVisitor):
     """Replaces every ``now()`` with a fixed epoch instant rendered in timezone ``tz``.
 
     The matcher only admits ``now()`` inside the recognized window bounds, so this touches
-    nothing else. Epoch seconds, not a wall-clock string: during a DST fold the same local time
-    names two instants, and a string rendering would resolve to the wrong one for a whole hour.
+    nothing else. Epoch seconds, not a wall-clock string: during a DST fold the same local
+    time names two instants, and a string rendering would resolve to the wrong one.
     """
 
     def __init__(self, at: datetime, tz: str) -> None:
@@ -504,18 +527,6 @@ def match_detector_series_query(query: object, *, column: str | None) -> Detecto
         matched = _HourlySeriesMatcher(parsed, column).match()
     if matched is None:
         return None
-    events_query = parsed
-    bucket_alias_allowed: str | None = matched.bucket_alias
-    if parsed.select_from is not None and isinstance(parsed.select_from.table, ast.SelectQuery):
-        events_query = parsed.select_from.table
-        bucket_alias_allowed = None
-    for expr in events_query.select or []:
-        # The narrowing predicates reference the timestamp column, and ClickHouse resolves
-        # select aliases inside WHERE, so a shadowing alias would bind them to the wrong
-        # expression. The bucket itself may carry the name: toStartOfHour is idempotent, so
-        # the predicate reads the same rows either way.
-        if isinstance(expr, ast.Alias) and expr.alias == "timestamp" and expr.alias != bucket_alias_allowed:
-            return None
     return DetectorSeriesQuery(
         window_hours=matched.window_hours,
         bucket_alias=matched.bucket_alias,
