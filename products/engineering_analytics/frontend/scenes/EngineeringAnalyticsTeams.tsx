@@ -41,7 +41,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                       sorter: (a, b) =>
                           (medianFriction.get(a.ownerTeam) ?? -1) - (medianFriction.get(b.ownerTeam) ?? -1),
                       render: (_, row) => (
-                          <span className="tabular-nums">
+                          <span className="tabular-nums" data-attr="engineering-analytics-teams-friction">
                               {medianFriction.has(row.ownerTeam)
                                   ? timesTypical(medianFriction.get(row.ownerTeam))
                                   : '–'}
