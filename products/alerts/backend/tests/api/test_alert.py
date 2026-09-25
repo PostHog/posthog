@@ -1310,9 +1310,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == "09:35"
         assert datetime.fromisoformat(
             response.json()["next_check_at"].replace("Z", "+00:00")
-        ) == datetime.fromisoformat(expected_next_check_at) + alert_check_offset(
-            CalendarInterval(calculation_interval), response.json()["id"]
-        )
+        ) == datetime.fromisoformat(expected_next_check_at)
 
     @parameterized.expand(
         [
@@ -1356,9 +1354,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["schedule_start_time"] == "08:35"
         assert datetime.fromisoformat(
             response.json()["next_check_at"].replace("Z", "+00:00")
-        ) == datetime.fromisoformat(expected_next_check_at) + alert_check_offset(
-            CalendarInterval(calculation_interval), alert["id"]
-        )
+        ) == datetime.fromisoformat(expected_next_check_at)
 
     @time_machine.travel("2026-03-18T09:00:00Z", tick=False)
     def test_patch_schedule_start_time_with_schedule_restriction_recalculates_the_next_check(self) -> None:
@@ -1391,7 +1387,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert datetime.fromisoformat(response.json()["next_check_at"].replace("Z", "+00:00")) == datetime(
             2026, 3, 18, 9, 35, tzinfo=UTC
-        ) + alert_check_offset(CalendarInterval.HOURLY, alert["id"])
+        )
 
     def test_create_alert_with_schedule_restriction(self) -> None:
         creation_request = {

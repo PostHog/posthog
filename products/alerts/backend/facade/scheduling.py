@@ -1,8 +1,8 @@
 """Scheduling math for alert checks.
 
-Sub-daily checks preserve their existing cadence and skip missed intervals.
+Sub-daily checks skip missed intervals.
 Daily, weekly, and monthly checks anchor to calendar instants in the team's
-local timezone. Every interval except real time runs each alert at a stable
+local timezone. Automatic schedules except real time run each alert at a stable
 offset after the interval boundary (see `alert_check_offset`). Quiet hours and
 weekend skipping layer local-time restrictions on top of those schedules.
 
@@ -196,15 +196,14 @@ def _next_check_at_for_schedule_start_time(
     local_now: datetime,
     next_check_at: datetime | None,
     schedule_start_time: str,
-    offset: timedelta,
 ) -> datetime:
     start_minutes = _parse_hhmm(schedule_start_time)
     start_hour, start_minute = divmod(start_minutes, 60)
     start_local = local_now.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+    start_utc = _localize_wall_time(team_timezone, start_local.replace(tzinfo=None)).astimezone(UTC)
 
     match interval:
         case CalendarInterval.REAL_TIME | CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
-            start_utc = _localize_wall_time(team_timezone, (start_local + offset).replace(tzinfo=None)).astimezone(UTC)
             cadence_minutes = {
                 CalendarInterval.REAL_TIME: REAL_TIME_CADENCE_MINUTES,
                 CalendarInterval.EVERY_15_MINUTES: EVERY_15_MINUTES_CADENCE_MINUTES,
@@ -221,17 +220,15 @@ def _next_check_at_for_schedule_start_time(
             return start_utc
         case CalendarInterval.DAILY:
             return _next_calendar_schedule_start_time(
-                start_local + offset,
+                start_local,
                 now=now,
                 team_timezone=team_timezone,
                 next_check_at=next_check_at,
                 interval_delta=timedelta(days=1),
             )
         case CalendarInterval.WEEKLY:
-            # The offset is added after the anchor moves to Monday, so a late-evening start that the
-            # offset pushes past midnight still counts from Monday.
             return _next_calendar_schedule_start_time(
-                start_local + timedelta(days=(7 - start_local.weekday()) % 7) + offset,
+                start_local + timedelta(days=(7 - start_local.weekday()) % 7),
                 now=now,
                 team_timezone=team_timezone,
                 next_check_at=next_check_at,
@@ -239,7 +236,7 @@ def _next_check_at_for_schedule_start_time(
             )
         case CalendarInterval.MONTHLY:
             return _next_calendar_schedule_start_time(
-                start_local.replace(day=1) + offset,
+                start_local.replace(day=1),
                 now=now,
                 team_timezone=team_timezone,
                 next_check_at=next_check_at,
@@ -284,12 +281,12 @@ def next_calendar_check_time(
 ) -> datetime:
     """Nominal next check instant, before quiet-hours snapping.
 
-    Sub-daily intervals keep their cadence from the previous next_check_at. If
+    Real-time checks keep their cadence from the previous next_check_at. If
     a check is late, the next check skips missed intervals and is after now.
     Daily/weekly/monthly anchor to fixed local hours: 1am tomorrow, 3am next
     Monday, 4am on the 1st of next month. Except for real time, each check then
-    runs at the alert's offset after its local interval boundary, or after
-    schedule_start_time when the alert has one.
+    runs at the alert's offset after its local interval boundary. Explicit
+    schedule_start_time values keep the time the user selected.
     """
     team_timezone = pytz.timezone(tz_name)
     local_now = now.astimezone(team_timezone)
@@ -303,7 +300,6 @@ def next_calendar_check_time(
             local_now=local_now,
             next_check_at=next_check_at,
             schedule_start_time=schedule_start_time,
-            offset=offset,
         )
 
     match interval:

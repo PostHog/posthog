@@ -120,7 +120,7 @@ class TestNextCheckAtAfterScheduleRestrictionChange:
                 next_check_at=None,
             )
             out = next_check_at_after_schedule_restriction_change(alert)
-            assert out == datetime(2026, 4, 7, 7, 0, tzinfo=UTC) + HOURLY_OFFSET
+            assert out == datetime(2026, 4, 7, 7, 0, tzinfo=UTC)
 
     def test_does_not_keep_stale_snap_when_earlier_runs_are_allowed(self) -> None:
         with time_machine.travel("2026-04-06T16:44:00Z", tick=False):

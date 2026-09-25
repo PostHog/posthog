@@ -90,7 +90,7 @@ def snap_candidate_utc_to_schedule_restriction(alert: AlertConfiguration, candid
         return candidate_utc
     normalized = candidate_utc.astimezone(UTC).replace(second=0, microsecond=0)
     snapped = next_unblocked_utc(alert, normalized)
-    if snapped == normalized:
+    if snapped == normalized or alert.schedule_start_time is not None:
         return snapped
     # A snap lands on the end of a quiet window, which is usually on the hour, so every alert
     # behind the same window would check at once. The alert's offset spreads them again.

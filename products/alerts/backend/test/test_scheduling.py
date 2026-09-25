@@ -139,7 +139,7 @@ class TestScheduleStartTime:
             next_check_at=datetime(2026, 4, 7, 7, 0, tzinfo=UTC),
             alert_id=ALERT_ID,
             schedule_start_time="22:30",
-        ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC) + alert_check_offset(CalendarInterval.HOURLY, ALERT_ID)
+        ) == datetime(2026, 4, 7, 8, 30, tzinfo=UTC)
 
     def test_hourly_alert_created_after_its_start_time_uses_the_first_future_check(self) -> None:
         assert next_calendar_check_time(
@@ -149,13 +149,12 @@ class TestScheduleStartTime:
             next_check_at=None,
             alert_id=ALERT_ID,
             schedule_start_time="09:35",
-        ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC) + alert_check_offset(CalendarInterval.HOURLY, ALERT_ID)
+        ) == datetime(2026, 4, 7, 0, 35, tzinfo=UTC)
 
     @parameterized.expand(
         [
             (CalendarInterval.REAL_TIME, "09:35", datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
-            # The 09:30 slot is now, and the alert's offset puts its check just after it.
-            (CalendarInterval.EVERY_15_MINUTES, "00:00", datetime(2026, 3, 18, 9, 30, tzinfo=UTC)),
+            (CalendarInterval.EVERY_15_MINUTES, "00:00", datetime(2026, 3, 18, 9, 45, tzinfo=UTC)),
             (CalendarInterval.EVERY_15_MINUTES, "00:05", datetime(2026, 3, 18, 9, 35, tzinfo=UTC)),
             (CalendarInterval.EVERY_15_MINUTES, "00:55", datetime(2026, 3, 18, 9, 40, tzinfo=UTC)),
             (CalendarInterval.HOURLY, "00:00", datetime(2026, 3, 18, 10, 0, tzinfo=UTC)),
@@ -169,14 +168,17 @@ class TestScheduleStartTime:
     def test_next_check_uses_schedule_start_time_on_create(
         self, interval: CalendarInterval, schedule_start_time: str, expected: datetime
     ) -> None:
-        assert next_calendar_check_time(
-            interval,
-            now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
-            tz_name="UTC",
-            next_check_at=None,
-            alert_id=ALERT_ID,
-            schedule_start_time=schedule_start_time,
-        ) == expected + alert_check_offset(interval, ALERT_ID)
+        assert (
+            next_calendar_check_time(
+                interval,
+                now=datetime(2026, 3, 18, 9, 30, tzinfo=UTC),
+                tz_name="UTC",
+                next_check_at=None,
+                alert_id=ALERT_ID,
+                schedule_start_time=schedule_start_time,
+            )
+            == expected
+        )
 
     @parameterized.expand(
         [
@@ -233,7 +235,7 @@ class TestScheduleStartTime:
             alert_id=ALERT_ID,
             schedule_start_time="09:35",
         )
-        assert result == expected + alert_check_offset(interval, ALERT_ID)
+        assert result == expected
 
 
 class TestNextCalendarCheckTime:
