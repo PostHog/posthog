@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, getCookie } from 'lib/api'
+import api, { ApiConfig, ApiError, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -753,8 +753,9 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'deleteUser',
             })
         },
-        deleteUserFailure: () => {
-            lemonToast.error('Error deleting account', {
+        deleteUserFailure: ({ error, errorObject }) => {
+            const apiError = errorObject as ApiError | undefined
+            lemonToast.error(apiError?.detail || error || 'Error deleting account', {
                 toastId: 'deleteUser',
             })
         },

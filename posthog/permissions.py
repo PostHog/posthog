@@ -154,11 +154,21 @@ class UserNoOrgMembershipDeletePermission(BasePermission):
     """
 
     message = "Cannot delete user with organization memberships."
+    # Organization deletion is asynchronous, so the membership outlives the DELETE that started it.
+    pending_deletion_message = (
+        "An organization you belong to is still being deleted. "
+        "This usually takes a few minutes. Try again when it is done."
+    )
 
     def has_object_permission(self, request, view, obj):
-        if request.method == "DELETE" and OrganizationMembership.objects.filter(user=obj).exists():
-            raise Conflict(self.message)
-        return True
+        if request.method != "DELETE":
+            return True
+        pending_flags = list(
+            OrganizationMembership.objects.filter(user=obj).values_list("organization__is_pending_deletion", flat=True)
+        )
+        if not pending_flags:
+            return True
+        raise Conflict(self.pending_deletion_message if all(pending_flags) else self.message)
 
 
 class OrganizationAdminWritePermissions(BasePermission):
