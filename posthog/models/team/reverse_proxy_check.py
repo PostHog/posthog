@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.utils import get_safe_cache, safe_cache_set
 
 if TYPE_CHECKING:
@@ -11,8 +10,7 @@ if TYPE_CHECKING:
 
 # A team without a proxy may set one up at any time, so a negative answer expires quickly.
 NO_REVERSE_PROXY_CACHE_TTL_SECONDS = 60 * 10
-# A detected proxy rarely goes away, and the frontend marks the setup task complete on a positive
-# answer, after which the onboarding shortcut answers without the cache.
+# A detected proxy rarely goes away, so a positive answer is cached for longer.
 HAS_REVERSE_PROXY_CACHE_TTL_SECONDS = 60 * 60 * 24
 
 REVERSE_PROXY_QUERY = """
@@ -30,15 +28,8 @@ def _cache_key(team_id: int) -> str:
     return f"team_has_reverse_proxy:{team_id}"
 
 
-def _reverse_proxy_task_completed(team: "Team") -> bool:
-    tasks = team.onboarding_tasks
-    return isinstance(tasks, dict) and tasks.get(SetupTaskId.SetUpReverseProxy) == "completed"
-
-
 def get_cached_has_reverse_proxy(team: "Team") -> bool | None:
-    """Answer from the onboarding task or the cache only, so it never queries ClickHouse. None means unknown."""
-    if _reverse_proxy_task_completed(team):
-        return True
+    """Answer from the cache only, so it never queries ClickHouse. None means unknown."""
     cached = get_safe_cache(_cache_key(team.pk))
     return cached if isinstance(cached, bool) else None
 

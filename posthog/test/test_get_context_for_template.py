@@ -100,7 +100,7 @@ class TestGetContextForTemplate(APIBaseTest):
             ("cached_proxy", True, None, True),
             ("cached_no_proxy", False, None, False),
             ("cache_miss_is_omitted", None, None, None),
-            ("completed_setup_task", None, {"set_up_reverse_proxy": "completed"}, True),
+            ("completed_setup_task_is_not_proof", None, {"set_up_reverse_proxy": "completed"}, None),
         ]
     )
     def test_bootstraps_reverse_proxy_check_from_cache_only(self, _name, cached, onboarding_tasks, expected):

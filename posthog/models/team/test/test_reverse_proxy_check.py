@@ -52,11 +52,12 @@ class TestGetHasReverseProxy(SimpleTestCase):
         assert get_has_reverse_proxy(Team(id=TEAM_ID)) is False
         self.mock_query.assert_not_called()
 
-    def test_completed_setup_task_does_not_query(self) -> None:
+    def test_completed_setup_task_still_checks_events(self) -> None:
+        self.mock_query.return_value = _query_response([])
         team = Team(id=TEAM_ID, onboarding_tasks={"set_up_reverse_proxy": "completed"})
 
-        assert get_has_reverse_proxy(team) is True
-        self.mock_query.assert_not_called()
+        assert get_has_reverse_proxy(team) is False
+        self.mock_query.assert_called_once()
 
     def test_failed_query_is_not_cached(self) -> None:
         self.mock_query.side_effect = [
