@@ -151,6 +151,9 @@ describe("ClaudeCloudTokenSection", () => {
 
       expect(await screen.findByText("Token saved")).toBeInTheDocument();
       expect(
+        screen.getByText(/PostHog keeps your Claude token/),
+      ).toBeInTheDocument();
+      expect(
         client.connectClaudeUserIntegration,
       ).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
       expect(tokenStore.save).not.toHaveBeenCalled();
@@ -271,14 +274,16 @@ describe("ClaudeCloudTokenSection", () => {
       screen.queryByLabelText("Claude setup token"),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/PostHog keeps your Claude token/),
+      screen.queryByText(/Compute is billed separately/),
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Try again" }));
     expect(
       await screen.findByLabelText("Claude setup token"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/PostHog keeps your Claude token/),
+      screen.getByText(
+        "Save a token so cloud tasks can run when Desktop is closed. Compute is billed separately.",
+      ),
     ).toBeInTheDocument();
   });
 });

@@ -2240,6 +2240,47 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    it("keeps the Claude token rejection while another turn starts", async () => {
+      const testServer = createFailureTestServer({
+        claudeRunToken: "run-token",
+      }) as ReturnType<typeof createFailureTestServer> & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+        runOwnedTurn<T>(operation: () => Promise<T>): Promise<T>;
+      };
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn(
+        async () => "sk-ant-oat01-fake",
+      );
+      let finishStartupTurn: () => void = () => undefined;
+      const startupTurn = testServer.runOwnedTurn(
+        () =>
+          new Promise<void>((resolve) => {
+            finishStartupTurn = resolve;
+          }),
+      );
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      await testServer.runOwnedTurn(async () => undefined);
+      finishStartupTurn();
+      await startupTurn;
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.authRequired(),
+      );
+
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          status: "failed",
+          error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
+        }),
+      );
+    });
+
     it("quietly ends an interactive follow-up when its idle ACP transport closed", async () => {
       const testServer = createFailureTestServer();
 

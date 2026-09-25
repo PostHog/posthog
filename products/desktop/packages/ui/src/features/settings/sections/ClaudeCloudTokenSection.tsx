@@ -138,9 +138,11 @@ export function ClaudeCloudTokenSection({
       </div>
       {account.isSuccess ? (
         <span className="text-muted-foreground text-xs">
-          {serverStoresToken
-            ? "PostHog keeps your Claude token for your cloud tasks. Tasks run when Desktop is closed. Compute is billed separately."
-            : "Keep Desktop open to start or resume. Compute is billed separately."}
+          {!serverStoresToken
+            ? "Keep Desktop open to start or resume. Compute is billed separately."
+            : status === "connected"
+              ? "PostHog keeps your Claude token for your cloud tasks. Tasks run when Desktop is closed. Compute is billed separately."
+              : "Save a token so cloud tasks can run when Desktop is closed. Compute is billed separately."}
         </span>
       ) : null}
       {account.isPending || (!serverStoresToken && localToken.isPending) ? (
