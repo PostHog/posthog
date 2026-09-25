@@ -37,6 +37,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
+    SURVEY_APPEARANCE_HTML_FIELDS,
     SurveyAppearanceSchemaSerializer,
     get_survey_api_translations,
     get_surveys_response,
@@ -5000,11 +5001,15 @@ class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
 
 
 class TestSurveyAppearanceSchema(SimpleTestCase):
-    def test_documented_schema_keeps_every_default_appearance_key(self) -> None:
-        serializer = SurveyAppearanceSchemaSerializer(data=DEFAULT_SURVEY_APPEARANCE)
+    def test_documented_schema_keeps_every_supported_appearance_key(self) -> None:
+        appearance = {
+            **DEFAULT_SURVEY_APPEARANCE,
+            **{field: f"{field} text" for field in SURVEY_APPEARANCE_HTML_FIELDS},
+        }
+        serializer = SurveyAppearanceSchemaSerializer(data=appearance)
 
         assert serializer.is_valid(), serializer.errors
-        assert set(serializer.validated_data) == set(DEFAULT_SURVEY_APPEARANCE)
+        assert set(serializer.validated_data) == set(appearance)
 
 
 @time_machine.travel("2024-12-12 00:00:00", tick=False)

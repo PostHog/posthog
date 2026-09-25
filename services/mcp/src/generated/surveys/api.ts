@@ -816,6 +816,23 @@ export const SurveysCreateBody = () => zod.object({
                     .optional()
                     .describe('\* `html` - html\n\* `text` - text'),
                 thankYouMessageCloseButtonText: zod.string().optional(),
+                displayIntroScreen: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set.'
+                    ),
+                introScreenHeader: zod.string().optional().describe('Heading of the intro screen.'),
+                introScreenDescription: zod.string().optional().describe('Body text of the intro screen.'),
+                introScreenDescriptionContentType: zod
+                    .enum(['html', 'text'])
+                    .describe('\* `html` - html\n\* `text` - text')
+                    .optional()
+                    .describe('Content type of introScreenDescription.\n\n\* `text` - text\n\* `html` - html'),
+                introScreenButtonText: zod
+                    .string()
+                    .optional()
+                    .describe('Label of the button that closes the intro screen and starts the survey.'),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
                 position: zod
@@ -1741,6 +1758,23 @@ export const SurveysPartialUpdateBody = () => zod.object({
                     .optional()
                     .describe('\* `html` - html\n\* `text` - text'),
                 thankYouMessageCloseButtonText: zod.string().optional(),
+                displayIntroScreen: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set.'
+                    ),
+                introScreenHeader: zod.string().optional().describe('Heading of the intro screen.'),
+                introScreenDescription: zod.string().optional().describe('Body text of the intro screen.'),
+                introScreenDescriptionContentType: zod
+                    .enum(['html', 'text'])
+                    .describe('\* `html` - html\n\* `text` - text')
+                    .optional()
+                    .describe('Content type of introScreenDescription.\n\n\* `text` - text\n\* `html` - html'),
+                introScreenButtonText: zod
+                    .string()
+                    .optional()
+                    .describe('Label of the button that closes the intro screen and starts the survey.'),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
                 position: zod

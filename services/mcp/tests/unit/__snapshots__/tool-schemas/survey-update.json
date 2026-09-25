@@ -39,6 +39,10 @@
                         "disabledButtonOpacity": {
                             "type": "string"
                         },
+                        "displayIntroScreen": {
+                            "description": "Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set.",
+                            "type": "boolean"
+                        },
                         "displayThankYouMessage": {
                             "type": "boolean"
                         },
@@ -51,6 +55,23 @@
                         },
                         "inputTextColor": {
                             "description": "Text color of open text inputs and rating buttons. Calculated from inputBackground when not set.",
+                            "type": "string"
+                        },
+                        "introScreenButtonText": {
+                            "description": "Label of the button that closes the intro screen and starts the survey.",
+                            "type": "string"
+                        },
+                        "introScreenDescription": {
+                            "description": "Body text of the intro screen.",
+                            "type": "string"
+                        },
+                        "introScreenDescriptionContentType": {
+                            "description": "Content type of introScreenDescription.\n\n* `text` - text\n* `html` - html",
+                            "enum": ["html", "text"],
+                            "type": "string"
+                        },
+                        "introScreenHeader": {
+                            "description": "Heading of the intro screen.",
                             "type": "string"
                         },
                         "maxWidth": {

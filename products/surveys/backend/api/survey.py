@@ -687,6 +687,27 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
         required=False,
     )
     thankYouMessageCloseButtonText = serializers.CharField(required=False)
+    displayIntroScreen = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show an intro screen before the first question. The intro screen shows only when introScreenHeader or introScreenDescription is set.",
+    )
+    introScreenHeader = serializers.CharField(
+        required=False,
+        help_text="Heading of the intro screen.",
+    )
+    introScreenDescription = serializers.CharField(
+        required=False,
+        help_text="Body text of the intro screen.",
+    )
+    introScreenDescriptionContentType = serializers.ChoiceField(
+        choices=DescriptionContentType.choices,
+        required=False,
+        help_text="Content type of introScreenDescription.",
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False,
+        help_text="Label of the button that closes the intro screen and starts the survey.",
+    )
     borderColor = serializers.CharField(required=False)
     placeholder = serializers.CharField(required=False)
     position = serializers.ChoiceField(
