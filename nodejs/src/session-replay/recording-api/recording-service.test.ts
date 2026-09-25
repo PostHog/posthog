@@ -1,11 +1,15 @@
 import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import snappy from 'snappy'
 
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
+import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -439,6 +443,36 @@ describe('RecordingService', () => {
             mockClickhouse.query.mockRejectedValue(new Error('Connection refused'))
 
             await expect(service.listBlocks('sess-1', 1)).rejects.toThrow('Connection refused')
+        })
+
+        it('sends the token file contents as they are when each query runs', async () => {
+            const dir = mkdtempSync(join(tmpdir(), 'recording-service-'))
+            try {
+                const tokenFile = join(dir, 'token')
+                const serviceWithToken = new RecordingService(
+                    mockS3Client,
+                    'test-bucket',
+                    'session_recordings',
+                    mockKeyStore,
+                    mockDecryptor,
+                    mockMetadataStore,
+                    mockFeatureStore,
+                    mockPostgres,
+                    mockClickhouse,
+                    new ClickHouseCredential('recording_api', 'static', tokenFile)
+                )
+                mockClickhouseResult([])
+
+                for (const token of ['first-token', 'rotated-token']) {
+                    writeFileSync(tokenFile, token)
+                    await serviceWithToken.listBlocks('sess-1', 1)
+                    expect(mockClickhouse.query).toHaveBeenLastCalledWith(
+                        expect.objectContaining({ auth: { username: 'recording_api', password: token } })
+                    )
+                }
+            } finally {
+                rmSync(dir, { recursive: true, force: true })
+            }
         })
     })
 

@@ -17,6 +17,7 @@ import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
 import { createRecordingApiAuthMiddleware } from './auth'
+import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingService } from './recording-service'
 import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
@@ -135,7 +136,8 @@ export class RecordingApi {
             metadataStore,
             featureStore,
             this.postgres,
-            this.clickhouseClient
+            this.clickhouseClient,
+            ClickHouseCredential.fromConfig(this.config)
         )
 
         logger.info('[RecordingApi] Started successfully')

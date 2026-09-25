@@ -45,6 +45,7 @@ export type SessionRecordingApiConfig = {
     CLICKHOUSE_DATABASE: string
     CLICKHOUSE_USER: string
     CLICKHOUSE_PASSWORD: string | undefined
+    CLICKHOUSE_PASSWORD_FILE: string
     CLICKHOUSE_SECURE: boolean
 }
 
@@ -104,6 +105,7 @@ export type SessionRecordingConfig = {
 export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig {
     return {
         ...getDefaultClickhouseConfig(),
+        CLICKHOUSE_PASSWORD_FILE: '',
         SESSION_RECORDING_API_REDIS_HOST: '127.0.0.1',
         SESSION_RECORDING_API_REDIS_PORT: 6379,
         SESSION_RECORDING_KMS_ENDPOINT: undefined,

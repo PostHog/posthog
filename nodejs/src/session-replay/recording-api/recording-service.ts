@@ -9,6 +9,7 @@ import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
+import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
 import { KeyStore, RecordingBlock, RecordingDecryptor, SessionKeyDeletedError } from './types'
 
@@ -48,7 +49,8 @@ export class RecordingService {
         private metadataStore?: SessionMetadataStore,
         private featureStore?: SessionFeatureStore,
         private postgres?: PostgresRouter,
-        private clickhouse?: ClickHouseClient
+        private clickhouse?: ClickHouseClient,
+        private clickhouseCredential?: ClickHouseCredential
     ) {}
 
     validateS3Key(key: string): boolean {
@@ -196,6 +198,7 @@ export class RecordingService {
                     session_id: sessionId,
                 },
                 format: 'JSONEachRow',
+                auth: await this.clickhouseCredential?.auth(),
                 clickhouse_settings: {
                     date_time_output_format: 'iso',
                     log_comment: JSON.stringify({

@@ -63,4 +63,14 @@ export class RecordingApiMetrics {
     public static incrementCleanupFailure(step: 'kafka' | 'postgres' | 'activity_log'): void {
         this.cleanupFailures.labels({ step }).inc()
     }
+
+    private static readonly clickhousePasswordFallbacks = new Counter({
+        name: 'recording_api_clickhouse_password_fallback_total',
+        help: 'ClickHouse queries that sent the static password instead of the token file',
+        labelNames: ['reason'],
+    })
+
+    public static incrementClickhousePasswordFallback(reason: 'unreadable' | 'empty' | 'expired'): void {
+        this.clickhousePasswordFallbacks.labels({ reason }).inc()
+    }
 }
