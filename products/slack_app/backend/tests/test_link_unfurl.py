@@ -349,6 +349,26 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurl_invite_offers_setup_when_the_install_cannot_be_mentioned(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # An install predating app_mentions:read can unfurl but not answer, so inviting a mention
+        # would point at a bot that stays silent.
+        self.integration.config = {"scope": "links:read,chat:write"}
+        self.integration.save()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_insight([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+
+        text = self._invite_blocks(mock_client)[0]["elements"][0]["text"]
+        assert "Set up the @PostHog bot" in text
+        assert "about this insight here" in text
+        assert "mention" not in text
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurl_invite_appears_once_per_channel_per_day(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:

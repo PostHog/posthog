@@ -328,11 +328,13 @@ def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> d
         return None
     if not _claim_invite_slot(slack_team_id, channel):
         return None
+    subject = _INVITE_SUBJECT_BY_KIND.get(kind, "this")
     return build_followup_invite(
         integration,
         utm_tags=_INVITE_UTM_TAGS,
         ai_enabled=True,
-        subject=_INVITE_SUBJECT_BY_KIND.get(kind, "this"),
+        subject=subject,
+        setup_subject=subject,
     )
 
 
