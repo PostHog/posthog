@@ -23,6 +23,8 @@ EVENT_AT = "2026-09-24T09:54:20Z"
 EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT)
 EVENT_WAIT = relay.wait_check_name(PR, EVENT_AT)
 PLAIN_WAIT = f"{relay.DEPOT_WORKFLOW} / {relay.WAIT_JOB}"
+OLDER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:19Z")
+NEWER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:21Z")
 
 
 def run(
@@ -158,6 +160,40 @@ class FakeClock:
             id="a cancelled run fails only after the grace window",
         ),
         pytest.param([{}], (relay.Phase.ABSENT, ""), 15, id="no run fails after the grace window"),
+        pytest.param(
+            [
+                {
+                    OLDER_RACING_WAIT: [run(1, "success", workflow="racing")],
+                    relay.GATE_CHECK: [run(10, "failure", workflow="racing")],
+                }
+            ],
+            (relay.Phase.FINISHED, "failure"),
+            15,
+            id="an older racing event's run stands in for an absent run",
+        ),
+        pytest.param(
+            [
+                {
+                    EVENT_WAIT: [run(1, "cancelled")],
+                    NEWER_RACING_WAIT: [run(2, "success", workflow="racing")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="racing")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="a newer racing event's run stands in for a cancelled run",
+        ),
+        pytest.param(
+            [
+                {
+                    relay.wait_check_name(PR, "2026-09-24T09:54:17Z"): [run(1, "success", workflow="earlier")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="earlier")],
+                }
+            ],
+            (relay.Phase.ABSENT, ""),
+            15,
+            id="an event outside the race window does not stand in",
+        ),
         pytest.param(
             [{EVENT_WAIT: [run(1, "success")]}],
             (relay.Phase.RUNNING, ""),
