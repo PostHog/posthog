@@ -7,6 +7,11 @@ gated field without an approval — every write either creates a pending ChangeR
 and leaves the flag untouched, or (for the control cases) applies normally because no
 policy guards it.
 
+Two owners are exempt from that invariant by design, and the controls below lock both:
+a system write through the facade, and a flag a survey owns. The survey exemption is
+owner-based rather than path-based, so a direct PATCH of a survey's flag over the flag
+API also skips the gate. See _GATE_EXEMPT_FLAG_OWNERS in actions/feature_flags.py.
+
 Each closed bypass below maps to a fix on this branch:
   - direct PATCH enable/disable/update        -> the baseline control the gate exists for
   - lifecycle enable/disable/archive actions   -> thin state endpoints routed through the same gate
@@ -49,6 +54,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.api import set_flag_active
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
+from products.surveys.backend.models import Survey
 
 
 def _enable_policy_for(test: "FeatureFlagBypassMatrixBase", action_key: str) -> ApprovalPolicy:
@@ -662,6 +668,26 @@ class TestBypassMatrixControls(FeatureFlagBypassMatrixBase):
 
         flag.refresh_from_db()
         assert flag.active is False
+        assert ChangeRequest.objects.count() == 0
+
+    def test_survey_owned_flag_rollout_change_applies_without_change_request(self, _mock_enabled):
+        # A survey rewrites its own targeting flags on every save and the flags list hides
+        # them, so gating one blocks the surveys product without reviewing anything a person
+        # authored. The exemption reads the flag's owner, so this direct PATCH skips the gate
+        # too — an accepted consequence, not a separate hole.
+        _any_rollout_change_policy(self)
+        flag = self._flag(active=True, key="survey-targeting-abc123-custom")
+        Survey.objects.create(team=self.team, name="Gated survey", internal_targeting_flag=flag)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 100
         assert ChangeRequest.objects.count() == 0
 
     def test_approving_pending_cr_applies_the_change(self, _mock_enabled):
