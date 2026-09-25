@@ -92,8 +92,6 @@ def enqueue_artifact_created(run: WizardRunDTO, artifact: WizardRunArtifactDTO) 
         }
     elif isinstance(artifact, WizardRunGitDiffArtifactDTO):
         properties = {"type": "diff", "url": None, "name": "Git diff"}
-    else:
-        return
 
     _enqueue_run_event(run, WIZARD_RUN_ARTIFACT_CREATED_EVENT, f"artifact:{artifact.id}", properties)
 

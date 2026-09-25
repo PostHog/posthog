@@ -46,7 +46,7 @@ const task = (name: string, status: WizardRunTaskApi['status']): WizardRunTaskAp
 const meta: Meta<typeof WizardRunSyncCard> = {
     title: 'Products/Wizard/Wizard run sync card',
     component: WizardRunSyncCard,
-    parameters: { layout: 'fullscreen' },
+    parameters: { layout: 'fullscreen', testOptions: { waitForLoadersToDisappear: false } },
     decorators: [
         (Story) => (
             <div className="flex min-h-[640px] items-end justify-end bg-primary p-8">

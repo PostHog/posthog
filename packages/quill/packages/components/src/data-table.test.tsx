@@ -53,7 +53,7 @@ describe('DataTable', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('button', { name: 'Go to page 2' }))
+        fireEvent.click(screen.getByLabelText('Go to page 2'))
 
         expect(onPageChange).toHaveBeenCalledWith(1, 2)
     })

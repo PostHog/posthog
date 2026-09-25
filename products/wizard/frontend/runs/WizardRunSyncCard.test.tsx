@@ -58,7 +58,7 @@ describe('WizardRunSyncCard', () => {
             />
         )
 
-        const trigger = screen.getByRole('button', { name: 'Switch Wizard run, 2 recent runs, 1 active runs' })
+        const trigger = screen.getByLabelText('Switch Wizard run, 2 recent runs, 1 active runs')
         fireEvent.click(trigger)
         expect(screen.getByText('Completed')).toBeTruthy()
         expect(screen.getByText('In progress')).toBeTruthy()
