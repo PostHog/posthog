@@ -107,6 +107,25 @@ def _make_writer() -> DeltaWriter:
     return DeltaWriter(DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger()))
 
 
+# `deltalite` is a real dependency here (unlike a flag-off rollout, its import always succeeds),
+# so every primary-keyed `write()` call below would otherwise drive the real package instead of
+# the delta-rs MERGE path most of these tests are actually about. Default it off; the classes that
+# exist specifically to exercise deltalite opt back in (`TestDeltaliteWritePath` drives the real
+# method directly / fakes the `deltalite` module itself, and `TestNullabilityDriftGuardOrder`
+# already sets this mock explicitly in both directions).
+_DELTALITE_OPT_IN_CLASSES = {"TestDeltaliteWritePath", "TestNullabilityDriftGuardOrder"}
+
+
+@pytest.fixture(autouse=True)
+def _default_deltalite_to_merge_fallback(request: pytest.FixtureRequest):
+    cls = request.node.cls
+    if cls is not None and cls.__name__ in _DELTALITE_OPT_IN_CLASSES:
+        yield
+        return
+    with patch.object(DeltaWriter, "_write_via_deltalite", AsyncMock(return_value=False)):
+        yield
+
+
 class TestHasCommitWithMetadata:
     @pytest.mark.asyncio
     async def test_returns_false_when_no_delta_table(self):
