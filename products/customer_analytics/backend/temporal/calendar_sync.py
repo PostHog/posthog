@@ -369,7 +369,12 @@ async def create_calendar_sync_coordinator_schedule(client: Client) -> None:
             id=f"{CALENDAR_SYNC_COORDINATOR_WORKFLOW_NAME}-workflow",
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES), offset=timedelta(minutes=2))
+            ],
+            jitter=timedelta(minutes=10),
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, CALENDAR_SYNC_COORDINATOR_SCHEDULE_ID):

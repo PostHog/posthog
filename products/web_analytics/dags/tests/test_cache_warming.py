@@ -18,6 +18,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache import EntryFreshness
+from posthog.scheduling.jitter import deterministic_offset
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.backend.models.web_analytics_filter_preset import WebAnalyticsFilterPreset
@@ -1152,6 +1153,84 @@ class TestWarmQueriesOp(BaseTest):
         # true last_refresh and would return the fresh cached response, turning
         # the early warm into a silent no-op.
         self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    @parameterized.expand([("released", False, 1), ("cancelled", True, 1), ("cancelled_backlog", True, 3)])
+    def test_release_window_delays_work_and_cancellation_wakes_workers(
+        self, _name: str, cancel: bool, shape_count: int
+    ) -> None:
+        team = Team.objects.create(id=987654, organization=self.organization, name="delayed warming")
+        window = timedelta(minutes=10)
+        expected_delay = deterministic_offset(str(team.pk), window).total_seconds()
+        self.assertGreater(expected_delay, 0)
+        clock = SimpleNamespace(now=0.0)
+        entered = threading.Event()
+        stop = threading.Event()
+        finish_worker = threading.Event()
+        waits: list[float] = []
+        real_wait = cache_warming.wait
+
+        class ControlledRelease:
+            def wait(self, timeout: float) -> bool:
+                waits.append(timeout)
+                entered.set()
+                if cancel:
+                    stop.wait()
+                    finish_worker.wait()
+                    return True
+                clock.now += timeout
+                return False
+
+            def set(self) -> None:
+                stop.set()
+
+        def wait_for_work(
+            pending: set, timeout: float | None = None, return_when: str = "ALL_COMPLETED"
+        ) -> tuple[set, set]:
+            if cancel and return_when == "FIRST_COMPLETED":
+                self.assertTrue(entered.wait(5))
+                raise KeyboardInterrupt()
+            if cancel:
+                finish_worker.set()
+                for future in pending:
+                    if not future.cancelled():
+                        future.result(timeout=5)
+                return real_wait(pending, timeout=0)
+            done, remaining = real_wait(pending, timeout=5, return_when=return_when)
+            self.assertFalse(remaining)
+            return done, remaining
+
+        context = dagster.build_op_context()
+        try:
+            with (
+                patch(
+                    "products.web_analytics.dags.cache_warming.threading",
+                    SimpleNamespace(Lock=threading.Lock, Event=ControlledRelease),
+                ),
+                patch("products.web_analytics.dags.cache_warming.time", SimpleNamespace(monotonic=lambda: clock.now)),
+                patch("products.web_analytics.dags.cache_warming.wait", side_effect=wait_for_work),
+                patch("products.web_analytics.dags.cache_warming.WARMING_QUERIES_COUNTER") as counter,
+                patch(
+                    "products.web_analytics.dags.cache_warming.os._exit", side_effect=AssertionError("unexpected exit")
+                ),
+                override_instance_config("WEB_ANALYTICS_WARMING_SHARD_THREADS", 1),
+            ):
+                shapes = [
+                    {"team_id": team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": f"h{index}"}
+                    for index in range(shape_count)
+                ]
+                config = WarmQueriesConfig(release_window_seconds=int(window.total_seconds()))
+                if cancel:
+                    with self.assertRaises(KeyboardInterrupt):
+                        warm_queries_op(context, config, shapes)
+                    counter.labels.assert_not_called()
+                else:
+                    warm_queries_op(context, config, shapes)
+                    counter.labels.assert_called_once_with(lane="demand", outcome="unsupported")
+                    self.assertEqual(clock.now, expected_delay)
+                self.assertEqual(waits, [expected_delay])
+        finally:
+            stop.set()
+            finish_worker.set()
 
     def test_cancellation_drains_or_exits_within_grace(self) -> None:
         # Cancellation mid-pass must not hand the executor a queue to drain nor
