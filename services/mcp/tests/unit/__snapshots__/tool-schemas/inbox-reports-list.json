@@ -99,7 +99,7 @@
             "type": "boolean"
         },
         "view": {
-            "description": "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.",
+            "description": "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, all, or for_you. The flag-gated for_you shortlist selects the caller’s P0–P2 reports needing attention, up to five per page, highest priority then newest first. It omits personally snoozed reports for seven days. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.",
             "type": "string"
         }
     },
