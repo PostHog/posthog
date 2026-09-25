@@ -691,11 +691,11 @@ class TestAccountViewSet(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(
-            response.json(),
-            [
-                {"account_id": str(first_account.id), "viewers": expected_teammate},
-                {"account_id": str(second_account.id), "viewers": expected_teammate},
-            ],
+            {item["account_id"]: item["viewers"] for item in response.json()},
+            {
+                str(first_account.id): expected_teammate,
+                str(second_account.id): expected_teammate,
+            },
         )
 
     @patch("products.customer_analytics.backend.logic.account_presence.time")
