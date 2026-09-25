@@ -22,31 +22,32 @@ export function DepartedProjectNotice(): JSX.Element | null {
         project_name,
         target_organization_id,
         target_organization_name,
-        target_organization_accessible,
+        target_project_accessible,
         moved_at,
     } = mostRecentDeparture
 
+    // The destination is named only to someone who can reach it, so fall back to a description
+    const destination = target_organization_name ?? 'another organization'
+    const openAction =
+        target_project_accessible && target_organization_id
+            ? {
+                  children: `Open ${project_name}`,
+                  onClick: () => updateCurrentOrganization(target_organization_id, urls.project(project_id)),
+              }
+            : undefined
+
     return (
-        <LemonBanner
-            type="info"
-            className="w-full text-left"
-            action={
-                target_organization_accessible
-                    ? {
-                          children: `Open ${project_name}`,
-                          onClick: () => updateCurrentOrganization(target_organization_id, urls.project(project_id)),
-                      }
-                    : undefined
-            }
-        >
+        <LemonBanner type="info" className="w-full text-left" action={openAction}>
             <p className="font-semibold mb-1">
-                {project_name} moved to {target_organization_name}
+                {project_name} moved to {destination}
             </p>
             <p className="mb-0">
                 It left {currentOrganization?.name ?? 'this organization'} on {formatDate(dayjs(moved_at))}. The project
                 and its data are still there.
-                {!target_organization_accessible &&
-                    ` You are not a member of ${target_organization_name}, so ask an admin there for access.`}
+                {!openAction &&
+                    (target_organization_name
+                        ? ` Ask an admin of ${target_organization_name} for access.`
+                        : ' Ask an admin of the organization it moved to for access.')}
             </p>
         </LemonBanner>
     )

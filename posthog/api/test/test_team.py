@@ -1731,7 +1731,81 @@ def team_api_test_factory():
             assert departure["project_name"] == self.project.name
             assert departure["target_organization_id"] == str(other_org.id)
             assert departure["target_organization_name"] == other_org.name
-            assert departure["target_organization_accessible"] is True
+            assert departure["target_project_accessible"] is True
+
+        def test_departed_projects_is_not_readable_by_a_plain_member(self):
+            source_org = self.organization
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            assert (
+                self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                ).status_code
+                == status.HTTP_200_OK
+            )
+
+            # A departure names a project a member may never have been allowed to see, so reading one
+            # takes the same level as the organization-wide activity log.
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            res = self.client.get(f"/api/organizations/{source_org.id}/departed_projects/")
+            assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+        def test_departed_projects_does_not_name_an_organization_the_requester_cannot_reach(self):
+            source_org = self.organization
+            other_org, other_org_membership = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            assert (
+                self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            # Leaving the destination is what strips this admin of any relationship with it
+            other_org_membership.delete()
+            self.user.current_organization = source_org
+            self.user.current_team = None
+            self.user.save()
+
+            res = self.client.get(f"/api/organizations/{source_org.id}/departed_projects/")
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            departure = res.json()[0]
+            # The name stays, because this organization recorded it while it still held the project
+            assert departure["project_name"] == self.project.name
+            assert departure["target_organization_id"] is None
+            assert departure["target_organization_name"] is None
+            assert departure["target_project_accessible"] is False
+
+        def test_departed_projects_reports_the_name_the_project_left_under(self):
+            source_org = self.organization
+            other_org, other_org_membership = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            departed_name = self.project.name
+
+            assert (
+                self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                ).status_code
+                == status.HTTP_200_OK
+            )
+            self.project.refresh_from_db()
+            self.project.name = "Renamed after the move"
+            self.project.save()
+            # Losing the destination leaves only what the source organization recorded at move time
+            other_org_membership.delete()
+            self.user.current_organization = source_org
+            self.user.current_team = None
+            self.user.save()
+
+            res = self.client.get(f"/api/organizations/{source_org.id}/departed_projects/")
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            # Following the project into its new organization would disclose the rename instead
+            assert res.json()[0]["project_name"] == departed_name
 
         def test_departed_projects_is_empty_once_the_project_comes_back(self):
             source_org = self.organization

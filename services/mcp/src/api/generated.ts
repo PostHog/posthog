@@ -29581,14 +29581,20 @@ export namespace Schemas {
     export interface DepartedProject {
       /** ID of the project that left this organization. */
       project_id: number;
-      /** Current name of the project that left. */
+      /** Name the project had when it left this organization. */
       project_name: string;
-      /** ID of the organization that now holds the project. */
-      target_organization_id: string;
-      /** Name of the organization that now holds the project. */
-      target_organization_name: string;
-      /** Whether the requesting user is a member of the organization that now holds the project. */
-      target_organization_accessible: boolean;
+      /**
+         * ID of the organization the project moved to, or null when the requester cannot reach it.
+         * @nullable
+         */
+      target_organization_id: string | null;
+      /**
+         * Name of the organization the project moved to, or null when the requester cannot reach it.
+         * @nullable
+         */
+      target_organization_name: string | null;
+      /** Whether the requester can open the project in the organization it moved to. */
+      target_project_accessible: boolean;
       /** When the project left this organization. */
       moved_at: string;
     }

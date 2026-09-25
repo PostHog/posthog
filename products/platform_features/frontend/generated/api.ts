@@ -180,11 +180,15 @@ export const getDepartedListUrl = (id: string) => {
 }
 
 /**
- * Projects that moved out of this organization recently, and where they are now.
+ * Projects that moved out of this organization recently, and where they went.
  *
  * An organization that just lost its last project shows no trace of the move, because activity
  * views sit behind a project route. This answers "where did it go?" from the organization the
  * project left.
+ *
+ * Every value describing a departure comes from this organization's own activity row. Following
+ * the project into its new organization would instead disclose a later rename, or a further
+ * move, to people this organization can no longer vouch for.
  */
 export const departedList = async (id: string, options?: RequestInit): Promise<DepartedProjectApi[]> => {
     return apiMutator<DepartedProjectApi[]>(getDepartedListUrl(id), {

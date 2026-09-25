@@ -1,6 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'
@@ -49,6 +50,12 @@ export type departedProjectsLogicType = MakeLogicType<
     departedProjectsLogicMeta
 >
 
+// The endpoint is admin only, because a departure names a project a member may never have seen,
+// so a member asking for one would only ever get a 403 back
+function canReadDepartures(organization: OrganizationType | null): boolean {
+    return (organization?.membership_level ?? OrganizationMembershipLevel.Member) >= OrganizationMembershipLevel.Admin
+}
+
 export const departedProjectsLogic = kea<departedProjectsLogicType>([
     path(['scenes', 'project', 'departedProjectsLogic']),
     connect(() => ({
@@ -70,15 +77,17 @@ export const departedProjectsLogic = kea<departedProjectsLogicType>([
             (departedProjects: DepartedProjectApi[] | null): DepartedProjectApi | null => departedProjects?.[0] ?? null,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         // The screens that show a departure can mount before the organization has loaded, and the
         // endpoint is organization-scoped, so the load is gated on whichever of the two lands last.
         [organizationLogic.actionTypes.loadCurrentOrganizationSuccess]: () => {
-            actions.loadDepartedProjects()
+            if (canReadDepartures(values.currentOrganization)) {
+                actions.loadDepartedProjects()
+            }
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.currentOrganization) {
+        if (canReadDepartures(values.currentOrganization)) {
             actions.loadDepartedProjects()
         }
     }),

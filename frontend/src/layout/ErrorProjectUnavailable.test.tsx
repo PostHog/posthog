@@ -19,7 +19,7 @@ const DEPARTURE = {
     project_name: 'Hedgebox',
     target_organization_id: '0182cb27-8dfc-0000-1f45-e8f0bcfcbd1a',
     target_organization_name: 'Hedgebox Inc.',
-    target_organization_accessible: true,
+    target_project_accessible: true,
     moved_at: '2024-05-06T12:00:00Z',
 }
 
