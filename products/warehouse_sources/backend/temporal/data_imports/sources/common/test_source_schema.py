@@ -79,6 +79,7 @@ class TestBuildDefaultSchemas:
                     supports_append=True,
                     incremental_fields=[_field("created_at")],
                     detected_primary_keys=[],
+                    columns=[("email", "String", False)],
                 )
             ]
         )
@@ -115,10 +116,17 @@ class TestBuildDefaultSchemas:
         assert schemas[0]["sync_type"] == expected
 
     def test_non_introspected_source_keeps_incremental_default(self) -> None:
-        schemas = build_endpoint_schemas(
-            ["events"], {"events": [_field("created_at")]}
-        )
+        schemas = build_endpoint_schemas(["events"], {"events": [_field("created_at")]})
         assert build_default_schemas(schemas)[0]["sync_type"] == "incremental"
+
+    def test_detected_primary_key_without_columns_keeps_incremental_default(self) -> None:
+        schema = SourceSchema(
+            name="events",
+            supports_incremental=True,
+            incremental_fields=[_field("created_at")],
+            detected_primary_keys=["id"],
+        )
+        assert build_default_schemas([schema])[0]["sync_type"] == "incremental"
 
     def test_primary_key_predicate_honors_explicit_keys(self) -> None:
         schema = SourceSchema(
@@ -129,7 +137,6 @@ class TestBuildDefaultSchemas:
         )
         assert has_usable_primary_key(schema, ["email"])
 
-
     def test_keyless_table_falls_back_to_full_refresh_when_append_unsupported(self) -> None:
         schemas = build_default_schemas(
             [
@@ -139,6 +146,7 @@ class TestBuildDefaultSchemas:
                     supports_append=False,
                     incremental_fields=[_field("created_at")],
                     detected_primary_keys=[],
+                    columns=[("email", "String", False)],
                 )
             ]
         )

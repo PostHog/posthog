@@ -103,9 +103,7 @@ def has_usable_primary_key(
     """
     if primary_key_columns or source_schema is None:
         return True
-    if not source_schema.columns:
-        return source_schema.detected_primary_keys is None
-    if source_schema.detected_primary_keys:
+    if source_schema.detected_primary_keys or not source_schema.columns:
         return True
     return any(str(column[0]).lower() == "id" for column in source_schema.columns)
 
