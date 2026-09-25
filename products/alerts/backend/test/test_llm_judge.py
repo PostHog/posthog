@@ -57,6 +57,12 @@ def _in_the_rollout() -> Iterator[None]:
         yield
 
 
+@pytest.fixture(autouse=True)
+def _within_ai_credit_budget() -> Iterator[None]:
+    with patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=False):
+        yield
+
+
 def _series(**overrides: Any) -> SeriesContext:
     defaults: dict[str, Any] = {
         "dates": ("2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06", "2026-01-07"),
@@ -281,6 +287,18 @@ class TestLLMJudgeFailureIsLoud:
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
 
         flag.assert_called_once_with("alerts-llm-detector", "user-1", groups={"organization": "org-1"})
+
+    def test_call_is_refused_when_the_organization_is_out_of_ai_credits(self) -> None:
+        attribution = _attribution()
+        with (
+            _mocked_model(_verdict()) as invoke,
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True) as over_budget,
+            pytest.raises(LLMDetectorMisconfiguredError, match="out of PostHog AI credits"),
+        ):
+            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
+
+        over_budget.assert_called_once_with(attribution.team.api_token)
+        invoke.assert_not_called()
 
     def test_rationale_is_bounded_before_it_reaches_the_breach_text(self) -> None:
         judgment = _judge(LLMSeriesJudge({"type": "llm"}), _verdict(rationale="x" * 5000))

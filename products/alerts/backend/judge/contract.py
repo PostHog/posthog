@@ -49,7 +49,8 @@ class LLMDetectorUnavailableError(LLMDetectorError):
 class LLMDetectorMisconfiguredError(LLMDetectorError):
     """The judge cannot run as configured, so retrying cannot help.
 
-    The creator is missing, AI data processing consent is withdrawn, or the rollout is disabled.
+    The creator is missing, AI data processing consent is withdrawn, the rollout is disabled, or the
+    organization is over its AI credit budget.
     """
 
 

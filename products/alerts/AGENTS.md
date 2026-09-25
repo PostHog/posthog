@@ -13,6 +13,7 @@ The AI detector makes a charged model call on every check, so most of these rule
 - A change that adds a model call to a check needs a cost story first. Calls per day are enabled AI alerts multiplied by cadence ticks per day.
 - The AI detector is not available as an ensemble member, on the real-time cadence, or on breakdown insights. Each of these would multiply calls per check, or exceed the evaluate activity's time budget.
 - `llm_detector_access_error` (rollout flag plus AI data processing consent) runs in simulate, in every alert writer, and inside the judge on every scheduled check. Keep all three calls. The per-check call is what makes turning the flag off stop the spend.
+- The judge also refuses a check when the organization is over its AI credit budget (`is_team_over_ai_credit_budget`), before the verdict memo and the model call. The error is a misconfiguration, so Temporal does not retry it.
 - The rollout is checked for the alert's creator, because the check runs as the creator. Do not check the last editor.
 - Every writer that can put an alert on the AI detector (the API and the Max tool) calls `admit_llm_alert_write` inside its own transaction, after it locks the alert row. Do not add the cadence, access, or cap rules to a writer directly.
 - The per-project cap is `max_llm_alerts_per_team` in the flag payload. It counts only enabled AI alerts, and it is checked only on a write that adds one, so lowering it never blocks an edit.
