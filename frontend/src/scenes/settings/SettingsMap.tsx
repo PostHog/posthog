@@ -2106,6 +2106,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-proxy',
+        hideSelfHost: true,
         title: 'Managed reverse proxy',
         settings: [
             {
