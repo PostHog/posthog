@@ -87,13 +87,13 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
             [] as ActorType[],
             {
                 loadRelatedActors: async () => {
-                    const url = `api/environments/${values.currentTeamId}/groups/related?${toParams({
+                    const url = `api/projects/${values.currentTeamId}/groups/related?${toParams({
                         group_type_index: props.groupTypeIndex,
                         id: props.id,
                     })}`
                     // groupsRelatedList returns RelatedActorApi, which ActorType cannot hold:
                     // ~/types has is_identified non-nullable and distinct_ids optional.
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     return await api.get(url)
                 },
                 setGroup: () => [],

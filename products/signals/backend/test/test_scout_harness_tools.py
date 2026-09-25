@@ -848,38 +848,29 @@ class TestValidateEmitInputs:
 
     def test_empty_description_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="description"):
-            _validate_inputs("", 0.5, [], None)
+            _validate_inputs("", [], None)
 
     def test_whitespace_only_description_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="description"):
-            _validate_inputs("   \n\t", 0.5, [], None)
-
-    @pytest.mark.parametrize("confidence", [-0.1, 1.1])
-    def test_confidence_out_of_range_raises(self, confidence: float) -> None:
-        with pytest.raises(InvalidEmitError, match="confidence"):
-            _validate_inputs("ok", confidence, [], None)
-
-    def test_omitted_confidence_passes(self) -> None:
-        # The field is retired, so an emit that sends nothing must not trip the range check.
-        _validate_inputs("ok", None, [], None)
+            _validate_inputs("   \n\t", [], None)
 
     def test_too_many_evidence_entries_raises(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES + 1)]
         with pytest.raises(InvalidEmitError, match="evidence"):
-            _validate_inputs("ok", 0.5, many, None)
+            _validate_inputs("ok", many, None)
 
     def test_at_capacity_evidence_passes(self) -> None:
         many = [EvidenceEntry(source_product="logs", summary=f"e{i}") for i in range(MAX_EVIDENCE_ENTRIES)]
         # Should not raise.
-        _validate_inputs("ok", 0.5, many, None)
+        _validate_inputs("ok", many, None)
 
     def test_overlong_finding_id_raises(self) -> None:
         with pytest.raises(InvalidEmitError, match="finding_id"):
-            _validate_inputs("ok", 0.5, [], "x" * (MAX_FINDING_ID_LENGTH + 1))
+            _validate_inputs("ok", [], "x" * (MAX_FINDING_ID_LENGTH + 1))
 
     def test_finding_id_at_capacity_passes(self) -> None:
         # Should not raise — and a generated 36-char uuid is always well under the cap.
-        _validate_inputs("ok", 0.5, [], "x" * MAX_FINDING_ID_LENGTH)
+        _validate_inputs("ok", [], "x" * MAX_FINDING_ID_LENGTH)
 
 
 class TestNormalizeTags:
@@ -942,7 +933,6 @@ class TestBuildEmitExtra:
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=2,
-            confidence=0.7,
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
             hypothesis=None,
             severity=None,
@@ -959,7 +949,6 @@ class TestBuildEmitExtra:
         assert extra["task_run_id"] == "task-run-uuid"
         assert extra["finding_id"] == "finding-uuid"
         assert extra["skill_name"] == "signals-scout-errors"
-        assert extra["confidence"] == 0.7
         assert extra["evidence"] == [
             {"source_product": "error_tracking", "summary": "500s on /checkout", "entity_id": None}
         ]
@@ -967,26 +956,6 @@ class TestBuildEmitExtra:
         # but rejects unexpected keys, so omission is the right shape.
         for opt in ("task_id", "hypothesis", "severity", "dedupe_keys", "time_range", "mcp_trace_id", "tags"):
             assert opt not in extra
-
-    def test_extra_omits_confidence_when_not_supplied(self) -> None:
-        # Retired field: absent from `extra` rather than a null the pydantic contract would carry.
-        extra = _build_extra(
-            run_id="run-uuid",
-            task_run_id="task-run-uuid",
-            task_id=None,
-            finding_id="finding-uuid",
-            skill_name="signals-scout-errors",
-            skill_version=2,
-            confidence=None,
-            evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
-            hypothesis=None,
-            severity=None,
-            dedupe_keys=None,
-            time_range=None,
-            mcp_trace_id=None,
-            tags=None,
-        )
-        assert "confidence" not in extra
 
     def test_skill_version_cast_to_float(self) -> None:
         extra = self._minimal()
@@ -1002,7 +971,6 @@ class TestBuildEmitExtra:
             finding_id="finding-uuid",
             skill_name="signals-scout-errors",
             skill_version=1,
-            confidence=0.9,
             evidence=[EvidenceEntry(source_product="logs", summary="bursts of 500s", entity_id="log-1")],
             hypothesis="checkout post-deploy regression",
             severity="P1",
@@ -1105,7 +1073,6 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
             team=ateam_emit,
             run=arun_emit,
             description="Checkout 500s post-deploy",
-            confidence=0.85,
             evidence=evidence,
             hypothesis="post-deploy regression",
             finding_id="f-happy",
@@ -1139,7 +1106,6 @@ async def test_emit_finding_validation_error_does_not_emit(ateam_emit, arun_emit
                 team=ateam_emit,
                 run=arun_emit,
                 description="",  # empty -> validation error
-                confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
 
@@ -1159,7 +1125,6 @@ async def test_emit_finding_propagates_emit_signal_exception(ateam_emit, arun_em
                 team=ateam_emit,
                 run=arun_emit,
                 description="d",
-                confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id="f-fails",
             )
@@ -1173,7 +1138,6 @@ async def test_emit_finding_auto_generates_finding_id_when_not_provided(ateam_em
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
         )
 
@@ -1198,7 +1162,6 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-not-approved",
         )
@@ -1227,7 +1190,6 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-source-off",
         )
@@ -1250,7 +1212,6 @@ async def test_emit_finding_returns_skipped_when_scout_emit_disabled(arun_emit, 
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-dry-run",
         )
@@ -1274,7 +1235,6 @@ async def test_emit_finding_fails_closed_when_config_missing(arun_emit, ateam_em
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-no-config",
         )
@@ -1297,7 +1257,6 @@ async def test_emit_finding_records_tally_on_run(ateam_emit, arun_emit):
                 team=ateam_emit,
                 run=arun_emit,
                 description="d",
-                confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id=fid,
             )
@@ -1317,7 +1276,6 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
             team=ateam_emit,
             run=arun_emit,
             description="Checkout 500s post-deploy",
-            confidence=0.85,
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
             severity="P1",
             finding_id="f-emit",
@@ -1330,7 +1288,6 @@ async def test_emit_finding_persists_emission_rows(ateam_emit, arun_emit):
     assert emission.team_id == ateam_emit.id
     assert emission.finding_id == "f-emit"
     assert emission.description == "Checkout 500s post-deploy"
-    assert emission.confidence == 0.85
     assert emission.severity == "P1"
     assert emission.tags == ["post-deploy-regression"]
     assert emission.source_id == f"run:{arun_emit.id}:finding:f-emit"
@@ -1346,7 +1303,6 @@ async def test_emit_finding_normalizes_tags_into_extra_and_emission_row(ateam_em
             team=ateam_emit,
             run=arun_emit,
             description="Checkout 500s post-deploy",
-            confidence=0.85,
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
             finding_id="f-tags",
             tags=["Cost Spike", "cost_spike", "silent-failure"],
@@ -1366,7 +1322,6 @@ async def test_emit_finding_without_tags_omits_extra_field_and_defaults_row_empt
             team=ateam_emit,
             run=arun_emit,
             description="Checkout 500s post-deploy",
-            confidence=0.85,
             evidence=[EvidenceEntry(source_product="error_tracking", summary="500s on /checkout")],
             finding_id="f-no-tags",
         )
@@ -1391,7 +1346,6 @@ async def test_emit_finding_skip_does_not_record_tally(arun_emit, ateam_emit):
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-skip",
         )
@@ -1416,7 +1370,6 @@ async def test_emit_finding_succeeds_when_tally_write_fails(ateam_emit, arun_emi
                 team=ateam_emit,
                 run=arun_emit,
                 description="d",
-                confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
                 finding_id="f-tally-fail",
             )
@@ -1447,7 +1400,6 @@ async def test_emit_finding_fails_closed_when_config_deleted_then_recreated(arun
             team=ateam_emit,
             run=arun_emit,
             description="d",
-            confidence=0.5,
             evidence=[EvidenceEntry(source_product="logs", summary="x")],
             finding_id="f-recreated-config",
         )
@@ -1479,7 +1431,6 @@ async def test_emit_finding_rejects_team_run_mismatch(aorganization_emit, ateam_
                 team=other_team,
                 run=arun_emit,  # owned by ateam_emit, not other_team
                 description="should be rejected",
-                confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
     mock_emit.assert_not_called()
@@ -1510,7 +1461,6 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
                 team=other_team,
                 run=run,
                 description="should be rejected",
-                confidence=0.5,
                 evidence=[EvidenceEntry(source_product="logs", summary="x")],
             )
     mock_emit.assert_not_called()

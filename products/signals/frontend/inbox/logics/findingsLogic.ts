@@ -2,14 +2,20 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import {
+    signalsScoutRunsEmissionReportsBatch,
+    signalsScoutRunsEmissionsBatch,
+} from 'products/signals/frontend/generated/api'
+
+import type { SignalScoutEmissionApi } from '../../generated/api.schemas'
+import {
     LinkedSignalReport,
+    SignalScoutEmission,
     SignalReport,
     SignalReportPriority,
-    SignalScoutEmission,
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
 } from '../types'
@@ -128,10 +134,10 @@ export interface findingsLogicActions {
         errorObject?: any
     }
     loadEmissionsSuccess: (
-        emissions: SignalScoutEmission[],
+        emissions: SignalScoutEmissionApi[],
         payload?: any
     ) => {
-        emissions: SignalScoutEmission[]
+        emissions: SignalScoutEmissionApi[]
         payload?: any
     }
     loadScoutReports: (ids?: string[]) => {
@@ -335,7 +341,9 @@ export const findingsLogic = kea<findingsLogicType>([
                     // One batched request for the whole window: the backend flattens every run's
                     // findings newest-first (each row carries its run_id). A throw surfaces as the
                     // page's error/retry state — far cheaper than the old per-run fan-out.
-                    return await api.signalScout.runs.emissionsBatch(runs.map((run) => run.run_id))
+                    return await signalsScoutRunsEmissionsBatch(String(ApiConfig.getCurrentProjectId()), {
+                        run_ids: runs.map((run) => run.run_id),
+                    })
                 },
             },
         ],
@@ -357,7 +365,9 @@ export const findingsLogic = kea<findingsLogicType>([
                     // but not `task:read` 403s this endpoint on every poll). The `emissions` loader keeps
                     // throwing: that one is the page's actual content and should surface an error/retry state.
                     try {
-                        return await api.signalScout.runs.emissionReportsBatch(runs.map((run) => run.run_id))
+                        return await signalsScoutRunsEmissionReportsBatch(String(ApiConfig.getCurrentProjectId()), {
+                            run_ids: runs.map((run) => run.run_id),
+                        })
                     } catch {
                         return values.emissionReports
                     }

@@ -117,7 +117,12 @@ export class SpeechQueueService implements ISpeechQueue {
       while (this.queue.length > 0) {
         const next = this.queue.shift();
         if (!next) break;
-        const { voiceId } = this.settings.get();
+        // A pause or an opt-out also silences the lines that already wait.
+        const { enabled, voiceId } = this.settings.get();
+        if (!enabled) {
+          this.queue.length = 0;
+          break;
+        }
         try {
           await this.speech.speak(next.text, { voiceId });
         } catch (err) {

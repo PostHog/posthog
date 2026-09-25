@@ -9,6 +9,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
@@ -285,6 +288,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsUpdateBodyNameMax = 400
 
 export const experimentHoldoutsUpdateBodyDescriptionMax = 400
@@ -561,6 +567,9 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsPartialUpdateBodyNameMax = 400
 
 export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
@@ -1085,13 +1094,14 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'experiment_launch',
                 'experiment_stop',
                 'experiment_update',
+                'timeseries_sync',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')

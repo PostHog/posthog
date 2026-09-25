@@ -10,10 +10,13 @@ Covers:
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 from prometheus_client import CollectorRegistry
 
 from posthog.models.team.team import Team
-from posthog.storage.hypercache import HyperCache
+from posthog.storage.hypercache import DEFAULT_CACHE_TTL, HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
     get_cache_stats,
@@ -28,6 +31,7 @@ def create_test_hypercache(
     value: str = "test_value",
     token_based: bool = False,
     expiry_sorted_set_key: str = "test_cache_expiry",
+    cache_ttl: int = DEFAULT_CACHE_TTL,
 ) -> HyperCache:
     """Create a test HyperCache with minimal setup."""
 
@@ -40,6 +44,7 @@ def create_test_hypercache(
         load_fn=load_fn,
         token_based=token_based,
         expiry_sorted_set_key=expiry_sorted_set_key,
+        cache_ttl=cache_ttl,
     )
 
 
@@ -49,6 +54,8 @@ def create_test_config(
     token_based: bool = False,
     update_fn=None,
     route_refresh_fn=None,
+    refresh_ttl_min_fraction: float | None = None,
+    cache_ttl: int = DEFAULT_CACHE_TTL,
 ) -> HyperCacheManagementConfig:
     """Create a test HyperCacheManagementConfig with minimal setup."""
 
@@ -61,6 +68,7 @@ def create_test_config(
         namespace=namespace,
         value=value,
         token_based=token_based,
+        cache_ttl=cache_ttl,
     )
 
     return HyperCacheManagementConfig(
@@ -68,7 +76,15 @@ def create_test_config(
         update_fn=update_fn,
         cache_name="test_cache",
         route_refresh_fn=route_refresh_fn,
+        refresh_ttl_min_fraction=refresh_ttl_min_fraction,
     )
+
+
+class TestRefreshTtlMinFractionValidation(SimpleTestCase):
+    @parameterized.expand([("zero", 0.0), ("above_one", 1.5), ("days_mistaken_for_a_fraction", 7.0)])
+    def test_a_fraction_outside_the_unit_range_is_refused(self, _name: str, fraction: float) -> None:
+        with self.assertRaises(ValueError):
+            create_test_config(refresh_ttl_min_fraction=fraction)
 
 
 class TestDjangoKeyPrefix(BaseTest):

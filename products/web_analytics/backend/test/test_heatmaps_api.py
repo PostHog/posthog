@@ -419,6 +419,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ["http://example.com/products/*/reviews/*", 2],
             ["http://example.com/products/*/parts/*", 2],
             ["http://example.com/products/1*/parts/*", 1],
+            ["http\\:\\/\\/example\\.com\\/products\\/*\\/parts\\/*", 2],
+            ["^http\\:\\/\\/example\\.com\\/?(\\?.*)?(#.*)?$", 1],
         ],
         name_func=lambda f, n, p: f"{f.__name__}_{p.args[0]}",
     )
@@ -462,7 +464,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         self._assert_heatmap_single_result_count(
-            {"date_from": "2023-03-08", "url_pattern": pattern, "type": "rageclick"},
+            {"date_from": "2023-03-08", "url_pattern": quote(pattern), "type": "rageclick"},
             expected_matches,
         )
 

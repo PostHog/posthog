@@ -196,6 +196,7 @@ jobs:
                         - 'frontend/**'
                         - 'ee/frontend/**'
                         - 'common/esbuilder/**'
+                        - 'common/replay-shared/src/**'
                         - 'packages/**'
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
@@ -367,17 +368,21 @@ jobs:
                       exit 0
                   fi
 
-                  # Skip when jest config / build / lock files change — these
-                  # invalidate jest's resolver, transformer cache, or test discovery
-                  # in ways `--findRelatedTests` can't see, so no narrowed run can be
-                  # trusted. Pattern matches mirror the frontend_code paths-filter
-                  # in `changes`.
+                  # Skip selection when jest config / build / lock files change, or
+                  # when replay-shared source changes: that package sits outside
+                  # the frontend jest roots, so --findRelatedTests misses its
+                  # frontend consumers. Pattern matches mirror the frontend_code
+                  # paths-filter in `changes`.
                   while IFS= read -r f; do
                       case "$f" in
                           jest.*.ts|babel.config.js|tsconfig.json|tsconfig.*.json|\
                           package.json|pnpm-lock.yaml|webpack.config.js|\
                           .github/workflows/ci-frontend.yml|.github/scripts/jest-retries.cjs|patches/jest-junit@16.0.0.patch|.nvmrc)
                               fall_back config_change "$f"
+                              exit 0
+                              ;;
+                          common/replay-shared/src/*)
+                              fall_back unindexed_dependency "$f"
                               exit 0
                               ;;
                       esac
@@ -959,6 +964,8 @@ jobs:
 
             - name: Upload test results
               if: always()
+              # The quarantine gate reads the local JUnit files, so an artifact service failure must not change the test verdict.
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   # Keep attempt 1's artifact available so the reporter can identify same-job

@@ -40,6 +40,8 @@ LEARNED_CHUNK_NOTE = (
 PUBLISHABLE_TICKET_TYPES = {"how_to"}
 RETRIEVE_LIMIT = 15
 DRAFT_POLL_SECONDS = 900
+# The draft activity returns a blocked draft on its last attempt instead of raising.
+DRAFT_ACTIVITY_MAX_ATTEMPTS = 2
 WIDEN_RADIUS = 3
 
 # Temporal records every activity input/output in workflow history (per-payload limit ~2 MiB,

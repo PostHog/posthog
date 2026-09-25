@@ -69,6 +69,9 @@ class ConcordEndpointConfig:
     # Extra query params a per-agreement child request always needs (e.g. the required `type` on
     # /activities). Only read by "agreement_fanout" endpoints.
     fanout_params: dict[str, str] = field(default_factory=dict)
+    # A per-agreement endpoint answering with one object describing the agreement rather than a
+    # collection, so it yields a single row keyed on the parent agreement.
+    single_object_child: bool = False
     description: Optional[str] = None
 
 
@@ -244,6 +247,45 @@ CONCORD_ENDPOINTS: dict[str, ConcordEndpointConfig] = {
         primary_keys=["agreement_uuid", "id"],
         should_sync_default=False,
         description="Renewal and termination clauses on each agreement, with notice periods and auto-renewal terms. One request per agreement, so it is off by default.",
+    ),
+    "agreement_approval": ConcordEndpointConfig(
+        name="agreement_approval",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/approval",
+        pagination="agreement_fanout",
+        single_object_child=True,
+        primary_keys=["agreement_uuid"],
+        should_sync_default=False,
+        description="Approval workflow on each agreement, with its rules and current status. Joins agreements to the organization approvals library. One request per agreement, so it is off by default.",
+    ),
+    "agreement_signature": ConcordEndpointConfig(
+        name="agreement_signature",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/signature",
+        pagination="agreement_fanout",
+        single_object_child=True,
+        primary_keys=["agreement_uuid"],
+        should_sync_default=False,
+        description="Signature setup and slots on each agreement, including who signed and when. One request per agreement, so it is off by default.",
+    ),
+    "agreement_versions": ConcordEndpointConfig(
+        name="agreement_versions",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/versions",
+        pagination="agreement_fanout",
+        # The response body is itself the array, with no wrapper key.
+        data_selector=None,
+        # Version ids are document ids, only documented as unique within their agreement.
+        primary_keys=["agreement_uuid", "id"],
+        partition_key="date",
+        should_sync_default=False,
+        description="Version history of each agreement, for redline and negotiation cycle analysis. One request per agreement, so it is off by default.",
+    ),
+    "agreement_metadata": ConcordEndpointConfig(
+        name="agreement_metadata",
+        path="/organizations/{organization_id}/agreements/{agreement_uid}/metadata",
+        pagination="agreement_fanout",
+        single_object_child=True,
+        primary_keys=["agreement_uuid"],
+        should_sync_default=False,
+        description="Metadata on each agreement, such as its tags, track-changes setting and negotiation origin. One request per agreement, so it is off by default.",
     ),
 }
 

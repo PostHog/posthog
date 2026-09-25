@@ -1,9 +1,10 @@
 from typing import cast
 from urllib.parse import quote, urlencode, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
+from django.db import connection, transaction
 from django.http import HttpResponse, HttpResponseRedirect
 
 import structlog
@@ -83,6 +84,48 @@ def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
         return not client.check_installation_active(installation_id)
     except APIError:
         return False
+
+
+def _lock_vercel_links(organization_id: UUID) -> None:
+    # Serializes orphan cleanup with link creation for one organization. The lock is transaction-scoped,
+    # so call it inside `transaction.atomic()` and never around the Vercel network call.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"vercel-connect:{organization_id}"])
+
+
+def _mapped_team_ids(integration: OrganizationIntegration) -> set[int] | None:
+    mapping = integration.config.get("environment_mapping")
+    if not mapping:
+        return None
+    return {team_id for team_id in mapping.values() if isinstance(team_id, int)}
+
+
+def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
+    with transaction.atomic():
+        _lock_vercel_links(integration.organization_id)
+        if not OrganizationIntegration.objects.filter(pk=integration.pk).exists():
+            return
+
+        # A resource records its team, not its installation, so a resource is safe to delete only when no
+        # other installation claims its team. A resource left behind blocks the next link attempt, because
+        # `complete` rejects a team that still has one.
+        claimed_team_ids: set[int] = set()
+        for sibling in OrganizationIntegration.objects.filter(
+            organization_id=integration.organization_id,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+        ).exclude(pk=integration.pk):
+            sibling_team_ids = _mapped_team_ids(sibling)
+            if sibling_team_ids is None:
+                # A sibling without a mapping may own any team, so no resource is safe to delete.
+                integration.delete()
+                return
+            claimed_team_ids |= sibling_team_ids
+
+        Integration.objects.filter(
+            team__organization_id=integration.organization_id,
+            kind=Integration.IntegrationKind.VERCEL,
+        ).exclude(team_id__in=claimed_team_ids).delete()
+        integration.delete()
 
 
 class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
@@ -219,7 +262,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     organization_id=str(organization_id),
                     integration="vercel",
                 )
-                existing.delete()
+                _delete_orphaned_integration(existing)
             else:
                 raise exceptions.ValidationError(
                     "This organization already has a Vercel integration. "
@@ -241,7 +284,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_team = teams_by_id[production_team_id]
 
         with transaction.atomic():
-            OrganizationIntegration.objects.create(
+            _lock_vercel_links(organization.id)
+            org_integration = OrganizationIntegration.objects.create(
                 organization=organization,
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                 integration_id=installation_id,
@@ -295,9 +339,22 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
+                status_code=import_result.status_code,
+                error_detail=import_result.error_detail,
                 installation_id=installation_id,
                 resource_id=str(production_resource.pk),
                 integration="vercel",
+            )
+            with transaction.atomic():
+                org_integration.delete()
+                for resource in resources.values():
+                    resource.delete()
+            if import_result.status_code is not None:
+                raise exceptions.ValidationError(
+                    f"Vercel rejected the link (HTTP {import_result.status_code}). Start the link again from Vercel."
+                )
+            raise exceptions.ValidationError(
+                f"Vercel did not accept the link ({import_result.error}). Start the link again from Vercel."
             )
 
         VercelIntegration.bulk_sync_feature_flags_to_vercel(production_team)
@@ -395,7 +452,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                     organization_id=str(org_id),
                     integration="vercel",
                 )
-                integration.delete()
+                _delete_orphaned_integration(integration)
                 orphaned_org_ids.add(org_id)
 
         teams_by_org: dict = {}

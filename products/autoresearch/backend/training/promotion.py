@@ -38,11 +38,7 @@ from products.autoresearch.backend.models import (
     AutoresearchTrainingRun,
 )
 from products.autoresearch.backend.training import artifacts
-from products.autoresearch.backend.training.recipe_validation import (
-    RecipeValidationError,
-    validate_feature_sql,
-    validate_model_class,
-)
+from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_model_class
 
 logger = structlog.get_logger(__name__)
 
@@ -293,10 +289,11 @@ def _read_uploaded_bundle(training_run: AutoresearchTrainingRun) -> artifacts.Ar
         logger.exception("autoresearch_bundle_read_failed", training_run_id=str(training_run.id), prefix=prefix)
         raise
     # The uploaded features.sql is what fitting and scoring actually execute, and the agent
-    # can upload SQL that never went through iteration recording — validate the real file.
+    # can upload SQL that never went through iteration recording — validate the real file,
+    # with the rule inference adds, so a champion is never committed with SQL its fit refuses.
     try:
-        validate_feature_sql(bundle.features_sql)
-    except RecipeValidationError as exc:
+        validate_runnable_feature_sql(bundle.features_sql, source="features.sql")
+    except SandboxInferenceError as exc:
         raise PromotionError(f"Uploaded bundle's features.sql failed validation: {exc}") from exc
     return bundle
 
@@ -320,12 +317,8 @@ def complete_training_run(
         current = AutoresearchTrainingRun.objects.select_related("pipeline").get(pk=training_run.pk)
         if current.status not in _FINALIZABLE_STATUSES:
             return _already_finalized(current)
-        # Reading the bundle is three object-storage calls. It happens before the transaction
-        # so a slow or unavailable store cannot hold the training run and its pipeline locked.
-        bundle = _read_uploaded_bundle(current)
         return _finalize_under_lock(
             current,
-            bundle=bundle,
             best_iteration_id=best_iteration_id,
             model_explanation=model_explanation,
             recommended_next=recommended_next,
@@ -367,7 +360,6 @@ def _schedule_champion_fit(*, pipeline: AutoresearchPipeline, prefix: str, train
 def _finalize_under_lock(
     training_run: AutoresearchTrainingRun,
     *,
-    bundle: artifacts.ArtifactBundle | None,
     best_iteration_id: UUID | None,
     model_explanation: dict[str, Any] | None,
     recommended_next: str,
@@ -382,6 +374,11 @@ def _finalize_under_lock(
     )
     if training_run.status not in _FINALIZABLE_STATUSES:
         return _already_finalized(training_run)
+    # The artifact endpoints write the bundle under this same row lock, so a bundle read here
+    # is the bundle the champion will point at. Read before the lock, an upload landing in
+    # between would be fitted without ever being validated. The cost is three object-storage
+    # reads of agent-authored text while the row is locked.
+    bundle = _read_uploaded_bundle(training_run)
 
     pipeline = training_run.pipeline
     now = django_timezone.now()
@@ -415,11 +412,13 @@ def _finalize_under_lock(
     candidate_score = best.holdout_score or 0.0
     current = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
     is_cold_start = current is None
+    # A stub champion's score is a fixed placeholder, not a measurement, so any trained candidate replaces it.
+    replaces_stub = current is not None and bool((current.metrics or {}).get("stub"))
     beats_champion = current is not None and _beats_incumbent(candidate_score, current.holdout_score or 0.0)
 
     promoted = False
     role: str
-    if is_cold_start or beats_champion:
+    if is_cold_start or replaces_stub or beats_champion:
         if current is not None:
             AutoresearchModel.objects.filter(pk=current.pk).update(
                 role=AutoresearchModel.Role.ARCHIVED, archived_at=now

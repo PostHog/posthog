@@ -529,8 +529,8 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_window_over_max_days_falls_through(self):
-        # 365 days >> MAX_PRECOMPUTE_DAYS — gate refuses to avoid spawning
-        # hundreds of daily INSERT jobs in one request.
+        # 371 days, past MAX_PRECOMPUTE_DAYS (366), so the gate refuses rather
+        # than spawn more daily INSERT jobs than one shape can justify.
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query(date_from="2023-01-01", date_to="2024-01-07"))

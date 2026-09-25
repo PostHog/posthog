@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM person_tombstone_publish_queue q\n            USING UNNEST($2::uuid[], $3::bigint[]) AS a(person_uuid, person_version)\n            WHERE q.team_id = $1\n              AND q.person_uuid = a.person_uuid\n              AND q.person_version <= a.person_version\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3db5cda892ee10171cf9eff4375d66182e89f3b8e5df7bd6f5b971416fdb9985"
+}

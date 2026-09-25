@@ -66,7 +66,7 @@ import {
     InsightColor,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import {
@@ -115,8 +115,8 @@ interface InsightMetaProps extends Pick<
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    tile?: DashboardTile<QueryBasedInsightModel>
-    insight: QueryBasedInsightModel
+    tile?: DashboardTile
+    insight: InsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
     persistDisplayOptions?: (node: Node) => void
@@ -260,7 +260,7 @@ export function InsightMeta({
             : true
 
     // A killed run has no result to carry the scan, so it arrives on the query status instead.
-    const queryScan: QueryBasedInsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
+    const queryScan: InsightModel['query_scan'] = insight.query_scan ?? insight.query_status?.query_scan
     const scanFindings = queryScan?.analysis?.findings ?? []
     const queryScanTooltip =
         canEditInsight && queryScan && scanFindings.length > 0 ? (

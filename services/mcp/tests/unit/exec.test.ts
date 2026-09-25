@@ -4,12 +4,12 @@ import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
-import { handleToolError, PostHogApiError, ToolInputValidationError } from '@/lib/errors'
+import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
-import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
@@ -104,13 +104,13 @@ describe('exec tool', () => {
                     projectAvailable: false,
                     commands: [
                         'learn skills',
-                        'learn -s <query>',
+                        'learn -s "<up to 8 keywords>"',
                         'learn -d <source>:<skill> [...]',
                         'learn posthog:<skill> [path]',
                         'learn project:<skill> [path]',
                         'learn <source>:<skill> <path> [path...]',
                         'learn <source>:<skill> [<source>:<skill>...]',
-                        'learn <source>:<skill> <path> -s <query>',
+                        'learn <source>:<skill> <path> -s "<up to 8 keywords>"',
                         'learn <source>:<skill> <path> --lines <start>:<end>',
                     ],
                 },
@@ -172,184 +172,6 @@ describe('exec tool', () => {
         })
     })
 
-    describe('skills-first gate', () => {
-        const guideCatalog = (withGuides = true): ExecLearnCatalog =>
-            new ExecLearnCatalog(
-                withGuides
-                    ? [{ id: 'analytics', title: 'Analytics', description: 'Guidance.', content: 'Use the tools.' }]
-                    : [],
-                {
-                    posthog: new SkillCatalog([
-                        {
-                            name: 'bot-traffic',
-                            description: 'Filtering bot traffic.',
-                            files: [makeSkillFile('SKILL.md', '# Bot traffic\n\nFilter bots.')],
-                        },
-                    ]),
-                }
-            )
-
-        function makeSkillsSession(): NonNullable<ExecToolOptions['skillsSession']> {
-            const state: { learnedAt?: number; ackAt?: number } = {}
-            return {
-                hasLearned: async () => state.learnedAt !== undefined,
-                markLearned: async () => {
-                    state.learnedAt = Date.now()
-                },
-                hasAcknowledgedNoSkills: async () => state.ackAt !== undefined,
-                markAcknowledgedNoSkills: async () => {
-                    state.ackAt = Date.now()
-                },
-            }
-        }
-
-        it.each([
-            'mock-tool',
-            'skill-get',
-            'skill-file-get',
-            'skill-list',
-            'llma-skill-get',
-            'llma-skill-file-get',
-            'llma-skill-list',
-        ])('directs a gated %s call to learn and permits it after a skill load', async (name) => {
-            const exec = createExec([makeMockTool({ name })], undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            const command = `call ${name} {}`
-            await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
-                name: 'ExecCommandError',
-                reason: 'skills_gate',
-                message: expect.stringContaining('`learn posthog:<skill>` or `learn project:<skill>`'),
-            })
-            const rejected = await exec
-                .handler(mockContext, { command })
-                .catch((error: unknown) => handleToolError(error, 'exec'))
-            expect(rejected).toMatchObject({
-                isError: true,
-                content: [
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('`skill-get` and `skill-list` do not satisfy this gate.'),
-                    },
-                ],
-            })
-
-            await exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })
-            await expect(exec.handler(mockContext, { command })).resolves.toBeDefined()
-        })
-
-        it.each([
-            { command: 'learn bot-traffic', hint: '`learn posthog:<skill>` or `learn project:<skill>`' },
-            { command: 'learn -s', hint: 'Usage: learn -s "<task keywords>"' },
-            {
-                command: 'learn posthog:bot-traffic SKILL.md -s',
-                hint: 'Usage: learn <source>:<skill> <path> -s "<keywords>"',
-            },
-            {
-                command: 'learn posthog:bot-traffic/SKILL.md',
-                hint: 'Separate the skill name and file path with a space: `learn <source>:<skill> <path>`.',
-                recovery: 'learn posthog:bot-traffic SKILL.md',
-            },
-            {
-                command: 'learn posthog:bot-traffic --file SKILL.md',
-                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
-                recovery: 'learn posthog:bot-traffic SKILL.md',
-            },
-            {
-                command: 'learn posthog:bot-traffic SKILL.md --file',
-                hint: '`learn` does not support --file. Pass the file path directly: `learn <source>:<skill> <path>`.',
-                recovery: 'learn posthog:bot-traffic SKILL.md',
-            },
-        ])('returns recovery guidance for $command without opening the gate', async ({ command, hint, recovery }) => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(false),
-                skillsSession: makeSkillsSession(),
-            })
-            const rejected = await exec
-                .handler(mockContext, { command })
-                .catch((error: unknown) => handleToolError(error, 'exec'))
-            expect(rejected).toMatchObject({
-                isError: true,
-                content: [{ type: 'text', text: expect.stringContaining(hint) }],
-            })
-            expect(JSON.stringify(rejected)).not.toContain('Available:')
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
-                reason: 'skills_gate',
-            })
-            await expect(exec.handler(mockContext, { command: 'learn -s "bot traffic"' })).resolves.toContain(
-                'posthog:bot-traffic'
-            )
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toMatchObject({
-                reason: 'skills_gate',
-            })
-            await exec.handler(mockContext, { command: recovery ?? 'learn posthog:bot-traffic' })
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-
-        // Each of these is a way an agent can touch `learn` without loading a skill; none
-        // may open the gate, and the quoting cases fail a naive whitespace split.
-        it.each([
-            { label: 'a generic guide read', command: 'learn analytics' },
-            { label: 'a bare search', command: 'learn -s bot traffic' },
-            { label: 'a quoted search flag', command: "learn '-s' bot traffic" },
-            { label: 'a listing', command: 'learn skills' },
-        ])('does not open the gate for $label', async ({ command }) => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            await exec.handler(mockContext, { command })
-
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow(
-                'No skills loaded this session'
-            )
-        })
-
-        it('opens the gate when the skill identifier is quoted', async () => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            // A leading quote defeats a naive `startsWith('posthog:')` check, so a
-            // real skill load would fail to open the gate.
-            await exec.handler(mockContext, { command: "learn 'posthog:bot-traffic'" })
-
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-
-        it('call --no-skills acknowledges once and opens the gate for the session', async () => {
-            const exec = createExec(undefined, undefined, {
-                learnCatalog: guideCatalog(),
-                skillsSession: makeSkillsSession(),
-            })
-
-            await expect(exec.handler(mockContext, { command: 'call --no-skills mock-tool {}' })).resolves.toBeDefined()
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-
-        it('opens the gate when the session store fails', async () => {
-            const down = async (): Promise<never> => {
-                throw new Error('redis down')
-            }
-            const failing: NonNullable<ExecToolOptions['skillsSession']> = {
-                hasLearned: down,
-                markLearned: down,
-                hasAcknowledgedNoSkills: down,
-                markAcknowledgedNoSkills: down,
-            }
-            const exec = createExec(undefined, undefined, { learnCatalog: guideCatalog(), skillsSession: failing })
-
-            await expect(exec.handler(mockContext, { command: 'learn posthog:bot-traffic' })).resolves.toContain(
-                'Bot traffic'
-            )
-            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).resolves.toBeDefined()
-        })
-    })
-
     describe('user-get uuid contract', () => {
         // `user-get` fetches the caller's own profile, so CLI clients routinely dispatch
         // `call user-get` with no body — the exec parser then hands the schema an empty
@@ -392,6 +214,21 @@ describe('exec tool', () => {
             expect(result).toContain('name: test')
             expect(result).not.toBe(JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] }))
         })
+
+        it.each(['call mock-tool', 'call --json mock-tool'])(
+            'uses the requested pagination format for %s',
+            async (command) => {
+                const results = [{ id: 1, name: 'example' }]
+                const handlerResult = { results, next: null, count: 1, previous: null }
+                const exec = createExec([makeMockTool({ handler: async () => handlerResult })])
+
+                const result = await exec.handler(mockContext, { command })
+
+                expect(result).toBe(
+                    command.includes('--json') ? JSON.stringify(handlerResult) : formatResponse(results)
+                )
+            }
+        )
 
         it('returns raw JSON when --json flag is passed in command', async () => {
             const exec = createExec()
@@ -511,14 +348,14 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
@@ -1839,6 +1676,15 @@ describe('exec tool', () => {
             expect(message.includes(redirectHint)).toBe(kept)
         })
 
+        // A generic unknown-command reply reads as "the tool does not exist".
+        it('routes a tool name typed as a command to the call form', async () => {
+            const exec = createExec([makeMockTool({ name: 'docs-search' })])
+
+            await expect(exec.handler(mockContext, { command: 'docs-search {"query":"funnels"}' })).rejects.toThrow(
+                /"docs-search" is a tool, not a command[\s\S]*call docs-search/
+            )
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
@@ -1970,6 +1816,9 @@ describe('exec tool', () => {
             // A removed tool is still one of our own names, so the redirect it
             // triggers stays diagnosable.
             ['call query-run {}', 'call', 'query-run'],
+            // Recording the tool separates a dropped `call` prefix from a genuine typo.
+            ['execute-sql {"query":"select 1"}', 'unrecognized', 'execute-sql'],
+            ['frobnicate now', 'unrecognized', undefined],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],
@@ -2043,10 +1892,11 @@ describe('exec tool', () => {
                     }
                 })
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 v2Tools,
                 context,
@@ -2076,10 +1926,11 @@ describe('exec tool', () => {
             const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
 
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 [],
                 createExecContext(),
@@ -2368,7 +2219,7 @@ describe('exec tool', () => {
 
                 it.each([
                     ['vision-scanners-get', 'scanner_id', 'replay scanner'],
-                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                    ['vision-observations-get', 'observation_id', 'replay observation'],
                 ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
                     expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
                         `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
@@ -2376,10 +2227,10 @@ describe('exec tool', () => {
                 })
 
                 it('does not tell the caller to resend a scanner id as an observation id', () => {
-                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `vision-observations-get` does not declare `scanner_id`, and its
                     // `id` has no format constraint. Matching the two by name suffix would
                     // advise reusing a value that identifies a different entity.
-                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+                    const message = formatFor('vision-observations-get', { scanner_id: SOME_UUID })
 
                     expect(message).toContain('"scanner_id"')
                     expect(message).not.toContain('resend')

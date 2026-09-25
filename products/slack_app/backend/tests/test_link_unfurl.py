@@ -2,6 +2,7 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
@@ -10,7 +11,6 @@ from parameterized import parameterized
 from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
-from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
@@ -25,6 +25,7 @@ from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.slack_link_unfurl import (
     _insight_resource_label,
     handle_posthog_link_unfurl,
@@ -296,6 +297,133 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_client.chat_unfurl.assert_not_called()
         result = next(log for log in logs if log["event"] == "slack_app_link_unfurl_result")
         assert result["skipped"] == [{"kind": "insight", "ref": self.insight.short_id, "reason": "other_region"}]
+
+    def _make_bot_ready(self) -> None:
+        self.integration.config = {"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))}
+        self.integration.save()
+
+    def _unfurl_links(self, urls: list[str], channel: str = "C1") -> None:
+        handle_posthog_link_unfurl(
+            {
+                "channel": channel,
+                "message_ts": "123.456",
+                "user": "U1",
+                "links": [{"url": url, "domain": "testserver"} for url in urls],
+            },
+            self.integration,
+        )
+
+    @staticmethod
+    def _invite_blocks(mock_client: MagicMock) -> list[dict]:
+        blocks = [
+            block
+            for payload in mock_client.chat_unfurl.call_args.kwargs["unfurls"].values()
+            for block in payload["blocks"]
+        ]
+        return [block for block in blocks if block["type"] == "context" and "@PostHog" in block["elements"][0]["text"]]
+
+    @parameterized.expand([("ai_approved", True, 1), ("ai_not_approved", False, 0)])
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurl_invites_a_follow_up_only_when_the_org_approved_ai(
+        self,
+        _name: str,
+        ai_approved: bool,
+        expected_invites: int,
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        self._make_bot_ready()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+
+        invites = self._invite_blocks(mock_client)
+        assert len(invites) == expected_invites
+        if expected_invites:
+            assert "dig into this insight" in invites[0]["elements"][0]["text"]
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurl_invite_offers_setup_when_the_install_cannot_be_mentioned(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # An install predating app_mentions:read can unfurl but not answer, so inviting a mention
+        # would point at a bot that stays silent.
+        self.integration.config = {"scope": "links:read,chat:write"}
+        self.integration.save()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+
+        text = self._invite_blocks(mock_client)[0]["elements"][0]["text"]
+        assert "Set up the @PostHog bot" in text
+        assert "about this insight here" in text
+        assert "mention" not in text
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurl_invite_appears_once_per_channel_per_day(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self._make_bot_ready()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+
+        self._unfurl_links([url])
+        assert len(self._invite_blocks(mock_client)) == 1
+
+        self._unfurl_links([url])
+        assert self._invite_blocks(mock_client) == []
+
+        self._unfurl_links([url], channel="C2")
+        assert len(self._invite_blocks(mock_client)) == 1
+
+    @patch("products.slack_app.backend.slack_link_unfurl.get_client")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurl_still_sent_when_redis_is_unreachable(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock, mock_get_client: MagicMock
+    ) -> None:
+        self._make_bot_ready()
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        mock_get_client.side_effect = ImproperlyConfigured("Redis not configured!")
+
+        self._unfurl_links([f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"])
+
+        assert len(mock_client.chat_unfurl.call_args.kwargs["unfurls"]) == 1
+        assert self._invite_blocks(mock_client) == []
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_message_with_several_links_carries_one_invite(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self._make_bot_ready()
+        dashboard = Dashboard.objects.create(team=self.team, name="Growth")
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        self._unfurl_links(
+            [
+                f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}",
+                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}",
+            ],
+        )
+
+        assert len(mock_client.chat_unfurl.call_args.kwargs["unfurls"]) == 2
+        assert len(self._invite_blocks(mock_client)) == 1
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

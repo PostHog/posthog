@@ -7,6 +7,19 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
     provideCodeActions: (model, _range, context) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
         if (logic?.isMounted()) {
+            // The stored marker ranges describe the text the server analyzed. Monaco shifts the
+            // markers it reports as the user types, but the stored ranges do not move, so applying
+            // one would rewrite whatever now sits at the old position. Offer nothing until a report
+            // for the current text is in.
+            const analyzed = logic.values.metadata?.[0]
+            const analyzedOffset = logic.props.metadataQueryOffset ?? 0
+            if (
+                logic.values.metadataLoading ||
+                analyzed === undefined ||
+                model.getValue().slice(analyzedOffset, analyzedOffset + analyzed.length) !== analyzed
+            ) {
+                return { actions: [], dispose: () => {} }
+            }
             // Monaco gives us a list of markers that we're looking at, but without the quick fixes.
             const markersFromMonaco = context.markers
             // We have a list of _all_ markers returned from the HogQL metadata query
@@ -54,7 +67,9 @@ export const hogQLMetadataProvider: () => languages.CodeActionProvider = () => (
                                             range: rawMarker,
                                             text: rawMarker.hogQLFix,
                                         },
-                                        versionId: undefined,
+                                        // Monaco refuses the edit if the model changed after the
+                                        // action was offered, which the checks above cannot cover.
+                                        versionId: model.getVersionId(),
                                     },
                                 ],
                             },

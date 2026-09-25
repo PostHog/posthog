@@ -5,6 +5,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 :class:`UserGitHubIntegration` (user-scoped).
 """
 
+import re
 import json
 import time
 import uuid
@@ -29,6 +30,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.github.merge_queue import MergeQueueState
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
 
@@ -60,6 +62,11 @@ GITHUB_ACCOUNT_NAME_HEAL_CLAIM_TTL_SECONDS = 60
 
 # GitHub's add-assignees endpoint caps a single call at 10 logins and silently drops the rest.
 MAX_PR_ASSIGNEES = 10
+
+# GitHub label names cap at 50 characters, and a self-driving pull request only ever carries the one
+# label its team configured, so a longer list is a caller mistake rather than a use we support.
+MAX_PR_LABELS = 10
+MAX_LABEL_NAME_LENGTH = 50
 
 # Reactions cost one extra round trip per reacted comment, and GitHub offers no way to fetch them in
 # bulk, so bound the fan-out. Set high enough that a real pull request never reaches it: past this
@@ -135,6 +142,16 @@ class PullRequestRef:
     @property
     def repository(self) -> str:
         return f"{self.owner}/{self.repo}"
+
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
 class GitHubIntegrationError(Exception):
@@ -342,16 +359,22 @@ class GitHubIntegrationBase:
 
     @classmethod
     def uninstall_app_installation(cls, installation_id: str) -> bool:
+        return cls.uninstall_app_installation_status(installation_id) in ("uninstalled", "already_absent")
+
+    @classmethod
+    def uninstall_app_installation_status(
+        cls, installation_id: str
+    ) -> Literal["uninstalled", "already_absent", "skipped", "failed"]:
         """Tell GitHub to uninstall the App via ``DELETE /app/installations/{id}``.
 
         Best-effort: never raises. Treats 204 (removed) and 404 (already gone) as
-        success. Returns ``False`` on any other outcome or when the App is not configured.
+        success. The result distinguishes removal, absence, skipped requests, and failures.
         """
         if not installation_id:
-            return False
+            return "skipped"
         if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
             logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
-            return False
+            return "skipped"
 
         try:
             response = cls.client_request(f"installations/{installation_id}", method="DELETE", timeout=10)
@@ -361,7 +384,7 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 exc_info=True,
             )
-            return False
+            return "failed"
 
         if response.status_code in (204, 404):
             logger.info(
@@ -369,14 +392,14 @@ class GitHubIntegrationBase:
                 installation_id=installation_id,
                 status_code=response.status_code,
             )
-            return True
+            return "uninstalled" if response.status_code == 204 else "already_absent"
 
         logger.warning(
             "GitHubIntegration: uninstall_app_installation unexpected status",
             installation_id=installation_id,
             status_code=response.status_code,
         )
-        return False
+        return "failed"
 
     @classmethod
     def uninstall_if_last_reference(
@@ -785,16 +808,13 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
-        headers: dict[str, str] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
         """PATCH with installation token via :meth:`api_request`; ``None`` instead of raising, for the
         success/error-dict verbs built on top."""
         path = url.removeprefix("https://api.github.com")
         try:
-            return self.api_request(
-                "PATCH", path, endpoint=endpoint, json_body=json_body, headers=headers, timeout=timeout
-            )
+            return self.api_request("PATCH", path, endpoint=endpoint, json_body=json_body, timeout=timeout)
         except GitHubIntegrationError:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
@@ -1180,7 +1200,6 @@ class GitHubIntegrationBase:
             "additions": pr.get("additions", 0),
             "deletions": pr.get("deletions", 0),
             "changed_files": pr.get("changed_files", 0),
-            "etag": response.headers.get("ETag"),
         }
 
     def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
@@ -1219,17 +1238,17 @@ class GitHubIntegrationBase:
 
         return {"success": True, "number": pr.get("number", pr_number), "state": pr.get("state")}
 
-    def update_pull_request_body(
-        self, repository: str, pr_number: int, body: str, *, expected_etag: str | None = None
-    ) -> dict[str, Any]:
-        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo."""
+    def update_pull_request_body(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Replace a pull request's description. ``repository`` is ``owner/repo`` or a bare repo.
+
+        GitHub rejects ``If-Match`` on this endpoint with a 400, so the write cannot be conditional.
+        """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         response = self._installation_authenticated_patch(
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
             json_body={"body": body},
-            headers={"If-Match": expected_etag} if expected_etag else None,
         )
         if response is None:
             return {"success": False, "error": "Network error updating pull request"}
@@ -1328,6 +1347,62 @@ class GitHubIntegrationBase:
             entry["login"] for entry in (issue.get("assignees") or []) if isinstance(entry, dict) and entry.get("login")
         ]
         return {"success": True, "assignees": assigned}
+
+    def add_pull_request_labels(self, repository: str, pr_number: int, labels: Iterable[str]) -> dict[str, Any]:
+        """Add labels to a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        Additive only. GitHub's add-labels endpoint never removes a label, so a caller cannot clear
+        one by leaving it out of ``labels``, and adding a label the pull request already carries
+        changes nothing. A name the repository does not define yet is created first, because GitHub
+        refuses the whole call otherwise.
+
+        Labels use the issues endpoint (a PR is an issue for labelling purposes).
+        """
+        wanted = list(dict.fromkeys(name.strip() for name in labels if name and name.strip()))[:MAX_PR_LABELS]
+        if not wanted or any(len(name) > MAX_LABEL_NAME_LENGTH for name in wanted):
+            return {"success": True, "labels": []}
+
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        url = f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/labels"
+        endpoint = "/repos/{owner}/{repo}/issues/{issue_number}/labels"
+
+        response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is not None and response.status_code == 422:
+            # 422 is what an undefined label name reads as, so create the names and try once more.
+            # A name that already exists costs one refused create, never a lost label.
+            for name in wanted:
+                self._create_repository_label(repo_path, name)
+            response = self._installation_authenticated_post(url, endpoint=endpoint, json_body={"labels": wanted})
+        if response is None:
+            return {"success": False, "error": "Network error labelling pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to label pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            body = response.json()
+        except Exception:
+            body = []
+        applied = [entry["name"] for entry in body if isinstance(entry, dict) and entry.get("name")]
+        return {"success": True, "labels": applied}
+
+    def _create_repository_label(self, repo_path: str, name: str) -> bool:
+        """Define ``name`` as a label in the repository. Returns whether it exists afterwards.
+
+        No color is chosen, so GitHub picks one and the team can restyle the label without this
+        ever writing over their choice. A label somebody created in between answers 422, which
+        counts as existing.
+        """
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/labels",
+            endpoint="/repos/{owner}/{repo}/labels",
+            json_body={"name": name},
+        )
+        if response is None:
+            return False
+        return response.status_code in (201, 422)
 
     def is_assignable(self, repository: str, login: str) -> dict[str, Any]:
         """Whether ``login`` can be assigned to issues and pull requests in ``repository``.
@@ -1574,14 +1649,17 @@ class GitHubIntegrationBase:
             "reactions": [],
         }
 
-    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool | None:
-        """Return None when an incomplete read cannot prove the marker is absent."""
+    def _get_issue_comment_pages(self, repository: str, pr_number: int) -> tuple[list[requests.Response], bool]:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        responses, complete = self._installation_authenticated_get_pages(
+        return self._installation_authenticated_get_pages(
             f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
             params={"per_page": 100},
         )
+
+    def has_pull_request_comment(self, repository: str, pr_number: int, marker: str) -> bool | None:
+        """Return None when an incomplete read cannot prove the marker is absent."""
+        responses, complete = self._get_issue_comment_pages(repository, pr_number)
         for response in responses:
             if response.status_code != 200:
                 return None
@@ -1597,6 +1675,30 @@ class GitHubIntegrationBase:
                 if marker in comment["body"]:
                     return True
         return False if complete else None
+
+    def get_pull_request_merge_queue_state(self, repository: str, pr_number: int) -> MergeQueueState | None:
+        """Read the Trunk merge queue state off the pull request's comments; None when Trunk does not manage it.
+
+        Raises GitHubIntegrationError on an incomplete read, because a missed Trunk comment reads as
+        "not in the queue" and lets a caller push into it.
+        """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
+        responses, complete = self._get_issue_comment_pages(repository, pr_number)
+        comments: list[Mapping[str, Any]] = []
+        for response in responses:
+            try:
+                page = response.json() if response.status_code == 200 else None
+            except ValueError:
+                page = None
+            if not isinstance(page, list):
+                raise GitHubIntegrationError(
+                    f"Could not read the comments of {repository}#{pr_number}", status_code=response.status_code
+                )
+            comments.extend(comment for comment in page if isinstance(comment, dict))
+        if not complete:
+            raise GitHubIntegrationError(f"Could not read every comment of {repository}#{pr_number}")
+        return MergeQueueState.from_comments(comments)
 
     def get_pull_request_comments(self, repository: str, pr_number: int) -> dict[str, Any]:
         """Fetch a PR's conversation comments and inline review comments, merged chronologically.
@@ -1709,6 +1811,37 @@ class GitHubIntegrationBase:
         if not isinstance(pulls, list):
             return []
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
+
+    def has_open_pull_request_with_base(self, repository: str, branch: str) -> bool:
+        """Whether an open pull request from the same repository uses ``branch`` as its base, which means pull requests are stacked on it.
+
+        Fork pull requests do not count, because anyone can open one against any branch.
+        Raises GitHubIntegrationError on a failed read, because a missed stacked pull request lets a
+        caller commit under it.
+        """
+        if not _is_safe_github_repo_path(repository):
+            raise GitHubIntegrationError(f"Unsafe repository path: {repository!r}")
+        responses, complete = self._installation_authenticated_get_pages(
+            f"https://api.github.com/repos/{repository}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"base": branch, "state": "open", "per_page": 100},
+        )
+        for response in responses:
+            try:
+                pulls = response.json() if response.status_code == 200 else None
+            except ValueError:
+                pulls = None
+            if not isinstance(pulls, list):
+                raise GitHubIntegrationError(
+                    f"Could not list the pull requests based on {repository}:{branch}", status_code=response.status_code
+                )
+            for pull in pulls:
+                head_repo = ((pull.get("head") or {}).get("repo") or {}) if isinstance(pull, dict) else {}
+                if str(head_repo.get("full_name", "")).lower() == repository.lower():
+                    return True
+        if not complete:
+            raise GitHubIntegrationError(f"Could not list every pull request based on {repository}:{branch}")
+        return False
 
     def get_open_pull_request_for_head(self, repository: str, branch: str) -> dict[str, Any] | None:
         """Return the OPEN pull request whose head is ``branch`` — its number, HTML url, and base ref.

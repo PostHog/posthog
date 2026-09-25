@@ -1,4 +1,4 @@
-{% from "_macros.jinja" import cite_in, rate_notability %}Summarize this session.{% if user_prompt %}
+{% from "_macros.jinja" import cite_in, pick_media, rate_notability %}Summarize this session.{% if user_prompt %}
 
 Additional context from the team operating the product being recorded:
 {{ user_prompt }}{% endif %}
@@ -8,3 +8,5 @@ Additional context from the team operating the product being recorded:
 {{ cite_in('summary') }}
 
 {{ rate_notability() }}
+
+{{ pick_media() }}

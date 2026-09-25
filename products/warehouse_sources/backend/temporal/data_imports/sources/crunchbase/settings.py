@@ -89,6 +89,56 @@ CRUNCHBASE_ENDPOINTS: dict[str, CrunchbaseEndpointConfig] = {
         collection="funds",
         field_ids=[*_COMMON_FIELD_IDS, "announced_on", "money_raised", "name"],
     ),
+    "jobs": CrunchbaseEndpointConfig(
+        name="jobs",
+        collection="jobs",
+        field_ids=[
+            *_COMMON_FIELD_IDS,
+            "person_identifier",
+            "organization_identifier",
+            "title",
+            "job_type",
+            "is_current",
+            "started_on",
+            "ended_on",
+            "short_description",
+        ],
+    ),
+    "categories": CrunchbaseEndpointConfig(
+        name="categories",
+        collection="categories",
+        field_ids=[*_COMMON_FIELD_IDS, "name", "category_groups", "naics_code"],
+    ),
+    "category_groups": CrunchbaseEndpointConfig(
+        name="category_groups",
+        collection="category_groups",
+        field_ids=[*_COMMON_FIELD_IDS, "name", "categories"],
+    ),
+    "locations": CrunchbaseEndpointConfig(
+        name="locations",
+        collection="locations",
+        field_ids=[
+            *_COMMON_FIELD_IDS,
+            "name",
+            "permalink",
+            "location_type",
+            "country_code",
+            "region_code",
+            "locations",
+        ],
+    ),
+    "ownerships": CrunchbaseEndpointConfig(
+        name="ownerships",
+        collection="ownerships",
+        field_ids=[
+            *_COMMON_FIELD_IDS,
+            "name",
+            "owner_identifier",
+            "ownee_identifier",
+            "ownership_type",
+            "rank",
+        ],
+    ),
 }
 
 ENDPOINTS = tuple(CRUNCHBASE_ENDPOINTS.keys())

@@ -101,14 +101,14 @@ export const serviceFilterLogic = kea<serviceFilterLogicType>([
             [] as string[],
             {
                 loadServiceNames: async () => {
-                    const url = combineUrl(`api/environments/${values.currentTeamId}/logs/values`, {
+                    const url = combineUrl(`api/projects/${values.currentTeamId}/logs/values`, {
                         key: 'service.name',
                         attribute_type: 'resource',
                         value: values.search,
                         limit: 1000,
                         ...(logicProps.dateRange ? { dateRange: JSON.stringify(logicProps.dateRange) } : {}),
                     }).url
-                    // nosemgrep: prefer-codegen-api
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     return ((response.results ?? []) as { name: string }[]).map((r) => r.name)
                 },

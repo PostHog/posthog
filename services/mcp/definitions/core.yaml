@@ -64,6 +64,18 @@ tools:
     dashboards-sharing-refresh-create:
         operation: dashboards_sharing_refresh_create
         enabled: false
+    data-deletion-requests-create:
+        operation: data_deletion_requests_create
+        enabled: false
+    data-deletion-requests-list:
+        operation: data_deletion_requests_list
+        enabled: false
+    data-deletion-requests-preview-create:
+        operation: data_deletion_requests_preview_create
+        enabled: false
+    data-deletion-requests-retrieve:
+        operation: data_deletion_requests_retrieve
+        enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
@@ -114,6 +126,9 @@ tools:
         enabled: false
     file-system-destroy:
         operation: file_system_destroy
+        enabled: false
+    file-system-home-folder-create:
+        operation: file_system_home_folder_create
         enabled: false
     file-system-link-create:
         operation: file_system_link_create
@@ -387,7 +402,9 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Omit the ID to get the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool
+            that returns the project API token, which is safe to put in client-side code. Project listing, project
+            updates and the session context leave it out, so ask for a single project when you need the token.
         param_overrides:
             id:
                 description: Project ID. If omitted, returns the caller's active project.
@@ -399,6 +416,7 @@ tools:
                 - secret_api_token
                 - secret_api_token_backup
                 - live_events_token
+                - heatmaps_screenshot_secret
                 - default_modifiers
     project-secret-api-keys-create:
         operation: project_secret_api_keys_create
@@ -456,6 +474,14 @@ tools:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
                 cast: string-int
+        response:
+            exclude:
+                - api_token
+                - secret_api_token
+                - secret_api_token_backup
+                - live_events_token
+                - heatmaps_screenshot_secret
+                - default_modifiers
     projects-destroy:
         operation: organizations_projects_destroy
         enabled: false
@@ -626,6 +652,15 @@ tools:
         enabled: false
     users-hedgehog-config-retrieve:
         operation: users_hedgehog_config_retrieve
+        enabled: false
+    users-integrations-codex-create:
+        operation: users_integrations_codex_create
+        enabled: false
+    users-integrations-codex-destroy:
+        operation: users_integrations_codex_destroy
+        enabled: false
+    users-integrations-codex-retrieve:
+        operation: users_integrations_codex_retrieve
         enabled: false
     users-integrations-github-branches-retrieve:
         operation: users_integrations_github_branches_retrieve

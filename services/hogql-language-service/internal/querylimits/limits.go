@@ -6,13 +6,16 @@ const MaxQueryBytes = 64 << 10
 const MaxNestingDepth = 128
 const MaxSuggestionInputBytes = 128
 const MaxDiagnostics = 25
+const MaxNotices = 128
 const MaxCTEProjectedFields = 16 << 10
 const MaxFieldLookupWork = 1 << 20
+const MaxRelationTraversalHops = 16
 
 var ErrQueryTooLarge = errors.New("query exceeds maximum size")
 var ErrQueryTooDeep = errors.New("query exceeds maximum nesting depth")
 var ErrCTEProjectionTooLarge = errors.New("query expands too many CTE fields; select fewer fields in each CTE")
 var ErrFieldLookupTooLarge = errors.New("query requires too much field lookup work; use fewer sources or qualify field names")
+var ErrRelationTraversalTooDeep = errors.New("query traverses too many lazy relations")
 
 func Validate(query string) error {
 	if len(query) > MaxQueryBytes {

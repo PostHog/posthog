@@ -26,7 +26,7 @@ from ee.hogai.utils.helpers import sanitize_for_system_reminder
 logger = structlog.get_logger(__name__)
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog.
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, and workflows in PostHog.
 
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
@@ -118,7 +118,7 @@ class InkeepResponse(BaseModel):
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
-    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, and surveys in PostHog"
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, surveys, and workflows in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
     _has_business_knowledge: bool = False

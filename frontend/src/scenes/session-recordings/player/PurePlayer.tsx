@@ -6,10 +6,10 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as stopPng from '@posthog/brand/hoggies/png/stop'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { WarningHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -40,6 +40,7 @@ import {
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogStop = pngHoggie(stopPng)
 
 export interface PurePlayerProps {
     noMeta?: boolean
@@ -97,7 +98,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         leadingUnplayableMs,
         hasUnrenderableWindow,
         unrenderableWindowMs,
-        hasOversizedMutations,
         fullyLoaded,
     } = useValues(sessionRecordingPlayerLogic)
 
@@ -362,7 +362,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                 <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
                                     {isOldAndInvalid && !isRecentAndInvalid ? (
                                         <>
-                                            <WarningHog height={200} width={200} />
+                                            <HedgehogStop height={200} width={200} />
                                             <h1>This recording can't be played</h1>
                                             <p className="max-w-120">
                                                 The snapshot of the screen taken when this recording started never
@@ -423,19 +423,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                     window is on screen.{' '}
                                                 </>
                                             ) : null}
-                                            <Link to="https://posthog.com/docs/session-replay/troubleshooting">
-                                                Learn more
-                                            </Link>
-                                        </LemonBanner>
-                                    ) : null}
-                                    {hasOversizedMutations && !hidePlayerElements ? (
-                                        <LemonBanner
-                                            type="warning"
-                                            className="shrink-0"
-                                            dismissKey={`oversized-mutations-${sessionRecordingId}`}
-                                        >
-                                            Parts of this recording captured too much changing content to render.
-                                            Playback skips those sections to keep the player responsive.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

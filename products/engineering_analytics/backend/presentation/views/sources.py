@@ -17,7 +17,7 @@ class SourcesMixin(EngineeringAnalyticsViewSetBase):
         operation_id="engineering_analytics_sources",
         responses={200: GitHubSourceSerializer(many=True)},
         description=(
-            "The team's selectable GitHub repositories, oldest source first — one entry per repository a "
+            "The team's selectable GitHub repositories, oldest source first: one entry per repository a "
             "source is configured to sync, so a source syncing several repositories appears once per repo. "
             "Populate a repo picker from this and pass a chosen entry's `id` back as `source_id` and its "
             "`repo` back as `repo` to the other endpoints. Includes repositories whose tables aren't fully "

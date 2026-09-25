@@ -16,12 +16,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import {
-    VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
-} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
+import { VALID_SELF_MANAGED_MARKETING_SOURCES } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { ProductIntentContext, ProductKey, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
@@ -53,6 +50,7 @@ import {
 } from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
+import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
 import { shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -433,6 +431,7 @@ export interface sourceWizardLogicValues {
     } | null
     cdcSelfManagedVerifyResultLoading: boolean
     configuredSchemaName: string | null
+    connectError: string | null
     connectors: SourceConfigResponseApi[]
     currentStep: number
     currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
@@ -672,6 +671,9 @@ export interface sourceWizardLogicActions {
     ) => {
         accessMethod: 'direct' | 'warehouse' | undefined
         connector: SourceConfigResponseApi | null
+    }
+    setConnectError: (message: string | null) => {
+        message: string | null
     }
     setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => {
         schemas: ExternalDataSourceSyncSchema[]
@@ -1055,6 +1057,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         createSource: true,
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
+        setConnectError: (message: string | null) => ({ message }),
         setSourceId: (id: string) => ({ sourceId: id }),
         closeWizard: true,
         cancelWizard: true,
@@ -1292,6 +1295,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        // The toast that also carries this message is gone in a few seconds, so people retry the
+        // same rejected credentials. Keep the reason next to the form until the next attempt.
+        connectError: [
+            null as string | null,
+            {
+                setConnectError: (_, { message }) => message,
+                getDatabaseSchemas: () => null,
+                createSource: () => null,
+                onBack: () => null,
+                onClear: () => null,
+                selectConnector: () => null,
+                setInitialConnector: () => null,
             },
         ],
         sourceId: [
@@ -2235,7 +2252,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(resolveConnectErrorMessage(e))
+                const connectErrorMessage = resolveConnectErrorMessage(e)
+                actions.setConnectError(connectErrorMessage)
+                lemonToast.error(connectErrorMessage)
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -2449,6 +2468,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             } catch (e: any) {
                 const apiMessage = e.data?.message ?? e.detail
                 const errorMessage = resolveConnectErrorMessage(e)
+                actions.setConnectError(errorMessage)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential
@@ -2490,18 +2510,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
 
             // Track interest for marketing ad sources and marketing analytics
-            const isNativeMarketingSource =
-                connector?.name &&
-                VALID_NATIVE_MARKETING_SOURCES.includes(
-                    connector.name as (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
-                )
-            const isExternalMarketingSource =
-                connector?.name &&
-                VALID_NON_NATIVE_MARKETING_SOURCES.includes(
-                    connector.name as (typeof VALID_NON_NATIVE_MARKETING_SOURCES)[number]
-                )
-
-            if (isNativeMarketingSource || isExternalMarketingSource) {
+            if (connector?.category === 'Advertising') {
                 actions.addProductIntent({
                     product_type: ProductKey.MARKETING_ANALYTICS,
                     intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
@@ -2640,46 +2649,38 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             await api.externalDataSources.source_prefix(payload.source_type, sourceValues.prefix)
                         }
 
-                        const payloadKeys = (values.selectedConnector?.fields ?? []).map((n) => ({
-                            name: n.name,
-                            type: n.type,
-                            fileKeys: n.type === 'file-upload' ? n.fileFormat.keys : ([] as string[]),
-                        }))
+                        const formPayload = clonePayloadPreservingFiles(payload['payload'] ?? {}) as Record<string, any>
+
+                        for (const { field, container, file } of findUploadedFiles(
+                            values.selectedConnector?.fields ?? [],
+                            formPayload
+                        )) {
+                            let parsedFile: unknown
+                            try {
+                                // Assumes we're loading a JSON file
+                                parsedFile = await readJsonFile(file)
+                            } catch (e: any) {
+                                posthog.captureException(e)
+                                lemonToast.error(
+                                    `The "${field.name}" file is not valid — it must be a readable JSON file.`
+                                )
+                                // Returning here would resolve the submit, so the wizard would go
+                                // on to discover schemas for a source it never updated.
+                                throw e
+                            }
+                            if (missingUploadedFileKeys(parsedFile, field.fileFormat.keys).length > 0) {
+                                lemonToast.error(WRONG_UPLOADED_FILE_MESSAGE)
+                                throw new UnusableUploadedFileError(field.name)
+                            }
+                            container[field.name] = parsedFile
+                        }
 
                         const fieldPayload: Record<string, any> = {
                             source_type: values.selectedConnector.name,
                         }
 
-                        for (const { name, type, fileKeys } of payloadKeys) {
-                            if (type === 'file-upload') {
-                                let parsedFile: unknown
-                                try {
-                                    // Assumes we're loading a JSON file
-                                    const loadedFile: string = await new Promise((resolve, reject) => {
-                                        const fileReader = new FileReader()
-                                        fileReader.onload = (e) => resolve(e.target?.result as string)
-                                        fileReader.onerror = () =>
-                                            reject(fileReader.error ?? new Error(`Failed to read the "${name}" file`))
-                                        fileReader.readAsText(payload['payload'][name][0])
-                                    })
-                                    parsedFile = JSON.parse(loadedFile)
-                                } catch (e: any) {
-                                    posthog.captureException(e)
-                                    lemonToast.error(
-                                        `The "${name}" file is not valid — it must be a readable JSON file.`
-                                    )
-                                    // Returning here would resolve the submit, so the wizard would go
-                                    // on to discover schemas for a source it never updated.
-                                    throw e
-                                }
-                                if (missingUploadedFileKeys(parsedFile, fileKeys).length > 0) {
-                                    lemonToast.error(WRONG_UPLOADED_FILE_MESSAGE)
-                                    throw new UnusableUploadedFileError(name)
-                                }
-                                fieldPayload[name] = parsedFile
-                            } else {
-                                fieldPayload[name] = payload['payload'][name]
-                            }
+                        for (const field of values.selectedConnector?.fields ?? []) {
+                            fieldPayload[field.name] = formPayload[field.name]
                         }
 
                         // Include CDC configuration if present
@@ -2694,8 +2695,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             'cdc_lag_critical_threshold_mb',
                         ]
                         for (const key of cdcKeys) {
-                            if (payload['payload']?.[key] !== undefined) {
-                                cdcFields[key] = payload['payload'][key]
+                            if (formPayload[key] !== undefined) {
+                                cdcFields[key] = formPayload[key]
                             }
                         }
 

@@ -86,6 +86,14 @@ class PolicyEngine:
 
         return policy
 
+    def get_policy_for_action(self, action_class, team, organization):
+        """Get the active policy for an action, falling back to its fallback action keys in order."""
+        for action_key in (action_class.key, *action_class.fallback_policy_action_keys):
+            policy = self.get_policy(action_key, team, organization)
+            if policy:
+                return policy
+        return None
+
     def get_all_matching_policies(self, action_key: str, team, organization, intent: dict):
         """
         Get all active policies for an action that match the given intent.
@@ -116,7 +124,7 @@ class PolicyEngine:
 
         return policies
 
-    def evaluate(self, policy, actor, intent: dict, context: dict) -> PolicyDecision:
+    def evaluate(self, policy, actor, intent: dict, context: dict, ignore_conditions: bool = False) -> PolicyDecision:
         """
         Evaluate if an action requires approval.
 
@@ -136,7 +144,7 @@ class PolicyEngine:
                 policy_snapshot={},
             )
 
-        if not self._evaluate_conditions(policy.conditions, intent):
+        if not ignore_conditions and not self._evaluate_conditions(policy.conditions, intent):
             return PolicyDecision(
                 result="ALLOW",
                 reason="Conditions not matched",
@@ -162,7 +170,7 @@ class PolicyEngine:
                 "users": approver_config.get("users", []),
                 "roles": approver_config.get("roles", []),
                 "allow_self_approve": policy.allow_self_approve,
-                "conditions": policy.conditions or {},
+                "conditions": {} if ignore_conditions else (policy.conditions or {}),
                 "bypass_org_membership_levels": policy.bypass_org_membership_levels,
                 "bypass_roles": bypass_role_ids,
             },

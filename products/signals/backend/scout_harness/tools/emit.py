@@ -119,7 +119,6 @@ async def emit_finding(
     run: SignalScoutRun,
     description: str,
     evidence: list[EvidenceEntry],
-    confidence: float | None = None,
     hypothesis: str | None = None,
     severity: str | None = None,
     dedupe_keys: list[str] | None = None,
@@ -134,7 +133,7 @@ async def emit_finding(
     Same (non-idempotent) emit behavior as `emit_finding_sync`.
     """
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, confidence, evidence, finding_id)
+    _validate_inputs(description, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     tags = normalize_tags(tags)
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
@@ -145,7 +144,6 @@ async def emit_finding(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        confidence=confidence,
         evidence=evidence,
         hypothesis=hypothesis,
         severity=severity,
@@ -193,7 +191,6 @@ async def emit_finding(
         run_id=run.id,
         finding_id=finding_id,
         description=description,
-        confidence=confidence,
         severity=severity,
         source_id=source_id,
         tags=tags,
@@ -211,7 +208,6 @@ def emit_finding_sync(
     run: SignalScoutRun,
     description: str,
     evidence: list[EvidenceEntry],
-    confidence: float | None = None,
     hypothesis: str | None = None,
     severity: str | None = None,
     dedupe_keys: list[str] | None = None,
@@ -228,7 +224,7 @@ def emit_finding_sync(
     from asgiref.sync import async_to_sync
 
     _assert_team_owns_run(team, run)
-    _validate_inputs(description, confidence, evidence, finding_id)
+    _validate_inputs(description, evidence, finding_id)
     finding_id = finding_id or _new_finding_id()
     tags = normalize_tags(tags)
     task_id = _resolve_task_id(run)
@@ -239,7 +235,6 @@ def emit_finding_sync(
         finding_id=finding_id,
         skill_name=run.skill_name,
         skill_version=run.skill_version,
-        confidence=confidence,
         evidence=evidence,
         hypothesis=hypothesis,
         severity=severity,
@@ -286,7 +281,6 @@ def emit_finding_sync(
         run_id=run.id,
         finding_id=finding_id,
         description=description,
-        confidence=confidence,
         severity=severity,
         source_id=source_id,
         tags=tags,
@@ -343,14 +337,11 @@ def normalize_tags(tags: list[str] | None) -> list[str] | None:
 
 def _validate_inputs(
     description: str,
-    confidence: float | None,
     evidence: list[EvidenceEntry],
     finding_id: str | None,
 ) -> None:
     if not description or not description.strip():
         raise InvalidEmitError("description must not be empty")
-    if confidence is not None and not 0.0 <= confidence <= 1.0:
-        raise InvalidEmitError(f"confidence must be in [0.0, 1.0], got {confidence}")
     if len(evidence) > MAX_EVIDENCE_ENTRIES:
         raise InvalidEmitError(f"evidence has {len(evidence)} entries, max is {MAX_EVIDENCE_ENTRIES}")
     # Reject before defaulting — a generated id is a safe 36-char uuid; only a caller-supplied
@@ -378,7 +369,6 @@ def _build_extra(
     finding_id: str,
     skill_name: str,
     skill_version: int,
-    confidence: float | None,
     evidence: list[EvidenceEntry],
     hypothesis: str | None,
     severity: str | None,
@@ -398,8 +388,6 @@ def _build_extra(
         "skill_version": float(skill_version),
         "evidence": [asdict(e) for e in evidence],
     }
-    if confidence is not None:
-        extra["confidence"] = confidence
     if task_id is not None:
         extra["task_id"] = task_id
     if hypothesis is not None:
@@ -426,7 +414,6 @@ def _record_emit(
     run_id: Any,
     finding_id: str,
     description: str,
-    confidence: float | None,
     severity: str | None,
     source_id: str,
     tags: list[str] | None,
@@ -460,7 +447,6 @@ def _record_emit(
                 scout_run=run,
                 finding_id=finding_id,
                 description=description,
-                confidence=confidence,
                 severity=severity,
                 source_id=source_id,
                 tags=tags or [],

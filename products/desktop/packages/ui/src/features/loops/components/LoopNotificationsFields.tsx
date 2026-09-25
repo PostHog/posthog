@@ -4,12 +4,10 @@ import {
   parseChannelIdFromTargetValue,
   parseChannelNameFromTargetValue,
 } from "@posthog/core/settings/slackNotificationTarget";
-import { Switch } from "@posthog/quill";
+import { Button, Checkbox, cn, Label, Switch } from "@posthog/quill";
 import { useIntegrationSelectors } from "@posthog/ui/features/integrations/store";
 import { useSlackConnect } from "@posthog/ui/features/integrations/useSlackConnect";
 import { SlackWorkspaceChannelPicker } from "@posthog/ui/features/settings/components/SlackWorkspaceChannelPicker";
-import { Button } from "@posthog/ui/primitives/Button";
-import { Checkbox, Flex, Text } from "@radix-ui/themes";
 
 const EVENT_OPTIONS: {
   value: LoopSchemas.LoopNotificationEventEnum;
@@ -18,6 +16,8 @@ const EVENT_OPTIONS: {
   { value: "run_completed", label: "Run completed" },
   { value: "run_failed", label: "Run failed" },
   { value: "pr_created", label: "PR created" },
+  { value: "pr_merged", label: "PR merged" },
+  { value: "pr_closed", label: "PR closed" },
   { value: "needs_attention", label: "Needs attention" },
 ];
 
@@ -45,7 +45,7 @@ export function LoopNotificationsFields({
   };
 
   return (
-    <Flex direction="column" gap="3">
+    <div className="flex flex-col gap-3">
       <NotificationChannelRow
         title="Push"
         description="Owner devices"
@@ -65,7 +65,7 @@ export function LoopNotificationsFields({
         disabled={disabled}
         onChange={(patch) => updateChannel("slack", patch)}
       />
-    </Flex>
+    </div>
   );
 }
 
@@ -85,18 +85,20 @@ function NotificationChannelRow({
   children?: React.ReactNode;
 }) {
   return (
-    <Flex
-      direction="column"
-      gap={channel.enabled ? "2" : "0"}
-      className="rounded-(--radius-2) border border-border bg-(--gray-1) px-3 py-2.5"
+    <div
+      className={cn(
+        "flex flex-col",
+        channel.enabled ? "gap-2" : "gap-0",
+        "rounded-(--radius-2) border border-border bg-(--gray-1) px-3 py-2.5",
+      )}
     >
-      <Flex align="center" justify="between" gap="2">
-        <Flex align="baseline" gap="2" className="min-w-0">
-          <Text className="font-medium text-[13px] text-gray-12">{title}</Text>
-          <Text className="truncate text-[12px] text-gray-10">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <span className="font-medium text-[13px] text-gray-12">{title}</span>
+          <span className="truncate text-[12px] text-gray-10">
             {description}
-          </Text>
-        </Flex>
+          </span>
+        </div>
         <Switch
           checked={channel.enabled}
           disabled={disabled}
@@ -111,19 +113,19 @@ function NotificationChannelRow({
             })
           }
         />
-      </Flex>
+      </div>
 
       {channel.enabled ? (
-        <Flex direction="column" gap="2" className="pt-2">
+        <div className="flex flex-col gap-2 pt-2">
           <EventFilterCheckboxes
             events={channel.events}
             disabled={disabled}
             onChange={(events) => onChange({ events })}
           />
           {children}
-        </Flex>
+        </div>
       ) : null}
-    </Flex>
+    </div>
   );
 }
 
@@ -144,17 +146,15 @@ function EventFilterCheckboxes({
   };
 
   return (
-    <Flex direction="column" gap="1.5">
-      <Text className="font-medium text-[12px] text-gray-11">Notify on</Text>
-      <Flex gap="3" wrap="wrap">
+    <div className="flex flex-col gap-1.5">
+      <span className="font-medium text-[12px] text-gray-11">Notify on</span>
+      <div className="flex flex-wrap gap-3">
         {EVENT_OPTIONS.map((option) => (
-          <Text
-            key={option.value}
-            as="label"
+          <Label
             className="flex items-center gap-1.5 text-[12.5px] text-gray-12"
+            key={option.value}
           >
             <Checkbox
-              size="1"
               checked={events.includes(option.value)}
               disabled={disabled}
               onCheckedChange={(checked) =>
@@ -162,10 +162,10 @@ function EventFilterCheckboxes({
               }
             />
             {option.label}
-          </Text>
+          </Label>
         ))}
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   );
 }
 
@@ -206,8 +206,9 @@ function SlackNotificationRow({
     >
       {!hasSlackIntegration ? (
         <Button
+          type="button"
           variant="outline"
-          size="1"
+          size="sm"
           disabled={disabled || slackConnect.isConnecting}
           onClick={() => void slackConnect.connect()}
         >

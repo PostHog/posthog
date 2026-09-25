@@ -12,9 +12,7 @@ export enum ReplayScannerTab {
     Observations = 'observations',
     Search = 'search',
     Calibration = 'calibration',
-    OnDemand = 'on-demand',
-    Backfills = 'backfills',
-    Configuration = 'configuration',
+    Run = 'run',
     Scouts = 'scouts',
     Alerts = 'alerts',
 }
@@ -23,7 +21,17 @@ const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
 // The at-a-glance Overview (charts + stat panels) is the landing tab; Observations is the drill-down list.
 const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Overview
 
+// Keys of tabs that were merged into others, so links and bookmarks made before still open the right place.
+const TAB_ALIASES: Record<string, ReplayScannerTab> = {
+    'on-demand': ReplayScannerTab.Run,
+    backfills: ReplayScannerTab.Run,
+    configuration: ReplayScannerTab.Overview,
+}
+
 function parseTab(tab: unknown): ReplayScannerTab {
+    if (typeof tab === 'string' && Object.hasOwn(TAB_ALIASES, tab)) {
+        return TAB_ALIASES[tab]
+    }
     return SCANNER_TABS.includes(tab as ReplayScannerTab) ? (tab as ReplayScannerTab) : DEFAULT_TAB
 }
 

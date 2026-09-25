@@ -27,6 +27,7 @@ _GROUP_KEYS = tuple(f"restricted_group_{index}_property" for index in range(GROU
 # quietly shrinking the walk below.
 _MASKED_BLOBS: dict[str, frozenset[str]] = {
     "events.properties (EventsTable)": frozenset({_EVENT_KEY}),
+    "ai_events.properties (AiEventsTable)": frozenset({_EVENT_KEY}),
     "events.person_properties (EventsPersonSubTable)": frozenset({_PERSON_KEY}),
     **{
         f"events.group{index}_properties (EventsGroupSubTable)": frozenset({_GROUP_KEYS[index]})
@@ -54,9 +55,6 @@ _UNMASKED_BLOBS: frozenset[str] = frozenset(
         "accounts.properties (PostgresTable)",
         # Metadata attached to an embedded item.
         "pg_embeddings.properties (PgEmbeddingsTable)",
-        # Carries event properties, so unlike the two above this one is owed a branch. Tracked with
-        # team-ai-observability, who own the table.
-        "ai_events.properties (AiEventsTable)",
     }
 )
 

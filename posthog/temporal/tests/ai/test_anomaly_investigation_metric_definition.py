@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from posthog.temporal.ai.anomaly_investigation.metric_definition import UNAVAILABLE, describe_metric_definition
+from posthog.tasks.alerts.metric_definition import UNAVAILABLE, MetricDateRange, describe_metric_definition
 from posthog.temporal.ai.anomaly_investigation.prompts import build_anomaly_context
 
 # A $pageview DAU series filtered to the app's error tracking pages — an insight whose
@@ -45,6 +45,21 @@ def test_describes_what_the_alerted_series_counts(_name: str, expected: str) -> 
     assert expected in described
 
 
+def test_the_alerted_series_is_described_past_the_cap() -> None:
+    # Validation allows any in-range index, so the judge must still see the series it is asked about.
+    events = [f"event_{index}" for index in range(8)]
+    query = {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": event, "math": "total"} for event in events],
+    }
+
+    described = describe_metric_definition(query, series_index=7)
+
+    assert 'Alerted series (index 7): total event count of event "event_7"' in described
+    assert "event_5" not in described
+    assert "(2 further series omitted.)" in described
+
+
 def test_marks_the_alerted_series_by_index() -> None:
     query = {
         "kind": "TrendsQuery",
@@ -58,6 +73,33 @@ def test_marks_the_alerted_series_by_index() -> None:
 
     assert 'Alerted series (index 1): total event count of event "$exception"' in described
     assert 'Other series in this insight (index 0): unique users (DAU) of event "$pageview"' in described
+
+
+@parameterized.expand(
+    [
+        ("formula_nodes", {"formulaNodes": [{"formula": "A / B", "custom_name": "Refund rate"}, {"formula": "A - B"}]}),
+        ("formulas", {"formulas": ["A / B", "A - B"]}),
+    ]
+)
+def test_describes_the_selected_formula_as_the_alerted_result(_name: str, trends_filter: dict) -> None:
+    # With formulas, series_index picks a formula result, not a raw series. Labeling a raw
+    # series as "alerted" would hand the model a confidently wrong definition.
+    query = {
+        "kind": "TrendsQuery",
+        "series": [
+            {"kind": "EventsNode", "event": "refund", "math": "total"},
+            {"kind": "EventsNode", "event": "purchase", "math": "total"},
+        ],
+        "trendsFilter": trends_filter,
+    }
+
+    described = describe_metric_definition(query, series_index=0)
+
+    assert "Alerted result (index 0): formula A / B" in described
+    assert "Other result in this insight (index 1): formula A - B" in described
+    assert 'Input series A (index 0): total event count of event "refund"' in described
+    assert 'Input series B (index 1): total event count of event "purchase"' in described
+    assert "Alerted series" not in described
 
 
 def test_flattens_nested_property_groups() -> None:
@@ -78,6 +120,79 @@ def test_flattens_nested_property_groups() -> None:
     described = describe_metric_definition(query)
 
     assert "event property $host is eu.posthog.com" in described
+
+
+def test_the_alerted_formulas_inputs_survive_the_series_cap() -> None:
+    query = {
+        "kind": "TrendsQuery",
+        "series": [{"kind": "EventsNode", "event": f"event_{i}", "math": "total"} for i in range(8)],
+        "trendsFilter": {"formulas": ["A / H", "A - B"]},
+    }
+
+    described = describe_metric_definition(query, series_index=0)
+
+    assert 'Input series H (index 7): total event count of event "event_7"' in described
+    assert 'Input series A (index 0): total event count of event "event_0"' in described
+    assert "(2 further series omitted.)" in described
+
+
+def test_the_alerted_formula_and_its_inputs_come_before_the_other_formulas() -> None:
+    # The block is cut at a fixed size, and a custom name is unbounded.
+    query = {
+        "kind": "TrendsQuery",
+        "series": [
+            {"kind": "EventsNode", "event": "refund", "math": "total"},
+            {"kind": "EventsNode", "event": "purchase", "math": "total"},
+        ],
+        "trendsFilter": {"formulaNodes": [{"formula": "A + B", "custom_name": "x" * 5000}, {"formula": "A / B"}]},
+    }
+
+    described = describe_metric_definition(query, series_index=1)
+
+    alerted = described.index("Alerted result (index 1): formula A / B")
+    assert alerted < described.index('Input series A (index 0): total event count of event "refund"')
+    assert alerted < described.index("Other result in this insight (index 0): formula A + B")
+    assert "x" * 121 not in described
+
+
+@parameterized.expand(
+    [
+        ("first_row", "the rows were reversed, so the last value is the latest"),
+        ("last_row", "the query returns oldest first; the last value is the latest"),
+    ]
+)
+def test_a_sql_alert_names_its_value_column_and_row_order(evaluation: str, expected: str) -> None:
+    query = {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT day, signups, failures FROM t"},
+    }
+    config = {"type": "HogQLAlertConfig", "column": "failures", "label_column": "day", "evaluation": evaluation}
+
+    described = describe_metric_definition(query, alert_config=config)
+
+    assert 'Alerted values: column "failures"' in described
+    assert 'Point labels: column "day"' in described
+    assert expected in described
+
+
+def test_the_effective_range_replaces_the_insights_saved_range() -> None:
+    # A detector fetches a wider span than a short saved range holds. Describing the saved range
+    # next to the dated points it sends tells the model two different things about the span.
+    query = {
+        "kind": "TrendsQuery",
+        "interval": "day",
+        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        "dateRange": {"date_from": "-7d"},
+    }
+
+    saved = describe_metric_definition(query)
+    effective = describe_metric_definition(
+        query, effective_date_range=MetricDateRange(start="2026-01-01", end="2026-03-31")
+    )
+
+    assert "Insight date range: -7d to now" in saved
+    assert "Insight date range" not in effective
+    assert "2026-01-01 to 2026-03-31" in effective
 
 
 @parameterized.expand(

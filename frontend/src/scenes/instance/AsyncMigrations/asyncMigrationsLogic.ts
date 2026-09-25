@@ -273,6 +273,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return (await api.get('api/async_migrations')).results
                 },
             },
@@ -284,6 +285,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
                     if (!userLogic.values.user?.is_staff) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const settings: InstanceSetting[] = (await api.get('api/instance_settings')).results
                     return settings.filter((setting) => setting.key.includes('ASYNC_MIGRATIONS'))
                 },
@@ -338,6 +340,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
             )
         },
         updateMigrationStatus: async ({ migration, endpoint, message }) => {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
             const res = await api.create(`/api/async_migrations/${migration.id}/${endpoint}`, {
                 parameters: migration.parameters,
             })
@@ -351,6 +354,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
         updateSetting: async ({ settingKey, newValue }) => {
             // TODO: Use systemStatusLogic.ts for consistency
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update(`/api/instance_settings/${settingKey}`, {
                     value: newValue,
                 })
@@ -364,6 +368,7 @@ export const asyncMigrationsLogic = kea<asyncMigrationsLogicType>([
         },
         loadAsyncMigrationErrors: async ({ migrationId }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const errorsForMigration = await api.get(`api/async_migrations/${migrationId}/errors`)
                 actions.loadAsyncMigrationErrorsSuccess(migrationId, errorsForMigration)
             } catch (error) {

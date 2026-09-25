@@ -51,24 +51,18 @@ export function RowPresence({
 }) {
   const author = rowAuthor(item);
   if (!author) return null;
+  // Presence tells you who else is here, so your own face is noise.
+  if (currentUserUuid && author.user.uuid === currentUserUuid) return null;
   if (presenceTier(item.ts, Date.now()) === "idle") return null;
-  return (
-    <ActiveRowPresence
-      item={item}
-      author={author}
-      isCurrentUser={author.user.uuid === currentUserUuid}
-    />
-  );
+  return <ActiveRowPresence item={item} author={author} />;
 }
 
 function ActiveRowPresence({
   item,
   author,
-  isCurrentUser,
 }: {
   item: ChannelItemModel;
   author: NonNullable<ReturnType<typeof rowAuthor>>;
-  isCurrentUser: boolean;
 }) {
   const tier = presenceTier(item.ts, useNow());
   if (tier === "idle") return null;
@@ -77,13 +71,9 @@ function ActiveRowPresence({
       user={author.user}
       tier={tier}
       label={
-        isCurrentUser && tier === "live"
-          ? "You are working on this"
-          : isCurrentUser
-            ? "You were here recently"
-            : tier === "live"
-              ? `${author.label} is working on this`
-              : `${author.label} was here recently`
+        tier === "live"
+          ? `${author.label} is working on this`
+          : `${author.label} was here recently`
       }
     />
   );

@@ -115,7 +115,7 @@ function SpaceRow({ channel }: { channel: Channel }) {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span className="text-[11px] text-muted-foreground tabular-nums opacity-0 transition-opacity group-hover/space:opacity-100">
+                  <span className="text-[11px] text-muted-foreground tabular-nums">
                     +{people.length - FACES_PER_ROW}
                   </span>
                 }
@@ -199,7 +199,7 @@ export function SpacesIndex() {
     useMemo(
       () => (
         <>
-          <div className="flex min-w-0 items-center gap-1.5 pl-5">
+          <div className="flex min-w-0 items-center gap-1.5">
             <span className="shrink-0 text-muted-foreground">
               <SpacesIcon size={14} />
             </span>

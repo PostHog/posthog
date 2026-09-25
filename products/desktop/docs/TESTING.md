@@ -57,6 +57,21 @@ Run the focus and submission checks with:
 pnpm --filter @posthog/ui test src/features/sessions/components/CommentComposer.integration.test.tsx
 ```
 
+## Continue a completed report chat
+
+Open a report whose linked cloud task has completed. In the chat, select
+Advanced > Model and choose a model from another provider. Check that the
+reasoning and permission controls match the selected model. Send a message.
+The new run must use that model and retain the previous conversation.
+An active run keeps the models supported by its current runtime.
+
+## Composer text selection
+
+In the new-session and session composers, select text and release the mouse outside the editor.
+The selection must remain visible, including when you release over the surrounding padding.
+A plain click on that padding must still focus the editor.
+Buttons and menus must keep their own actions.
+
 ## Profile pictures
 
 In Settings > Account, check a Gravatar with a transparent background. The picture must not show initials behind it.

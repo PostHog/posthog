@@ -26,6 +26,7 @@ from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
+from .file_system.file_system_home_folder import FileSystemHomeFolder
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.user_product_list import UserProductList
 from .filters import Filter, RetentionFilter
@@ -107,6 +108,7 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "FileSystem",
+    "FileSystemHomeFolder",
     "FileSystemViewLog",
     "UserProductList",
     "Filter",

@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AuthorFrictionCard } from '../components/AuthorFrictionCard'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { PullRequestDayView } from '../components/PullRequestDayView'
@@ -21,6 +22,7 @@ import { DELIVERY_DATE_OPTIONS, RepoScopeChip, ScopeBar, ScopeDateFilter } from 
 import { ScopePanel } from '../components/ScopePanel'
 import { Section } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
+import { withCurrentScope } from '../lib/scope'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { deliveryComparisonLogic } from './deliveryComparisonLogic'
 import { DeliverySections } from './DeliverySections'
@@ -37,7 +39,18 @@ export const scene: SceneExport<AuthorLogicProps> = {
 }
 
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
-    const { handle, sourceId, deliveryScope, workflowCosts, workflowCostsLoading } = useValues(authorLogic)
+    const {
+        handle,
+        sourceId,
+        deliveryScope,
+        workflowCosts,
+        workflowCostsLoading,
+        workflowCostsFailed,
+        frictionDetail,
+        frictionDetailLoading,
+        frictionDetailFailed,
+    } = useValues(authorLogic)
+    const { loadWorkflowCosts, loadFrictionDetail } = useActions(authorLogic)
     const { summary, summaryLoading } = useValues(deliverySummaryLogic({ scope: deliveryScope, sourceId }))
     const { comparison, comparisonLoading, comparisonFailed } = useValues(
         deliveryComparisonLogic({ author: handle, sourceId })
@@ -55,7 +68,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     } = useValues(timelinesLogic)
     const { loadTimelines, setDayViewAlignment } = useActions(timelinesLogic)
 
-    const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
+    const hubUrl = withCurrentScope(urls.engineeringAnalytics(), sourceId)
+    const pullRequestsUrl = withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)
     const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
     // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
@@ -75,7 +89,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         to={hubUrl}
                     />
                 }
-                lensFilter={{ label: `author: ${handle}`, to: hubUrl }}
+                lensFilter={{ label: `author: ${handle}`, to: pullRequestsUrl }}
                 showDate={false}
             />
             <EntityHeader
@@ -98,8 +112,16 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     ) : undefined
                 }
             />
-            {/* The page explains one author's own friction against the repository and the author's own team. It
-                never compares authors with each other (SPEC §2). */}
+            {/* The page explains one author's own friction against the repository and the author's own team. The
+                friction rank orders experiences, never delivery performance (SPEC §2). It reads a fixed window, so it
+                sits outside the panel the date picker governs. */}
+            <Section id="author-friction" title="Friction" note={`Last ${frictionDetail?.window_days ?? 30} days`}>
+                {frictionDetailFailed ? (
+                    <CIAnalyticsLoadError onRetry={loadFrictionDetail} />
+                ) : (
+                    <AuthorFrictionCard detail={frictionDetail} loading={frictionDetailLoading} sourceId={sourceId} />
+                )}
+            </Section>
             <ScopePanel
                 busy={summaryLoading || comparisonLoading || timelinesLoading || workflowCostsLoading}
                 controls={<ScopeDateFilter dateOptions={DELIVERY_DATE_OPTIONS} />}
@@ -120,7 +142,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         <div className="flex flex-col gap-2">
                             <RedTimeByCauseCard
                                 redTime={redTime}
-                                loading={timelinesLoading && !timelines}
+                                loading={timelinesLoading}
                                 jobsAvailable={!!timelines?.jobs_available}
                             />
                             <PullRequestDayView
@@ -154,6 +176,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                                 </div>
                             ))}
                         </LemonCard>
+                    ) : workflowCostsFailed ? (
+                        <CIAnalyticsLoadError onRetry={loadWorkflowCosts} />
                     ) : workflowCosts.length > 0 ? (
                         <LemonCard hoverEffect={false} className="p-4">
                             <div className="mb-2 flex items-center justify-between gap-2">

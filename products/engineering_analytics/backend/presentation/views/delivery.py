@@ -3,11 +3,13 @@ their team."""
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.engineering_analytics.backend.facade import api
+from products.engineering_analytics.backend.facade.contracts import QueryWorkLimitExceededError
 from products.engineering_analytics.backend.presentation.serializers.delivery import (
     DeliveryComparisonSerializer,
     DeliverySummarySerializer,
@@ -146,6 +148,7 @@ class DeliveryActionsMixin(EngineeringAnalyticsViewSetBase):
         parameters=[_AUTHOR, _GITHUB_TEAM, _PR_NUMBER, _REPO, _DATE_FROM, _DATE_TO, _SOURCE_ID],
         responses={
             200: PullRequestTimelinesSerializer,
+            503: OpenApiResponse(description="The complete result exceeds the request's warehouse query budget."),
             400: OpenApiResponse(
                 description="Not exactly one of author, github_team or pr_number, pr_number without repo, or invalid "
                 "date or source_id."
@@ -174,4 +177,11 @@ class DeliveryActionsMixin(EngineeringAnalyticsViewSetBase):
             )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid scope, date, or source_id")
+        except QueryWorkLimitExceededError:
+            return Response(
+                {
+                    "detail": "This scope needs too much data to load at once. Select a shorter date range or one author."
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response(PullRequestTimelinesSerializer(instance=timelines).data)

@@ -1,18 +1,21 @@
 import json
 from datetime import UTC, datetime
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 from uuid import UUID
 
 from django.db import transaction
 
 import structlog
+import posthoganalytics
 from langchain_core.messages import HumanMessage, SystemMessage
+from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 from temporalio import activity
 from temporalio.common import MetricMeter
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.organization import OrganizationMembership
@@ -55,6 +58,29 @@ from ..schemas import (
 
 logger = structlog.get_logger(__name__)
 ModelOutput = TypeVar("ModelOutput", bound=BaseModel)
+
+
+class _LearningTraceCallbackHandler(CallbackHandler):
+    def on_llm_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        _ = error, run_id, parent_run_id, kwargs
+
+    def on_chain_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        parent_run_id: UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
+        _ = error, run_id, parent_run_id, kwargs
+
 
 _EXTRACTION_SYSTEM_PROMPT = """You extract reusable Business knowledge from public human support replies.
 
@@ -143,11 +169,38 @@ def _resolve_learning_user(team: Team) -> User:
     return membership.user
 
 
+def _learning_generation_properties(*, stage: str, trace_id: str, team_id: int) -> dict[str, str | int]:
+    return {
+        "ai_product": "business_knowledge",
+        "ai_feature": f"support_learning_{stage}",
+        "learning_run_id": trace_id,
+        "team_id": team_id,
+    }
+
+
+def _learning_trace_callback(team: Team, *, stage: str, trace_id: str) -> CallbackHandler | None:
+    # default_client stays None until the first module-level capture.
+    client = posthoganalytics.default_client
+    if client is None and not posthoganalytics.disabled:
+        client = posthoganalytics.setup()
+    if client is None:
+        return None
+    return _LearningTraceCallbackHandler(
+        client,
+        distinct_id=team_distinct_id(team.id),
+        trace_id=trace_id,
+        # Token counts stay; prompt and output contain customer replies.
+        privacy_mode=True,
+        properties=_learning_generation_properties(stage=stage, trace_id=trace_id, team_id=team.id),
+    )
+
+
 def _build_model(
     team: Team,
     user: User,
     *,
     stage: str,
+    trace_id: str,
     max_tokens: int = LEARNING_MAX_TOKENS,
 ) -> MaxChatAnthropic:
     return MaxChatAnthropic(
@@ -159,10 +212,7 @@ def _build_model(
         billable=False,
         inject_context=False,
         temperature=0,
-        posthog_properties={
-            "ai_product": "business_knowledge",
-            "ai_feature": f"support_learning_{stage}",
-        },
+        posthog_properties=_learning_generation_properties(stage=stage, trace_id=trace_id, team_id=team.id),
     )
 
 
@@ -171,23 +221,27 @@ def _invoke_structured_model(
     user: User,
     *,
     stage: str,
+    trace_id: str,
     system_prompt: str,
     payload: dict[str, object],
     output_model: type[ModelOutput],
     max_tokens: int = LEARNING_MAX_TOKENS,
 ) -> ModelOutput:
+    callback = _learning_trace_callback(team, stage=stage, trace_id=trace_id)
     try:
-        model = _build_model(team, user, stage=stage, max_tokens=max_tokens).with_structured_output(
+        model = _build_model(team, user, stage=stage, trace_id=trace_id, max_tokens=max_tokens).with_structured_output(
             output_model,
             method="json_schema",
             include_raw=False,
         )
-        result = model.invoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
-            ]
-        )
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=json.dumps(payload, ensure_ascii=False)),
+        ]
+        if callback is None:
+            result = model.invoke(messages)
+        else:
+            result = model.invoke(messages, config={"callbacks": [callback]})
     except Exception:
         raise LearningAnalysisError(f"{stage}_model_failed") from None
     if not isinstance(result, output_model):
@@ -195,22 +249,24 @@ def _invoke_structured_model(
     return result
 
 
-def _extract_candidate(team: Team, user: User, bundle: EvidenceBundle) -> ExtractedKnowledge:
+def _extract_candidate(team: Team, user: User, bundle: EvidenceBundle, trace_id: str) -> ExtractedKnowledge:
     return _invoke_structured_model(
         team,
         user,
         stage="extraction",
+        trace_id=trace_id,
         system_prompt=_EXTRACTION_SYSTEM_PROMPT,
         payload={"public_human_replies": list(bundle.replies)},
         output_model=ExtractedKnowledge,
     )
 
 
-def _model_pii_verdict(team: Team, user: User, extracted: ExtractedKnowledge) -> PiiVerdict:
+def _model_pii_verdict(team: Team, user: User, extracted: ExtractedKnowledge, trace_id: str) -> PiiVerdict:
     return _invoke_structured_model(
         team,
         user,
         stage="pii",
+        trace_id=trace_id,
         system_prompt=_PII_SYSTEM_PROMPT,
         payload={
             "canonical_topic": extracted.canonical_topic,
@@ -264,11 +320,13 @@ def _promotion_decision(
     bundle: EvidenceBundle,
     extracted: ExtractedKnowledge,
     retrieved: list[dict[str, str | int]],
+    trace_id: str,
 ) -> PromotionDecision:
     return _invoke_structured_model(
         team,
         user,
         stage="promotion",
+        trace_id=trace_id,
         system_prompt=_PROMOTION_SYSTEM_PROMPT,
         payload={
             "candidate": {
@@ -287,11 +345,13 @@ def _confirm_contradiction(
     user: User,
     extracted: ExtractedKnowledge,
     conflicting: logic.KnowledgeSearchResult,
+    trace_id: str,
 ) -> ContradictionVerdict:
     return _invoke_structured_model(
         team,
         user,
         stage="contradiction",
+        trace_id=trace_id,
         system_prompt=_CONTRADICTION_SYSTEM_PROMPT,
         payload={
             "candidate": {
@@ -635,13 +695,14 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
         )
 
     user = _resolve_learning_user(run.team)
-    extracted = _extract_candidate(run.team, user, bundle)
+    trace_id = str(run.id)
+    extracted = _extract_candidate(run.team, user, bundle, trace_id)
     rejection_code = _extraction_rejection(extracted)
     if rejection_code != "none":
         return _finish_without_knowledge(run, rejection_code=rejection_code)
 
     generated_text = f"{extracted.canonical_topic}\n{extracted.canonical_answer}"
-    if _model_pii_verdict(run.team, user, extracted).verdict != "safe":
+    if _model_pii_verdict(run.team, user, extracted, trace_id).verdict != "safe":
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
@@ -649,10 +710,10 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)
-    decision = _promotion_decision(run.team, user, bundle, extracted, retrieved)
+    decision = _promotion_decision(run.team, user, bundle, extracted, retrieved, trace_id)
     conflicting = _conflicting_search_result(decision, results, len(retrieved))
     if conflicting is not None:
-        confirmation = _confirm_contradiction(run.team, user, extracted, conflicting)
+        confirmation = _confirm_contradiction(run.team, user, extracted, conflicting, trace_id)
         if _is_confirmed_contradiction(confirmation):
             if not conflicting.is_generated:
                 # Learning may retire what it wrote. A source a person wrote stays until a person changes it.

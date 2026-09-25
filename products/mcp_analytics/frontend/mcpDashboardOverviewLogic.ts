@@ -962,9 +962,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             actions.reloadAll()
         },
         setFilterTestAccounts: () => {
+            actions.markFilterInteraction()
             actions.reloadAll()
         },
         setPropertyFilters: () => {
+            actions.markFilterInteraction()
             actions.reloadAll()
         },
         hydrateFilters: () => {

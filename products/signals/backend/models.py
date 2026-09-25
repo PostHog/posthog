@@ -1,3 +1,4 @@
+import json
 import uuid
 import logging
 from collections import defaultdict
@@ -16,11 +17,11 @@ from django.utils.functional import Promise
 from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import UUIDModel
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -156,6 +157,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+# What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
+# because that module pulls the HTTP stack in and this one is loaded on every Django start.
+GITHUB_LABEL_NAME_MAX_LENGTH = 50
+
+
 class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -192,6 +198,12 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # github_writeback.py). Off by default, because the comment is public on the issue thread and
     # tells everybody watching it that we are working on it, which is a team's call to make.
     github_issue_writeback_enabled = models.BooleanField(default=False, db_default=False)
+    # Label every self-driving pull request, so GitHub search, saved searches, and notification
+    # rules can separate them from the rest of the shared bot identity's pull requests (see
+    # pull_request_label.py). Off by default, because the label lands on a repository the team
+    # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
+    pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
+    pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -209,9 +221,6 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         if not repository or not isinstance(self.autostart_base_branches, dict):
             return None
         return self.autostart_base_branches.get(repository.lower()) or None
-
-
-register_team_extension_signal(SignalTeamConfig, logger=logger)
 
 
 class SignalUserAutonomyConfig(UUIDModel):
@@ -360,7 +369,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
-    # When the report first became user-visible (entered READY or PENDING_INPUT, the statuses the
+    # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
@@ -389,6 +398,12 @@ class SignalReport(UUIDModel):
     cluster_centroid_updated_at = deprecate_field(models.DateTimeField(blank=True, null=True))
     # Deprecated - unused
     relevant_user_count = deprecate_field(models.IntegerField(blank=True, null=True))
+
+    # Cached from the newest `actionability_judgment` artefact so the inbox list can sort and filter
+    # on a column instead of casting artefact JSON for every report in the team. Receivers in
+    # receivers.py keep them current. NULL means the report has no parseable judgment.
+    latest_actionability = models.CharField(max_length=30, null=True, blank=True)
+    latest_already_addressed = models.BooleanField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -549,25 +564,59 @@ class SignalReport(UUIDModel):
             case (S.RESOLVED, S.READY):
                 pass
 
-            # Only ready reports can resolve
+            # Only researched reports can resolve
             # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
-            case (S.PENDING_INPUT | S.READY, S.RESOLVED):
+            # FAILED resolves too: a run that died in processing still describes real work, and
+            # whoever fixed it needs a way to say so. Without this edge the only exit is a
+            # dismissal, which used to make the report a sink for every later recurrence.
+            case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
                 # Just pass through to status setting
                 pass
 
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
 
-        # First arrival into a user-visible status (the inbox lists READY and PENDING_INPUT).
+        # First arrival into a user-visible status (the inbox lists READY, PENDING_INPUT, and FAILED).
         # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a
         # report only ever counts once toward SignalTeamConfig.max_reports_per_day.
-        if new_status in (S.READY, S.PENDING_INPUT) and self.first_visible_at is None:
+        if new_status in (S.READY, S.PENDING_INPUT, S.FAILED) and self.first_visible_at is None:
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
 
         self.status = new_status
         updated_fields.update(["status", "updated_at"])
         return list(updated_fields)
+
+    @classmethod
+    def refresh_latest_actionability(cls, *, team_id: int, report_id: Any) -> bool:
+        """Recompute the cached actionability from the artefact log and store it on the row.
+
+        Returns whether the row changed, and False when the report no longer exists. The row is
+        locked for the read and the write, so two judgment writers cannot interleave: without the
+        lock, a writer that read the log before a concurrent judgment committed would overwrite
+        the cache with the older value once the other writer released the row.
+        """
+        with transaction.atomic():
+            # FOR NO KEY UPDATE, not FOR UPDATE: an artefact insert holds KEY SHARE on its report
+            # through the foreign key, and FOR UPDATE conflicts with that, so two concurrent
+            # judgment writers would deadlock.
+            row = (
+                cls.objects.select_for_update(no_key=True)
+                .filter(team_id=team_id, id=report_id)
+                .values_list("latest_actionability", "latest_already_addressed")
+                .first()
+            )
+            if row is None:
+                return False
+            latest = SignalReportArtefact.latest_actionability(report_id)
+            if row == (latest.actionability, latest.already_addressed):
+                return False
+            # `update()`, not `save()`: refreshing a cache must not bump `updated_at`, which the
+            # inbox sorts on, or fire the report's own save receivers.
+            cls.objects.filter(id=report_id).update(
+                latest_actionability=latest.actionability, latest_already_addressed=latest.already_addressed
+            )
+            return True
 
     def restore_target_status(self) -> "SignalReport.Status":
         """
@@ -1036,14 +1085,61 @@ class SignalReportGithubComment(TeamScopedRootMixin, UUIDModel):
         verbose_name_plural = "Signal report GitHub comments"
 
 
+class SignalReportSlackThread(UUIDModel):
+    """The Slack thread a report notification started, so a reply in it resolves back to the report.
+
+    A notification invites the reader to reply in the thread and mention PostHog, which starts a
+    task. Without this row that task has no way back to the report it discusses, so the work never
+    reaches the report's own timeline.
+    """
+
+    objects = EnvironmentScopedManager()
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="slack_threads")
+    # SET_NULL rather than CASCADE: a disconnected workspace must not erase the link between a
+    # report and the task somebody already started from its thread.
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # The resolved Slack channel id, so a config that names the channel differently still matches.
+    slack_workspace_id = models.CharField(max_length=64)
+    channel = models.CharField(max_length=64)
+    # Slack `ts` of the notification message, which is also its thread's root.
+    thread_ts = models.CharField(max_length=64)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            # One Slack message is one thread, and a thread is about at most one report. Keyed
+            # without the team so a second project connected to the same workspace cannot claim a
+            # thread another project's report already owns.
+            models.UniqueConstraint(
+                fields=["slack_workspace_id", "channel", "thread_ts"], name="signals_report_slack_thread_unique"
+            ),
+        ]
+        verbose_name = "Signal report Slack thread"
+        verbose_name_plural = "Signal report Slack threads"
+
+
 class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     State = SignalReportAssignment.PrState
+
+    class ReviewDecision(models.TextChoices):
+        APPROVED = "approved", "Approved"
+        CHANGES_REQUESTED = "changes_requested", "Changes requested"
+        REVIEW_REQUIRED = "review_required", "Review required"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     repository = models.CharField(max_length=200)
     number = models.PositiveBigIntegerField()
     url = models.URLField(max_length=2048)
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
+    review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
+    merged_at = models.DateTimeField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1087,6 +1183,21 @@ def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     return list(SignalReportArtefact.ArtefactType.choices)
 
 
+@frozen
+class LatestActionability:
+    """The `actionability` and `already_addressed` of a report's newest parseable judgment.
+
+    Both `None` when the report has no `actionability_judgment` whose content is a JSON object.
+    """
+
+    actionability: str | None
+    already_addressed: bool | None
+
+    @classmethod
+    def unjudged(cls) -> "LatestActionability":
+        return cls(actionability=None, already_addressed=None)
+
+
 class SignalReportArtefact(UUIDModel):
     class ArtefactType(models.TextChoices):
         VIDEO_SEGMENT = "video_segment"
@@ -1118,13 +1229,15 @@ class SignalReportArtefact(UUIDModel):
         IMPLEMENTATION_DISPATCH = "implementation_dispatch"
         IMPLEMENTATION_REPLACEMENT = "implementation_replacement"
         IMPLEMENTATION_HANDOVER = "implementation_handover"
+        RANKING_SCORE = "ranking_score"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
-    #   - status artefacts describe the report's current state (judgments, repo selection,
-    #     suggested reviewers, channel assignments). They are appended on each change; the
-    #     report's *current* status is the latest row of that type by `created_at` (the serializer
-    #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
+    #   - status artefacts describe the report's current state (judgments and repo selection among
+    #     them, and the model's current ranking score). They are appended on each change; the
+    #     report's *current* status is the latest row of that type by `created_at`. A member does
+    #     not have to reach the API: the serializer derives priority/actionability/reviewers with
+    #     `order_by("-created_at")[:1]` subqueries, and the rest are read by the pipeline alone.
     #   - log artefacts record discrete work done on a report (code references, commits,
     #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
@@ -1140,6 +1253,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CHANNEL_ASSIGNMENT,
             ArtefactType.IMPLEMENTATION_DECISION,
             ArtefactType.IMPLEMENTATION_DISPATCH,
+            ArtefactType.RANKING_SCORE,
         }
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
@@ -1271,6 +1385,31 @@ class SignalReportArtefact(UUIDModel):
             .values_list("report_id", "channel_id", "channel__deleted")
         )
         return {str(report_id): channel_id for report_id, channel_id, deleted in rows if deleted is False}
+
+    @classmethod
+    def latest_actionability(cls, report_id: Any) -> LatestActionability:
+        """The newest parseable `actionability_judgment` of a report, as `SignalReport` caches it.
+
+        Entries that are not JSON objects are skipped rather than ending the search, so one
+        malformed row cannot hide the judgment written before it.
+        """
+        rows = cls.objects.filter(report_id=report_id, type=cls.ArtefactType.ACTIONABILITY_JUDGMENT).order_by(
+            "-created_at"
+        )
+        for content in rows.values_list("content", flat=True).iterator(chunk_size=20):
+            try:
+                parsed = json.loads(content)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+            if not isinstance(parsed, dict):
+                continue
+            actionability = parsed.get("actionability")
+            already_addressed = parsed.get("already_addressed")
+            return LatestActionability(
+                actionability=actionability if isinstance(actionability, str) else None,
+                already_addressed=already_addressed if isinstance(already_addressed, bool) else None,
+            )
+        return LatestActionability.unjudged()
 
     @classmethod
     def _create(
@@ -1663,6 +1802,45 @@ class SignalReportArtefact(UUIDModel):
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
 
 
+class SignalReportSuggestedReviewer(TeamScopedRootMixin, UUIDModel):
+    """One reviewer identity from a report's current `suggested_reviewers` artefact, in columns.
+
+    The artefact log stays canonical. It stores the reviewer list as JSON in a `TextField`, so
+    asking "which reports name this person?" costs a jsonb cast for every reviewer artefact the
+    team ever wrote, and no index can serve it. The inbox asks that question in its default scope,
+    on the list and on each section count, so the cost grew with the log rather than with the page.
+    These rows answer the same question from an index. A report has one row per identity in its
+    newest reviewers artefact, and the rows are rewritten whenever that artefact changes.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="suggested_reviewer_index")
+    # The artefact these rows were derived from, so a reader can tell which version they reflect.
+    artefact = models.ForeignKey(SignalReportArtefact, on_delete=models.CASCADE, related_name="+")
+    # An entry identifies its person by uuid, by login, or by both — one of the two is always set.
+    user_uuid = models.UUIDField(null=True, blank=True)
+    # Lowercased on write: GitHub logins are case-insensitive, and both readers look them up with
+    # `login.lower()`.
+    github_login = models.CharField(max_length=255, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            # The two reviewer lookups, one per identity kind. `report` is in the index so the
+            # list filter reads the report ids without touching the heap.
+            models.Index(fields=["team", "user_uuid", "report"], name="signals_sugg_rev_uuid_idx"),
+            models.Index(fields=["team", "github_login", "report"], name="signals_sugg_rev_login_idx"),
+            # Rewriting a report's rows deletes what is there first.
+            models.Index(fields=["report"], name="signals_sugg_rev_report_idx"),
+        ]
+        verbose_name = "Signal report suggested reviewer"
+        verbose_name_plural = "Signal report suggested reviewers"
+
+
 class SignalReportTask(UUIDModel):
     """Legacy task↔report link. Still the auto-start idempotency gate (an `implementation` row),
     but being migrated out in favour of `task_run` artefacts.
@@ -1795,6 +1973,7 @@ class SignalReportAction(TeamScopedRootMixin, UUIDModel):
         VIEW = "view"
         # The thumbs rating at the end of the report body ("Was this report useful?").
         FEEDBACK = "feedback"
+        SLACK_DISCUSSION = "slack_discussion"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -2050,6 +2229,12 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         NO_OUTPUT = "no_output", "No output"
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
+        # PostHog retired the scout this config runs: its canonical skill declared a sunset that
+        # has passed, or it left the fleet on disk altogether. Owned by the retirement pass
+        # (`scout_harness/deprecation.py`) alone, so no other system writer resumes a scout that
+        # no longer exists, and the roster has a state to render instead of a row that looks
+        # healthy and never runs.
+        RETIRED = "retired", "Retired"
 
     class NetworkAccess(models.TextChoices):
         """What the scout's sandbox can reach over the network during a run.
@@ -2407,6 +2592,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         *,
         pause_reason: "SignalScoutConfig.PauseReason",
         evaluated_at: datetime | None = None,
+        max_enabled_scouts: int | None = None,
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
@@ -2419,11 +2605,26 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
         status moved after that moment, e.g. a human re-enable racing a sweep's pause.
+        `max_enabled_scouts` is the project's already-resolved enabled-scout ceiling, for a
+        caller that is inside a locked section. Left `None`, a resume resolves it here — before
+        the transaction opens, so the flag read never happens while row locks are held.
         Saves and returns True when the transition applies; returns False without writing
         when it is refused or a no-op.
         """
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
+        # A resume must not carry the team past the enabled-scout cap: the pause freed a slot the
+        # config API may have legitimately given to another scout since. Only a resume needs the
+        # ceiling, so a pause pays for no flag read.
+        resume_cap: int | None = None
+        if new_status in self.RUNNABLE_STATUSES:
+            from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
+                max_enabled_scouts_for_team,
+            )
+
+            resume_cap = (
+                max_enabled_scouts if max_enabled_scouts is not None else max_enabled_scouts_for_team(self.team_id)
+            )
         with transaction.atomic():
             # One ordered query locks the whole team's rows, not just ours: the cap check below
             # counts sibling rows, so two concurrent resumes locking only their own rows would
@@ -2453,15 +2654,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 and locked.status_changed_at > evaluated_at
             ):
                 return False
-            # A resume must not carry the team past the enabled-scout cap: the pause freed a
-            # slot the config API may have legitimately given to another scout since.
-            from products.signals.backend.scout_harness.limits import (  # noqa: PLC0415 — importing via the scout_harness package init would put lazy_seed/skill_loader on the django.setup() path that loads this module
-                MAX_ENABLED_SCOUTS_PER_TEAM,
-            )
-
-            if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
+            if resume_cap is not None and locked.status not in self.RUNNABLE_STATUSES:
                 peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
-                if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
+                if peers >= resume_cap:
                     return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
             if new_status == locked.status and recorded_reason == locked.pause_reason:
@@ -2708,9 +2903,6 @@ class SignalScoutEmission(TeamScopedRootMixin, UUIDModel):
     # upstream by `MAX_FINDING_DESCRIPTION_LENGTH` on the emit serializer and the emit_signal
     # token cap, so it stays well clear of row-size concerns.
     description = models.TextField()
-    # Deprecated: the emit contract no longer asks for a confidence score, so new rows are NULL.
-    # Retained until emits carrying one have tailed off.
-    confidence = models.FloatField(null=True, blank=True)
     severity = models.CharField(max_length=20, null=True, blank=True)
     # Slug tags the scout attached to the finding (normalized lowercase kebab-case, capped at
     # emit). This row is what feeds the per-scout tag-vocabulary feedback loop in the run prompt
@@ -3024,6 +3216,8 @@ class SignalScoutSuggestionSet(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed", "Failed"
         # The last generation completed and found nothing worth suggesting.
         EMPTY = "empty", "Empty"
+        # The project was too quiet in the activity window to be worth a scan, so none ran.
+        LOW_ACTIVITY = "low_activity", "Low activity"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
