@@ -131,23 +131,14 @@ export function buildSuggestedReviewerItems(
   reviewers: SuggestedReviewer[],
 ): SuggestedReviewerItem[] {
   const items: SuggestedReviewerItem[] = [];
-  const reasonCounts = new Map<string, number>();
   const reasonGroups = new Map<string, SuggestedReviewerReasonGroupItem>();
-
-  for (const reviewer of reviewers) {
-    const reason = suggestedReviewerExplanation(reviewer);
-    if (reason) {
-      const groupKey = suggestedReviewerReasonGroupKey(reviewer, reason);
-      reasonCounts.set(groupKey, (reasonCounts.get(groupKey) ?? 0) + 1);
-    }
-  }
 
   for (const reviewer of reviewers) {
     const reason = suggestedReviewerExplanation(reviewer);
     const groupKey = reason
       ? suggestedReviewerReasonGroupKey(reviewer, reason)
       : null;
-    if (!reason || !groupKey || reasonCounts.get(groupKey) === 1) {
+    if (!reason || !groupKey) {
       items.push({
         kind: "person",
         key: suggestedReviewerKey(reviewer),

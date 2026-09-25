@@ -21,6 +21,25 @@ function ungroupedReviewer(index: number): SuggestedReviewer {
 }
 
 describe("SuggestedReviewersList", () => {
+  it("shows a single reviewer's reason before the indented reviewer", () => {
+    render(
+      <SuggestedReviewersList
+        reviewers={[ungroupedReviewer(0)]}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const reasonElement = screen.getByText("Owns area 0.");
+    const reviewerElement = screen.getByText("Dev 0");
+    expect(
+      reasonElement.compareDocumentPosition(reviewerElement) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(reviewerElement.closest(".pl-3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Dev 0" })).toBeVisible();
+  });
+
   it("shows the shared reason before its indented reviewers and always shows remove controls", () => {
     const reason = "Maintains request handling.";
     const reviewers = [0, 1].map((index) => ({

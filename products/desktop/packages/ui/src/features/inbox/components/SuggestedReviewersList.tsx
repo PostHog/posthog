@@ -3,7 +3,6 @@ import {
   buildSuggestedReviewerItems,
   isScoutSuggestedReviewer,
   suggestedReviewerDisplayName,
-  suggestedReviewerExplanation,
   suggestedReviewerSourceLabel,
 } from "@posthog/core/inbox/artefacts";
 import {
@@ -130,10 +129,9 @@ function SuggestedReviewerPerson({
   disabled: boolean;
   onRemove?: (reviewer: SuggestedReviewer) => void;
 }) {
-  const explanation = suggestedReviewerExplanation(reviewer);
   const sourceLabel = suggestedReviewerSourceLabel(reviewer);
   return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 gap-y-1 rounded-sm px-1.5 py-1.5 hover:bg-fill-hover">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-x-2 rounded-sm px-1.5 py-1.5 hover:bg-fill-hover">
       <ReviewerIdentity reviewer={reviewer} />
       {isScoutSuggestedReviewer(reviewer) ? (
         <ScoutSourceBadge scoutNames={[sourceLabel]} />
@@ -146,13 +144,6 @@ function SuggestedReviewerPerson({
           disabled={disabled}
           onRemove={onRemove}
         />
-      ) : null}
-      {explanation ? (
-        <p
-          className={`col-span-3 m-0 min-w-0 break-words text-muted-foreground text-xs leading-snug ${reviewer.user ? "" : "opacity-70"}`}
-        >
-          {explanation}
-        </p>
       ) : null}
     </div>
   );
