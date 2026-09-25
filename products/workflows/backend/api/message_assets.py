@@ -312,15 +312,20 @@ def fetch_message_assets_for_person(
     return [_build_asset(row) for row in results]
 
 
-# A link in a captured email carries no target, so a click inside the viewer's iframe
-# navigates that iframe. Most destinations refuse to be framed, so the person who clicks a
-# link to check where it goes gets a broken page instead of the page. A `<base target="_blank">`
-# sends the click to a new tab. The tag has no href, so relative URLs resolve as before.
+# A link click inside the viewer's iframe navigates that iframe, and most destinations refuse
+# to be framed, so the viewer goes blank. A `<base target="_blank">` covers links with no
+# target, but an explicit one wins over it, and the editor writes `target="_self"` for "same
+# tab" links. So explicit targets are rewritten too. The base tag has no href, so relative
+# URLs resolve as before.
 _NEW_TAB_BASE_TAG = '<base target="_blank">'
 _HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^>]*)?>", re.IGNORECASE)
+_LINK_OPEN_TAG = re.compile(r"""<(?:a|area)\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
+# Requires whitespace before `target` so a `&target=` inside a click-tracking href is left alone.
+_TARGET_ATTRIBUTE = re.compile(r"""(\s)target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)""", re.IGNORECASE)
 
 
 def with_new_tab_link_target(html: str) -> str:
+    html = _LINK_OPEN_TAG.sub(lambda tag: _TARGET_ATTRIBUTE.sub(r'\1target="_blank"', tag.group(0)), html)
     head_open_tag = _HEAD_OPEN_TAG.search(html)
     if head_open_tag is None:
         return _NEW_TAB_BASE_TAG + html

@@ -12,6 +12,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
+from products.workflows.backend.api.message_assets import with_new_tab_link_target
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -351,3 +352,46 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
+
+
+class TestWithNewTabLinkTarget:
+    @parameterized.expand(
+        [
+            (
+                "same_tab",
+                '<a href="https://x.com" target="_self">Go</a>',
+                '<a href="https://x.com" target="_blank">Go</a>',
+            ),
+            (
+                "single_quoted_top",
+                "<a target='_top' href=\"https://x.com\">Go</a>",
+                '<a target="_blank" href="https://x.com">Go</a>',
+            ),
+            (
+                "unquoted_parent",
+                '<a href="https://x.com" target=_parent>Go</a>',
+                '<a href="https://x.com" target="_blank">Go</a>',
+            ),
+            (
+                "uppercase",
+                '<A HREF="https://x.com" TARGET="_self">Go</A>',
+                '<A HREF="https://x.com" target="_blank">Go</A>',
+            ),
+            (
+                "image_map_area",
+                '<area href="https://x.com" target="_self">',
+                '<area href="https://x.com" target="_blank">',
+            ),
+            (
+                "tracking_href_keeps_its_query",
+                '<a href="https://ph.test/redirect?id=1&target=https%3A%2F%2Fx.com" target="_self">Go</a>',
+                '<a href="https://ph.test/redirect?id=1&target=https%3A%2F%2Fx.com" target="_blank">Go</a>',
+            ),
+            ("link_without_target", '<a href="https://x.com">Go</a>', '<a href="https://x.com">Go</a>'),
+            ("non_link_element", '<form target="_self"></form>', '<form target="_self"></form>'),
+        ]
+    )
+    def test_opens_every_link_in_a_new_tab(self, _name: str, html: str, expected_body: str):
+        # An explicit target wins over the base tag, so without the rewrite a "same tab" link
+        # navigates the viewer's iframe and the viewer goes blank.
+        assert with_new_tab_link_target(html) == '<base target="_blank">' + expected_body
