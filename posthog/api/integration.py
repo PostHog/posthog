@@ -2,7 +2,7 @@ import os
 import re
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -1597,12 +1597,10 @@ class IntegrationViewSet(
         }
 
     @staticmethod
-    def _cache_slack_channel(key: str, channel_id: str, channel: dict | None) -> None:
-        """Write a live single-channel answer into the cached list, or drop the channel when Slack
-        returns none for it.
+    def _mutate_cached_slack_channels(key: str, mutate: Callable[[dict[str, dict]], bool]) -> None:
+        """Apply `mutate` to the cached list's channels, keyed by id, and write the result back.
 
-        A channel Slack no longer returns is gone, or no longer visible to the app, so the list has
-        to stop offering it for the same reason a rejoined one has to replace its stale copy.
+        `mutate` returns False when it changed nothing, which skips the write.
         """
         backend = caches["default"]
         if not isinstance(backend, RedisCache):
@@ -1617,11 +1615,8 @@ class IntegrationViewSet(
                     return
                 data = client.decode(previous)
                 channels_by_id = {item["id"]: item for item in data["channels"]}
-                if channel is None:
-                    if channels_by_id.pop(channel_id, None) is None:
-                        return
-                else:
-                    channels_by_id[channel["id"]] = channel
+                if not mutate(channels_by_id):
+                    return
                 updated = client.encode({**data, "channels": list(channels_by_id.values())})
                 # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
                 if redis_client.eval(
@@ -1641,6 +1636,27 @@ class IntegrationViewSet(
             # The caller already resolved the channel, so a Redis failure here must not turn a
             # successful lookup into a 500. The next list refresh rebuilds the cache.
             logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
+
+    @classmethod
+    def _cache_slack_channel(cls, key: str, channel: dict) -> None:
+        def merge(channels_by_id: dict[str, dict]) -> bool:
+            channels_by_id[channel["id"]] = channel
+            return True
+
+        cls._mutate_cached_slack_channels(key, merge)
+
+    @classmethod
+    def _drop_cached_slack_channel(cls, key: str, channel_id: str) -> None:
+        """Remove a channel Slack no longer returns from the cached list.
+
+        It is gone, or no longer visible to the app, so the list has to stop offering it for the
+        same reason a rejoined one has to replace its stale copy.
+        """
+
+        def drop(channels_by_id: dict[str, dict]) -> bool:
+            return channels_by_id.pop(channel_id, None) is not None
+
+        cls._mutate_cached_slack_channels(key, drop)
 
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
@@ -1703,11 +1719,11 @@ class IntegrationViewSet(
                 _reraise_slack_api_error(e)
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
-                self._cache_slack_channel(key, channel_id, serialized_channel)
+                self._cache_slack_channel(key, serialized_channel)
                 return Response({"channels": [serialized_channel]})
             # Only a forced lookup reaches Slack for a channel the cached list still holds, so this
             # drops a channel the workspace no longer offers rather than leaving it pickable.
-            self._cache_slack_channel(key, channel_id, None)
+            self._drop_cached_slack_channel(key, channel_id)
             return Response({"channels": []})
 
         search = query_serializer.validated_data["search"]

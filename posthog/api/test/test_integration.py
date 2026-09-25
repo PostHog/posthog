@@ -2412,6 +2412,18 @@ class TestIntegrationAPIKeyAccess:
             assert cache.get(cache_key) is None
         mock_slack_class.return_value.list_channels.assert_not_called()
 
+    # The write-back runs only against Redis, so the default LocMem cache would make the
+    # assertions below vacuous.
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://slack-channel-recheck-test:6379/0",
+                "OPTIONS": {"CONNECTION_POOL_KWARGS": {"connection_class": FakeConnection}},
+            },
+        }
+    )
     @patch("posthog.api.integration.SlackIntegration")
     def test_channels_action_force_refresh_rechecks_one_channel(self, mock_slack_class, client: HttpClient):
         slack_integration = Integration.objects.create(
