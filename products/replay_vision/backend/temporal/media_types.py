@@ -5,8 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-# Matches `footerHeight` in common/replay-headless/src/standalone-player.ts.
-ANALYSIS_FOOTER_HEIGHT_PX = 32
+# The footer height of analysis videos rendered before the rasterizer reported it as `footer_height_px`.
+LEGACY_ANALYSIS_FOOTER_HEIGHT_PX = 32
 
 THUMBNAIL_WIDTH_PX = 1280
 
@@ -44,7 +44,7 @@ class ExtractThumbnailActivityInput(BaseModel, frozen=True):
 
     source_s3_uri: str
     video_time_s: float
-    footer_crop_px: int = ANALYSIS_FOOTER_HEIGHT_PX
+    footer_crop_px: int = LEGACY_ANALYSIS_FOOTER_HEIGHT_PX
     width: int = THUMBNAIL_WIDTH_PX
     s3_bucket: str
     s3_key_prefix: str
