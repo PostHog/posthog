@@ -25,7 +25,7 @@ def discover_demand(cutoff: str, limit_per_source: int = DISCOVERY_LIMIT_PER_SOU
         .filter(due_q(cutoff_time))
         # A broken or snoozed alert would otherwise mint a key every tick that its own evaluation
         # then drops.
-        .exclude(suppressed(cutoff_time))
+        .exclude(suppressed())
         .order_by("next_check_at", "id")
         .values_list("source_kind", "team_id", "next_check_at")
     )

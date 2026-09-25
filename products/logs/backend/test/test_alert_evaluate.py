@@ -74,7 +74,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         Deliberately outside `team_scope`: that activity has no ambient scope, and these models
         are fail-closed, so a write here through a bare manager raises.
         """
-        record_outcomes(self.team.id, evaluation.outcomes, self.cutoff, team_timezone=self.team.timezone)
+        record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
     def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()
@@ -127,7 +127,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ).count()
         assert still_due == 1
 
-    def test_a_check_inside_quiet_hours_moves_past_the_window(self) -> None:
+    def test_a_check_inside_quiet_hours_runs_and_holds_its_announcement(self) -> None:
         configuration = self._configuration(
             schedule_restriction={"blocked_windows": [{"start": "09:00", "end": "12:00"}]}
         )
@@ -135,13 +135,17 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, query = self._run(configuration)
         self._record(evaluation)
 
-        query.assert_not_called()
+        query.assert_called_once()
         assert evaluation.previews == ()
         with team_scope(self.team.id):
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
             configuration.refresh_from_db()
-        # Dropping the check without an outcome left its due time where it was, so the next tick
-        # found it again.
-        assert configuration.next_check_at == datetime(2026, 9, 16, 12, tzinfo=UTC)
+        # An incident wholly inside the window must still leave a trace, and must not move the cooldown.
+        assert alert.state == PlatformAlert.State.FIRING
+        assert alert.last_notified_at is None
+        # Parked at the end of the window would leave the alert unevaluated until noon.
+        assert configuration.next_check_at is not None
+        assert self.cutoff < configuration.next_check_at < datetime(2026, 9, 16, 11, tzinfo=UTC)
 
     def test_a_broken_filter_config_stops_being_discovered(self) -> None:
         configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})

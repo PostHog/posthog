@@ -20,7 +20,7 @@ see `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
@@ -84,9 +84,16 @@ class AlertPolicy:
     clear_check_ends_snooze: bool = False
     # True: reaching BROKEN also disables the alert (outcome.disable is set).
     disable_when_broken: bool = False
+    # True: a mute holds the announcement and the check still runs, so `enabled=False` and
+    # BROKEN become the only states that stop one.
+    mute_gates_notification_only: bool = False
 
 
 LOGS_ALERT_POLICY = AlertPolicy()
+
+# Two constants rather than one changed default, because production logs keeps its own mute
+# semantics until it migrates.
+PLATFORM_LOGS_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notification_only=True)
 
 BILLING_ALERT_POLICY = AlertPolicy(
     broken_is_terminal=False,
@@ -110,6 +117,9 @@ class CheckInput:
     is_inconclusive: bool = False
     error_message: str | None = None
     is_transient_error: bool = False
+    # A mute the machine cannot see for itself, such as a schedule restriction the source
+    # resolves against the team's timezone.
+    muted: bool = False
 
 
 @dataclass(frozen=True)
@@ -147,6 +157,8 @@ class AlertCheckOutcome:
     error_message: str | None
     # Set when policy.disable_when_broken kicks in — the adapter must persist enabled=False.
     disable: bool = False
+    # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
+    muted_notification: NotificationAction = NotificationAction.NONE
 
 
 @dataclass(frozen=True)
@@ -174,6 +186,27 @@ def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
     )
 
 
+# A mute is about the alert's condition, not its health. BROKEN also stops future checks,
+# so an announcement held here would never be released by a later check.
+_MUTABLE_NOTIFICATIONS = frozenset({NotificationAction.FIRE, NotificationAction.RESOLVE})
+
+
+def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
+    """Holds an announcement without changing what the check decided.
+
+    `update_last_notified_at` is held with it, so the cooldown keeps measuring real
+    notifications and an unmuted alert is not gated by a send that never happened.
+    """
+    if outcome.notification not in _MUTABLE_NOTIFICATIONS:
+        return outcome
+    return replace(
+        outcome,
+        notification=NotificationAction.NONE,
+        update_last_notified_at=False,
+        muted_notification=outcome.notification,
+    )
+
+
 def evaluate_alert_check(
     snapshot: AlertSnapshot,
     check: CheckInput,
@@ -190,6 +223,10 @@ def evaluate_alert_check(
     suppresses evaluation when state is also SNOOZED — adopters must set both
     together on snooze (as logs' apply_snooze path does); a stray future
     `snooze_until` on a non-SNOOZED alert is not honored here.
+
+    Under `mute_gates_notification_only` a future `snooze_until` needs no companion state,
+    because it no longer decides whether the check runs. The check runs either way and the
+    announcement is held.
     """
     if snapshot.state == AlertState.BROKEN and policy.broken_is_terminal:
         # Terminal until a user reset — schedulers already exclude BROKEN alerts,
@@ -198,16 +235,21 @@ def evaluate_alert_check(
 
     snoozing = snapshot.snooze_until is not None and snapshot.snooze_until > now
 
-    if snapshot.state == AlertState.SNOOZED and snoozing and not policy.clear_check_ends_snooze:
-        return _stay(snapshot)
+    if policy.mute_gates_notification_only:
+        muted = snoozing or check.muted
+    else:
+        muted = False
+        if snapshot.state == AlertState.SNOOZED and snoozing and not policy.clear_check_ends_snooze:
+            return _stay(snapshot)
 
     if check.error_message is not None:
-        return evaluate_alert_failure(
+        failure = evaluate_alert_failure(
             snapshot,
             error_message=check.error_message,
             is_transient_error=check.is_transient_error,
             policy=policy,
         )
+        return _muted(failure) if muted else failure
 
     if check.is_inconclusive:
         return AlertCheckOutcome(
@@ -278,13 +320,14 @@ def evaluate_alert_check(
         else:
             update_last_notified_at = True
 
-    return AlertCheckOutcome(
+    outcome = AlertCheckOutcome(
         new_state=new_state,
         notification=notification,
         consecutive_failures=0,
         update_last_notified_at=update_last_notified_at,
         error_message=None,
     )
+    return _muted(outcome) if muted else outcome
 
 
 def evaluate_alert_failure(
