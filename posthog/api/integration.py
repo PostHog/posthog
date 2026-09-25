@@ -118,7 +118,7 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
+from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
@@ -250,7 +250,8 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
 
 
 class _HasNameOrId(Protocol):
-    id: Any
+    @property
+    def id(self) -> Any: ...
 
     @property
     def name(self) -> str | None: ...
@@ -1379,7 +1380,7 @@ class IntegrationViewSet(
         functions_using_integration = get_enabled_hog_functions_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
-        batch_exports_using_integration = get_batch_exports_using_integration(
+        batch_exports_using_integration = list_batch_exports_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
 
