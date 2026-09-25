@@ -359,7 +359,7 @@ function ImageLoadFailedState({ onRetry }: { onRetry: () => void }): JSX.Element
     return (
         <div className="flex size-full min-h-32 min-w-60 items-center justify-center bg-bg-light px-4 py-6 text-center text-muted-foreground">
             <div className="flex flex-col items-center gap-2">
-                <div>
+                <div role="status">
                     <div className="text-sm font-semibold">Couldn't load image</div>
                     <div className="text-xs mt-1">The link may have expired, or the network dropped.</div>
                 </div>

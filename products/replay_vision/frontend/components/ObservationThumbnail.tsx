@@ -78,7 +78,7 @@ export function ObservationThumbnail({ observation, className, children }: Obser
                 It shows next to the caller's overlay, so a play target still says why it has no frame. */}
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                 {failed && (
-                    <div className="flex flex-col items-center gap-1 text-tertiary">
+                    <div role="status" className="flex flex-col items-center gap-1 text-tertiary">
                         <IconWarning className="text-xl" aria-hidden />
                         <span className="text-xs">Frame unavailable</span>
                     </div>
