@@ -1,4 +1,4 @@
-// DORA report performance bands for the four deploy metrics, so each Health tile can say
+// DORA report performance bands for the four deploy metrics, so each deploy tile can say
 // which band the current window lands in. Thresholds are loosely modeled on the DORA State
 // of DevOps report ladders (elite / high / medium / low), not a literal reproduction: the
 // deployment-frequency and change-failure-rate bands are tuned tighter than the published

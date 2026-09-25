@@ -1,19 +1,23 @@
 """Salesforce usage enrichment workflow - enriches accounts with PostHog usage signals."""
 
+import enum
 import json
 import time
 import asyncio
 import datetime as dt
 import dataclasses
+from collections import Counter
 from itertools import batched
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import close_old_connections
 
+from simple_salesforce.format import format_soql
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -22,10 +26,12 @@ from ee.billing.salesforce_enrichment.constants import (
     ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
     POSTHOG_FETCH_MAPPINGS_PAGE_SIZE,
     POSTHOG_ORG_ID_FIELD,
+    POSTHOG_ORG_REGION_FIELD,
     POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE,
     POSTHOG_USAGE_FIELD_MAPPINGS,
     SALESFORCE_UPDATE_BATCH_SIZE,
 )
+from ee.billing.salesforce_enrichment.org_regions import fetch_org_regions, normalize_org_id
 from ee.billing.salesforce_enrichment.redis_cache import (
     OrgMappingsCacheMissingError,
     get_cached_org_mappings_count,
@@ -35,13 +41,16 @@ from ee.billing.salesforce_enrichment.redis_cache import (
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 from ee.billing.salesforce_enrichment.usage_signals import UsageSignals, aggregate_usage_signals_for_orgs
 
+if TYPE_CHECKING:
+    from simple_salesforce import Salesforce
+
 LOGGER = get_logger(__name__)
 
 # Fields from POSTHOG_USAGE_FIELD_MAPPINGS that are handled specially (not simple attribute->field copy)
 _SPECIAL_FIELDS = frozenset({"products_activated_7d", "products_activated_30d"})
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class UsageEnrichmentState:
     """Continue-As-New state carried across workflow executions."""
 
@@ -50,6 +59,8 @@ class UsageEnrichmentState:
     total_updated: int = 0
     error_count: int = 0
     errors: list[str] = dataclasses.field(default_factory=list)
+    regions_filled: int = 0
+    regions_replaced: int = 0
 
 
 @dataclasses.dataclass
@@ -62,7 +73,7 @@ class UsageEnrichmentInputs:
     state: UsageEnrichmentState | None = None  # Continue-As-New state
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class UsageEnrichmentResult:
     """Result of the usage enrichment workflow."""
 
@@ -70,6 +81,8 @@ class UsageEnrichmentResult:
     total_orgs_updated: int
     error_count: int
     errors: list[str]
+    regions_filled: int
+    regions_replaced: int
 
 
 def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageSignals) -> dict[str, Any]:
@@ -89,6 +102,194 @@ def prepare_salesforce_update_record(salesforce_account_id: str, signals: UsageS
     record[POSTHOG_USAGE_FIELD_MAPPINGS["products_activated_30d"]] = ",".join(sorted(signals.products_activated_30d))
 
     return record
+
+
+class OrgRegionOutcome(enum.StrEnum):
+    FILL = "fill"
+    MATCHES = "matches"
+    REPLACE = "replace"
+    RESTAMPED = "restamped"
+
+
+@frozen
+class SalesforceAccountRegion:
+    """Values an Account carries when it is re-read just before its batch is written."""
+
+    posthog_org_id: str | None
+    region: str | None
+
+
+def decide_org_region(org_id: str, billing_region: str, current: SalesforceAccountRegion | None) -> OrgRegionOutcome:
+    """Decide whether billing's region may be written onto the Account mapped to ``org_id``.
+
+    ``current`` is read just before the write, because the cached mapping can be hours old.
+    Billing's license is the authoritative source, so it fills an empty region and replaces
+    a different one, such as an interim value copied from Vitally. It writes only onto an
+    Account that still carries ``org_id``. The read and the Bulk API write are separate calls
+    with no conditional update between them, so a restamp that lands in that gap can take
+    the old organization's region until the next run replaces it.
+    """
+    if current is None or normalize_org_id(current.posthog_org_id) != normalize_org_id(org_id):
+        return OrgRegionOutcome.RESTAMPED
+    if not current.region:
+        return OrgRegionOutcome.FILL
+    if current.region == billing_region:
+        return OrgRegionOutcome.MATCHES
+    return OrgRegionOutcome.REPLACE
+
+
+def org_region_field_is_writable(sf: "Salesforce") -> bool:
+    describe = sf.restful("sobjects/Account/describe") or {}
+    return any(
+        field["name"] == POSTHOG_ORG_REGION_FIELD and field["updateable"] for field in describe.get("fields", [])
+    )
+
+
+async def _fetch_billing_regions(sf: "Salesforce", org_ids: list[str]) -> dict[str, str]:
+    """Return billing's region per normalized organization ID, or an empty map while Salesforce cannot take it.
+
+    Salesforce rejects a whole record that names a missing or read-only field, so
+    sending the region before the field is deployed and granted to this integration
+    user would also drop the usage fields of every Account that has no region yet.
+    """
+    logger = LOGGER.bind()
+    try:
+        if not await asyncio.to_thread(org_region_field_is_writable, sf):
+            logger.warning("salesforce_org_region_field_not_writable", field=POSTHOG_ORG_REGION_FIELD)
+            return {}
+        return await asyncio.to_thread(fetch_org_regions, org_ids)
+    except Exception:
+        logger.exception("org_region_lookup_failed", org_count=len(org_ids))
+        return {}
+
+
+def read_account_regions(sf: "Salesforce", account_ids: list[str]) -> dict[str, SalesforceAccountRegion]:
+    # The field names are trusted constants; simple_salesforce quotes the IN values.
+    query = format_soql(
+        f"SELECT Id, {POSTHOG_ORG_ID_FIELD}, {POSTHOG_ORG_REGION_FIELD} FROM Account WHERE Id IN {{}}",
+        account_ids,
+    )
+    # Index instead of .get(): a missing key means the query and the field disagree, so
+    # the read fails and the batch skips regions instead of deciding on a guessed value.
+    return {
+        record["Id"]: SalesforceAccountRegion(
+            posthog_org_id=record[POSTHOG_ORG_ID_FIELD], region=record[POSTHOG_ORG_REGION_FIELD]
+        )
+        for record in sf.query_all(query).get("records", [])
+    }
+
+
+@frozen
+class _RegionDecision:
+    outcome: OrgRegionOutcome
+    previous_region: str | None
+
+
+async def _add_org_regions(
+    sf: "Salesforce",
+    records: list[dict[str, Any]],
+    org_by_account_id: dict[str, str],
+    billing_regions: dict[str, str],
+) -> dict[str, _RegionDecision]:
+    """Add billing's region to each update record whose Account may take it, and return the decision per Account."""
+    logger = LOGGER.bind()
+    region_by_account_id: dict[str, str] = {}
+    for record in records:
+        billing_region = billing_regions.get(normalize_org_id(org_by_account_id[record["Id"]]))
+        if billing_region is not None:
+            region_by_account_id[record["Id"]] = billing_region
+    if not region_by_account_id:
+        return {}
+
+    try:
+        current_by_account_id = await asyncio.to_thread(read_account_regions, sf, list(region_by_account_id))
+    except Exception:
+        logger.exception("salesforce_account_regions_read_failed", account_count=len(region_by_account_id))
+        return {}
+
+    decisions: dict[str, _RegionDecision] = {}
+    for record in records:
+        account_id = record["Id"]
+        billing_region = region_by_account_id.get(account_id)
+        if billing_region is None:
+            continue
+        current = current_by_account_id.get(account_id)
+        outcome = decide_org_region(org_by_account_id[account_id], billing_region, current)
+        decisions[account_id] = _RegionDecision(outcome=outcome, previous_region=current.region if current else None)
+        if outcome in (OrgRegionOutcome.FILL, OrgRegionOutcome.REPLACE):
+            record[POSTHOG_ORG_REGION_FIELD] = billing_region
+    return decisions
+
+
+@frozen
+class _AccountUpdateCounts:
+    updated: int
+    regions_filled: int
+    regions_replaced: int
+    error: str | None = None
+
+
+async def _update_accounts(
+    sf: "Salesforce", records: list[dict[str, Any]], region_decisions: dict[str, _RegionDecision]
+) -> _AccountUpdateCounts:
+    """Send one Bulk API batch and count the Accounts it updated.
+
+    Salesforce rejects a whole record when one of its values fails, for example a picklist
+    value that the Account's record type does not allow. A rejected record that carries the
+    region is sent again without it, so a region problem never also drops the usage fields.
+    """
+    logger = LOGGER.bind()
+    updated = 0
+    regions_filled = 0
+    regions_replaced = 0
+    resend: list[dict[str, Any]] = []
+    response = await asyncio.to_thread(sf.bulk.Account.update, records)  # type: ignore[union-attr,arg-type]
+    # Bulk API results come back in input order, and a failed result can have no id.
+    for record, result in zip(records, response, strict=True):
+        if result.get("success"):
+            updated += 1
+            decision = region_decisions.get(record["Id"])
+            if decision is None:
+                continue
+            if decision.outcome is OrgRegionOutcome.FILL:
+                regions_filled += 1
+            elif decision.outcome is OrgRegionOutcome.REPLACE:
+                regions_replaced += 1
+                logger.info(
+                    "salesforce_org_region_replaced",
+                    account_id=record["Id"],
+                    previous_region=decision.previous_region,
+                    billing_region=record[POSTHOG_ORG_REGION_FIELD],
+                )
+            continue
+        logger.warning("salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors"))
+        if POSTHOG_ORG_REGION_FIELD in record:
+            resend.append({field: value for field, value in record.items() if field != POSTHOG_ORG_REGION_FIELD})
+
+    error = None
+    if resend:
+        try:
+            retry_response = await asyncio.to_thread(sf.bulk.Account.update, resend)  # type: ignore[union-attr,arg-type]
+        except Exception as e:
+            # The first attempt's updates are already written, so a failed resend is reported
+            # beside their counts instead of raised over them.
+            logger.exception("salesforce_account_resend_failed", account_count=len(resend))
+            error = f"Failed to resend {len(resend)} Accounts without the region: {e!s}"
+        else:
+            rejected = 0
+            for record, result in zip(resend, retry_response, strict=True):
+                if result.get("success"):
+                    updated += 1
+                else:
+                    rejected += 1
+                    logger.warning(
+                        "salesforce_account_update_failed", account_id=record["Id"], errors=result.get("errors")
+                    )
+            if rejected:
+                error = f"Salesforce rejected {rejected} Accounts again when resent without the region"
+    return _AccountUpdateCounts(
+        updated=updated, regions_filled=regions_filled, regions_replaced=regions_replaced, error=error
+    )
 
 
 @activity.defn
@@ -130,7 +331,7 @@ async def cache_org_mappings_activity(force_rebuild: bool = False) -> dict[str, 
     return {"success": True, "total_mappings": len(mappings)}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EnrichPageResult:
     """Result of enriching one page of org mappings."""
 
@@ -138,6 +339,8 @@ class EnrichPageResult:
     processed: int
     updated: int
     errors: list[str]
+    regions_filled: int = 0
+    regions_replaced: int = 0
 
 
 @activity.defn
@@ -174,6 +377,7 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
             return EnrichPageResult(page_size=0, processed=0, updated=0, errors=[])
 
         org_to_sf = {m["posthog_org_id"]: m["salesforce_account_id"] for m in cached_mappings}
+        org_by_account_id = {account_id: org_id for org_id, account_id in org_to_sf.items()}
         all_org_ids = list(org_to_sf.keys())
         total_orgs = len(all_org_ids)
 
@@ -186,8 +390,12 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
 
         total_processed = 0
         total_updated = 0
+        regions_filled = 0
+        regions_replaced = 0
+        region_outcome_counts: Counter[OrgRegionOutcome] = Counter()
         errors: list[str] = []
         sf = get_salesforce_client()
+        billing_regions = await _fetch_billing_regions(sf, all_org_ids)
 
         for batch_tuple in batched(all_org_ids, batch_size, strict=False):
             batch_org_ids = list(batch_tuple)
@@ -204,16 +412,15 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
 
                 if update_records:
                     for sf_batch in batched(update_records, SALESFORCE_UPDATE_BATCH_SIZE, strict=False):
-                        response = await asyncio.to_thread(sf.bulk.Account.update, list(sf_batch))  # type: ignore[union-attr,arg-type]
-                        for result in response:
-                            if result.get("success"):
-                                total_updated += 1
-                            else:
-                                logger.warning(
-                                    "salesforce_account_update_failed",
-                                    account_id=result.get("id"),
-                                    errors=result.get("errors"),
-                                )
+                        batch_records = list(sf_batch)
+                        region_decisions = await _add_org_regions(sf, batch_records, org_by_account_id, billing_regions)
+                        region_outcome_counts.update(decision.outcome for decision in region_decisions.values())
+                        counts = await _update_accounts(sf, batch_records, region_decisions)
+                        total_updated += counts.updated
+                        regions_filled += counts.regions_filled
+                        regions_replaced += counts.regions_replaced
+                        if counts.error:
+                            errors.append(counts.error)
 
                 total_processed += len(batch_org_ids)
                 heartbeater.details = (total_processed, total_orgs, total_updated)
@@ -229,6 +436,10 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
             page_size=len(all_org_ids),
             processed=total_processed,
             updated=total_updated,
+            billing_regions=len(billing_regions),
+            region_outcomes=dict(region_outcome_counts),
+            regions_filled=regions_filled,
+            regions_replaced=regions_replaced,
             error_count=len(errors),
         )
 
@@ -237,6 +448,8 @@ async def enrich_org_page_activity(offset: int, limit: int, batch_size: int) -> 
             processed=total_processed,
             updated=total_updated,
             errors=errors,
+            regions_filled=regions_filled,
+            regions_replaced=regions_replaced,
         )
 
 
@@ -338,6 +551,8 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
 
         state.total_processed += page_result.processed
         state.total_updated += page_result.updated
+        state.regions_filled += page_result.regions_filled
+        state.regions_replaced += page_result.regions_replaced
         state.error_count += len(page_result.errors)
         # Cap stored errors to avoid unbounded growth across Continue-As-New executions
         if len(state.errors) < 10:
@@ -389,5 +604,7 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
                 total_orgs_updated=state.total_updated,
                 error_count=state.error_count,
                 errors=state.errors[:10],
+                regions_filled=state.regions_filled,
+                regions_replaced=state.regions_replaced,
             )
         )

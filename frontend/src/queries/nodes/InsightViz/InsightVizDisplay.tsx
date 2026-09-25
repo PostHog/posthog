@@ -560,7 +560,6 @@ export function InsightVizDisplay({
                         chartTypeControl={
                             <ChartAlternatives
                                 insightProps={insightProps}
-                                editMode={editMode}
                                 embedded={embedded}
                                 inSharedMode={inSharedMode}
                             />

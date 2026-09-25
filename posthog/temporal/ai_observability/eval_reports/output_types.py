@@ -1,12 +1,16 @@
 """Trusted query definitions for evaluation report outcomes.
 
-Only `outcome_predicates` and `label_for` depend on the evaluation's polarity. `event_predicate`,
+Only `outcome_predicates` and `label_for` depend on the evaluation's passing rule. `event_predicate`,
 `outcomes`, `result_expression`, `applicable_expression` and `score_expression` do not, so a caller
-that reads only those is correct without passing `true_is_failure`.
+that reads only those is correct without passing `true_is_failure` or `output_config`.
 """
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+
+from posthog.hogql import ast
+
+from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig
 
 SENTIMENT_LABELS = ("positive", "neutral", "negative")
 
@@ -21,9 +25,26 @@ class EvaluationReportOutcomeDefinition:
     score_expression: str
     # Which raw boolean is the desirable outcome, or None for an output type that labels itself.
     passing_result: bool | None
+    numeric_config: NumericOutputConfig | None = None
+
+    @property
+    def query_placeholders(self) -> dict[str, ast.Constant]:
+        if self.numeric_config is not None and self.numeric_config.passing_rule is not None:
+            return {"numeric_threshold": ast.Constant(value=self.numeric_config.passing_rule.threshold)}
+        return {}
 
     def label_for(self, result: object, applicable: object = None) -> str | None:
         """Map one raw result value to its outcome label, or None when it is not one we report."""
+        if self.numeric_config is not None:
+            if applicable in (False, "false"):
+                return "na"
+            if self.numeric_config.passing_rule is None:
+                return None
+            try:
+                score = NumericOutputConfig().validate_score(result)
+            except ValueError:
+                return None
+            return "pass" if self.numeric_config.passing_rule.passes(score) else "fail"
         if self.passing_result is None:
             return result if isinstance(result, str) and result in self.outcomes else None
         if applicable is False:
@@ -84,13 +105,36 @@ _DEFINITION_BUILDERS: Mapping[str, Callable[[bool], EvaluationReportOutcomeDefin
     "sentiment": _sentiment_definition,
 }
 
-SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = tuple(_DEFINITION_BUILDERS)
+SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric")
+
+
+def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
+    config = NumericOutputConfig.model_validate(output_config or {})
+    score = "toFloat(properties.$ai_evaluation_numeric_result)"
+    applicable = "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
+    passed = failed = "false"
+    if config.passing_rule is not None:
+        passed_op, failed_op = (">=", "<") if config.passing_rule.operator == "gte" else ("<=", ">")
+        passed = f"{score} {passed_op} {{numeric_threshold}} AND {applicable}"
+        failed = f"{score} {failed_op} {{numeric_threshold}} AND {applicable}"
+    return EvaluationReportOutcomeDefinition(
+        outcomes=("pass", "fail", "na"),
+        outcome_predicates={"pass": passed, "fail": failed, "na": "properties.$ai_evaluation_applicable = 'false'"},
+        event_predicate=f"properties.$ai_evaluation_result_type = 'numeric' AND {_NOT_SKIPPED_PREDICATE}",
+        result_expression=score,
+        applicable_expression="properties.$ai_evaluation_applicable",
+        score_expression=score,
+        passing_result=None,
+        numeric_config=config,
+    )
 
 
 def get_outcome_definition(
-    output_type: str | None, *, true_is_failure: bool = False
+    output_type: str | None, *, true_is_failure: bool = False, output_config: dict | None = None
 ) -> EvaluationReportOutcomeDefinition:
     normalized_output_type = output_type or "boolean"
+    if normalized_output_type == "numeric":
+        return _numeric_definition(output_config)
     try:
         builder = _DEFINITION_BUILDERS[normalized_output_type]
     except KeyError as error:

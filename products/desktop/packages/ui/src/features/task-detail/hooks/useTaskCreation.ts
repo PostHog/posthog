@@ -486,6 +486,8 @@ export function useTaskCreation({
             claudeModelAccess,
             claudeCloudModelAccess:
               workspaceMode === "cloud" ? claudeModelAccess : undefined,
+            codexCloudModelAccess:
+              workspaceMode === "cloud" ? codexModelAccess : undefined,
             runtime,
             model,
             reasoningLevel,

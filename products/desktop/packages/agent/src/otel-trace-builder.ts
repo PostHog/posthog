@@ -2,6 +2,7 @@ import {
   type Context,
   ROOT_CONTEXT,
   type Span,
+  type SpanContext,
   SpanKind,
   SpanStatusCode,
   type Tracer,
@@ -89,6 +90,12 @@ export class RunTraceBuilder {
       kind: SpanKind.SERVER,
     });
     this.rootContext = trace.setSpan(ROOT_CONTEXT, this.rootSpan);
+  }
+
+  getRunSpanContext(): SpanContext | undefined {
+    return this.rootSpan.isRecording()
+      ? this.rootSpan.spanContext()
+      : undefined;
   }
 
   /**

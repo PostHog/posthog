@@ -54,44 +54,48 @@ describe('heatmapCaptureLogic', () => {
         currentPageLogic.actions.setHref('https://app.example.com/dashboard')
     })
 
-    it.each([
-        {
-            name: 'uploads one image per captured width as parallel images/widths arrays',
-            captures: [
-                { width: 320, blob: jpeg() },
-                { width: 768, blob: jpeg() },
-                { width: 1440, blob: jpeg() },
-            ],
-            expectedWidths: ['320', '768', '1440'],
-            expectedImageCount: 3,
-            expectedSingleWidth: null as string | null,
-        },
-        {
-            name: 'falls back to a single capture at the current width when no widths could be reflowed',
-            captures: [] as { width: number; blob: Blob }[],
-            expectedWidths: [] as string[],
-            expectedImageCount: 0,
-            expectedSingleWidth: '1440' as string | null,
-        },
-    ])('$name', async ({ captures, expectedWidths, expectedImageCount, expectedSingleWidth }) => {
-        ;(captureResponsiveScreenshots as jest.Mock).mockResolvedValue(captures)
-        mockCaptureResponse()
+    describe.each(['https://app.example.com/dashboard', 'https://app.example.com/*'])('data URL %s', (dataUrl) => {
+        it.each([
+            {
+                name: 'uploads one image per captured width as parallel images/widths arrays',
+                captures: [
+                    { width: 320, blob: jpeg() },
+                    { width: 768, blob: jpeg() },
+                    { width: 1440, blob: jpeg() },
+                ],
+                expectedWidths: ['320', '768', '1440'],
+                expectedImageCount: 3,
+                expectedSingleWidth: null as string | null,
+            },
+            {
+                name: 'falls back to a single capture at the current width when no widths could be reflowed',
+                captures: [] as { width: number; blob: Blob }[],
+                expectedWidths: [] as string[],
+                expectedImageCount: 0,
+                expectedSingleWidth: '1440' as string | null,
+            },
+        ])('$name', async ({ captures, expectedWidths, expectedImageCount, expectedSingleWidth }) => {
+            ;(captureResponsiveScreenshots as jest.Mock).mockResolvedValue(captures)
+            mockCaptureResponse()
+            currentPageLogic.actions.setWildcardHref(dataUrl)
 
-        await expectLogic(logic, () => {
-            logic.actions.saveToPostHog()
+            await expectLogic(logic, () => {
+                logic.actions.saveToPostHog()
+            })
+                .delay(0)
+                .toDispatchActions(['saveToPostHog', 'saveToPostHogSuccess'])
+
+            const [url, options] = (global.fetch as jest.Mock).mock.calls[0]
+            expect(url).toContain('/api/projects/@current/saved/capture/')
+            const body = options.body as FormData
+            expect(body.get('url')).toBe('https://app.example.com/dashboard')
+            expect(body.get('data_url')).toBe(dataUrl)
+            expect(body.getAll('widths')).toEqual(expectedWidths)
+            const images = body.getAll('images')
+            expect(images).toHaveLength(expectedImageCount)
+            expect(images.every((image) => image instanceof File)).toBe(true)
+            expect(body.get('width')).toBe(expectedSingleWidth)
+            expect(body.get('image') instanceof File).toBe(expectedSingleWidth !== null)
         })
-            .delay(0)
-            .toDispatchActions(['saveToPostHog', 'saveToPostHogSuccess'])
-
-        const [url, options] = (global.fetch as jest.Mock).mock.calls[0]
-        expect(url).toContain('/api/projects/@current/saved/capture/')
-        const body = options.body as FormData
-        expect(body.get('url')).toBe('https://app.example.com/dashboard')
-        expect(body.getAll('widths')).toEqual(expectedWidths)
-        const images = body.getAll('images')
-        expect(images).toHaveLength(expectedImageCount)
-        expect(images.every((image) => image instanceof File)).toBe(true)
-        expect(body.get('width')).toBe(expectedSingleWidth)
-        expect(body.get('image') instanceof File).toBe(expectedSingleWidth !== null)
     })
 })

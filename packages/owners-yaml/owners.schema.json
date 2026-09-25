@@ -16,9 +16,10 @@
         },
         "rules": {
             "type": "array",
-            "description": "Per-path overrides inside this directory. The last matching rule applies.",
+            "description": "Per-path overrides inside this directory. Every matching rule applies in order, and each replaces only the fields it sets.",
             "items": { "$ref": "#/$defs/rule" }
         },
+        "additions": { "$ref": "#/$defs/additions" },
         "teams": {
             "type": "object",
             "description": "Repository settings: team slug to its channels.",
@@ -69,6 +70,13 @@
                 { "type": "null" }
             ]
         },
+        "additions": {
+            "description": "Team slugs or @handles who own additions, separate from the owners. Appends to the file-level value and to what ancestor files declare. A consumer decides what counts as an addition.",
+            "oneOf": [
+                { "type": "string", "minLength": 1 },
+                { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            ]
+        },
         "status": {
             "enum": ["active", "deprecated", "generated", "vendored"],
             "description": "The lifecycle of the code. Default active."
@@ -92,7 +100,8 @@
                 },
                 "owners": { "$ref": "#/$defs/owners" },
                 "status": { "$ref": "#/$defs/status" },
-                "inherit": { "type": "boolean" }
+                "inherit": { "type": "boolean" },
+                "additions": { "$ref": "#/$defs/additions" }
             }
         },
         "channel": {

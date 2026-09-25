@@ -217,6 +217,9 @@ async def assert_clickhouse_records_in_azure_blob(
 
     expected_columns = list(expected_records[0].keys())
 
+    if model_name == "events" and fields is None:
+        assert "person_id" in expected_columns
+
     if "team_id" in expected_columns:
         assert all(record.get("team_id") == team_id for record in exported_records), (
             f"Some exported records have wrong team_id (expected {team_id})"

@@ -39,7 +39,6 @@ export function DeliverySections({
         return <CIAnalyticsLoadError onRetry={loadSummary} />
     }
 
-    const summaryPending = summaryLoading && !summary
     const costEmpty =
         summary && !summary.jobs_available
             ? 'Cost appears once the workflow jobs table on this GitHub source is synced.'
@@ -54,7 +53,7 @@ export function DeliverySections({
             <Section id="delivery-spend" title="CI spend">
                 <div className="@container">
                     <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2 @min-[64rem]:grid-cols-4">
-                        <PullRequestCountsCard summary={summary} loading={summaryPending} />
+                        <PullRequestCountsCard summary={summary} loading={summaryLoading} />
                         <ScopeComparisonCard
                             title="CI cost per merged PR"
                             tooltip="Median estimated CI cost of a merged pull request: every run linked to it, merge queue runs included, from up to 30 days before the window. Repo: the same median over every pull request merged in the repository, bots excluded."
@@ -66,7 +65,7 @@ export function DeliverySections({
                                     ? `${compactUsd(summary.total_cost_usd)} in total`
                                     : undefined
                             }
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={costEmpty}
                         />
                         <ScopeComparisonCard
@@ -80,7 +79,7 @@ export function DeliverySections({
                                     ? `${compactMinutes(summary.total_billable_minutes)} billable in total`
                                     : undefined
                             }
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={costEmpty}
                         />
                         <ScopeComparisonCard
@@ -90,7 +89,7 @@ export function DeliverySections({
                             figure={summary?.cost_per_push_usd}
                             formatValue={compactUsd}
                             caption={summary ? pluralize(summary.push_count, 'push', 'pushes') : undefined}
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={costEmpty}
                         />
                     </div>
@@ -112,7 +111,7 @@ export function DeliverySections({
                                         : []
                                 }
                                 reviewsSynced={!!summary?.review_data_available}
-                                loading={summaryPending}
+                                loading={summaryLoading}
                                 emptyText={
                                     summary && !summary.ready_data_available
                                         ? 'Ready time appears once the issue events table on this GitHub source is synced.'
@@ -127,7 +126,7 @@ export function DeliverySections({
                             scopeLabel={scopeLabel}
                             figure={summary?.pushes_after_approval_per_merged_pr}
                             formatValue={formatRatio}
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText={reviewsEmpty}
                         />
                         <ScopeComparisonCard
@@ -141,7 +140,7 @@ export function DeliverySections({
                                     ? `${percent(summary.failed_merge_queue_share.scope)} had a failed attempt · repo ${percent(summary.failed_merge_queue_share.repo)}`
                                     : undefined
                             }
-                            loading={summaryPending}
+                            loading={summaryLoading}
                             emptyText="No merged pull requests went through the merge queue in the window."
                         />
                     </div>
@@ -152,7 +151,7 @@ export function DeliverySections({
                 <LeadTimeComparisonCard
                     leadTime={summary?.lead_time}
                     scopeLabel={scopeLabel}
-                    loading={summaryPending}
+                    loading={summaryLoading}
                 />
             </Section>
         </>

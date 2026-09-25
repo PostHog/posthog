@@ -23,107 +23,34 @@ jobs:
     report-migrations:
         if: >-
             github.event.pull_request.head.repo.full_name == github.repository
+            && !startsWith(github.event.pull_request.head.ref, 'trunk-merge/')
             && (github.event.pull_request.draft != true || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         name: Report Depot migration results
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 90
         steps:
+            - name: Checkout the trusted relay script # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
+              # v6.0.2 checks out only the trusted base SHA below, never pull request code.
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  repository: ${{ github.repository }}
+                  ref: ${{ github.sha }}
+                  path: trusted-relay
+                  sparse-checkout: .github/scripts/ci_backend_relay.py
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
+            # First confirm GitHub Actions handed this commit to Depot. The script then finds
+            # this event's Depot run by its wait check name and waits for its migration check.
             - name: Find the handed-off Depot migration run
               id: source
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
-                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  HANDOFF_CHECK: Hand off backend tests to Depot CI
-                  MIGRATION_CHECK: Backend CI on Depot / Validate migrations
-                  GITHUB_ACTIONS_APP_ID: '15368'
-                  DEPOT_APP_ID: '219785'
-              run: |
-                  set -euo pipefail
-
-                  read_check() {
-                      local url=$1
-                      local body=$2
-                      local code
-                      code=$(curl -s -o "$body" -w '%{http_code}' --max-time 15 \
-                          -H "Authorization: Bearer $GH_TOKEN" \
-                          -H "Accept: application/vnd.github+json" "$url")
-                      if [ "$code" != 200 ]; then
-                          echo "::warning::check-runs API returned $code"
-                          return 1
-                      fi
-                  }
-
-                  check_url() {
-                      local app_id=$1
-                      local name=$2
-                      printf 'https://api.github.com/repos/%s/commits/%s/check-runs?app_id=%s&check_name=%s' \
-                          "$REPO" "$HEAD_SHA" "$app_id" "$(jq -rn --arg n "$name" '$n | @uri')"
-                  }
-
-                  handoff_url=$(check_url "$GITHUB_ACTIONS_APP_ID" "$HANDOFF_CHECK")
-                  handoff=absent
-                  for _ in $(seq 1 45); do
-                      if read_check "$handoff_url" /tmp/handoff-checks.json; then
-                          handoff=$(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
-                              [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
-                              | max_by(.id)
-                              | if . == null then "absent" elif .status == "completed" then .conclusion else .status end
-                          ' /tmp/handoff-checks.json)
-                      fi
-                      case "$handoff" in
-                          success) break ;;
-                          absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
-                          *)
-                              echo "handed_off=false" >> "$GITHUB_OUTPUT"
-                              echo "GitHub Actions kept the backend tests (hand-off check: $handoff)."
-                              exit 0
-                              ;;
-                      esac
-                  done
-                  if [ "$handoff" != success ]; then
-                      echo "::error::Backend routing did not resolve within 15 minutes"
-                      exit 1
-                  fi
-                  echo "handed_off=true" >> "$GITHUB_OUTPUT"
-
-                  migration_url=$(check_url "$DEPOT_APP_ID" "$MIGRATION_CHECK")
-                  migration_state=absent
-                  details_url=''
-                  for _ in $(seq 1 210); do
-                      if read_check "$migration_url" /tmp/migration-checks.json; then
-                          readarray -t check < <(jq -r --arg since "$EVENT_AT" --argjson pr "$PR_NUMBER" '
-                              [.check_runs[] | select((.started_at // "") >= $since and any(.pull_requests[]?; .number == $pr))]
-                              | max_by(.id)
-                              | if . == null then "absent", "" else (if .status == "completed" then .conclusion else .status end), (.details_url // "") end
-                          ' /tmp/migration-checks.json)
-                          migration_state=${check[0]:-absent}
-                          details_url=${check[1]:-}
-                      fi
-                      case "$migration_state" in
-                          success|failure|neutral|cancelled|skipped) break ;;
-                          absent|queued|in_progress|pending|waiting|requested) sleep 20 ;;
-                          *) echo "::error::Unexpected migration check state: $migration_state"; exit 1 ;;
-                      esac
-                  done
-                  echo "migration_state=$migration_state" >> "$GITHUB_OUTPUT"
-                  case "$migration_state" in
-                      success|failure|neutral) ;;
-                      cancelled|skipped)
-                          echo "No completed migration report is available (migration check: $migration_state)."
-                          exit 0
-                          ;;
-                      *) echo "::error::Depot migration check did not finish within 70 minutes"; exit 1 ;;
-                  esac
-
-                  if [[ "$details_url" =~ ^https://depot.dev/orgs/[^/]+/workflows/([a-z0-9]+) ]]; then
-                      echo "workflow_id=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
-                  else
-                      echo "::error::Unexpected Depot migration check URL"
-                      exit 1
-                  fi
+              run: python3 trusted-relay/.github/scripts/ci_backend_relay.py migrations
 
             - name: Set up Depot CLI
               if: steps.source.outputs.workflow_id != ''
@@ -235,7 +162,9 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
               with:
                   repository: ${{ github.repository }}
-                  ref: ${{ github.event.pull_request.base.sha }}
+                  # The base branch head this workflow file came from. pull_request.base.sha
+                  # only moves when the PR is opened or force-pushed, so it can predate the scripts.
+                  ref: ${{ github.sha }}
                   path: trusted-reporter
                   sparse-checkout: |
                       .nvmrc
@@ -301,7 +230,6 @@ jobs:
               working-directory: trusted-reporter
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-                  IS_TRUNK: ${{ startsWith(github.event.pull_request.head.ref, 'trunk-merge/') }}
               run: |
                   set -euo pipefail
                   data=/tmp/depot-migration-rendered
@@ -336,7 +264,7 @@ jobs:
                       post_django risk post ok "migration analysis complete" "$data/django-migration-risk.md"
                   fi
 
-                  if [ "$IS_TRUNK" != true ] && [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
+                  if [ "$(jq -r '.chAvailable' "$metadata")" = true ]; then
                       count=$(jq -r '.chMigrationCount' "$metadata")
                       if [ "$count" -gt 0 ]; then
                           cp "$data/ch-migration-sql.md" ch_migration_sql_comment.md

@@ -26,6 +26,11 @@ from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
 
+# max_query_size sizes the buffer that parses the query text, so it cannot be raised inside a query. Every property
+# read on the native-JSON events table expands to a few hundred bytes of SQL, so a query that reads many properties
+# (the bot-traffic classifier is ~2 MB) needs more room than the 1 MB default.
+MAX_QUERY_SIZE_BYTES = 8 * 1024 * 1024
+
 
 class NodeRole(StrEnum):
     # Roles of nodes for a particular NodeType. These are meant to

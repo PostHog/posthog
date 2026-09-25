@@ -222,6 +222,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         if (values.isAction) {
                             // Action Definitions
                             const _action = definition as ActionType
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use actionsPartialUpdate() from 'products/actions/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/actions/${_action.id}`,
                                 _action
@@ -230,6 +231,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.isEvent) {
                             // Event Definitions
                             const _event = definition as EventDefinition
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use eventDefinitionsPartialUpdate() from 'products/event_definitions/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/event_definitions/${_event.id}`,
                                 {
@@ -244,6 +246,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         ) {
                             // Event Property Definitions
                             const _eventProperty = definition as PropertyDefinition
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use propertyDefinitionsPartialUpdate() from '~/generated/core/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/property_definitions/${_eventProperty.id}`,
                                 _eventProperty
@@ -254,6 +257,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         } else if (values.type === TaxonomicFilterGroupType.Cohorts) {
                             // Cohort
                             const _cohort = definition as CohortType
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPartialUpdate() from 'products/cohorts/frontend/generated/api' instead.
                             definition = await api.update(
                                 `api/projects/${values.currentProjectId}/cohorts/${_cohort.id}`,
                                 _cohort

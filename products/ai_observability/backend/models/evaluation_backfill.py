@@ -49,6 +49,17 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     skipped_count = models.PositiveIntegerField(
         default=0, help_text="Units whose child workflow already existed, so the live path had them."
     )
+    remaining_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "Units the run finished without a result for, counted when it ended rather than "
+            "inferred, and discounting the evaluations it had just started. A run leaves one "
+            "behind when its evaluation could not start or came back unusable, and running the "
+            "backfill again picks it up. Null means nothing counted the window."
+        ),
+    )
 
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
@@ -58,6 +69,7 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     finished_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
+        ordering = ["-created_at", "id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["evaluation"],

@@ -14,6 +14,8 @@ import { metricsLogic } from '../metricsLogic'
 export const dataCatalogSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.DATA_CATALOG,
     path: ['products', 'data_catalog', 'frontend', 'emptyState', 'dataCatalogSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await dataCatalogMetricsList(projectId, { limit: 1 })

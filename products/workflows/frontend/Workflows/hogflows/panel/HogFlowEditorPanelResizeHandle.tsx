@@ -73,7 +73,7 @@ export function HogFlowEditorPanelResizeHandle({
             aria-valuenow={visibleWidth}
             aria-valuemin={minWidth}
             aria-valuemax={maxWidth}
-            className="group absolute top-4 bottom-4 left-0 z-20 w-3 cursor-ew-resize border-0 bg-transparent p-0 opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100"
+            className="group absolute top-4 bottom-4 left-0 z-20 w-3 cursor-ew-resize border-0 bg-transparent p-0 opacity-0 transition-opacity hover:opacity-100 focus-visible:opacity-100 @max-[48rem]/workflow-editor:hidden"
             onPointerDown={startResize}
             onPointerMove={resize}
             onDoubleClick={onReset}

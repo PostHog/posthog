@@ -13,6 +13,9 @@ It is exercised locally via management commands, and it is also used by the prod
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
+  - A repository the signals name themselves is pinned before the agent runs. See `source_repository.py`.
+- `source_repository.py`
+  The repository a report's signals were filed against. A GitHub issue names its own repository in its URL, so `select_repo.py` pins it: the selector returns it when the team can reach it, and `repository=None` carrying the mismatch when it cannot, so a PR never lands in a repository the report never pointed at. Only one unambiguous repository counts; issues from two repositories name neither.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:
@@ -27,6 +30,14 @@ It is exercised locally via management commands, and it is also used by the prod
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
 
+- `ownership_reviewers.py`
+  Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. A human reviewer edit prevents subsequent research runs from replacing the selection.
+
+- `team_membership.py`
+  Resolves which teams a person belongs to, so a report can be routed at a team slug rather than at a name. Provider-neutral by design (a membership is a slug, a display name, and whether the person maintains the team); the synced GitHub org roster read through the engineering_analytics facade is the only source behind it today.
+  - Backs the `team` filter and the `teams` field on `scout-members-list` (`resolve_reviewers.list_project_members`).
+  - The roster is a warehouse snapshot, so it can lag the live team, and the membership endpoint is off by default at the source (it needs the org Members grant). A slug with no rows therefore means "not synced here", never "no such team", and callers must keep those two apart.
+  - A failed read degrades rather than raising, so a warehouse hiccup never takes down the member list beside it. It is marked `read_failed`, kept apart from a genuinely unsynced roster: a filtered call answers 503 and asks for a retry, because telling a scout to turn on a sync that is already on sends it to change a correct setting.
 - `reviewer_telemetry.py`
   Emits the `signals_suggested_reviewers_resolved` product-analytics event whenever a report's suggested reviewers are persisted, recording which GitHub logins link to a PostHog user and which don't (unlinkable reviewers can't be routed or run autostart, but still count as "assigned" in reviewer metrics).
   - Called after the artefact write commits (via `transaction.on_commit` where a transaction is open), never in-transaction: the research activity (`source="pipeline"`), scout report creation and reviewer edits (`"scout"` / `"scout_edit"`), custom-agent persistence (`"custom_agent"`), the app reviewers PUT (`"user_edit"`), and the artefacts POST (`"api"`).

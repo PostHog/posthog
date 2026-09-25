@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, WHEN_TO_CHART
+from products.signals.backend.report_links import PLAIN_TEXT_FIELDS_RULE, PULL_REQUEST_LINK_RULE
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
     MAX_LIVE_METRIC_QUERY_POINTS,
@@ -77,6 +78,8 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
     "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
     "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
+    "PULL_REQUEST_LINK_RULE": PULL_REQUEST_LINK_RULE,
     "WHEN_TO_CHART": WHEN_TO_CHART,
 }
 
@@ -170,6 +173,11 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     """
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
+
+# The close-out summary tool is a sandbox harness tool, not a PostHog MCP tool, so it is absent from
+# the `mcp__posthog__exec` catalog and has to be called under its qualified name.
+_TASK_SUMMARY_TOOL = "task_summary_update"
+_TASK_SUMMARY_TOOL_ID = f"mcp__posthog-code-tools__{_TASK_SUMMARY_TOOL}"
 
 # The close-out step is identical on every channel bar the word for what the run produces, and it is
 # numbered differently (the report channel has an extra search step), so both are rendered from here.
@@ -507,6 +515,7 @@ This is the single highest-leverage field you set. `suggested_reviewers` (a list
 - **Always try to set it.** Spend real effort identifying who owns the affected area, leaning on evidence you already gathered: code owners, recent authors on the relevant surface, the team that owns the product. Treat "I couldn't find an owner" as a last resort, not a default.
 - **Identify a reviewer two ways, and prefer the uuid.** `user_uuid` (`{user_uuid: "..."}`) names a PostHog member directly, so it is the safer identity: it cannot be mis-typed into someone else, and it works for a member who never connected GitHub. `github_login` is a bare lowercase login (`{github_login: "octocat"}`, no `@`, no display name), matched exactly, so a guessed, mis-cased, or display-name handle reaches no one. Use the login when your evidence is commit authorship; use the uuid whenever your evidence names a PostHog user (an account owner, an entity's `created_by`).
 - **No owner in your evidence? List the members.** `scout-members-list` returns this project's members with `email`, name, and resolved `github_login` (pass `search` to narrow a big project). Match the owner by email/name, then route to their `user_uuid`. Every member is routable, including one whose `github_login` is null — a null login only means no draft PR can be opened as that person, not that the report can't reach them. The org-scoped `org-member-get-github-login` / `org-members-list` tools are not available in a scout run, so this is the in-run lookup path.
+- **Got a team, not a person? Resolve the slug.** `scout-members-list` with `team=<bare slug>` (no `@your-org/` prefix) returns that team's members, maintainers first, so a slug from a note, from CODEOWNERS, or from an owners file becomes reviewers you can route. Take the first 1 to 3 and route them by `user_uuid`; prefer one when a maintainer clearly owns the area. An error back means the roster isn't synced for that slug, not that the team doesn't exist: fall back to name or email matching, and never report the team as missing. The roster is a periodic snapshot, so it can lag the live team.
 - **Set `reason` on every reviewer you name.** One sentence of the concrete evidence tying this person to the affected surface ("created the affected dashboard", "human correction on the prior tracing report routed to them"). It is persisted on the report, so humans and future runs can tell an evidence-backed route from a guess without replaying your transcript. A reviewer you can't write a reason for is a reviewer you haven't verified.
 - **Check for human corrections first.** A human swapping a suggested reviewer for someone else is the strongest ownership evidence there is, so treat it as authoritative precedent over commit history and fold it into your `reviewer:` memory keys. A `report_reviewer_correction` note tells you when one lands on a report you filed or on a login you already hold, and the condense rule for it is in *Notes left for you*. The project profile's `recent_reviewer_corrections` carries the recent ones; for history beyond that window, query `advanced-activity-logs-list` with `scopes=["SignalReport"]`, `activities=["suggested_reviewers_changed"]` (on an org without the audit-logs feature that call fails with a payment-required error: skip it, don't retry).
 - **Weigh other precedent by its evidence, not its existence.** A comparable report's reviewer entries (via `inbox-report-artefacts-list`) or your own `reviewer:` memory are strong precedent when they carry `relevant_commits`, a concrete `reason`, or a human correction behind them, and are an earlier run's unexplained guess when they carry none of those. Precedent is self-reinforcing, so every blind reuse becomes the next run's precedent and compounds a mis-route indefinitely: corroborate from what you gathered this run (an entity's `created_by`, the owning team, recent authors in the data), or say so in `reason` ("inherited from report X, unverified").
@@ -527,6 +536,7 @@ _GITHUB_EVIDENCE_HEAD = """# Code-derived reviewer evidence (`gh`, read-only)
 This sandbox has the GitHub CLI (`gh`) authenticated with a **read-only** token for this project's connected repositories. Its one job here: turn "who owns the affected surface?" into commit evidence before you set `suggested_reviewers`, instead of inheriting precedent. `gh` has no repository to infer, so every example below passes `--repo` and so must every call you make.
 
 - **Query recent authors of the affected path** once you know which files or dirs the issue touches (from the entity, the error, or a comparable report's `repository`): `gh api 'repos/<owner>/<repo>/commits?path=<dir-or-file>&per_page=30' --jq '[.[].author.login] | group_by(.) | map({login: .[0], commits: length}) | sort_by(-.commits)'`. Two or three such calls (the specific file, its directory, the product root) triangulate ownership. This is evidence-gathering, not archaeology, so don't page through history beyond that.
+- **Check repository ownership when you know the affected paths.** Look for `CODEOWNERS` in `.github/`, then the repository root, then `docs/`; use the first file found and the last rule that matches each path. Also check `owners.yaml` when present. Human reviewer corrections take precedence; if the files name different owners, keep the `owners.yaml` owner first and add a CODEOWNERS owner as a second suggested reviewer only when each resolves to a project member. A GitHub team handle is not a reviewer: resolve its members before suggesting one person. Missing files or unclear paths are not evidence of ownership.
 - **Check whether the work is already in flight** before you file something autostart could open a PR for: `gh pr list --repo <owner>/<repo> --state open --search '<keywords>'` (then `gh pr view <n> --repo <owner>/<repo> --json files,title,url` on a plausible hit), `gh api 'repos/<owner>/<repo>/branches?per_page=100'` for a recently pushed branch, and `gh issue list --repo <owner>/<repo> --state open --assignee '*' --search '<keywords>'` for a ticket someone is on. Search by the paths a fix would touch as well as by wording, since concurrent work is easier to recognize by its files. An *open, unassigned* backlog ticket doesn't count: the issue is known, not started. """
 
 _GITHUB_EVIDENCE_TAIL = """
@@ -712,7 +722,7 @@ Your close-out `summary` renders in the scout's run history **collapsed to the f
 
 Keep it a close-out, not a transcript: methodology and tool-by-tool narration belong in the task log.
 
-The `task_summary_update` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
+The `{_TASK_SUMMARY_TOOL}` tool holds the same close-out for the task run row, which is what a reader sees without opening the transcript. It is a harness tool in your sandbox, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`; it is not on the `mcp__posthog__exec` interface, per *How to call tools*. Send it the same verdict-first text you put in `summary`. Run ritual does not belong there: your skill version, the emit-eligibility gate, and a list of scratchpad keys tell a reader nothing about what you found."""
 
 # Rendered only for a team whose knowledge base is reachable and looks maintained — the runner
 # resolves `business_knowledge.is_maintained_for_team` per run (`business_knowledge_maintained`).
@@ -860,7 +870,7 @@ def _write_access_section(write_scopes: Sequence[str]) -> str:
     # The only grant whose objects spend money as they run, and the only one whose delete the API
     # refuses rather than the token.
     scanner_reach = (
-        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-retrieve` and `vision-scanners-estimate-create` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
+        "\n- **Scanners spend credits, and you cannot delete one.** Set a `credit_limit` on scanners you create, copy, or enable, and before you change targeting, sampling, or the model of an enabled scanner. You cannot remove a limit. Check `vision-quota-get` and `vision-scanners-estimate` before increasing cost. Use `enabled: false` to stop a scanner and keep its observations. Manual scans, prompt tests, retries, and backfills are forbidden for scouts. Shared ratings must record explicit user verdicts; never replace human feedback with your own assessment."
         if "replay_scanner:write" in write_scopes
         else ""
     )
@@ -915,25 +925,26 @@ You run this tooling end to end on a schedule, so your experience is how PostHog
 - **At most one submission per run, near close-out, mentioned in your summary.** This is a side report to the PostHog team, never a way to end your turn or skip work: finish the run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
-_LINKING_HEAD = """# Linking what you reference
+_LINKING_HEAD = f"""# Linking what you reference
 
-A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
+A bare id leaves the reader copying a string and guessing which page it belongs to, so every PostHog entity, pull request, and issue you name in something a person reads (a finding `description`, a report `summary`, an evidence `description`, your close-out summary, a scratchpad entry) carries a markdown link, `[Checkout funnel](<url>)`, whose URL came from a tool rather than from your own assembly. Link an entity on first mention rather than every time, and link what a reader would open (an insight, dashboard, session recording, feature flag, experiment, error issue, survey, person, notebook), not every id that passed through a tool result.
 
 - **Take the link off the tool result when it has one.** A result carrying a `*url` field (`_posthogUrl` and friends) already holds the canonical link, so surface it verbatim rather than rewriting or stripping it.
 - **Otherwise call `generate-app-url`** and use the `url` it returns verbatim. Never assemble a path around an id you retyped: a wrong slug reads as a working link and drops the reader on a 404.
 - **Never assemble an `/insights/new#q=…` link yourself.** Wrapping a query you ran into an insight URL only renders for the query kinds the insight editor accepts as a source; a trace, log, or session query wrapped that way opens a blank new insight with no error, so the reader sees an empty chart and has no way to tell the link is broken. Link the entity's own page instead.
 - **When neither source reaches the entity itself, keep the bare id.** Some entities have no detail page in the URL catalog (an insight alert, for one: `alert-get` returns its url, the catalog has only the `/alerts` list). Don't substitute a link to the list page the entity sits on, which reads as a link to the thing and drops the reader somewhere they still have to search.
 - **Full URLs only** (origin plus path), because a bare path is not clickable in the inbox or in Slack. Take the origin from the link the tool returned rather than from memory, since this project may not sit on the host you assume, and never include `/-/`.
-- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query."""
+- **The anchor text names the entity**, so the sentence still reads without the URL. Keep the id itself in the prose or a `code` span wherever a reader may need to paste it into a query.
+{PULL_REQUEST_LINK_RULE}"""
 
 # Both caveats are report-channel-only concerns. Charts render on the report channel alone, so the
 # collision the first warns about (writing a real URL where a `chart:` target belongs, or the
 # reverse) can only happen there, and *Attaching charts* is in that tail alone, so naming it from
 # the signal channel would dangle. The second names report fields (`title`, the report `summary`)
 # the signal channel never writes.
-_LINKING_REPORT_CLAUSES = """
+_LINKING_REPORT_CLAUSES = f"""
 - **A `chart:` target is not a URL.** `[Daily signups](chart:signups-drop)` places a chart (see *Attaching charts*); swapping in a link draws nothing, and pointing a `chart:` target at a page the reader could open is a broken chart reference instead.
-- **A report `title` and the first line of its `summary` stay plain text.** The inbox renders the title as text and lifts the summary's first line out verbatim as the card headline, so a markdown link in either shows up as literal brackets beside a raw URL. Name the entity in words there, and link it where the body picks it up again."""
+{PLAIN_TEXT_FIELDS_RULE}"""
 
 
 def _linking_section(*, report_channel: bool) -> str:
@@ -1382,6 +1393,8 @@ def build_run_prompt(
 # How to call tools
 
 Every tool named in this prompt, the `scout-*` harness tools and all PostHog MCP tools alike, is invoked through the `mcp__posthog__exec` interface as `call <tool_name> <json>`, never as a direct tool call. Bare names like `skill-get`, `scout-project-profile-get`, or `{emit_tool}` are how you *refer* to a tool, so don't burn opening moves trying to invoke them directly. For any tool you haven't already used, `search <regex>` to find it and `info <tool_name>` to read its schema on that same interface, then `call` it. Search by prefix, one family at a time (`search ^scout-`, `search ^inbox-report`), and confirm a single name with `info <tool_name>`. Do not build one pattern that lists every tool you hold: `search` refuses a pattern over 800 characters. If a `scout-*` tool comes back unknown, the server may still expose it under its legacy `signals-scout-*` name: `search scout` and call whichever name the catalog returns.
+
+One tool named in this prompt is not on that interface: `{_TASK_SUMMARY_TOOL}`, the close-out summary tool. It is a harness tool your sandbox mounts, so call it directly as `{_TASK_SUMMARY_TOOL_ID}`. `search` and `info` on `mcp__posthog__exec` do not know it under any spelling, so a lookup there tells you nothing and is not a gap to report through `agent-feedback`. If the qualified name is not in your tool catalog, this run does not mount it: write the close-out in your final JSON `summary` as usual and move on.
 
 # First: read your skill
 

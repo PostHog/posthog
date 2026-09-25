@@ -1,7 +1,7 @@
 import type { Adapter } from "./adapter";
 import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import { labelForModel } from "./model-catalog";
+import { isOfferedModel, labelForModel } from "./model-catalog";
 import {
   customModelMeta,
   modelHarnessMeta,
@@ -53,37 +53,9 @@ export interface CloudTaskModePreset {
   description: string;
 }
 
-export const DEFAULT_GATEWAY_MODEL = "claude-opus-4-8";
+export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
 export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
-
-export const BLOCKED_GATEWAY_MODEL_IDS = [
-  "gpt-5-mini",
-  "openai/gpt-5-mini",
-  "gpt-5.2",
-  "openai/gpt-5.2",
-  "gpt-5.3",
-  "openai/gpt-5.3",
-  "gpt-5.3-codex",
-  "openai/gpt-5.3-codex",
-  "gpt-5.4",
-  "openai/gpt-5.4",
-  "claude-opus-4-5",
-  "anthropic/claude-opus-4-5",
-  "claude-opus-4-6",
-  "anthropic/claude-opus-4-6",
-  "claude-opus-4-7",
-  "anthropic/claude-opus-4-7",
-  "claude-sonnet-4-5",
-  "anthropic/claude-sonnet-4-5",
-  "claude-sonnet-4-6",
-  "anthropic/claude-sonnet-4-6",
-  "claude-haiku-4-5",
-  "anthropic/claude-haiku-4-5",
-  "@cf/zai-org/glm-5.2",
-] as const;
-
-const BLOCKED_GATEWAY_MODELS = new Set<string>(BLOCKED_GATEWAY_MODEL_IDS);
 
 const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
   {
@@ -160,7 +132,7 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
 
   return entries
     .filter(isGatewayModel)
-    .filter((model) => !isBlockedModelId(model.id))
+    .filter((model) => isOfferedModel(model.id))
     .map((model) => ({
       id: model.id,
       owned_by: model.owned_by ?? "",
@@ -170,10 +142,6 @@ export function normalizeGatewayModelsResponse(value: unknown): GatewayModel[] {
       allowed: model.allowed !== false,
       restriction_reason: model.restriction_reason ?? null,
     }));
-}
-
-export function isBlockedModelId(modelId: string): boolean {
-  return BLOCKED_GATEWAY_MODELS.has(modelId.toLowerCase());
 }
 
 export function isAnthropicModel(model: GatewayModel): boolean {

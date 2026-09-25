@@ -1,5 +1,4 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { UUIDT } from '~/common/utils/utils'
@@ -16,13 +15,16 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { HogFunctionType } from '../types'
+import { getConfiguredSensitiveValues, logEntry, sanitizeLogMessage } from '../utils'
+import { currentRuntimeContractHash } from './filter-runtime'
+import { classifyHogError } from './hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
 
 /** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
 const hogFunctionInputsErrors = new Counter({
     name: 'cdp_hog_function_inputs_error',
     help: 'Building the inputs for an invocation threw, so no invocation was created',
-    labelNames: ['type'],
+    labelNames: ['type', 'class'],
 })
 
 export function createInvocation(
@@ -109,12 +111,22 @@ export async function buildHogFunctionInvocations(
                 log_source: 'hog_function',
                 log_source_id: hogFunction.id,
                 instance_id: new UUIDT().toString(), // random UUID, like it would be for an invocation
-                timestamp: DateTime.now(),
-                level: 'error',
-                message: `Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`,
+                // logEntry truncates: the message carries the VM's text, which can quote a value.
+                // The VM can quote an argument, and an argument can be a secret input.
+                ...logEntry(
+                    'error',
+                    sanitizeLogMessage(
+                        [`Error building inputs for event ${triggerGlobals.event.uuid}: ${error.message}`],
+                        getConfiguredSensitiveValues(hogFunction)
+                    )
+                ),
             })
 
-            hogFunctionInputsErrors.inc({ type: hogFunction.type })
+            hogFunctionInputsErrors.inc({
+                type: hogFunction.type,
+                // Inputs are not stamped yet, so a contract error here always reads as legacy.
+                class: classifyHogError(error, { runtimeContract: currentRuntimeContractHash() }),
+            })
 
             metrics.push({
                 team_id: hogFunction.team_id,

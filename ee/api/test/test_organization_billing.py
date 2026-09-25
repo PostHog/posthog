@@ -285,6 +285,24 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/product_analytics/"))
 
     @patch("ee.billing.billing_manager.http_session.get")
+    def test_summary_reaches_billings_summary_and_not_a_product_named_summary(self, mock_get):
+        product = {
+            "key": "platform_and_support",
+            "name": "Platform and support",
+            "description": "SSO, permission management, and support.",
+            "subscribed": None,
+            "addons": [{"key": "teams", "name": "Teams", "description": "", "subscribed": False}],
+            "features": [
+                {"key": "sso_enforcement", "name": "Enforce SSO login", "included": True, "addon_keys": ["teams"]}
+            ],
+        }
+        mock_get.return_value = _response({"status": "ok", "customer_id": 42, "products": [product]})
+        response = self.client.get(self._url("products/summary/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"results": [product]})
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/catalog/"))
+
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billings_refusals_come_back_as_the_matching_errors(self, mock_get):
         mock_get.return_value = _response({"detail": "No product time_travel."}, 404)
         response = self.client.get(self._url("products/time_travel/"))
@@ -292,6 +310,12 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         mock_get.return_value = _response({"detail": "This resource needs the billing:full_access entitlement."}, 403)
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # A failure inside billing is not the caller's to fix, so it never reads as a bad request.
+        mock_get.return_value = _response({"type": "server_error", "code": "response_invalid"}, 500)
+        response = self.client.get(self._url("features/"))
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["code"], "billing_service_error")
 
         # A proxy in front of billing answers HTML, not JSON. The refusal still maps to itself
         # rather than becoming a 500 on the way through.
