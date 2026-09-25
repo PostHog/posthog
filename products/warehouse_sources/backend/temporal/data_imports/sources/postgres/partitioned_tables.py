@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ValidatedRowFilter,
     compute_projected_columns,
+    normalize_incremental_field_last_value,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import fetch_row_batches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
@@ -574,11 +575,12 @@ def build_partition_query(
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
 
-    # A stored watermark of "" must not become a literal `''` — Postgres rejects casting it
-    # against a numeric/date/etc. column with "invalid input syntax" (see postgres.py's
-    # `_build_query` for the same guard on the non-partitioned path).
-    if db_incremental_field_last_value is None or db_incremental_field_last_value == "":
-        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+    # Same guard as the non-partitioned path in postgres.py's `build_incremental_condition`: a
+    # watermark Postgres can't cast against the column would make it reject the whole statement
+    # on every retry.
+    db_incremental_field_last_value = normalize_incremental_field_last_value(
+        db_incremental_field_last_value, incremental_field_type
+    )
 
     operator = sql.SQL(incremental_type_to_operator(incremental_field_type))
     query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {field} {op} {last_value}").format(

@@ -9,7 +9,10 @@ removing the identical loop currently copied in every `source.py` façade.
 
 from __future__ import annotations
 
-from typing import Protocol
+from decimal import Decimal
+from typing import Any, Protocol
+
+from dateutil import parser as dateutil_parser
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
@@ -62,3 +65,73 @@ def initial_value_for_incremental_type(field_type: IncrementalFieldType) -> obje
     reach into the pipelines package directly (keeps the module graph clean).
     """
     return incremental_type_to_initial_value(field_type)
+
+
+UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX = "Stored incremental cursor is not a valid"
+
+
+class UnusableIncrementalCursorError(Exception):
+    """Raised when the stored watermark can't be used as a cursor for its field type.
+
+    The watermark lives in the schema's `sync_type_config` and is rendered into the read
+    query as a SQL literal. A stale or corrupted value (for example the text NULL marker
+    `\\N` that a text-format export leaves behind) makes the source reject the whole
+    statement, which is deterministic: every Temporal attempt re-runs the identical query.
+    Raising before the query is built turns that into one classified failure with copy the
+    customer can act on. `PostgresSource.get_non_retryable_errors` matches the message
+    prefix, which excludes the volatile offending value.
+    """
+
+
+def normalize_incremental_field_last_value(last_value: Any, field_type: IncrementalFieldType) -> Any:
+    """Return the watermark to render, or the field type's initial value when there is none.
+
+    A missing watermark (`None`, or the empty string a stale `sync_type_config` can hold)
+    means the table has never synced, so reading from the initial value is correct.
+
+    A non-empty value that cannot be a value of `field_type` is a different case: the table
+    has synced before, so silently restarting from the initial value would re-read it whole
+    and duplicate rows on a table with no primary key. Raise instead, so the customer decides
+    between a reset and a different incremental field.
+    """
+    if last_value is None or last_value == "":
+        return incremental_type_to_initial_value(field_type)
+
+    # Only text needs checking. Every other stored form is already the matching Python type,
+    # which psycopg renders without a cast for the source to reject.
+    if not isinstance(last_value, str):
+        return last_value
+
+    if not _text_cursor_is_usable(last_value, field_type):
+        # `sync_type_config` holds the field type as a plain JSON string and nothing coerces it
+        # back to the enum, so format the value itself rather than reaching for `.value`.
+        raise UnusableIncrementalCursorError(
+            f"{UNUSABLE_INCREMENTAL_CURSOR_ERROR_PREFIX} {field_type} value: {last_value!r}"
+        )
+
+    return last_value
+
+
+def _text_cursor_is_usable(last_value: str, field_type: IncrementalFieldType) -> bool:
+    try:
+        if field_type in (IncrementalFieldType.Integer, IncrementalFieldType.XID):
+            int(last_value)
+        elif field_type == IncrementalFieldType.Numeric:
+            Decimal(last_value)
+        elif field_type in (
+            IncrementalFieldType.DateTime,
+            IncrementalFieldType.Timestamp,
+            IncrementalFieldType.Date,
+        ):
+            dateutil_parser.parse(last_value)
+        else:
+            # ObjectID, and any type added later, keep today's behavior: hand the text to the
+            # source and let it decide. Adding a check here without knowing the stored forms
+            # would risk stopping a sync that works.
+            return True
+    # `Decimal` raises `decimal.InvalidOperation` (an `ArithmeticError`, which `OverflowError`
+    # also derives from); `int` and dateutil raise `ValueError`.
+    except (ArithmeticError, ValueError):
+        return False
+
+    return True
