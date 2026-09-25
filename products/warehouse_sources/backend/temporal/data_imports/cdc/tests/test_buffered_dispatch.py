@@ -68,6 +68,7 @@ def _dispatch(
     retire_orphans: MagicMock | None = None,
     proof_time: dt.datetime | None = None,
     hand_reset: MagicMock | None = None,
+    expired: AsyncMock | None = None,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
@@ -80,6 +81,7 @@ def _dispatch(
         patch(f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, applied={}))),
         patch(f"{_MANAGER}.ensure_position_stats", AsyncMock()),
         patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof_time)),
+        patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
@@ -171,38 +173,31 @@ class TestBufferedDispatch:
             _dispatch(_schema(), _inputs(reset_pipeline=True))
 
     @pytest.mark.parametrize(
-        "proof_days_ago, synced_days_ago, reset",
-        [
-            # A proof is only searched for over the last two days, so a table this far behind has
-            # none, and `last_synced_at` is what catches it.
-            (None, 15, True),
-            (None, 1, False),
-            (1, None, False),
-            # A proof outranks the stamp: the table consumed the buffer after its last sync row.
-            (1, 15, False),
-            (None, None, False),
-        ],
+        "proof_days_ago, expired, reset",
+        [(None, True, True), (None, False, False), (1, True, False)],
     )
     def test_a_table_that_consumed_nothing_for_longer_than_the_buffer_keeps_files_is_reset(
-        self, proof_days_ago: int | None, synced_days_ago: int | None, reset: bool
+        self, proof_days_ago: int | None, expired: bool, reset: bool
     ) -> None:
         hand_reset = MagicMock()
+        expired_check = AsyncMock(return_value=expired)
         schema = _schema(cdc_table_mode="both")
-        schema.last_synced_at = _days_ago(synced_days_ago)
 
-        response = _dispatch(schema, _inputs(), proof_time=_days_ago(proof_days_ago), hand_reset=hand_reset)
+        response = _dispatch(
+            schema, _inputs(), proof_time=_days_ago(proof_days_ago), hand_reset=hand_reset, expired=expired_check
+        )
 
         assert hand_reset.call_args_list == ([call(schema, ANY, start_capture=False)] if reset else [])
         assert (response.lanes is None) is reset
+        assert expired_check.called is (proof_days_ago is None)
 
     def test_an_expired_buffer_takes_an_earlier_attempts_listing_off_the_job(self) -> None:
         # The workflow completes the job on the empty response this stand-down hands back, just as
         # it does for the in-flight one, so a stamp from an earlier attempt must not survive it.
         clear = MagicMock()
         schema = _schema(cdc_table_mode="both")
-        schema.last_synced_at = _days_ago(15)
         inputs = _inputs()
 
-        _dispatch(schema, inputs, clear_listing=clear, hand_reset=MagicMock())
+        _dispatch(schema, inputs, clear_listing=clear, hand_reset=MagicMock(), expired=AsyncMock(return_value=True))
 
         clear.assert_called_once_with(inputs.job_id, inputs.team_id)

@@ -16,6 +16,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import psycopg
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     companion_resource_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BUFFER_FILE_RETENTION,
     BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
@@ -243,6 +245,45 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
 async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
     """`read_completed_listing_proof`, off the event loop."""
     return await database_sync_to_async_pool(db_read_with_retry)(lambda: read_completed_listing_proof(schema))
+
+
+def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime) -> bool:
+    """Whether this table may have lost buffered changes it never read.
+
+    The bucket deletes a buffer file BUFFER_FILE_RETENTION after writing it, so what counts is the last
+    run since then that drained the buffer or re-seeded the table with a snapshot. A stand-down, such as
+    the wait for in-flight batches, completes its job without reading the buffer, so neither a completed
+    job nor `last_synced_at`, which every completion moves, proves the table read its changes.
+    """
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    if schema.last_synced_at is None:
+        return False
+    cutoff = now - BUFFER_FILE_RETENTION
+    # Every completion moves it, so nothing has drained since the cutoff either.
+    if schema.last_synced_at < cutoff:
+        return True
+    # Bounded by `created_at` and on the index, as the proof read is.
+    return not (
+        ExternalDataJob.objects.filter(
+            team_id=schema.team_id,
+            pipeline_id=schema.source_id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            created_at__gte=cutoff,
+        )
+        .filter(
+            Q(schema_snapshot__has_key=BUFFER_LISTED_AT_KEY) | Q(schema_snapshot__sync_type_config__cdc_mode="snapshot")
+        )
+        .exists()
+    )
+
+
+async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
+    """`buffer_may_have_expired_unread`, off the event loop."""
+    return await database_sync_to_async_pool(db_read_with_retry)(
+        lambda: buffer_may_have_expired_unread(schema, timezone.now())
+    )
 
 
 def clear_listing(job_id: str, team_id: int) -> None:

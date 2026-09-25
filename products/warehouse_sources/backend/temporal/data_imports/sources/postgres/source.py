@@ -1,5 +1,4 @@
 import logging
-import datetime as dt
 from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
@@ -1780,13 +1779,13 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from asgiref.sync import async_to_sync
 
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import BUFFER_FILE_RETENTION
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
         from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
+            buffer_expired_unread,
             build_output_lanes,
             clear_listing,
             completed_listing_proof,
@@ -1852,11 +1851,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
         # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
         # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
-        # has finished, as it does for any reset a sync could interfere with.
-        consumed_through = proof_time or schema.last_synced_at
-        if consumed_through is not None and consumed_through < dt.datetime.now(tz=dt.UTC) - BUFFER_FILE_RETENTION:
+        # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
+        # without the longer read.
+        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
             inputs.logger.warning(
-                "cdc_buffer_expired_before_consumption", schema_name=schema.name, consumed_through=consumed_through
+                "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
             )
             # The workflow completes the job on this empty response, so an earlier attempt's stamp
             # has to come off it first, as it does on the in-flight stand-down above: a Completed

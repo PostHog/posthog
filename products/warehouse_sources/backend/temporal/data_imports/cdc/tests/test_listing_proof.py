@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
+    buffer_may_have_expired_unread,
     clear_listing,
     read_completed_listing_proof,
 )
@@ -99,6 +100,52 @@ class TestCompletedListingProof(BaseTest):
         self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=dt.datetime(2026, 1, 1, 12, 0))
 
         assert self._proof(schema) is None
+
+
+class TestBufferExpiredUnread(BaseTest):
+    def _schema(self, *, synced_days_ago: int | None) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Postgres"
+        )
+        synced = None if synced_days_ago is None else dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=synced_days_ago)
+        return ExternalDataSchema.objects.create(team=self.team, source=source, name="users", last_synced_at=synced)
+
+    def _completed_job(self, schema: ExternalDataSchema, *, days_ago: int, snapshot: dict) -> None:
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=0,
+            schema_snapshot=snapshot,
+        )
+        ExternalDataJob.objects.filter(id=job.id).update(
+            created_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days_ago)
+        )
+
+    @parameterized.expand(
+        [
+            ("never_synced", None, None, False),
+            ("no_completion_since_retention", 15, None, True),
+            ("only_stand_downs_since_retention", 1, (1, {}), True),
+            ("a_run_listed_the_buffer", 1, (10, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}), False),
+            ("a_snapshot_reseeded_the_table", 1, (3, {"sync_type_config": {"cdc_mode": "snapshot"}}), False),
+            (
+                "the_last_listing_is_older_than_retention",
+                1,
+                (20, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}),
+                True,
+            ),
+        ]
+    )
+    def test_only_a_listing_or_a_snapshot_proves_the_buffer_was_read(
+        self, _name: str, synced_days_ago: int | None, job: tuple[int, dict] | None, expired: bool
+    ) -> None:
+        schema = self._schema(synced_days_ago=synced_days_ago)
+        if job is not None:
+            self._completed_job(schema, days_ago=job[0], snapshot=job[1])
+
+        assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is expired
 
 
 class TestRecordCompanionJob(BaseTest):
