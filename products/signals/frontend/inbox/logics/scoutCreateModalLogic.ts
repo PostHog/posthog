@@ -1,4 +1,16 @@
-import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -83,6 +95,8 @@ export type ScoutCreateInitialValues = Partial<
 export interface ScoutCreateModalLogicProps {
     logicKey: string
     initialValues?: ScoutCreateInitialValues
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form turned an existing scout on. */
@@ -566,4 +580,11 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             })
         },
     })),
+    // The draft restores before this runs, so only the description changes and the other fields stay.
+    afterMount(({ props: logicProps, values, actions }) => {
+        const { descriptionOverride } = logicProps
+        if (descriptionOverride !== undefined && descriptionOverride !== values.scoutCreateForm.description) {
+            actions.setScoutCreateFormValue('description', descriptionOverride)
+        }
+    }),
 ])

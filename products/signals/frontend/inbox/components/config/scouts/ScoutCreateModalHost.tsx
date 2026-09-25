@@ -25,6 +25,8 @@ export function useScoutCreateDisabledReason(): string | null {
 export interface ScoutCreateModalHostProps {
     /** The scout to prefill, or null to render nothing. Doubles as the open state. */
     initialValues: ScoutCreateInitialValues | null
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
@@ -42,6 +44,7 @@ export interface ScoutCreateModalHostProps {
  */
 export function ScoutCreateModalHost({
     initialValues,
+    descriptionOverride,
     onClose,
     onCreated,
     onEnabled,
@@ -65,6 +68,7 @@ export function ScoutCreateModalHost({
             <LazyScoutCreateModal
                 isOpen
                 initialValues={initialValues}
+                descriptionOverride={descriptionOverride}
                 onCreated={(scout) => {
                     captureScoutAction({
                         actionType: 'create_scout',

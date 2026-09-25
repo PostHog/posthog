@@ -16,7 +16,14 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_CHAT_PROMPT_MAX_LENGTH, ScoutChatModal } from './ScoutChatModal'
 import { ScoutCreateModalHost, useScoutCreateDisabledReason } from './ScoutCreateModalHost'
 
-type OpenScoutModal = { kind: 'chat'; prompt: string } | { kind: 'form'; initialValues: ScoutCreateInitialValues }
+type OpenScoutModal =
+    | {
+          kind: 'chat'
+          prompt: string
+          /** The form this chat came from. Reopening it with the same values keys the same draft. */
+          formInitialValues?: ScoutCreateInitialValues
+      }
+    | { kind: 'form'; initialValues: ScoutCreateInitialValues; descriptionOverride?: string }
 
 export interface ScoutNewButtonProps {
     /** `menu` puts both ways in behind one button. `buttons` shows them side by side. */
@@ -125,17 +132,30 @@ export function ScoutNewButton({
                         captureScoutCreatePathSwitched({ direction: 'chat_to_form', surface })
                         // The chat allows a longer request than the form's description. Carry all of it, so the
                         // form marks the description as too long and the person decides what to cut.
-                        setOpenModal({ kind: 'form', initialValues: prompt ? { description: prompt } : {} })
+                        setOpenModal(
+                            openModal.formInitialValues
+                                ? {
+                                      kind: 'form',
+                                      initialValues: openModal.formInitialValues,
+                                      descriptionOverride: prompt,
+                                  }
+                                : { kind: 'form', initialValues: prompt ? { description: prompt } : {} }
+                        )
                     }}
                 />
             ) : null}
             <ScoutCreateModalHost
                 initialValues={openModal?.kind === 'form' ? openModal.initialValues : null}
+                descriptionOverride={openModal?.kind === 'form' ? openModal.descriptionOverride : undefined}
                 onClose={() => setOpenModal(null)}
                 onCreated={onCreated}
                 onSwitchToChat={(description) => {
                     captureScoutCreatePathSwitched({ direction: 'form_to_chat', surface })
-                    setOpenModal({ kind: 'chat', prompt: description.slice(0, SCOUT_CHAT_PROMPT_MAX_LENGTH) })
+                    setOpenModal({
+                        kind: 'chat',
+                        prompt: description.slice(0, SCOUT_CHAT_PROMPT_MAX_LENGTH),
+                        formInitialValues: openModal?.kind === 'form' ? openModal.initialValues : undefined,
+                    })
                 }}
             />
         </>

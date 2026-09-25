@@ -46,6 +46,8 @@ export interface ScoutCreateModalProps {
     isOpen: boolean
     onClose: () => void
     initialValues?: ScoutCreateInitialValues
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form opened on an existing scout and turned it on. */
     onEnabled?: (config: SignalScoutConfigApi) => void
@@ -57,13 +59,21 @@ export function ScoutCreateModal({
     isOpen,
     onClose,
     initialValues,
+    descriptionOverride,
     onCreated,
     onEnabled,
     onSwitchToChat,
 }: ScoutCreateModalProps): JSX.Element {
     const logicKey = scoutCreateModalLogicKey(initialValues)
     const formId = `scout-create-form-${logicKey}`
-    const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated, onEnabled }
+    const logicProps: ScoutCreateModalLogicProps = {
+        logicKey,
+        initialValues,
+        descriptionOverride,
+        onClose,
+        onCreated,
+        onEnabled,
+    }
     const logic = scoutCreateModalLogic(logicProps)
     const {
         isScoutCreateFormSubmitting,
