@@ -3047,6 +3047,24 @@ class TestGeneratedNameDropPolicy:
                 None,
                 ["posthog_x_owner_id_5a6b7c8d"],
             ),
+            (
+                "index_together_idx",
+                'DROP INDEX IF EXISTS "posthog_x_team_id_owner_id_1a2b3c4d_idx"',
+                None,
+                ["posthog_x_team_id_owner_id_1a2b3c4d_idx"],
+            ),
+            (
+                "unnamed_models_index",
+                'DROP INDEX IF EXISTS "posthog_eve_team_id_26dbfb_idx"',
+                None,
+                ["posthog_eve_team_id_26dbfb_idx"],
+            ),
+            (
+                "all_digit_hash_before_a_suffix",
+                'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "posthog_x_tag_id_owner_id_12345678_uniq"',
+                None,
+                ["posthog_x_tag_id_owner_id_12345678_uniq"],
+            ),
             ("a_chosen_name", 'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "exactly_one_owner"', None, []),
             ("a_date_in_a_chosen_name", 'DROP INDEX IF EXISTS "posthog_x_backfill_20260923"', None, []),
             (

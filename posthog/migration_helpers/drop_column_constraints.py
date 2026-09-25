@@ -48,6 +48,13 @@ from posthog.migration_helpers.lock_phase import lock_tables
 
 # `unnest` rather than the `&&` array operator: an extension such as intarray makes
 # `smallint[] && smallint[]` ambiguous, and the query then fails on that database only.
+_COLUMNS_SQL = """
+    SELECT att.attname
+    FROM pg_class rel
+    JOIN pg_attribute att ON att.attrelid = rel.oid
+    WHERE rel.relname = %(table)s AND pg_table_is_visible(rel.oid) AND att.attname = ANY(%(columns)s::name[])
+"""
+
 _RULES_SQL = """
     WITH target AS (
         SELECT oid FROM pg_class WHERE relname = %(table)s AND pg_table_is_visible(oid)
@@ -55,16 +62,17 @@ _RULES_SQL = """
         SELECT att.attnum FROM pg_attribute att, target
         WHERE att.attrelid = target.oid AND att.attname = ANY(%(columns)s::name[])
     )
-    SELECT con.conname, 'constraint'
+    SELECT NULL AS schema, con.conname, 'constraint'
     FROM pg_constraint con, target
     WHERE con.conrelid = target.oid
       AND con.contype IN ('c', 'u', 'x')
       AND EXISTS (SELECT 1 FROM unnest(con.conkey) AS key(attnum) WHERE key.attnum IN (SELECT attnum FROM retiring))
     UNION
-    SELECT idx.relname, 'index'
+    SELECT nsp.nspname, idx.relname, 'index'
     FROM pg_index ix
     JOIN target ON ix.indrelid = target.oid
     JOIN pg_class idx ON idx.oid = ix.indexrelid
+    JOIN pg_namespace nsp ON nsp.oid = idx.relnamespace
     -- An index depends on each column in its keys, its expressions and its predicate.
     JOIN pg_depend dep ON dep.classid = 'pg_class'::regclass AND dep.objid = ix.indexrelid
                       AND dep.refclassid = 'pg_class'::regclass AND dep.refobjid = ix.indrelid
@@ -77,6 +85,7 @@ _RULES_SQL = """
 
 @frozen
 class _Rule:
+    schema: str | None
     name: str
     is_index: bool
 
@@ -107,28 +116,49 @@ class DropColumnConstraints(Operation):
     def state_forwards(self, app_label, state) -> None:
         pass
 
+    def _check_columns_exist(self, schema_editor) -> None:
+        # A typo would otherwise find no rules and succeed, while the state operations beside
+        # this op still remove the rules from state. A column that exists with no rules left
+        # is the idempotent case.
+        with schema_editor.connection.cursor() as cursor:
+            cursor.execute(_COLUMNS_SQL, {"table": self.table, "columns": self.columns})
+            found = {row[0] for row in cursor.fetchall()}
+        missing = [column for column in self.columns if column not in found]
+        if missing:
+            raise ValueError(f"DropColumnConstraints: {self.table} has no column {', '.join(missing)}")
+
     def _rules(self, schema_editor) -> list[_Rule]:
         with schema_editor.connection.cursor() as cursor:
             cursor.execute(_RULES_SQL, {"table": self.table, "columns": self.columns})
-            return [_Rule(name=name, is_index=kind == "index") for name, kind in sorted(cursor.fetchall())]
+            return [
+                _Rule(schema=schema, name=name, is_index=kind == "index")
+                for schema, name, kind in sorted(cursor.fetchall(), key=lambda row: (row[2], row[1]))
+            ]
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         # A product app in products/db_routing.yaml migrates on its own database. A raw
         # catalog query cannot tell the aliases apart, so check the router first.
         if not router.allow_migrate(schema_editor.connection.alias, app_label):
             return
+        self._check_columns_exist(schema_editor)
         rules = self._rules(schema_editor)
         if not rules:
             return
         constraints = [rule.name for rule in rules if not rule.is_index]
-        indexes = [rule.name for rule in rules if rule.is_index]
+        # DROP INDEX resolves an unqualified name through search_path, which can reach a
+        # same-named index in another schema, so each index carries the schema it was found in.
+        indexes = [
+            f"{schema_editor.quote_name(rule.schema)}.{schema_editor.quote_name(rule.name)}"
+            for rule in rules
+            if rule.is_index
+        ]
         with transaction.atomic(using=schema_editor.connection.alias):
             lock_tables(schema_editor, [self.table])
             if constraints:
                 drops = ", ".join(f"DROP CONSTRAINT {schema_editor.quote_name(name)}" for name in constraints)
                 schema_editor.execute(f"ALTER TABLE {schema_editor.quote_name(self.table)} {drops}")
             if indexes:
-                schema_editor.execute(f"DROP INDEX {', '.join(schema_editor.quote_name(name) for name in indexes)}")
+                schema_editor.execute(f"DROP INDEX {', '.join(indexes)}")
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
         raise NotImplementedError("DropColumnConstraints is irreversible; add the rules back in a new migration")

@@ -1,9 +1,3 @@
-"""Functional tests for DropColumnConstraints.
-
-Each test builds a real table whose rules carry hash-suffixed names, the way Django and
-earlier constraint swaps leave them, so the catalog lookup is the only way to find them.
-"""
-
 import uuid
 
 import pytest
@@ -86,6 +80,16 @@ def test_drops_every_rule_on_the_retiring_columns_and_keeps_the_rest(temp_table)
         f"unique_keeper_{suffix}",
         f"{table}_legacy_a_id_idx",
     }
+
+
+@pytest.mark.django_db
+def test_a_misspelled_column_fails_instead_of_dropping_nothing(temp_table):
+    table, _ = temp_table
+
+    with pytest.raises(ValueError, match="no column legacy_c_id"):
+        _apply(DropColumnConstraints(table, columns=["legacy_a_id", "legacy_c_id"]))
+
+    assert f"{table}_tag_id_legacy_a_id_9f8e7d6c_uniq" in _rules(table)
 
 
 def test_needs_a_list_of_columns():

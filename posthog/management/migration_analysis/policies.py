@@ -1016,15 +1016,17 @@ class GeneratedNameDropPolicy(MigrationPolicy):
         r"DROP\s+(?:CONSTRAINT|INDEX(?:\s+CONCURRENTLY)?)\s+(?:IF\s+EXISTS\s+)?\"?(\w+)\"?",
         re.IGNORECASE,
     )
-    # The hash must hold a letter, so a date such as _20260923 in a chosen name does not match.
-    _GENERATED = re.compile(r"_(?=[0-9]*[a-f])[0-9a-f]{8}(?:_(?:uniq|like|check|fk_\w+))?$")
+    # Django's shapes: an eight-character hash before a suffix, a bare eight-character hash, and
+    # the six-character digest of an unnamed models.Index. Only the bare hash must hold a
+    # letter, so a date such as _20260923 at the end of a chosen name does not match.
+    _GENERATED = re.compile(
+        r"_[0-9a-f]{8}_(?:uniq|like|check|idx|fk_\w+)$|_(?=[0-9]*[a-f])[0-9a-f]{8}$|_[0-9a-f]{6}_idx$"
+    )
 
     def check_operation(self, op) -> list[str]:
         if op.__class__.__name__ != "RunSQL":
             return []
-        sql = str(getattr(op, "sql", ""))
-        sql = re.sub(r"/\*.*?\*/", "", sql, flags=re.S)
-        sql = re.sub(r"--[^\n]*", "", sql)
+        sql = _without_sql_comments(str(getattr(op, "sql", "")))
         names = sorted({name for name in self._DROP.findall(sql) if self._GENERATED.search(name)})
         if not names:
             return []
