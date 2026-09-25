@@ -435,10 +435,34 @@ class EventDefinitionViewSet(
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
-        scale = project_definition_scale("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
+        verified_param = self.request.GET.get("verified") if EE_AVAILABLE else None
+        names = [name for value in self.request.query_params.getlist("names") for name in value.split(",") if name]
+        tags_list = self._tags_filter_from_request()
+
+        # A filter that matches few rows makes `ORDER BY name LIMIT` walk most of the project in name order,
+        # probing each row, before it fills a page or reaches the count cap. The recency sort and the exact
+        # count read the project once with a parallel scan instead. So only the filters that leave most
+        # rows matching take the name-ordered, bounded path on a large project.
+        sparse_filter = (
+            has_search_terms
+            or exclude_stale
+            or verified_param is not None
+            or bool(names)
+            or bool(tags_list)
+            or event_type == EventDefinitionType.EVENT_POSTHOG
+        )
+        # The project's size picks the search index and the bounded path, so a request that neither searches
+        # nor can take that path skips the size check and its cache round trip.
+        scale = (
+            project_definition_scale("posthog_eventdefinition", self.project_id, event_definition_object_manager.db)
+            if has_search_terms or not sparse_filter
+            else None
+        )
+        large_project = scale is not None and scale.large
         # A small project is cheaper to search through its own index than through the global trigram index.
         search_query, search_kwargs = term_search_filter_sql(
-            self.search_fields, search, avoid_trigram_index=not scale.large
+            self.search_fields, search, avoid_trigram_index=not large_project
         )
 
         params = {
@@ -452,7 +476,6 @@ class EventDefinitionViewSet(
         if exclude_hidden and EE_AVAILABLE:
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
-        exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
             # pre-filter in `create_event_definitions_sql` has already narrowed the row
@@ -465,7 +488,6 @@ class EventDefinitionViewSet(
             )
             params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
-        verified_param = self.request.GET.get("verified") if EE_AVAILABLE else None
         if verified_param is not None:
             if verified_param.lower() == "true":
                 search_query = (
@@ -486,12 +508,10 @@ class EventDefinitionViewSet(
             search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
             params["excluded_list"] = excluded_list
 
-        names = [name for value in self.request.query_params.getlist("names") for name in value.split(",") if name]
         if names:
             search_query = search_query + " AND posthog_eventdefinition.name = ANY(%(names)s)"
             params["names"] = list(set(names))
 
-        tags_list = self._tags_filter_from_request()
         if tags_list:
             # EXISTS, not a join: it keeps one row per definition, so the page stays a page and
             # the count stays a count, with no DISTINCT over the whole result set.
@@ -506,25 +526,13 @@ class EventDefinitionViewSet(
             params["tags"] = tags_list
             params["tagged_content_type_id"] = content_type_for(EventDefinition).id
 
-        # A filter that matches few rows makes `ORDER BY name LIMIT` walk most of the project in name order,
-        # probing each row, before it fills a page or reaches the count cap. The recency sort and the exact
-        # count read the project once with a parallel scan instead. So only the filters that leave most
-        # rows matching take the name-ordered, bounded path on a large project.
-        sparse_filter = (
-            has_search_terms
-            or exclude_stale
-            or verified_param is not None
-            or bool(names)
-            or bool(tags_list)
-            or event_type == EventDefinitionType.EVENT_POSTHOG
-        )
-        bounded = scale.large and not sparse_filter
+        bounded = large_project and not sparse_filter
 
         # Only a field the endpoint can order by counts as an explicit ordering. The events table sends
         # `ordering=event`, which nothing serves, and it must still get the large-project default.
         requested_ordering = self._requested_ordering()
         order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
-        if bounded and scale.orders_by_name and not requested_ordering:
+        if bounded and scale is not None and scale.orders_by_name and not requested_ordering:
             # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
             # project has for each page. Name order pages straight from the unique index instead.
             order_expressions = [("name", "ASC")]

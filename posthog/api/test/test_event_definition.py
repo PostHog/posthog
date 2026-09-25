@@ -320,17 +320,19 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("search", {"search": "app"}, 2),
+            ("search", {"search": "app"}, 2, True),
             # Postgres applies the stale cutoff with its own clock, which time_machine does not freeze, so every
             # dated fixture is stale and only the never-seen definition remains.
-            ("exclude_stale", {"exclude_stale": "true"}, 1),
-            ("verified", {"verified": "true"}, 1),
-            ("names", {"names": "installed_app,purchase"}, 2),
-            ("tags", {"tags": '["billing"]'}, 2),
-            ("posthog_events", {"event_type": "event_posthog"}, 1),
+            ("exclude_stale", {"exclude_stale": "true"}, 1, False),
+            ("verified", {"verified": "true"}, 1, False),
+            ("names", {"names": "installed_app,purchase"}, 2, False),
+            ("tags", {"tags": '["billing"]'}, 2, False),
+            ("posthog_events", {"event_type": "event_posthog"}, 1, False),
         ]
     )
-    def test_large_project_sparse_filter_counts_exactly(self, _name: str, query: dict[str, str], expected_count: int):
+    def test_large_project_sparse_filter_counts_exactly(
+        self, _name: str, query: dict[str, str], expected_count: int, sizes_the_project: bool
+    ):
         ids = [str(EventDefinition.objects.get(team=self.demo_team, name=n).id) for n in ("installed_app", "purchase")]
         self.client.post(
             f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
@@ -347,6 +349,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["count"] == expected_count
         assert response.json()["count_is_capped"] is False
+        size_cache_key = f"taxonomy_definition_count:posthog_eventdefinition:{self.demo_team.project_id}"
+        assert (cache.get(size_cache_key) is not None) is sizes_the_project
 
     def test_capped_count_is_flagged_and_still_pages(self):
         cache.clear()
