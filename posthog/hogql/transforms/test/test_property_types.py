@@ -1494,6 +1494,8 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("and_call", "and(timestamp >= '2024-03-01', timestamp < '2024-04-01')"),
+            ("comparison_calls", "greaterOrEquals(timestamp, '2024-03-01') AND less(timestamp, '2024-04-01')"),
             ("date_bounds", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-04-01')"),
         ]
     )
@@ -1511,13 +1513,23 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert primary_key is not None
         self._assert_primary_key_uses_timestamp_range(primary_key)
 
-    def test_toTimeZone_stripped_from_where_but_kept_in_select(self):
-        """toTimeZone should be stripped from top-level WHERE range comparisons
-        but preserved in SELECT expressions and inside function calls."""
-        sql, _ = self._compile_hogql(
-            "SELECT timestamp FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
+    @parameterized.expand(
+        [
+            ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("and_call", "and(timestamp >= '2024-03-01', timestamp < '2024-04-01')"),
+            ("or_and_call_with_constant", "or(and(timestamp >= '2024-03-01', timestamp < '2024-04-01'), 0)"),
+            ("not_call", "not(timestamp < '2024-03-01') AND timestamp < '2024-04-01'"),
+            ("comparison_calls", "greaterOrEquals(timestamp, '2024-03-01') AND less(timestamp, '2024-04-01')"),
+            (
+                "comparison_calls_in_and_call",
+                "and(greaterOrEquals(timestamp, '2024-03-01'), less(timestamp, '2024-04-01'))",
+            ),
+        ]
+    )
+    def test_toTimeZone_stripped_from_where_but_kept_in_select(self, _name, where):
+        """toTimeZone should be stripped from WHERE range comparisons reached through boolean connectives
+        but preserved in SELECT expressions and inside other function calls."""
+        sql, _ = self._compile_hogql(f"SELECT timestamp FROM events WHERE {where}", timezone="America/New_York")
         where_clause = sql.split("WHERE")[1]
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
@@ -1559,6 +1571,15 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone preserved in SELECT if(), got:\n{select_clause}"
+
+        # A subquery nested in a call still strips its own WHERE
+        sql, _ = self._compile_hogql(
+            "SELECT countIf(distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= '2024-03-01')) FROM events",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\(events\.timestamp, toDateTime64", sql), (
+            f"Expected bare events.timestamp in the WHERE of the subquery inside countIf(), got:\n{sql}"
+        )
 
     def test_subquery_in_where_does_not_inherit_stripping(self):
         """A subquery's SELECT inside a WHERE should NOT inherit stripping from the outer WHERE."""
@@ -1618,6 +1639,11 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
                 "start_of_month",
                 "timestamp >= toStartOfMonth(toDateTime('2024-03-15 00:00:00')) AND timestamp < toDate('2024-03-02')",
             ),
+            (
+                "comparison_calls",
+                "greaterOrEquals(timestamp, toDate('2024-03-01')) AND less(timestamp, toDate('2024-03-02'))",
+            ),
+            ("and_call", "and(timestamp >= toDate('2024-03-01'), timestamp < toDate('2024-03-02'))"),
         ]
     )
     def test_date_bounds_use_project_timezone(self, _name, where):
