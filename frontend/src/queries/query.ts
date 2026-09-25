@@ -284,6 +284,7 @@ export async function performQuery<N extends DataNode>(
 
     try {
         if (isPersonsNode(queryNode)) {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
         } else {
             response = await executeQuery(
