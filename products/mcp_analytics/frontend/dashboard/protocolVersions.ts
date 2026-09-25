@@ -6,12 +6,31 @@ import { MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general
 
 import { shadeColor } from './modelColors'
 
-export const CURRENT_PROTOCOL_REVISION = '2026-07-28'
+export const CURRENT_PROTOCOL_VERSION = '2026-07-28'
 
-type RevisionGroup = 'current' | 'legacy' | 'unknown'
+const MCP_SITE = 'https://modelcontextprotocol.io'
+export const PROTOCOL_VERSIONING_URL = `${MCP_SITE}/docs/learn/versioning`
 
-// The runner only folds legacy revisions into 'Other', so it belongs to the legacy group.
-export function revisionGroup(row: MCPProtocolVersionBreakdownItem): RevisionGroup {
+// Released spec versions, one line per release. Anything unlisted (junk values, a version
+// released after this list) renders without a link rather than a 404.
+const SPEC_VERSION_PATHS: Record<string, string> = {
+    '2024-11-05': '/specification/2024-11-05',
+    '2025-03-26': '/specification/2025-03-26/changelog',
+    '2025-06-18': '/specification/2025-06-18/changelog',
+    '2025-11-25': '/specification/2025-11-25/changelog',
+    '2026-07-28': '/specification/2026-07-28/changelog',
+    draft: '/specification/draft/changelog',
+}
+
+export function specVersionUrl(version: string): string | undefined {
+    const path = SPEC_VERSION_PATHS[version]
+    return path ? `${MCP_SITE}${path}` : undefined
+}
+
+type VersionGroup = 'current' | 'legacy' | 'unknown'
+
+// The runner only folds legacy versions into 'Other', so it belongs to the legacy group.
+export function versionGroup(row: MCPProtocolVersionBreakdownItem): VersionGroup {
     if (row.protocol_version === 'Unknown') {
         return 'unknown'
     }
@@ -27,8 +46,8 @@ export function summarizeProtocolVersions(rows: MCPProtocolVersionBreakdownItem[
         rows.filter(predicate).reduce((total, row) => total + row.total_calls, 0)
     return {
         totalCalls: sumCalls(() => true),
-        unknownCalls: sumCalls((row) => revisionGroup(row) === 'unknown'),
-        legacyCalls: sumCalls((row) => revisionGroup(row) === 'legacy'),
+        unknownCalls: sumCalls((row) => versionGroup(row) === 'unknown'),
+        legacyCalls: sumCalls((row) => versionGroup(row) === 'legacy'),
     }
 }
 
@@ -49,7 +68,7 @@ export interface SegmentStyle {
 export function segmentStyles(theme: ChartTheme, rows: MCPProtocolVersionBreakdownItem[]): SegmentStyle[] {
     const shadeIndex = { current: 0, legacy: 0 }
     return rows.map((row) => {
-        const group = revisionGroup(row)
+        const group = versionGroup(row)
         if (group === 'unknown') {
             return { color: theme.axisColor }
         }

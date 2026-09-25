@@ -2,7 +2,7 @@ import { DEFAULT_CHART_COLORS } from '@posthog/quill-charts'
 
 import { MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
 
-import { formatShare, revisionGroup, segmentStyles, summarizeProtocolVersions } from './protocolVersions'
+import { formatShare, versionGroup, segmentStyles, specVersionUrl, summarizeProtocolVersions } from './protocolVersions'
 
 const theme = { colors: [...DEFAULT_CHART_COLORS], axisColor: '#888888' }
 
@@ -21,7 +21,7 @@ describe('protocol versions', () => {
         [row('Other', false), 'legacy'],
         [row('Unknown', false), 'unknown'],
     ])('groups %o as %s', (item, expected) => {
-        expect(revisionGroup(item)).toBe(expected)
+        expect(versionGroup(item)).toBe(expected)
     })
 
     it.each([
@@ -68,6 +68,19 @@ describe('protocol versions', () => {
         expect(new Set(colors.slice(0, 6)).size).toBe(6)
         expect(styles[6]).toEqual({ color: styles[2].color, opacity: 0.45 })
         expect(styles[7]).toEqual({ color: theme.axisColor })
+    })
+
+    it.each([
+        ['2024-11-05', 'https://modelcontextprotocol.io/specification/2024-11-05'],
+        ['2025-06-18', 'https://modelcontextprotocol.io/specification/2025-06-18/changelog'],
+        ['2026-07-28', 'https://modelcontextprotocol.io/specification/2026-07-28/changelog'],
+        ['draft', 'https://modelcontextprotocol.io/specification/draft/changelog'],
+        ['2026-01-26', undefined],
+        ['v2', undefined],
+        ['Other', undefined],
+        ['Unknown', undefined],
+    ])('links %s to %s', (version, expected) => {
+        expect(specVersionUrl(version)).toBe(expected)
     })
 
     it('falls back to the axis color when the palette is too short', () => {
