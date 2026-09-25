@@ -680,6 +680,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                               conversion,
                               email,
                               emailRateLimit,
+                              // A workflow shaped like a broadcast keeps its own step ids in the agent's view.
+                              broadcast,
                           }),
                           status: broadcast.status,
                       } as HogFlowApi)
