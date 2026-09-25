@@ -52793,6 +52793,8 @@ export namespace Schemas {
       errors: number;
       /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
       harness: string;
+      /** Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName. */
+      harness_sessions?: number | null;
       sessions: number;
       total_calls: number;
     }
@@ -53043,6 +53045,10 @@ export namespace Schemas {
       errors: number;
       p50_ms?: number | null;
       p95_ms?: number | null;
+      /** Calls to any tool in the same window and filters. The denominator for the tool's call share. */
+      total_calls: number;
+      /** Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share. */
+      total_conversations: number;
       users: number;
       /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
       with_intent: number;
@@ -53143,9 +53149,19 @@ export namespace Schemas {
       p50_duration_ms: number;
       p95_duration_ms: number;
       p99_duration_ms: number;
+      /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
+      previous_calls: number;
+      /** Errored calls in the previous period. */
+      previous_errors: number;
+      /** p95 duration in the previous period, or null when no previous call carried a duration. */
+      previous_p95_duration_ms: number | null;
+      /** Distinct sessions that called the tool in the previous period. */
+      previous_sessions: number;
       sessions: number;
       tool: string;
       total_calls: number;
+      /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a large tool's surge. Not a percentage; only meaningful for ordering. */
+      trend_score: number;
       users: number;
     }
 
@@ -53156,6 +53172,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** The same total for the previous period, the denominator for each row's previous session share. */
+      previousTotalSessions: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -53167,6 +53185,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Number of tools matching the date, category, and search filters. */
       totalCount: number;
+      /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+      totalSessions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -53185,6 +53205,7 @@ export namespace Schemas {
       Users: 'users',
       Sessions: 'sessions',
       LastSeen: 'last_seen',
+      TrendScore: 'trend_score',
     } as const;
 
     export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
@@ -85088,6 +85109,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** The same total for the previous period, the denominator for each row's previous session share. */
+      previousTotalSessions: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -85099,6 +85122,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Number of tools matching the date, category, and search filters. */
       totalCount: number;
+      /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+      totalSessions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
