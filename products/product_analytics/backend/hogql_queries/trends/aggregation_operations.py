@@ -289,6 +289,10 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             # Other session properties use "session_property" alias from wrapper query
             return ["session_property"]
         elif isinstance(self.series, DataWarehouseNode):
+            if self.series.math_property == "$time":
+                # A warehouse table has no `properties` column. The virtual `timestamp` field is the
+                # equivalent, because the database maps it to the series' configured timestamp column.
+                return ["timestamp"]
             return [self.series.math_property]
         elif self.series.math_property_type == "data_warehouse_person_properties":
             return ["person", *self.series.math_property.split(".")]
@@ -307,7 +311,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 args=[
                     ast.Call(
                         name="toUnixTimestamp",
-                        args=[ast.Field(chain=["properties", "$time"])],
+                        args=[ast.Field(chain=self._get_math_chain())],
                     )
                 ],
             )
