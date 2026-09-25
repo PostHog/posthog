@@ -127,10 +127,16 @@ export function parseDateLike(input: string, zone?: string): DateTime | null {
 // Converging those three is a separate change; this only converges *what parses*.
 const INVALID = DateTime.invalid('not a date-like string')
 
-export function toDate(input: string | number): HogDate {
+export function toDate(input: string | number): HogDate | null {
     // Previously `DateTime.fromISO(input)` with no zone, i.e. the *system* zone — same class of
     // host-dependent bug as Python's, and a day off from `toDateTime` for offsets west of UTC.
-    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : (parseDateLike(input) ?? INVALID)
+    //
+    // Null rather than a date of NaN fields: comparing a NaN date builds a DateTime from NaN, which
+    // throws out of the date library instead of reading as no match.
+    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : parseDateLike(input)
+    if (!dt?.isValid) {
+        return null
+    }
     return {
         __hogDate__: true,
         year: dt.year,
@@ -139,11 +145,17 @@ export function toDate(input: string | number): HogDate {
     }
 }
 
-export function toDateTime(input: string | number, zone?: string): HogDateTime {
-    const dt = typeof input === 'number' ? input : (parseDateLike(input, zone) ?? INVALID).toSeconds()
+export function toDateTime(input: string | number, zone?: string): HogDateTime | null {
+    if (typeof input === 'number') {
+        return { __hogDateTime__: true, dt: input, zone: zone || 'UTC' }
+    }
+    const dt = parseDateLike(input, zone)
+    if (!dt?.isValid) {
+        return null
+    }
     return {
         __hogDateTime__: true,
-        dt: dt,
+        dt: dt.toSeconds(),
         zone: zone || 'UTC',
     }
 }

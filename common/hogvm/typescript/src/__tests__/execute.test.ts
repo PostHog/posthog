@@ -313,6 +313,27 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.NULL, op.INTEGER, 0, op.NOT_EQ], options)).toBe(true)
     })
 
+    test('comparing today against an unparseable date is no match, not an error', () => {
+        // A null guard written before the comparison does not save it: AND evaluates every operand
+        // before combining them, so the comparison runs for a person without the property.
+        const compare = (value: string, operation: number) => [
+            '_h',
+            op.STRING,
+            value,
+            op.CALL_GLOBAL,
+            'toDate',
+            1,
+            op.CALL_GLOBAL,
+            'today',
+            0,
+            operation,
+        ]
+        for (const operation of [op.LT_EQ, op.GT_EQ]) {
+            expect(execSync(compare('', operation), {})).toBe(false)
+            expect(execSync(compare('nonsense', operation), {})).toBe(false)
+        }
+    })
+
     test('async limits', async () => {
         const callSleep = [
             33,
