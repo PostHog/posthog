@@ -983,8 +983,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         ],
         hasProtocolVersionData: [
             (s) => [s.protocolVersionRows],
-            (protocolVersionRows: MCPProtocolVersionBreakdownItem[]): boolean =>
-                protocolVersionRows.some((row) => row.total_calls > 0),
+            (protocolVersionRows: MCPProtocolVersionBreakdownItem[]): boolean => protocolVersionRows.length > 0,
         ],
         intentClusterCount: [
             // The snapshot only stores the top clusters by call volume — report

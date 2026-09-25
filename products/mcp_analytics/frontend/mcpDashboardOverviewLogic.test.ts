@@ -420,7 +420,6 @@ describe('mcpDashboardOverviewLogic', () => {
             { rows: [], visible: false },
             { rows: [{ protocol_version: 'Unknown', is_current: false, total_calls: 12 }], visible: true },
             { rows: [{ protocol_version: '2026-07-28', is_current: true, total_calls: 1 }], visible: true },
-            { rows: [{ protocol_version: '2025-06-18', is_current: false, total_calls: 0 }], visible: false },
         ])('shows protocol version coverage when any call exists: $rows', async ({ rows, visible }) => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
