@@ -82,6 +82,7 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
+export { resetClickIndicatorAfterFlash } from './click-indicator'
 export { WindowTitlePlugin } from './window-title-plugin'
 
 export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } {

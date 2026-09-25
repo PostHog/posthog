@@ -175,6 +175,10 @@ function playerFrame(page: Page): Locator {
     return page.frameLocator('iframe.PlayerFrame__document').locator('.PlayerFrame__content .replayer-wrapper iframe')
 }
 
+function clickFlashCount(page: Page): Promise<number> {
+    return page.evaluate(() => (window as any).__clickFlashes ?? 0)
+}
+
 // One button whose data-attr reflects player state and stays assertable while the auto-hiding controls chrome is hidden (hover via revealControls before clicking it).
 function playPauseButton(page: Page): Locator {
     return page.locator('[data-attr=recording-play], [data-attr=recording-pause], [data-attr=recording-rewind]').first()
@@ -312,6 +316,39 @@ test.describe('Session replay player', () => {
         await expect(page.getByText("of this recording can't be played")).toBeVisible({ timeout: 30000 })
         await revealControls(page)
         await expect(page.locator('.PlayerSeekbar__unplayable')).toBeVisible()
+    })
+
+    test('flashes the click indicator on every click, not only the first', async ({ page }) => {
+        await page.goto(`/replay/${SESSION_ID}?t=0`)
+        await expect(playerFrame(page)).toBeVisible({ timeout: 30000 })
+
+        // The player frame is sandboxed without allow-scripts, so a listener registered inside it
+        // never runs. Register from this document, which is where the player itself drives the
+        // cursor. Capturing on the frame document also outlives the cursor a seek can rebuild.
+        await page.evaluate(() => {
+            const frameDocument = (document.querySelector('iframe.PlayerFrame__document') as HTMLIFrameElement)
+                .contentDocument!
+            ;(window as any).__clickFlashes = 0
+            frameDocument.addEventListener(
+                'animationend',
+                (event) => {
+                    if ((event.target as HTMLElement).classList?.contains('replayer-mouse')) {
+                        ;(window as any).__clickFlashes += 1
+                    }
+                },
+                true
+            )
+        })
+
+        // Playback autostarts, so the clicks can pass before the listener attaches. Seeking back
+        // replays them with the counter in place, and adds no flash of its own because rrweb skips
+        // the class on the seek path.
+        await scrubTo(page, 0)
+        await expect(playPauseButton(page)).toHaveAttribute('data-attr', 'recording-pause')
+
+        // Three clicks fall outside each other's 333ms flash, but the third clears the second by
+        // only 30ms, which jitter can close. Unfixed code animates once, so two is enough.
+        await expect.poll(() => clickFlashCount(page), { timeout: 30000 }).toBeGreaterThanOrEqual(2)
     })
 
     test('buffers while a source is still loading and recovers when it arrives', async ({ page }) => {

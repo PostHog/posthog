@@ -10,6 +10,14 @@ import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/pla
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
+const MIN_CLICK_INDICATOR_DURATION_S = 0.15
+
+// An exporter URL carries its speed as a query parameter, so 0 and NaN reach here. Either one
+// makes the animation declaration invalid, which removes the indicator altogether.
+const clickIndicatorDuration = (speed: number): string => {
+    const scaled = speed > 0 ? BASE_CLICK_INDICATOR_DURATION_S / speed : BASE_CLICK_INDICATOR_DURATION_S
+    return `${Math.max(scaled, MIN_CLICK_INDICATOR_DURATION_S)}s`
+}
 
 // rrweb builds its replay iframe on about:blank, and a frame on a local scheme inherits its
 // embedder's whole policy, report-uri included. Mounting rrweb inside a real document instead puts
@@ -77,7 +85,7 @@ export const PlayerFrame = (): JSX.Element => {
     const applyFrameStyles = useCallback((): void => {
         iframeRef.current?.contentDocument?.documentElement?.style?.setProperty(
             '--player-frame-click-duration',
-            `${BASE_CLICK_INDICATOR_DURATION_S / speed}s`
+            clickIndicatorDuration(speed)
         )
         frameRef.current?.classList?.toggle('PlayerFrame__content--masking-window', !!maskingWindow)
     }, [speed, maskingWindow])

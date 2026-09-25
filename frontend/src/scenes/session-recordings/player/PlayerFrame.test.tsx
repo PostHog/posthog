@@ -8,13 +8,24 @@ import { SessionPlayerState } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
 import { PlayerFrame } from './PlayerFrame'
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
 describe('PlayerFrame', () => {
     const logicProps = { sessionRecordingId: '1', playerKey: 'player-frame-test' }
 
+    let unmountPlayerSettings: () => void
+
     beforeEach(() => {
         setupSessionRecordingTest()
+        unmountPlayerSettings = playerSettingsLogic.mount()
+    })
+
+    afterEach(() => {
+        // speed is a persisted reducer, and initKeaTests leaves localStorage alone, so a speed set
+        // here would become the starting speed of every test that runs after it.
+        playerSettingsLogic.actions.setSpeed(1)
+        unmountPlayerSettings()
     })
 
     function renderPlayerFrame(): HTMLIFrameElement {
@@ -33,6 +44,27 @@ describe('PlayerFrame', () => {
         Object.defineProperty(iframe.contentDocument!, 'readyState', { value: 'complete', configurable: true })
         return iframe
     }
+
+    it.each([
+        [1, '0.3333333333333333s'],
+        [4, '0.15s'],
+        [16, '0.15s'],
+        [0, '0.3333333333333333s'],
+        [NaN, '0.3333333333333333s'],
+    ])('holds the click indicator above the floor at %sx speed', (speed, expectedDuration) => {
+        playerSettingsLogic.actions.setSpeed(speed)
+
+        const iframe = renderPlayerFrame()
+        const frameDocument = iframe.contentDocument!
+        frameDocument.open()
+        frameDocument.write('<div id="player-frame-content"></div>')
+        frameDocument.close()
+        fireEvent.load(iframe)
+
+        expect(frameDocument.documentElement.style.getPropertyValue('--player-frame-click-duration')).toEqual(
+            expectedDuration
+        )
+    })
 
     it('mounts the player on the frame document once the frame loads', () => {
         const iframe = renderPlayerFrame()
