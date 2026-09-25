@@ -23,7 +23,13 @@
     --auth-scene-card-ink-muted: rgb(17 17 17 / 58%);
     --auth-scene-note-bg: #fbfbf9;
     --auth-scene-note-border: #c5c6bd;
+    --auth-scene-wave: rgb(104 148 192 / 20%);
 
+    position: relative;
+
+    // The wave layers sit on a negative z-index, so the scene has to own a stacking context. Without
+    // it they would paint behind the backdrop gradient instead of on top of it.
+    isolation: isolate;
     background-color: var(--auth-scene-backdrop-mid);
     background-image:
         radial-gradient(80% 70% at 50% 30%, var(--auth-scene-backdrop-glow), transparent 70%),
@@ -62,6 +68,7 @@
     --auth-scene-backdrop-glow: rgb(255 253 240 / 45%);
     --auth-scene-backdrop-ink: rgb(45 74 22 / 65%);
     --auth-scene-card-shadow: rgb(30 50 10 / 25%);
+    --auth-scene-wave: rgb(96 129 58 / 24%);
 }
 
 // The backdrop and the card are both opaque, so dark mode has to repaint them. Without this the
@@ -80,6 +87,7 @@
     --auth-scene-card-ink-muted: var(--color-text-secondary);
     --auth-scene-note-bg: var(--color-bg-fill-primary);
     --auth-scene-note-border: var(--color-border-primary);
+    --auth-scene-wave: rgb(140 180 220 / 10%);
 }
 
 // Reads as the same green the website showed, dimmed for a dark room. It has to follow the block
@@ -90,6 +98,52 @@
     --auth-scene-backdrop-bottom: #0d1707;
     --auth-scene-backdrop-glow: rgb(157 187 120 / 12%);
     --auth-scene-backdrop-ink: rgb(207 224 174 / 65%);
+    --auth-scene-wave: rgb(157 187 120 / 11%);
+}
+
+// Slow swells over the backdrop gradient. Each layer travels one viewBox width and repeats.
+.AuthScene__wave {
+    fill: var(--auth-scene-wave);
+}
+
+.AuthScene__wave--1 {
+    opacity: 0.55;
+}
+
+.AuthScene__wave--2 {
+    opacity: 0.4;
+}
+
+.AuthScene__wave--3 {
+    opacity: 0.3;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .AuthScene__wave--1 {
+        animation: AuthScene__wave 34s linear infinite;
+    }
+
+    .AuthScene__wave--2 {
+        animation: AuthScene__wave 48s linear infinite reverse;
+    }
+
+    .AuthScene__wave--3 {
+        animation: AuthScene__wave 62s linear infinite;
+    }
+}
+
+@keyframes AuthScene__wave {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    50% {
+        transform: translate3d(-720px, -12px, 0);
+    }
+
+    to {
+        transform: translate3d(-1440px, 0, 0);
+    }
 }
 
 // A band that sits flush inside a card, such as a sticky section header. It repeats the card's

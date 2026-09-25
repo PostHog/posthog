@@ -6,6 +6,7 @@ import { type ReactNode } from 'react'
 import { cn } from 'lib/utils/css-classes'
 
 import { arrivedFromWebsiteLogic } from '../arrivedFromWebsiteLogic'
+import { AuthSceneWaves } from './AuthSceneWaves'
 
 /**
  * Carries the light-mode button tokens in AuthScene.scss as well as the backdrop, which is what
@@ -23,6 +24,7 @@ export function AuthSceneBackdrop({ className, children }: { className?: string;
                 className
             )}
         >
+            <AuthSceneWaves />
             {children}
         </div>
     )
