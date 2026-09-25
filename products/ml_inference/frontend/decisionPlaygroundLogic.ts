@@ -1,6 +1,8 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mlInferenceDecisionsDecideCreate } from './generated/api'
@@ -206,6 +208,7 @@ export interface decisionPlaygroundLogicValues {
     askedQuestions: PlaygroundQuestion[]
     decision: DecideResponseApi | null
     decisionLoading: boolean
+    decisionsFlagFromServer: boolean | undefined
     questions: PlaygroundQuestion[]
     questionsJson: string
     questionsJsonError: string | null
@@ -249,6 +252,9 @@ export interface decisionPlaygroundLogicActions {
     }
     setAskedQuestions: (questions: PlaygroundQuestion[]) => {
         questions: PlaygroundQuestion[]
+    }
+    setDecisionsFlagFromServer: (enabled: boolean | undefined) => {
+        enabled: boolean | undefined
     }
     setQuestions: (questions: PlaygroundQuestion[]) => {
         questions: PlaygroundQuestion[]
@@ -330,6 +336,7 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
         setAskedQuestions: (questions: PlaygroundQuestion[]) => ({ questions }),
         setQuestionsView: (view: QuestionsView) => ({ view }),
         setQuestionsJson: (json: string) => ({ json }),
+        setDecisionsFlagFromServer: (enabled: boolean | undefined) => ({ enabled }),
     }),
     loaders(({ values }) => ({
         decision: [
@@ -372,6 +379,10 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
         askedQuestions: [[] as PlaygroundQuestion[], { setAskedQuestions: (_, { questions }) => questions }],
         questionsView: ['form' as QuestionsView, { setQuestionsView: (_, { view }) => view }],
         questionsJson: ['', { setQuestionsJson: (_, { json }) => json }],
+        decisionsFlagFromServer: [
+            undefined as boolean | undefined,
+            { setDecisionsFlagFromServer: (_, { enabled }) => enabled },
+        ],
     }),
     selectors({
         requestBody: [
@@ -420,4 +431,19 @@ export const decisionPlaygroundLogic = kea<decisionPlaygroundLogicType>([
             }
         },
     })),
+    afterMount(({ actions, cache }) => {
+        // The page loads with the flags the server can evaluate locally, and posthog-js reports those as loaded, so an unset flag is only known to be off once /flags has answered.
+        cache.disposables.add(
+            () =>
+                posthog.onFeatureFlags(() =>
+                    actions.setDecisionsFlagFromServer(
+                        posthog.isFeatureEnabled(FEATURE_FLAGS.ML_INFERENCE_DECISIONS, {
+                            fresh: true,
+                            send_event: false,
+                        })
+                    )
+                ),
+            'decisionsFlagFromServer'
+        )
+    }),
 ])

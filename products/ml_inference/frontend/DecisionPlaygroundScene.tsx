@@ -52,7 +52,7 @@ const QUESTIONS_VIEW_OPTIONS: { value: QuestionsView; label: string }[] = [
 ]
 
 export function DecisionPlaygroundScene(): JSX.Element {
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
     const {
@@ -65,6 +65,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
         decision,
         decisionLoading,
         askDisabledReason,
+        decisionsFlagFromServer,
     } = useValues(decisionPlaygroundLogic)
     const {
         setState,
@@ -81,8 +82,7 @@ export function DecisionPlaygroundScene(): JSX.Element {
 
     // The same rule as the API: the flag enrols a project, and local development needs no flag.
     if (!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && !preflight?.is_debug) {
-        // An unset flag before the first flags response is unknown, not off, so the 404 waits for the answer or the app's flag timeout.
-        return receivedFeatureFlags || featureFlagsTimedOut ? (
+        return decisionsFlagFromServer === false || featureFlagsTimedOut ? (
             <NotFound object="page" />
         ) : (
             <Spinner className="text-3xl mx-auto my-8" />
