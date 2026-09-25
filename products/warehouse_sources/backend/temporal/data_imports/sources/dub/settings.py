@@ -29,6 +29,8 @@ class DubEndpointConfig:
     # /links returns only the links sitting outside a folder unless `folderId` is passed, so
     # this endpoint has to be walked once per folder as well to import the whole workspace.
     folder_scoped: bool = False
+    # Walked once per enrolled partner by a custom iterator; see _partner_analytics_rows.
+    partner_scoped: bool = False
 
 
 def _event_endpoint(name: str, event_type: str, primary_key: str) -> DubEndpointConfig:
@@ -91,16 +93,17 @@ DUB_ENDPOINTS: dict[str, DubEndpointConfig] = {
     "partner_applications": DubEndpointConfig(
         name="partner_applications", path="/partners/applications", pagination="page"
     ),
-    # /partners already carries each partner's lifetime totals, so the useful cut of
-    # /partners/analytics is the program-wide series over time. It also reports earnings,
-    # which the workspace-level /analytics does not.
+    # Dub rejects a /partners/analytics request that names no partner, so there is no
+    # program-wide series to read: the table is the union of each partner's series. It carries
+    # earnings per bucket, which neither /partners nor the workspace-level /analytics reports.
     "partner_analytics_timeseries": DubEndpointConfig(
         name="partner_analytics_timeseries",
         path="/partners/analytics",
         pagination="single",
-        primary_keys=("start",),
+        primary_keys=("partnerId", "start"),
         partition_key=None,
         params={"groupBy": "timeseries", "interval": "all"},
+        partner_scoped=True,
     ),
     "analytics_timeseries": _analytics_endpoint("analytics_timeseries", "timeseries", ("start",)),
     "analytics_continents": _analytics_endpoint("analytics_continents", "continents", ("continent",)),

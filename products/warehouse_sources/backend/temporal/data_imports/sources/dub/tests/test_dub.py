@@ -30,7 +30,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dub.settin
 )
 
 ANALYTICS_ENDPOINTS = tuple(name for name, config in DUB_ENDPOINTS.items() if config.path == "/analytics")
-SINGLE_PAGE_ENDPOINTS = tuple(name for name, config in DUB_ENDPOINTS.items() if config.pagination == "single")
+SINGLE_PAGE_ENDPOINTS = tuple(
+    name for name, config in DUB_ENDPOINTS.items() if config.pagination == "single" and not config.partner_scoped
+)
+# partner_analytics_timeseries is walked by a custom iterator, not by paginating one path,
+# so the shared request-shaping tests do not apply to it.
+PAGINATED_PARTNER_PROGRAM_ENDPOINTS = tuple(
+    name for name in PARTNER_PROGRAM_ENDPOINTS if not DUB_ENDPOINTS[name].partner_scoped
+)
 
 
 def _rows(n: int, prefix: str = "row") -> list[dict[str, Any]]:
@@ -432,12 +439,82 @@ class TestSinglePageEndpoints:
         assert response.primary_keys == expected
 
 
+class TestPartnerAnalyticsWalk:
+    def _drive(self, manager: MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[Any]]:
+        sent: list[dict[str, Any]] = []
+        response_iter = iter(responses)
+
+        def fake_get(_url: str, **kwargs: Any) -> Response:
+            sent.append(dict(kwargs.get("params") or {}))
+            return next(response_iter)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dub.dub.make_tracked_session"
+        ) as MockSession:
+            MockSession.return_value.get.side_effect = fake_get
+            response = dub_source(
+                api_key="dub_test",
+                endpoint="partner_analytics_timeseries",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=manager,
+            )
+            return sent, list(cast(Iterable[Any], response.items()))
+
+    def test_every_request_names_a_partner_and_rows_carry_it(self) -> None:
+        # Dub rejects a /partners/analytics request that names no partner, so a walk that
+        # skipped the partnerId would fail every import. The response repeats only the bucket
+        # timestamp, so unstamped rows from two partners would also collide on the key.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        sent, pages = self._drive(
+            manager,
+            [
+                _make_http_response([{"id": "pn_a"}, {"id": "pn_b"}]),
+                _make_http_response([{"start": "2026-01-01", "clicks": 1}]),
+                _make_http_response([{"start": "2026-01-01", "clicks": 2}]),
+            ],
+        )
+
+        analytics_requests = sent[1:]
+        assert [p["partnerId"] for p in analytics_requests] == ["pn_a", "pn_b"]
+        assert all(p["groupBy"] == "timeseries" and p["interval"] == "all" for p in analytics_requests)
+        assert [row["partnerId"] for page in pages for row in page] == ["pn_a", "pn_b"]
+
+    def test_walk_resumes_at_the_partner_after_the_last_written_one(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = DubResumeConfig(scope_index=1)
+
+        sent, pages = self._drive(
+            manager,
+            [
+                _make_http_response([{"id": "pn_a"}, {"id": "pn_b"}]),
+                _make_http_response([{"start": "2026-01-01", "clicks": 2}]),
+            ],
+        )
+
+        assert [p.get("partnerId") for p in sent[1:]] == ["pn_b"]
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [DubResumeConfig(scope_index=2)]
+
+    def test_workspace_without_a_partner_program_yields_no_rows(self) -> None:
+        # /partners answers 404 without a program, which is an empty table rather than a
+        # broken sync, so the walk must not raise.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        _, pages = self._drive(manager, [_make_http_response({"error": {"message": "Program not found"}}, 404)])
+
+        assert pages == []
+
+
 class TestPartnerProgramTablesWithoutAProgram:
     # Dub resolves the workspace's default partner program before reading any of these lists,
     # so a workspace without one gets this 404 on the table's own list endpoint.
     _NOT_FOUND = {"error": {"code": "not_found", "message": "Program not found"}}
 
-    @pytest.mark.parametrize("endpoint", PARTNER_PROGRAM_ENDPOINTS)
+    @pytest.mark.parametrize("endpoint", PAGINATED_PARTNER_PROGRAM_ENDPOINTS)
     def test_404_ends_the_table_instead_of_failing_the_sync(self, endpoint: str) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False

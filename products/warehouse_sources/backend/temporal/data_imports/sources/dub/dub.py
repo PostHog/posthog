@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -48,7 +49,8 @@ _PARTNER_PROGRAM_404_IGNORE: list[ResponseAction] = [{"status_code": 404, "actio
 class DubResumeConfig:
     page: Optional[int] = None
     starting_after: Optional[str] = None
-    # Which /links scope the cursor belongs to; see DubLinksScopePaginator.
+    # Which scope the walk reached: a /links folder (DubLinksScopePaginator) or the next
+    # partner to read (_partner_analytics_rows).
     scope_index: Optional[int] = None
 
 
@@ -207,6 +209,79 @@ def _fetch_folder_ids(api_key: str) -> list[str]:
         page += 1
 
 
+def _fetch_partner_ids(api_key: str) -> list[str]:
+    """Every partner enrolled in the program, so /partners/analytics can be read per partner."""
+    config = DUB_ENDPOINTS["partners"]
+    session = _make_session(api_key)
+    partner_ids: list[str] = []
+    page = 1
+
+    while True:
+        params: dict[str, Any] = {**config.params, "page": page, config.page_size_param: config.page_size}
+        res = session.get(
+            f"{DUB_BASE_URL}{config.path}",
+            params=params,
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if res.status_code in (401, 403, 404):
+            # Same gating as the partners table itself: no program, or a plan that cannot
+            # reach it, leaves nothing to walk.
+            return partner_ids
+        res.raise_for_status()
+
+        rows = res.json()
+        if not isinstance(rows, list) or not rows:
+            return partner_ids
+
+        partner_ids.extend(str(row["id"]) for row in rows if isinstance(row, dict) and row.get("id"))
+        if len(rows) < config.page_size:
+            return partner_ids
+        page += 1
+
+
+def _partner_analytics_rows(
+    api_key: str,
+    config: DubEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[DubResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Read /partners/analytics once per enrolled partner.
+
+    Dub rejects the request unless it names a partner, so the endpoint has no program-wide
+    mode and the table is the union of the per-partner series. The response repeats only the
+    bucket timestamp, so each row carries the partner it came from to keep the key unique.
+    """
+    partner_ids = _fetch_partner_ids(api_key)
+
+    start_index = 0
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.scope_index is not None:
+            start_index = min(resume.scope_index, len(partner_ids))
+
+    session = _make_session(api_key)
+    for index in range(start_index, len(partner_ids)):
+        partner_id = partner_ids[index]
+        res = session.get(
+            f"{DUB_BASE_URL}{config.path}",
+            params={**config.params, "partnerId": partner_id},
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        if res.status_code == 404:
+            # A partner can leave the program between the list call and this one.
+            continue
+        res.raise_for_status()
+
+        rows = res.json()
+        if not isinstance(rows, list) or not rows:
+            continue
+
+        # Staged before the yield it covers, so a crash resumes at the next unwritten partner.
+        resumable_source_manager.save_state(DubResumeConfig(scope_index=index + 1))
+        yield [{**row, "partnerId": partner_id} for row in rows if isinstance(row, dict)]
+
+
 def _format_timestamp(value: Any) -> str:
     if isinstance(value, datetime | date):
         return value.isoformat()
@@ -340,6 +415,17 @@ def dub_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = DUB_ENDPOINTS[endpoint]
+
+    if endpoint_config.partner_scoped:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _partner_analytics_rows(api_key, endpoint_config, resumable_source_manager),
+            primary_keys=list(endpoint_config.primary_keys),
+            partition_count=1,
+            partition_size=1,
+            sort_mode=endpoint_config.sort_mode,
+        )
+
     folder_ids = _fetch_folder_ids(api_key) if endpoint_config.folder_scoped else []
 
     config: RESTAPIConfig = {

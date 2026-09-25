@@ -304,9 +304,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "partner_analytics_timeseries": {
-        "description": "Partner-program clicks, leads, sales, and partner earnings bucketed over time. Requires a Dub partner program.",
+        "description": "One enrolled partner's clicks, leads, sales, and earnings bucketed over time. One row per partner per interval. Requires a Dub partner program.",
         "docs_url": "https://dub.co/docs/api-reference/partners/retrieve-analytics",
         "columns": {
+            "partnerId": "The unique ID of the partner the interval belongs to.",
             "start": "The starting timestamp of the interval.",
             "clicks": "The number of clicks in the interval.",
             "leads": "The number of leads in the interval.",
