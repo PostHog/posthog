@@ -41,12 +41,7 @@ function formatKafkaHeaders(headers: MessageHeader[]): Record<string, string> {
     const result: Record<string, string> = {}
     for (const header of headers) {
         for (const key of Object.keys(header)) {
-            const value: unknown = header[key]
-            // librdkafka allows a null header value; a throw here would replace
-            // the step's own error in the crash log.
-            if (value !== null && value !== undefined) {
-                result[key] = String(value)
-            }
+            result[key] = header[key].toString()
         }
     }
     return result
