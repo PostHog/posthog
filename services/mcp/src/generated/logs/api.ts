@@ -5399,7 +5399,7 @@ export const LogsAlertsSimulateCreateBody = () => zod.object({
 })
 
 /**
- * Runs anomaly detection on demand over one service's log volume for the given window, read from the volume rollup. Learns a baseline per (namespace, environment, severity) series from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * Runs anomaly detection on demand over one service's log volume for the given window, read from the volume rollup. Learns a baseline per (namespace, environment, severity) series from up to 5 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
  * @summary Scan a service's logs for volume anomalies
  */
 export const LogsAnomaliesScanCreateParams = () => zod.object({
