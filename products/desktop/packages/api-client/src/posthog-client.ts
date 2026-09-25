@@ -556,10 +556,6 @@ export interface LlmSkillFile {
   path: string;
   content: string;
   content_type: string;
-  /** Length of the whole file, whatever slice of it `content` holds. */
-  body_total_length?: number;
-  /** Offset of the next content page, or null once `content` reaches the end. */
-  body_next_offset?: number | null;
 }
 
 export interface LlmSkillListItem {
@@ -7363,58 +7359,12 @@ export class PostHogAPIClient {
     return (await response.json()) as LlmSkill;
   }
 
-  /**
-   * Fetches one companion file of a team skill.
-   * The endpoint caps an unpaged file at its own page length, so follow
-   * `body_next_offset` to the end and return the whole file to every caller.
-   * Pass the skill version to pin the pages to one publish.
-   */
-  async getLlmSkillFile(
-    name: string,
-    filePath: string,
-    options?: { version?: number },
-  ): Promise<LlmSkillFile> {
-    const version = options?.version;
-    const first = await this.getLlmSkillFilePage(name, filePath, { version });
-    const pages = [first.content];
-    let offset = first.body_next_offset;
-    while (offset != null) {
-      const page = await this.getLlmSkillFilePage(name, filePath, {
-        offset,
-        version,
-      });
-      pages.push(page.content);
-      // An offset that does not advance would page forever; the length check below
-      // then reports the short file.
-      const next = page.body_next_offset;
-      offset = next != null && next > offset ? next : null;
-    }
-
-    const content = pages.join("");
-    const total = first.body_total_length;
-    if (total != null && content.length !== total) {
-      throw new Error(
-        `Failed to fetch team skill file: got ${content.length} of ${total} characters of "${filePath}"`,
-      );
-    }
-    return { ...first, content, body_next_offset: null };
-  }
-
-  private async getLlmSkillFilePage(
-    name: string,
-    filePath: string,
-    paging: { offset?: number; version?: number },
-  ): Promise<LlmSkillFile> {
+  /** Fetches one companion file of a team skill. */
+  async getLlmSkillFile(name: string, filePath: string): Promise<LlmSkillFile> {
     const teamId = await this.getTeamId();
     const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
     const urlPath = `/api/environments/${teamId}/llm_skills/name/${encodeURIComponent(name)}/files/${encodedPath}`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
-    if (paging.offset != null) {
-      url.searchParams.set("body_offset", String(paging.offset));
-    }
-    if (paging.version != null) {
-      url.searchParams.set("version", String(paging.version));
-    }
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
