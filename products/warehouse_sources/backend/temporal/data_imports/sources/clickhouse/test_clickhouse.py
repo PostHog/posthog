@@ -1693,13 +1693,12 @@ class TestPagedReadFallback:
             self._HOST_LIMITS,
             should_use_incremental_field=True,
             incremental_field="ts",
-            incremental_field_type=IncrementalFieldType.DateTime,
+            incremental_field_type=IncrementalFieldType.Timestamp,
             db_incremental_field_last_value=last_value,
         )
 
-        cursor = rows.column("ts").cast(pa.int64()).to_pylist()
-        assert cursor == sorted(cursor)
-        assert sorted(rows.column("id").to_pylist()) == expected_ids
+        assert rows.column("ts").equals(rows.sort_by("ts").column("ts"))
+        assert rows.sort_by("id").column("id").to_pylist() == expected_ids
 
     def test_full_refresh_pages_through_a_result_cap_on_the_sorting_key(self, make_table):
         rows = self._read(
@@ -1709,7 +1708,7 @@ class TestPagedReadFallback:
             db_incremental_field_last_value=None,
         )
 
-        assert sorted(rows.column("id").to_pylist()) == list(range(30))
+        assert rows.sort_by("id").column("id").to_pylist() == list(range(30))
 
     @pytest.mark.parametrize(
         "host_limits, order_by, should_use_incremental_field",
@@ -1727,7 +1726,7 @@ class TestPagedReadFallback:
                 host_limits,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field="ts" if should_use_incremental_field else None,
-                incremental_field_type=IncrementalFieldType.DateTime if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
                 db_incremental_field_last_value=None,
             )
 
