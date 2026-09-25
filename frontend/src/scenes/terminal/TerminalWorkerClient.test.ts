@@ -107,7 +107,6 @@ describe('terminal worker connection', () => {
             const onError = jest.fn()
             const client = new TerminalWorkerClient(boot, {} as NinePServer, onError)
             const worker = TestWorker.instance
-            const rejected = await expect(client.loaded).rejects.toBeInstanceOf(Error)
             if (reason === 'error') {
                 worker.onerror!(new ErrorEvent('error'))
             } else if (reason === 'messageerror') {
@@ -117,7 +116,7 @@ describe('terminal worker connection', () => {
             } else {
                 client.dispose()
             }
-            await rejected
+            await expect(client.loaded).rejects.toBeInstanceOf(Error)
             client.dispose()
             expect(worker.terminate).toHaveBeenCalledTimes(1)
             expect(jest.getTimerCount()).toBe(0)
