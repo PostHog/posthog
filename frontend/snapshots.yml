@@ -3192,6 +3192,22 @@ snapshots:
         hash: v1.k794b7964.7a64d4e031d99774addf09c78809b732e1de363b31f9c700218c8bf7575d3e2f.bm9u1TaKULFXL7zhr293AHvC82-5Puiypn88v0euEJU
     filters-taxonomic-filter--renamed-series-selected-with-all-results--light:
         hash: v1.k794b7964.1940698d5a4fcf5314afcc4f2f582228c3adcf8d8b7cc5f8725441f8a8d040b6.L87TGLih84ffADwLJZCeToQdaIewW50aBiH7MdbZ1CQ
+    filters-taxonomic-filter--search-intent-control-keeps-order--dark:
+        hash: v1.k794b7964.a697849cb795fb3b6831e77c4473f44b731cd37bf3c95fc2e222860ec8fbfc99.PYkSY0kqft5THgGC8cU6kc3FBsEI445P6wJiKTUKhi4
+    filters-taxonomic-filter--search-intent-control-keeps-order--light:
+        hash: v1.k794b7964.37b41323e066412ea5791d7139276a8511a214eab9560e688f059a58a26f4fed.0oJtl5BM6R1utvMNfrefc-Hz5Jj785IOLbcsoAoKin0
+    filters-taxonomic-filter--search-intent-promotes-group--dark:
+        hash: v1.k794b7964.36bfca465fa81a617cb228956bf5cbcbdfc742b8010f455688310ea35a353a67.EDotXLAmxjeQbl7CmhNRK8ItX_qcXIBHu938KCKvUS8
+    filters-taxonomic-filter--search-intent-promotes-group--light:
+        hash: v1.k794b7964.83f80eea84d432f02d4805fccf7d4bdd36b9c853ae5f3d1457a6ae5085dc7364.z_EjK_5yHgfoXb-ZhW_vyfIADr3-zmcB95BsN_J7kMM
+    filters-taxonomic-filter--search-intent-suggests-another-tab--dark:
+        hash: v1.k794b7964.61581a9d1a554763f3f3b9e75c589c2e8381ec0b095ab01c3be710d1633fb39a.7oLeqOE7IrAcIczEzfyz-Q3xA4f-bUNUVEtLOqYmwnU
+    filters-taxonomic-filter--search-intent-suggests-another-tab--light:
+        hash: v1.k794b7964.95b498302f181db07c6d8be5528c74d14a6ed6d0cbc2dc0ee63ecbbc24a8117e.2CjYTZMA0k6oczwSYqMQ7n9U6zak9bZzMI9hBy5IasI
+    filters-taxonomic-filter--search-intent-suggests-another-tab-narrow--dark:
+        hash: v1.k794b7964.e62e0423c458e5bf70b071a30b18a50500e10878891f69698707b79cacfb8110.JB3_vSta_2QaPMROCj08V7BF0312G-z9WuaSlQ9OH7c
+    filters-taxonomic-filter--search-intent-suggests-another-tab-narrow--light:
+        hash: v1.k794b7964.72234524ecda0b8294d10f45c644bf92f87bd593c0b7302a9de4e28ebadd1540.rNOcJTlCEBkSlMS7HKGL16EFcy-zV4nysz_uUxeWNm8
     filters-taxonomic-filter--six-groups-default-layout--dark:
         hash: v1.k794b7964.627294fb84ded4e91c4b583e04c2b6e9ca0bdcd34464f49d0d26234cc89d4348.M68XdlTkoApLdDr13jO67fmlGFLjATJfb8ZwdU6xP5Y
     filters-taxonomic-filter--six-groups-default-layout--light:
