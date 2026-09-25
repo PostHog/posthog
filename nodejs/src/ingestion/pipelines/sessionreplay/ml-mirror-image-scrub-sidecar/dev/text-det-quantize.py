@@ -51,12 +51,18 @@ def constants_to_initializers(model: onnx.ModelProto) -> onnx.ModelProto:
     return model
 
 
+def at_least_opset_13(model: onnx.ModelProto) -> onnx.ModelProto:
+    # Per-channel weights need DequantizeLinear's axis attribute, which only exists from opset 13.
+    default = next((o.version for o in model.opset_import if o.domain in ("", "ai.onnx")), 13)
+    return onnx.version_converter.convert_version(model, 13) if default < 13 else model
+
+
 def main() -> None:
     source, calibration_dir, destination = (Path(p) for p in sys.argv[1:4])
     conv_only = "--conv-only" in sys.argv
     with tempfile.TemporaryDirectory() as scratch:
         lifted = Path(scratch) / "lifted.onnx"
-        onnx.save(constants_to_initializers(onnx.load(str(source))), str(lifted))
+        onnx.save(at_least_opset_13(constants_to_initializers(onnx.load(str(source)))), str(lifted))
         folded = Path(scratch) / "folded.onnx"
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
