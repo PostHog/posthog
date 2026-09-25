@@ -1045,7 +1045,9 @@ class CDCExtractActivity:
             # A non-retryable error re-fails every scheduled run, so pause the schedule instead of
             # looping it. No cdc_broken marker: the slot is intact, so it stays Repair-CDC-ineligible.
             self._pause_cdc_extraction_schedule()
-        terminal = not info.retryable or activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS
+        # Outside an activity nothing retries, so every failure there is terminal.
+        retries_left = activity.in_activity() and activity.info().attempt < CDC_MAX_EXTRACTION_ATTEMPTS
+        terminal = not info.retryable or not retries_left
         for schema in self.cdc_schemas:
             # Only a terminal failure paints the schema. A later successful attempt never repaints it,
             # because its status belongs to the scheduled sync that consumes the buffer.

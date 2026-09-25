@@ -1163,7 +1163,11 @@ class TestFailureVisibilityJobs:
         MockJob.objects.create.return_value = MagicMock(id=uuid.uuid4())
 
         mock_activity.heartbeat = MagicMock()
-        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=attempt)
+        mock_activity.in_activity.return_value = attempt is not None
+        if attempt is None:
+            mock_activity.info.side_effect = RuntimeError("Not in activity context")
+        else:
+            mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=attempt)
 
         # The non-retryable pause hits Temporal (sync_connect); stub it so these stay off the network.
         with (
@@ -1237,6 +1241,36 @@ class TestFailureVisibilityJobs:
         assert kwargs["schema"] is schema
         # User-facing column carries the friendly, credential-safe copy — never the raw exception.
         assert kwargs["latest_error"] == cdc_error_info(expected_category).friendly_message
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_a_retryable_failure_outside_an_activity_marks_the_schema_failed(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        schema = _make_schema("users", cdc_mode="streaming")
+        self._drive_failure(
+            error=psycopg.OperationalError("connection refused"),
+            attempt=None,
+            schemas=[schema],
+            MockJob=MockJob,
+            MockSourceModel=MockSourceModel,
+            mock_get_schemas=mock_get_schemas,
+            mock_get_adapter=mock_get_adapter,
+            mock_activity=mock_activity,
+        )
+
+        assert schema.status == ExternalDataSchema.Status.FAILED
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.CONNECTION_FAILED).friendly_message
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
