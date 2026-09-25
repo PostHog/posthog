@@ -40,9 +40,16 @@ export function withHomeFolderEmptyState(
                                         <Tooltip
                                             title={
                                                 <>
-                                                    This folder is public, not private. Everyone in this project can see
-                                                    what you put here. Find it at{' '}
-                                                    <strong>{splitPath(homeFolder.path).join(' / ')}</strong>.
+                                                    <p className="mb-2">
+                                                        This folder is public, not private. Everyone in this project can
+                                                        see what you put here. Find it at{' '}
+                                                        <strong>{splitPath(homeFolder.path).join(' / ')}</strong>.
+                                                    </p>
+                                                    <p className="mb-0">
+                                                        To add an object to your home folder, right-click the folder or
+                                                        open its … menu. Choose <strong>New</strong>, then select an
+                                                        object type.
+                                                    </p>
                                                 </>
                                             }
                                             placement="right"
