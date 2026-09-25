@@ -5,7 +5,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
@@ -535,6 +537,54 @@ class TestScoutSourceCanonicalization(APIBaseTest):
             enabled=True,
         )
         assert self.client.get(self._child_url()).json()["results"] == []
+
+    def _child_scoped_api_key_auth(self) -> dict[str, str]:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["task:read", "task:write"],
+            scoped_teams=[self.child_team.id],
+        )
+        self.client.logout()
+        return {"HTTP_AUTHORIZATION": f"Bearer {raw}"}
+
+    def test_child_scoped_api_key_lists_only_child_rows(self):
+        SignalSourceConfig.objects.create(
+            team=self.team, source_product="signals_scout", source_type="cross_source_issue"
+        )
+        child_row = SignalSourceConfig.objects.create(
+            team=self.child_team, source_product="session_replay", source_type="session_analysis_cluster"
+        )
+        response = self.client.get(self._child_url(), **self._child_scoped_api_key_auth())
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(child_row.id)]
+
+    @parameterized.expand([("get",), ("patch",), ("delete",)])
+    def test_child_scoped_api_key_cannot_touch_canonical_scout_row(self, method: str):
+        scout_row = SignalSourceConfig.objects.create(
+            team=self.team, source_product="signals_scout", source_type="cross_source_issue", enabled=True
+        )
+        response = getattr(self.client, method)(
+            self._child_url(str(scout_row.id)),
+            {"enabled": False},
+            format="json",
+            **self._child_scoped_api_key_auth(),
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        scout_row.refresh_from_db()
+        assert scout_row.enabled is True
+
+    def test_child_scoped_api_key_cannot_create_canonical_scout_row(self):
+        response = self.client.post(
+            self._child_url(),
+            {"source_product": "signals_scout", "source_type": "cross_source_issue", "enabled": False},
+            format="json",
+            **self._child_scoped_api_key_auth(),
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not SignalSourceConfig.objects.filter(source_product="signals_scout").exists()
 
 
 class TestIsSourceEnabledGating(APIBaseTest):
