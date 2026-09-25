@@ -1,8 +1,12 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
@@ -21,6 +25,16 @@ const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
     from: 'test@example.com',
     to: 'recipient@example.com',
 }
+
+const LIBRARY_TEMPLATE = {
+    id: 'library-template',
+    name: 'Welcome',
+    description: 'A welcome email',
+    content: {
+        templating: 'liquid',
+        email: { ...DEFAULT_EMAIL_TEMPLATE, subject: 'From the library', html: '<div>From the library</div>' },
+    },
+} as unknown as MessageTemplate
 
 function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplaterLogicProps {
     return {
@@ -159,6 +173,16 @@ describe('emailTemplaterLogic', () => {
     })
 
     describe('starting-point picker', () => {
+        let dialog: jest.SpyInstance
+
+        beforeEach(() => {
+            dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+        })
+
+        afterEach(() => {
+            dialog.mockRestore()
+        })
+
         it('closes the picker when the editor modal closes', async () => {
             logic = emailTemplaterLogic(makeProps())
             logic.mount()
@@ -169,6 +193,37 @@ describe('emailTemplaterLogic', () => {
 
             logic.actions.setIsModalOpen(false)
             await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
+        })
+
+        it('applies the template and closes the picker when the email is empty', async () => {
+            logic = emailTemplaterLogic(makeProps({ value: { ...DEFAULT_EMAIL_TEMPLATE, html: '', text: '' } }))
+            logic.mount()
+
+            logic.actions.setIsTemplatePickerOpen(true)
+            logic.actions.applyTemplateWithConfirmation(LIBRARY_TEMPLATE)
+
+            await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
+            expect(logic.values.emailTemplate.subject).toEqual('From the library')
+            expect(dialog).not.toHaveBeenCalled()
+        })
+
+        it('keeps the email an agent already wrote until the replacement is confirmed', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+
+            logic.actions.setIsTemplatePickerOpen(true)
+            logic.actions.applyTemplateWithConfirmation(LIBRARY_TEMPLATE)
+
+            await expectLogic(logic).toMatchValues({
+                isTemplatePickerOpen: true,
+                emailTemplate: DEFAULT_EMAIL_TEMPLATE,
+            })
+            expect(dialog).toHaveBeenCalledTimes(1)
+
+            dialog.mock.calls[0][0].primaryButton!.onClick!({} as React.MouseEvent<HTMLButtonElement>)
+
+            await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
+            expect(logic.values.emailTemplate.subject).toEqual('From the library')
         })
     })
 
