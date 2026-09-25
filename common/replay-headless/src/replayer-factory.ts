@@ -34,6 +34,21 @@ export interface ReplayerWindow extends PlaybackWindow {
 /** Why no window could be replayed: nothing loaded yet, or snapshots that no window can be drawn from. */
 export type ReplayerSetupFailure = 'no_snapshots' | 'no_full_snapshot'
 
+/** Each window keeps its own iframe and DOM alive for the whole render, and window ids come from the recording. */
+const MAX_REPLAYED_WINDOWS = 20
+
+/** The windows with the most active time, which are the ones worth their memory when a session opened too many. */
+function busiestWindowIds(segments: RecordingSegment[], limit: number): Set<number> {
+    const activeMs = new Map<number, number>()
+    for (const seg of segments) {
+        if (seg.windowId != null) {
+            activeMs.set(seg.windowId, (activeMs.get(seg.windowId) ?? 0) + (seg.isActive ? seg.durationMs : 0))
+        }
+    }
+    const ranked = [...activeMs.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
+    return new Set(ranked.map(([windowId]) => windowId))
+}
+
 function firstHref(events: eventWithTime[]): string {
     for (const event of events) {
         const href = getHrefFromSnapshot(event)
@@ -119,8 +134,14 @@ export async function createReplayers(
     )
     const segments = mergeInactiveSegments(rawSegments)
     const firstTimestamp = snapshots[0].timestamp
+    const windowIds = Object.keys(snapshotsByWindowId).map(Number)
+    const keptWindowIds =
+        windowIds.length > MAX_REPLAYED_WINDOWS ? busiestWindowIds(segments, MAX_REPLAYED_WINDOWS) : new Set(windowIds)
     const windows: ReplayerWindow[] = []
     for (const [windowId, windowEvents] of Object.entries(snapshotsByWindowId)) {
+        if (!keptWindowIds.has(Number(windowId))) {
+            continue
+        }
         // rrweb cannot build a page without a full snapshot, and its Replayer throws on fewer than two events.
         if (windowEvents.length < 2 || !windowEvents.some((event) => event.type === EventType.FullSnapshot)) {
             continue
