@@ -743,6 +743,8 @@ class Command(BaseCommand):
             "--surge-tool",
             type=str,
             default=None,
+            # Feedback generation looks up templates by tool name, so only built-in tools are seedable.
+            choices=TOOL_NAMES,
             help="Tool name to spike in the most recent quarter of --days, so it trends on the Tool quality tab "
             "(for example with --days 14 and the default 7-day filter). Older sessions rarely call it. Needs --days.",
         )
