@@ -890,7 +890,8 @@ class ReplayObservationViewSet(
 ):
     """Read-only access to observations produced by a scanner."""
 
-    # Upper bound on ids materialized for filtered prev/next computation (see `_observation_neighbors`).
+    # Upper bound on ids materialized for prev/next under an ordering the keyset walk cannot follow
+    # (see `_observation_neighbors`).
     NEIGHBOR_SCAN_LIMIT = 5000
 
     scope_object = "replay_scanner"
@@ -978,13 +979,22 @@ class ReplayObservationViewSet(
         ).order_by("-created_at", "id")
         # Empty values (`?status=`) are no-ops in the filterset, so they must not opt out of the fast path.
         if not any(self.request.query_params.get(key) for key in ReplayObservationFilter.base_filters):
-            return self._unfiltered_neighbors(observation, siblings)
+            return self._keyset_neighbors(observation, siblings)
         filterset = ReplayObservationFilter(
             self.request.query_params, queryset=siblings, request=self.request, team=self.team
         )
         if not filterset.is_valid():
             # Same 400 the list endpoint gives for the identical bad query string.
             raise ValidationError(filterset.errors)
+        # Filters narrow the set but leave the row order the keyset walk assumes, so the walk still holds.
+        # `-created_at` reaches `_order_plain`, which appends the same `id` tiebreaker the list queryset uses,
+        # so an explicit ask for it and no ask at all describe one order. Every other key sorts on something
+        # the walk cannot compare.
+        if (self.request.query_params.get("order_by") or "-created_at") == "-created_at":
+            # A row the filters exclude has no place in that set, so it keeps the empty answer the id scan gave it.
+            if not filterset.qs.filter(pk=observation.pk).exists():
+                return {"previous": None, "next": None}
+            return self._keyset_neighbors(observation, filterset.qs)
         # Hard bound on the id scan; past it, degrade to no neighbors rather than unbounded memory.
         ids: list[uuid.UUID] = list(filterset.qs.values_list("id", flat=True)[: self.NEIGHBOR_SCAN_LIMIT])
         try:
@@ -998,7 +1008,7 @@ class ReplayObservationViewSet(
         }
 
     @staticmethod
-    def _unfiltered_neighbors(
+    def _keyset_neighbors(
         observation: ReplayObservation, siblings: QuerySet[ReplayObservation]
     ) -> dict[str, uuid.UUID | None]:
         # Two indexed lookups instead of materializing every sibling id; mirrors the (-created_at, id) order.

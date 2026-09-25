@@ -31,6 +31,7 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
+from products.replay_vision.backend.api.observations import ReplayObservationViewSet
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer, WatchFeedQuerySerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -3479,6 +3480,40 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         body = self.client.get(f"{self.session_observations_url}{mid.id}/?order_by=created_at").json()
         self.assertEqual(body["previous_observation_id"], str(old.id))
         self.assertEqual(body["next_observation_id"], str(new.id))
+
+    @parameterized.expand(
+        [
+            ("default_order", None, True),
+            ("explicit_created_at_desc", "-created_at", True),
+            ("other_order", "created_at", False),
+        ]
+    )
+    def test_retrieve_neighbors_survive_a_filtered_set_past_the_scan_bound(
+        self, _name: str, order_by: str | None, expects_neighbors: bool
+    ) -> None:
+        now = timezone.now()
+        trio = []
+        for idx in range(3):
+            obs = self._create_observation(self.scanner_a, f"s-bound-{idx}")
+            ReplayObservation.objects.filter(pk=obs.id).update(
+                created_at=now - timedelta(minutes=2 - idx),
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=now,
+            )
+            trio.append(obs)
+        query = "?status=succeeded" + (f"&order_by={order_by}" if order_by else "")
+
+        with patch.object(ReplayObservationViewSet, "NEIGHBOR_SCAN_LIMIT", 1):
+            body = self.client.get(f"{self.session_observations_url}{trio[1].id}/{query}").json()
+
+        if expects_neighbors:
+            self.assertEqual(
+                {body["previous_observation_id"], body["next_observation_id"]},
+                {str(trio[0].id), str(trio[2].id)},
+            )
+        else:
+            self.assertIsNone(body["previous_observation_id"])
+            self.assertIsNone(body["next_observation_id"])
 
     def test_retrieve_neighbors_empty_when_observation_outside_filtered_set(self) -> None:
         observation = self._create_observation(self.scanner_a, "s-pending")
