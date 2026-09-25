@@ -190,12 +190,13 @@ export function buildErrorAlertHogFunctionPayload({
         description: `Posts to Slack when "${suggestion.errorAlert.issueName}" reopens.`,
         filters: {
             ...common.filters,
+            // Issue lifecycle events carry the issue id as their distinct id, not as an event property.
             properties: [
                 {
-                    key: '$exception_issue_id',
+                    key: 'distinct_id',
                     value: suggestion.errorAlert.issueId,
                     operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
+                    type: PropertyFilterType.EventMetadata,
                 },
             ],
         },

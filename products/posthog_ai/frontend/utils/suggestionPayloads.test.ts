@@ -127,7 +127,7 @@ describe('suggestionPayloads', () => {
             filters: {
                 source: 'internal-events',
                 events: [{ id: '$error_tracking_issue_reopened', type: 'events' }],
-                properties: [{ key: '$exception_issue_id', value: 'issue-1', operator: 'exact', type: 'event' }],
+                properties: [{ key: 'distinct_id', value: 'issue-1', operator: 'exact', type: 'event_metadata' }],
             },
             inputs: { icon_emoji: { value: ':hedgehog:' }, slack_workspace: { value: 7 }, channel: { value: 'C123' } },
         })
