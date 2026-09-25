@@ -78,6 +78,7 @@ class TestDesktopFeedback(APIBaseTest):
                 "source": "Generic (Leave feedback button)",
                 "feedback_view": "task-detail",
                 "feedback_task_id": "example-task",
+                "feedback_folder_id": "example-folder",
                 "session_id": "00000000-0000-0000-0000-000000000002",
                 "feedback_app_logs": "[info] Example search",
                 "app_version": "1.2.3",
@@ -91,10 +92,16 @@ class TestDesktopFeedback(APIBaseTest):
         assert ticket.email_config_id == channel.id
         assert ticket.email_from == self.user.email
         assert ticket.channel_source == "email"
-        assert ticket.session_context["feedback_task_id"] == "example-task"
-        assert ticket.session_context["source_product"] == "desktop"
+        assert ticket.session_context == {
+            "feedback_source": "Generic (Leave feedback button)",
+            "feedback_view": "task-detail",
+            "feedback_task_id": "example-task",
+            "feedback_folder_id": "example-folder",
+            "app_version": "1.2.3",
+            "$session_id": "00000000-0000-0000-0000-000000000002",
+            "source_product": "desktop",
+        }
         assert ticket.session_id == "00000000-0000-0000-0000-000000000002"
-        assert "feedback_app_logs" not in ticket.session_context
         assert ticket.identity_verified is True
         message = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=False)
         assert message.content == "The search results are empty"
@@ -174,7 +181,14 @@ class TestDesktopFeedback(APIBaseTest):
             format="multipart",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert Ticket.objects.get(id=response.json()["response_id"]).session_context["feedback_type"] == feedback_type
+        ticket = Ticket.objects.get(id=response.json()["response_id"])
+        assert ticket.session_context == {
+            "feedback_source": "Generic (Leave feedback button)",
+            "feedback_view": "home",
+            "feedback_type": feedback_type,
+            "source_product": "desktop",
+        }
+        assert ticket.session_id is None
 
     @patch(
         "products.conversations.backend.services.feedback.Comment.objects.create",

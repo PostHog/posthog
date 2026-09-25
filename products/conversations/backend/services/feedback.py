@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from django.db import transaction
@@ -15,6 +15,9 @@ from products.conversations.backend.models import (
     Ticket,
 )
 
+if TYPE_CHECKING:
+    from products.conversations.backend.facade.types import DesktopFeedbackContext
+
 
 class FeedbackTicketUnavailable(Exception):
     pass
@@ -25,7 +28,7 @@ def create_desktop_feedback_ticket(
     team_id: int,
     user_id: int,
     content: str,
-    context: dict[str, Any],
+    context: "DesktopFeedbackContext",
     image_urls: list[str],
     app_logs: str | None,
 ) -> str:
@@ -45,6 +48,20 @@ def create_desktop_feedback_ticket(
     if email_channel is None:
         raise FeedbackTicketUnavailable("Feedback email replies are not configured")
 
+    session_context = {
+        "feedback_source": context.feedback_source,
+        "feedback_view": context.feedback_view,
+        "source_product": "desktop",
+    }
+    optional_context = {
+        "feedback_type": context.feedback_type,
+        "feedback_task_id": context.feedback_task_id,
+        "feedback_folder_id": context.feedback_folder_id,
+        "app_version": context.app_version,
+        "$session_id": context.session_id,
+    }
+    session_context.update({key: value for key, value in optional_context.items() if value})
+
     with transaction.atomic():
         ticket = Ticket.objects.create_with_number(
             team=team,
@@ -57,8 +74,8 @@ def create_desktop_feedback_ticket(
             email_subject="PostHog Desktop feedback",
             anonymous_traits={"email": user.email, "name": user.get_full_name()},
             identity_verified=True,
-            session_id=context.get("$session_id"),
-            session_context={**context, "source_product": "desktop"},
+            session_id=context.session_id,
+            session_context=session_context,
             unread_team_count=1,
         )
         Comment.objects.create(
