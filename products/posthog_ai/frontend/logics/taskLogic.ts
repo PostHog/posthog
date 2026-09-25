@@ -185,10 +185,27 @@ export const taskLogic = kea<taskLogicType>([
             },
         ],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         loadTaskSuccess: () => {
             if (values.task) {
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
+        },
+        // The sidebar rename writes through tasksLogic, so mirror the result onto this detail
+        // logic. Without it the header keeps the old title until the next full load.
+        [tasksLogic.actionTypes.renameTaskSuccess]: ({
+            tasks,
+            payload,
+        }: {
+            tasks: Task[]
+            payload?: { taskId: string; title: string }
+        }) => {
+            if (payload?.taskId !== props.taskId) {
+                return
+            }
+            const renamed = tasks.find((task) => task.id === props.taskId)
+            if (renamed) {
+                actions.loadTaskSuccess(renamed)
             }
         },
         runTaskSuccess: () => {
@@ -207,6 +224,10 @@ export const taskLogic = kea<taskLogicType>([
             if (values.task) {
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
             }
+        },
+        // The title field keeps what the user typed, so without this a rejected rename reads as saved.
+        updateTaskFailure: ({ error, errorObject }) => {
+            lemonToast.error(loadErrorMessage(error, errorObject) || "Couldn't save the task. Try again.")
         },
     })),
 ])
