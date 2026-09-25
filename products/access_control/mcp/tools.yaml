@@ -157,8 +157,8 @@ tools:
             (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level
             comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is
             `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an
-            `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access
-            skill explains how the levels combine.
+            `organization_membership_id`, from this tool) for one member. Run the tool without `member_id` to find that
+            id, matching the person on `user.email`. The checking-member-access skill explains how the levels combine.
         agent_note: >
             For a question about one object, for example a dashboard or a table, call
             access-control-member-objects-list; for a person or event property, access-control-member-properties-list.
@@ -250,7 +250,7 @@ tools:
             A member's enforced level already includes their roles, so for a person use access-control-members-list. For
             a role's rules on one object or property, call access-control-role-objects-list or
             access-control-role-properties-list. A member's roles are `role_ids` on access-control-members-list, and
-            role-members-list gives who is in a role.
+            each entry here gives the matching `role_name`.
         param_overrides:
             id:
                 description: |

@@ -75,7 +75,7 @@
         "feature_entitlement": "access_control"
     },
     "access-control-members-list": {
-        "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool or org-members-list) for one member. The checking-member-access skill explains how the levels combine.",
+        "description": "For every organization member, the access enforced in the project: to the project itself and to each tool (dashboards, insights, feature flags, and so on). Per entry, `access_level` is the member's own stored rule (null when none), `effective_access_level` is what is enforced, and `inherited_access` says where that level comes from when it is not the member's own rule: `source_subject` is `role` or `default`, and `source` is `org_admin` when the member is an organization admin with full access to everything. Pass `member_id` (an `organization_membership_id`, from this tool) for one member. Run the tool without `member_id` to find that id, matching the person on `user.email`. The checking-member-access skill explains how the levels combine.",
         "category": "Access control",
         "feature": "access_control",
         "summary": "Resolve every member's access in the project",
