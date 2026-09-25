@@ -2,6 +2,10 @@ from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 from rest_framework import serializers, status
 
 from products.ai_observability.backend.api.review_queues import ReviewQueueItemCreateSerializer
@@ -212,6 +216,50 @@ class TestReviewQueuesApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([item["trace_id"] for item in response.data["results"]], ["trace_a", "trace_b"])
+
+    def _list_ordering(self, endpoint: str, table: str, order_by: str) -> str:
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get(endpoint, {"order_by": order_by, "limit": "1"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        statements = [
+            query["sql"]
+            for query in context.captured_queries
+            if f'FROM "{table}"' in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        self.assertEqual(len(statements), 1)
+        return statements[0].rsplit("ORDER BY", 1)[1].split("LIMIT")[0].strip()
+
+    @parameterized.expand(
+        [
+            ("queues_by_name", "queues", "name", "ASC"),
+            ("queues_by_name_descending", "queues", "-name", "DESC"),
+            ("queues_by_created_at", "queues", "created_at", "ASC"),
+            ("queues_by_created_at_descending", "queues", "-created_at", "DESC"),
+            ("queues_by_updated_at", "queues", "updated_at", "ASC"),
+            ("queues_by_updated_at_descending", "queues", "-updated_at", "DESC"),
+            ("items_by_created_at", "items", "created_at", "ASC"),
+            ("items_by_created_at_descending", "items", "-created_at", "DESC"),
+            ("items_by_updated_at", "items", "updated_at", "ASC"),
+            ("items_by_updated_at_descending", "items", "-updated_at", "DESC"),
+        ]
+    )
+    def test_caller_selected_ordering_breaks_ties_on_id(self, _name, list_name, order_by, direction):
+        queue = self._create_queue(name="Support queue")
+        self._create_queue_item(queue=queue, trace_id="trace_a")
+        self._create_queue_item(queue=queue, trace_id="trace_b")
+
+        if list_name == "queues":
+            endpoint, table = self._queues_endpoint(), "llm_analytics_reviewqueue"
+        else:
+            endpoint, table = self._queue_items_endpoint(), "llm_analytics_reviewqueueitem"
+
+        ordering = self._list_ordering(endpoint, table, order_by)
+
+        self.assertTrue(
+            ordering.endswith(f'"{table}"."id" {direction}'),
+            f"expected the id tie-breaker at the end of: {ordering}",
+        )
 
     def test_soft_deleted_queue_item_is_excluded_from_active_list(self):
         queue = self._create_queue()

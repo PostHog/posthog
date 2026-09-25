@@ -117,9 +117,19 @@ class TraceIdInFilter(django_filters.BaseInFilter, django_filters.CharFilter):
     pass
 
 
+class StableOrderingFilter(django_filters.OrderingFilter):
+    """Appends `id` to a caller-selected ordering. Without it, limit-offset pages skip or repeat rows that tie."""
+
+    def filter(self, qs: QuerySet, value: Any) -> QuerySet:
+        ordering = [self.get_ordering_value(param) for param in value or [] if param]
+        if not ordering:
+            return qs
+        return qs.order_by(*ordering, "-id" if ordering[-1].startswith("-") else "id")
+
+
 class ReviewQueueFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search review queue names.")
-    order_by = django_filters.OrderingFilter(
+    order_by = StableOrderingFilter(
         fields=(
             ("name", "name"),
             ("updated_at", "updated_at"),
@@ -274,7 +284,7 @@ class ReviewQueueItemFilter(django_filters.FilterSet):
     trace_id = django_filters.CharFilter(field_name="trace_id", help_text="Filter by an exact trace ID.")
     trace_id__in = TraceIdInFilter(field_name="trace_id", lookup_expr="in", help_text="Filter by trace IDs.")
     search = django_filters.CharFilter(method="filter_search", help_text="Search pending trace IDs.")
-    order_by = django_filters.OrderingFilter(
+    order_by = StableOrderingFilter(
         fields=(
             ("created_at", "created_at"),
             ("updated_at", "updated_at"),
