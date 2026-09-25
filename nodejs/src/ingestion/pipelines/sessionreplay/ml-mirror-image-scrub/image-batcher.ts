@@ -206,8 +206,8 @@ export class ImageBatcher {
      * a batch that throws discards what it staged. Sizing is a throughput question, not a correctness one.
      */
     private readonly seenRefs: RefDedupCache
-    /** Only the copy that set a ref's seen mark may clear it, so a dropped later copy cannot unmark a ref that an earlier copy stored. */
-    private readonly seenMarkOwners = new WeakSet<ScrubbedRef>()
+    /** The copy that holds each ref's seen mark until its hand-off is written, so only the current owner can clear the mark, even after the cache evicts and re-marks the ref. */
+    private readonly unwrittenMarkOwners = new Map<string, ScrubbedRef>()
     /**
      * The batch currently in flight, so shutdown can interrupt it.
      *
@@ -485,7 +485,7 @@ export class ImageBatcher {
                     // without ever having been persisted.
                     if (!this.seenRefs.has(ready.ref)) {
                         this.seenRefs.add(ready.ref)
-                        this.seenMarkOwners.add(ready)
+                        this.unwrittenMarkOwners.set(ready.ref, ready)
                     }
                     staged[retired] = null
                     stagedCount -= 1
@@ -600,6 +600,11 @@ export class ImageBatcher {
             ImageScrubConsumerMetrics.incBatchFailed('write')
             throw error
         }
+        for (const image of handoff.images) {
+            if (this.unwrittenMarkOwners.get(image.ref) === image) {
+                this.unwrittenMarkOwners.delete(image.ref)
+            }
+        }
         // Observed on success only, so an S3 incident's retry budgets do not read as slow writes.
         ImageScrubConsumerMetrics.observeWrite((performance.now() - startedAt) / 1000)
     }
@@ -683,7 +688,8 @@ export class ImageBatcher {
     /** A ref that was marked seen but never persisted would be deduped away unwritten if its partition came back here. */
     private forgetUnwritten(images: ScrubbedRef[]): void {
         for (const image of images) {
-            if (this.seenMarkOwners.has(image)) {
+            if (this.unwrittenMarkOwners.get(image.ref) === image) {
+                this.unwrittenMarkOwners.delete(image.ref)
                 this.seenRefs.delete(image.ref)
             }
         }
