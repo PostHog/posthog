@@ -3061,8 +3061,8 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_protocol_version": {
             "label": "MCP protocol version",
-            "description": "The MCP protocol version negotiated between client and server during initialize.",
-            "examples": ["2025-11-25", "2025-06-18"],
+            "description": "The MCP protocol revision the request was made under, such as 2025-11-25 or 2026-07-28.",
+            "examples": ["2025-11-25", "2025-06-18", "2026-07-28"],
         },
         "$mcp_transport": {
             "label": "MCP transport",
