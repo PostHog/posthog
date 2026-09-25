@@ -125,6 +125,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -642,6 +643,7 @@ TEAM_CONFIG_FIELDS = (
     "survey_config",
     "week_start_day",
     "primary_dashboard",
+    "home_tab_dashboard",
     "live_events_columns",
     "recording_domains",
     "cookieless_server_hash_mode",
@@ -686,6 +688,7 @@ TEAM_CONFIG_MEMBER_FIELDS = (
     "autocapture_web_vitals_allowed_metrics",
     "surveys_opt_in",
     "primary_dashboard",
+    "home_tab_dashboard",
 )
 TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
 
@@ -1360,6 +1363,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    home_tab_dashboard = serializers.PrimaryKeyRelatedField(
+        queryset=Dashboard.objects.all(),
+        required=False,
+        allow_null=True,
+        help_text="ID of the dashboard shown on the product analytics Home tab.",
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -2223,6 +2232,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("feature_flag_policy_config", None):
             self._update_feature_flag_policy_config(instance, config_data)
+
+        # home_tab_dashboard lives on the TeamHomeTabDashboard extension, not a Team column, so it
+        # can't go through the generic setattr+save(update_fields=...) loop below.
+        if "home_tab_dashboard" in validated_data:
+            instance.home_tab_dashboard = validated_data.pop("home_tab_dashboard")
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -3215,6 +3229,14 @@ def validate_team_attrs(
             )
         if attrs["primary_dashboard"] and attrs["primary_dashboard"].team_id != instance.id:
             raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
+
+    if "home_tab_dashboard" in attrs:
+        if not instance:
+            raise exceptions.ValidationError(
+                {"home_tab_dashboard": "Home tab dashboard cannot be set on project creation."}
+            )
+        if attrs["home_tab_dashboard"] and attrs["home_tab_dashboard"].team_id != instance.id:
+            raise exceptions.ValidationError({"home_tab_dashboard": "Dashboard does not belong to this team."})
 
     if "autocapture_exceptions_errors_to_ignore" in attrs:
         if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):

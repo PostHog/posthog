@@ -1771,3 +1771,42 @@ class TestCustomerDashboardTemplateCopyBetweenProjects(APIBaseTest):
         )
         resp = self.client.post(self._copy_url(self.team_b.pk), {"source_template_id": str(tpl.id)}, format="json")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestHomeTabDashboardTemplates(APIBaseTest):
+    """Smoke tests for the GLOBAL templates seeded by the 0023_home_tab_dashboard_templates migration.
+
+    These guard the tile JSON: a malformed query, an unknown event field, or a bad layout would
+    raise here instead of surfacing as a 500 the first time someone picks the template in the UI.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Some tests in this file flush non-`django_migrations` tables (see NonAtomicBaseTest),
+        # which wipes these migration-seeded rows without Django ever reapplying the migration.
+        # Rerunning the migration's own seed function keeps this test exercising the real tile
+        # JSON instead of a hand-written stand-in that could drift from it.
+        import importlib
+
+        from django.apps import apps
+
+        migration = importlib.import_module("products.dashboards.backend.migrations.0023_home_tab_dashboard_templates")
+        migration.create_home_tab_dashboard_templates(apps, None)
+
+    @parameterized.expand(["SaaS product", "E-commerce", "Mobile app"])
+    def test_create_dashboard_from_home_tab_template_succeeds(self, template_name: str) -> None:
+        from posthog.helpers.dashboard_templates import create_dashboard_from_template
+
+        from products.dashboards.backend.models.dashboard import Dashboard
+
+        template = DashboardTemplate.objects.get(template_name=template_name, team=None)
+        dashboard = Dashboard.objects.create(name=template_name, team=self.team)
+
+        create_dashboard_from_template(template_name, dashboard, self.user)
+
+        self.assertEqual(dashboard.tiles.count(), len(template.tiles))
+        insight_tiles = [tile for tile in dashboard.tiles.all() if tile.insight_id is not None]
+        self.assertTrue(insight_tiles, "Expected at least one insight tile")
+        for tile in insight_tiles:
+            assert tile.insight is not None
+            self.assertIn("kind", tile.insight.query)

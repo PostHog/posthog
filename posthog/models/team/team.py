@@ -758,6 +758,20 @@ class Team(UUIDTClassicModel):
         return get_or_create_team_extension(self, TeamFeatureFlagPolicyConfig)
 
     @property
+    def home_tab_dashboard(self):
+        from products.dashboards.backend.models.team_home_tab_dashboard import TeamHomeTabDashboard
+
+        return get_or_create_team_extension(self, TeamHomeTabDashboard).dashboard
+
+    @home_tab_dashboard.setter
+    def home_tab_dashboard(self, value) -> None:
+        from products.dashboards.backend.models.team_home_tab_dashboard import TeamHomeTabDashboard
+
+        extension = get_or_create_team_extension(self, TeamHomeTabDashboard)
+        extension.dashboard = value
+        extension.save(update_fields=["dashboard"])
+
+    @property
     def default_modifiers(self) -> dict:
         # Deferred: posthog.schema (the pydantic models) stays off django.setup(),
         # where this model loads in every process.

@@ -3,6 +3,7 @@ from .dashboard_saved_view import DashboardSavedView
 from .dashboard_templates import DashboardTemplate
 from .dashboard_tile import ButtonTile, DashboardTile, Text
 from .dashboard_widget import DashboardWidget
+from .team_home_tab_dashboard import TeamHomeTabDashboard
 
 __all__ = [
     "ButtonTile",
@@ -12,4 +13,5 @@ __all__ = [
     "DashboardTile",
     "DashboardWidget",
     "Text",
+    "TeamHomeTabDashboard",
 ]

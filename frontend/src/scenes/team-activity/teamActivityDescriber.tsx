@@ -762,6 +762,9 @@ const TEAM_PROPERTIES_MAPPING: Record<
     managed_viewsets: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
+    // Lives on the TeamHomeTabDashboard extension, not a Team column, so it never appears in
+    // the generic Team activity diff (see TeamSerializer.update() in posthog/api/team.py).
+    home_tab_dashboard: () => null,
 }
 
 function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {
