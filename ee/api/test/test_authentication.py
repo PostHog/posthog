@@ -1994,7 +1994,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         # Create user with email as uid (legacy format)
         social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
 
-        response = {"email": "test@posthog.com", "sub": self.sub}
+        response = {"email": "test@posthog.com", "email_verified": True, "sub": self.sub}
 
         uid = self.google_oauth.get_user_id(self.details, response)
 
@@ -2002,6 +2002,19 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         # Verify the uid was updated
         social_auth.refresh_from_db()
         self.assertEqual(social_auth.uid, self.sub)
+
+    @parameterized.expand([("unverified", False), ("claim_missing", None)])
+    def test_get_user_id_does_not_migrate_legacy_uid_for_an_unverified_email(self, _name, email_verified):
+        social_auth = UserSocialAuth.objects.create(provider="google-oauth2", uid="test@posthog.com", user=self.user)
+        response = {"email": "test@posthog.com", "sub": self.sub}
+        if email_verified is not None:
+            response["email_verified"] = email_verified
+
+        with self.assertRaises(AuthFailed):
+            self.google_oauth.get_user_id(self.details, response)
+
+        social_auth.refresh_from_db()
+        self.assertEqual(social_auth.uid, "test@posthog.com")
 
     def test_get_user_id_new_user_uses_sub(self):
         """Test that a new user gets sub as uid."""

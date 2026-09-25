@@ -32,6 +32,7 @@ from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
 
+from posthog.api.authentication import UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
@@ -473,6 +474,10 @@ class CustomGoogleOAuth2(GoogleOAuth2):
         try:
             # Second try: Find and migrate legacy user using email as uid
             social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=email)
+            # This lookup resolves the account by email address, so the email has to be verified,
+            # the same as for `associate_by_email`.
+            if response.get("email_verified") is not True:
+                raise AuthFailed(self, UNVERIFIED_SOCIAL_EMAIL_ERROR)
             # Migrate user from email to sub
             social_auth.uid = sub
             social_auth.save()
