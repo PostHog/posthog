@@ -514,6 +514,8 @@ class TestDatabricksSource:
             "Error during request to server: : Source IP address: 44.208.188.173 is blocked by Databricks IP ACL for workspace: 1557520918149316. ",
             # Workspace-level entitlement missing on the connecting user/service principal.
             "Error during request to server: : This API is disabled for users without the databricks-sql-access or workspace-consume entitlements. Contact your administrator for more information.. ",
+            # Lakehouse Federation table backed by an external JDBC database Databricks can't reach.
+            "[FAILED_JDBC.CONNECTION] Failed JDBC jdbc:postgresql://db.example.com:5432/mydb on the operation: Failed to connect to the database. SQLSTATE: HV000",
         ],
     )
     def test_permanent_failures_are_non_retryable(self, source, error_msg):

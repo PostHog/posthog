@@ -481,9 +481,10 @@ export const CodeEnumApi = {
  * * `dataset_items` - dataset_items
  * * `dataset_item_versions` - dataset_item_versions
  */
-export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+export type DatasetConflictResponseResourceEnumApi =
+    (typeof DatasetConflictResponseResourceEnumApi)[keyof typeof DatasetConflictResponseResourceEnumApi]
 
-export const ResourceEnumApi = {
+export const DatasetConflictResponseResourceEnumApi = {
     Datasets: 'datasets',
     DatasetItems: 'dataset_items',
     DatasetItemVersions: 'dataset_item_versions',
@@ -517,7 +518,7 @@ export interface DatasetConflictResponseApi {
      * * `datasets` - datasets
      * * `dataset_items` - dataset_items
      * * `dataset_item_versions` - dataset_item_versions */
-    resource?: ResourceEnumApi
+    resource?: DatasetConflictResponseResourceEnumApi
     /** Number of resources that already exist. */
     current_count?: number
     /** Maximum number of resources allowed. */
@@ -1129,6 +1130,11 @@ export interface EvaluationBackfillApi {
     readonly dispatched_count: number
     /** Units the live path had already covered, so nothing was dispatched. */
     readonly skipped_count: number
+    /**
+     * Units still holding no result when the run finished, counted at that moment. Zero means the window is covered, whoever graded it.
+     * @nullable
+     */
+    readonly remaining_count: number | null
     /** User who started the backfill. */
     readonly created_by: UserBasicApi | null
     /** When the backfill was created. */
@@ -1163,6 +1169,8 @@ export interface EvaluationBackfillRequestApi {
 export interface EvaluationBackfillEstimateApi {
     /** Units that would be evaluated. */
     total_units: number
+    /** Units in the range this evaluation has already judged. They are excluded from total_units unless rerun_existing is set. */
+    already_evaluated_units: number
     /** What one unit is: a generation, a trace, or a session.
      *
      * * `generation` - Generation

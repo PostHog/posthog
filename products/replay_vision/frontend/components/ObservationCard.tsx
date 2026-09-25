@@ -20,7 +20,7 @@ import {
 } from '../replay_scanners/types'
 import { markSimilarSearchIntent, similarSearchUrl } from '../search/observationQueries'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
-import { readReasoning, scannerLabel } from '../utils/observation'
+import { VERDICT_LABEL, readReasoning, scannerLabel } from '../utils/observation'
 import { CitedMarkdown } from './CitedMarkdown'
 import { LabeledRow } from './LabeledRow'
 import { ObservationProgressBar } from './ObservationProgressBar'
@@ -123,6 +123,7 @@ export function ObservationPrimaryOutput({
     expandSummary = false,
     copyable = false,
     reasoningTooltip = false,
+    largeTitle = false,
 }: {
     observation: ReplayObservationApi
     compact?: boolean
@@ -135,6 +136,8 @@ export function ObservationPrimaryOutput({
     copyable?: boolean
     /** Hovering the result shows its reasoning. For list rows, which have nowhere else to print it. */
     reasoningTooltip?: boolean
+    /** Sets a summarizer's title at headline size, for the observation page. */
+    largeTitle?: boolean
 }): JSX.Element | null {
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -167,7 +170,7 @@ export function ObservationPrimaryOutput({
                     ? 'muted'
                     : 'muted'
         const tagLabel =
-            verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
+            verdict === 'yes' || verdict === 'no' || verdict === 'inconclusive' ? VERDICT_LABEL[verdict] : '—'
         return (
             <div className="flex flex-col gap-1">
                 <Tooltip title={resultTooltip}>
@@ -188,7 +191,11 @@ export function ObservationPrimaryOutput({
             <div className="flex flex-col gap-1">
                 {(title || showCopy) && (
                     <div className="flex items-start justify-between gap-2">
-                        {title && <span className={`font-semibold ${textClass}`}>{title}</span>}
+                        {title && (
+                            <span className={largeTitle ? 'text-xl font-bold' : `font-semibold ${textClass}`}>
+                                {title}
+                            </span>
+                        )}
                         {showCopy && (
                             <LemonButton
                                 size="xsmall"
@@ -324,7 +331,7 @@ export function ObservationPrimaryOutput({
 
 // A reader opens an observation for the result, not the prompt they configured. Collapse the prompt to one
 // peek line so the verdict and reasoning stay above the fold, but keep it in view so the verdict has context.
-export function PromptRow({ prompt }: { prompt: string }): JSX.Element {
+function PromptRow({ prompt }: { prompt: string }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     return (
         <div>
