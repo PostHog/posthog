@@ -489,7 +489,9 @@ describe('buildUsageLimitReachedMessage', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Session replay. Please increase your billing limit or data loss may occur.'
+            'You have reached the usage limit for Session replay. ' +
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, data loss may occur.'
         )
     })
 
@@ -505,7 +507,9 @@ describe('buildUsageLimitReachedMessage', () => {
         ])
         expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Session replay and Feature flags & Experiments. Please increase your billing limit or data loss may occur and feature flags will not evaluate.'
+            'You have reached the usage limit for Session replay and Feature flags & Experiments. ' +
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, data loss may occur and feature flags will not evaluate.'
         )
     })
 
@@ -513,7 +517,9 @@ describe('buildUsageLimitReachedMessage', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'PostHog AI', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
+            'You have reached the usage limit for PostHog AI. ' +
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, PostHog AI will be unavailable.'
         )
     })
 
@@ -521,7 +527,9 @@ describe('buildUsageLimitReachedMessage', () => {
         const result = buildUsageLimitReachedMessage([{ type: 'inbox', name: 'Inbox', subscribed: true }])
         expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for Self-driving inbox. Please increase your billing limit or self-driving agents will be paused.'
+            'You have reached the usage limit for Self-driving inbox. ' +
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, self-driving agents will be paused.'
         )
     })
 
@@ -532,7 +540,9 @@ describe('buildUsageLimitReachedMessage', () => {
         ])
         expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
-            'You have reached the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.'
+            'You have reached the usage limit for PostHog AI and Session replay. ' +
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, PostHog AI will be unavailable and data loss may occur.'
         )
     })
 
@@ -542,7 +552,9 @@ describe('buildUsageLimitReachedMessage', () => {
             { name: 'Product analytics', subscribed: true },
         ])
         expect(result.message).toEqual(
-            'You have reached the usage limit for Session replay and Product analytics. Please increase your billing limit or data loss may occur.'
+            'You have reached the usage limit for Session replay and Product analytics. ' +
+                'Please increase your billing limit. A short grace period applies before the limit takes effect. ' +
+                'After the grace period, data loss may occur.'
         )
     })
 
