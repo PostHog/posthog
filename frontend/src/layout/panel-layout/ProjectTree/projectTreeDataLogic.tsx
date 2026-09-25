@@ -1806,6 +1806,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             actions.loadShortcuts()
             actions.loadFolder('', true)
         },
+        loadHomeFolderFailure: ({ errorObject }) => {
+            // The follow-up loads must run on both outcomes, or a failed call leaves the tree
+            // without its refresh for the rest of the session.
+            posthog.capture('home folder load failed', { status: errorObject?.status ?? null })
+            actions.loadShortcuts()
+            actions.loadFolder('', true)
+        },
         reorderShortcutByDrag: ({ activeTreeId, overTreeId, position }) => {
             const map = values.shortcutEntryIdMap
             const activeEntryId = map.get(activeTreeId)

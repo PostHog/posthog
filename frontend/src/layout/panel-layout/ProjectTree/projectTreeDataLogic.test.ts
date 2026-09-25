@@ -69,6 +69,18 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
     })
 
+    it('still loads the tree when the home folder call fails', async () => {
+        // A backend that predates the collection action answers 405 on the home folder route.
+        useMocks({
+            post: { '/api/projects/:team_id/file_system/home_folder/': () => [405, { detail: 'Not allowed' }] },
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadHomeFolder()
+        }).toDispatchActions(['loadHomeFolderFailure', 'loadShortcuts', 'loadFolderSuccess', 'loadShortcutsSuccess'])
+        expect(logic.values.folderStates['']).toBe('loaded')
+        expect(logic.values.shortcutDataHasLoaded).toBe(true)
+    })
+
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
         'renders a starred nested folder with %s contents',
         (state) => {

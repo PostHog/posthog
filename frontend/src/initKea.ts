@@ -74,6 +74,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
+    'loadHomeFolder', // projectTreeDataLogic's failure listener runs the same follow-up loads as the success path
 ]
 
 /*
@@ -92,6 +93,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadHomeFolder', // A backend that predates the collection action answers 405; the sidebar tree loads without it
 ])
 
 /*
