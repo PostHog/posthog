@@ -7,6 +7,7 @@ import { IneligibleKind, ineligibleKindLabel } from '../replay_scanners/types'
 // Mirror: keep in sync with products/replay_vision/backend/session_limits.py, which the scan-time gate reads.
 const MIN_SESSION_DURATION_S = 15
 const MIN_ACTIVE_SECONDS_S = 10
+const MIN_ACTIVE_RATIO = 0.05
 const MAX_ACTIVE_SECONDS_S = 3600
 
 export interface ScanBlock {
@@ -54,6 +55,16 @@ export function recordingScanBlock(recording: ScannableRecording | null | undefi
         return block(
             'too_inactive',
             `This recording has ${humanFriendlyDuration(activeSeconds)} of active time, and Replay vision needs at least ${humanFriendlyDuration(MIN_ACTIVE_SECONDS_S)}.`
+        )
+    }
+    if (
+        typeof activeSeconds === 'number' &&
+        typeof duration === 'number' &&
+        activeSeconds < duration * MIN_ACTIVE_RATIO
+    ) {
+        return block(
+            'too_inactive',
+            `This recording has ${humanFriendlyDuration(activeSeconds)} of active time in ${humanFriendlyDuration(duration)}, and Replay vision needs at least ${MIN_ACTIVE_RATIO * 100}% of a recording to be active.`
         )
     }
     return null

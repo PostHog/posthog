@@ -1944,6 +1944,16 @@ class TestFetchSessionEventsActivity:
             (
                 {
                     "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
+                    "end_time": dt.datetime(2026, 5, 12, 0, 12, 51, tzinfo=dt.UTC),
+                    "duration": 771,
+                    "active_seconds": 11,  # clears the 10s floor, but is 1.4% of the span
+                },
+                "too_inactive",
+                "Only 11s of active interaction in 771",
+            ),
+            (
+                {
+                    "start_time": dt.datetime(2026, 5, 12, tzinfo=dt.UTC),
                     "end_time": dt.datetime(2026, 5, 12, 2, tzinfo=dt.UTC),
                     "duration": 7200,
                     "active_seconds": 5000,  # over 3600 cap

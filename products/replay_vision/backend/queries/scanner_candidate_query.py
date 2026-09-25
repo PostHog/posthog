@@ -28,6 +28,7 @@ from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
+    MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
@@ -121,6 +122,16 @@ def eligibility_predicates() -> list[ast.Expr]:
             op=ast.CompareOperationOp.GtEq,
             left=active_seconds,
             right=ast.Constant(value=MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S),
+        ),
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=active_seconds,
+            # Multiplied rather than divided so the expression stays defined at zero duration.
+            right=ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Mult,
+                left=duration,
+                right=ast.Constant(value=MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER),
+            ),
         ),
         ast.CompareOperation(
             op=ast.CompareOperationOp.LtEq,

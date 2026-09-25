@@ -32,6 +32,18 @@ REPLAY_VISION_INELIGIBLE_KINDS = Counter(
     ["kind"],
 )
 
+# Weighted to the low end, because the shape this has to separate out is a backgrounded tab, which sits
+# under a few percent.
+_ACTIVE_RATIO_BUCKETS = (0.01, 0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.0)
+
+REPLAY_VISION_SESSION_ACTIVE_RATIO = Histogram(
+    "replay_vision_session_active_ratio",
+    "Active seconds over wall duration for every recording the scan-time activity gate judged, labeled with the "
+    "verdict. This is the denominator MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER has to be tuned against",
+    ["outcome"],
+    buckets=_ACTIVE_RATIO_BUCKETS,
+)
+
 # Extends past the default ceiling so multi-minute upload + provider-call activities don't all land in +Inf.
 # The top bucket matches the provider-call activity's 20-minute start-to-close timeout.
 _ACTIVITY_DURATION_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 900, 1200)
@@ -222,6 +234,12 @@ def record_failure_kind(kind: str, scanner_type: str) -> None:
 def record_ineligible_kind(kind: str) -> None:
     REPLAY_VISION_INELIGIBLE_KINDS.labels(kind=kind).inc()
     _otel.record_counter_twin(REPLAY_VISION_INELIGIBLE_KINDS, 1, {"kind": kind})
+
+
+def record_session_active_ratio(outcome: str, ratio: float) -> None:
+    """`outcome` is "admitted", or the `IneligibleSessionKind` value the activity gate rejected the recording with."""
+    REPLAY_VISION_SESSION_ACTIVE_RATIO.labels(outcome=outcome).observe(ratio)
+    _otel.record_histogram_twin(REPLAY_VISION_SESSION_ACTIVE_RATIO, ratio, {"outcome": outcome})
 
 
 def record_activity_duration(activity: str, status: str, seconds: float) -> None:
