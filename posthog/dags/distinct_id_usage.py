@@ -388,7 +388,7 @@ def distinct_id_usage_monitoring():
 
 distinct_id_usage_monitoring_schedule = dagster.ScheduleDefinition(
     job=distinct_id_usage_monitoring,
-    cron_schedule="0 */6 * * *",  # Every 6 hours
+    cron_schedule="27 */6 * * *",  # Every 6 hours
     execution_timezone="UTC",
     name="distinct_id_usage_monitoring_schedule",
 )

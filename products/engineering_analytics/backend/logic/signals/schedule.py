@@ -34,7 +34,10 @@ async def create_ci_signals_coordinator_schedule(client: Client) -> None:
             # Bounded to the interval so a wedged sweep can never block more than one SKIP tick.
             execution_timeout=SCHEDULE_INTERVAL,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=timedelta(minutes=2))],
+            jitter=timedelta(minutes=10),
+        ),
         # SKIP so a slow tick doesn't stack; enrolment (not cron frequency) bounds the work.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_INTERVAL),
     )
