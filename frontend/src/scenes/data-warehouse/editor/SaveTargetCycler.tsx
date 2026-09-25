@@ -9,37 +9,25 @@ import { findQueryAtCursor, splitQueries } from 'lib/monaco/multiQueryUtils'
 export interface SaveCandidates {
     queries: string[]
     initialIndex: number
-    selectionLabel: string | null
+    /** Label for each candidate, index-aligned with `queries`. */
+    labels: string[]
 }
 
-/**
- * Resolve which queries a save-as dialog should offer the user, given the current editor state.
- *
- * Priority:
- *   1. Non-empty editor selection → single-entry "Selection" candidate.
- *   2. Multi-statement editor → one entry per statement, initial index from cursor.
- *   3. Otherwise → the whole editor text as the only candidate.
- *
- * Kept as a pure helper so it's easy to unit test without standing up a Monaco editor.
- */
-export function resolveSaveCandidates(
-    queryInput: string,
-    cursorOffset: number | null,
-    selectionText: string | null
-): SaveCandidates {
-    if (selectionText) {
-        const trimmed = selectionText.trim()
-        if (trimmed) {
-            return { queries: [trimmed], initialIndex: 0, selectionLabel: 'Selection' }
-        }
-    }
+const STATEMENT_START = /^(select|with|show|explain|describe|insert|delete|update|create|alter|drop|use|set)\b/i
 
+/**
+ * Resolve the queries a save-as dialog offers when the editor has no selection.
+ *
+ * A multi-statement editor gives one entry per statement, with the initial index from the cursor.
+ * Anything else gives the whole editor text as the only entry.
+ */
+function resolveEditorCandidates(queryInput: string, cursorOffset: number | null): SaveCandidates {
     const split = splitQueries(queryInput)
     if (split.length <= 1) {
         return {
             queries: [split[0]?.query ?? queryInput],
             initialIndex: 0,
-            selectionLabel: null,
+            labels: ['Full query'],
         }
     }
 
@@ -54,7 +42,35 @@ export function resolveSaveCandidates(
     return {
         queries: split.map((q) => q.query),
         initialIndex,
-        selectionLabel: null,
+        labels: split.map((_, i) => `Query ${i + 1} of ${split.length}`),
+    }
+}
+
+/**
+ * Resolve which queries a save-as dialog should offer the user, given the current editor state.
+ *
+ * A selection is offered as an extra candidate in front of the editor candidates, never as a
+ * replacement for them, so the pager always gives a way back to the full query. The selection is
+ * the default only when it starts like a statement: a stray selection of a few characters must not
+ * become the saved query without the user asking for it.
+ *
+ * Kept as a pure helper so it's easy to unit test without standing up a Monaco editor.
+ */
+export function resolveSaveCandidates(
+    queryInput: string,
+    cursorOffset: number | null,
+    selectionText: string | null
+): SaveCandidates {
+    const editorCandidates = resolveEditorCandidates(queryInput, cursorOffset)
+    const selection = selectionText?.trim()
+    if (!selection) {
+        return editorCandidates
+    }
+
+    return {
+        queries: [selection, ...editorCandidates.queries],
+        initialIndex: STATEMENT_START.test(selection) ? 0 : editorCandidates.initialIndex + 1,
+        labels: ['Selection', ...editorCandidates.labels],
     }
 }
 
@@ -93,7 +109,8 @@ export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetC
 
     const safeIndex = Math.min(index, candidates.queries.length - 1)
     const multi = candidates.queries.length > 1
-    const label = candidates.selectionLabel ?? (multi ? `Query ${safeIndex + 1} of ${candidates.queries.length}` : null)
+    // A single candidate is whatever the editor holds, so naming it tells the reader nothing.
+    const label = multi ? candidates.labels[safeIndex] : null
 
     if (!label && !children) {
         return null
@@ -108,12 +125,14 @@ export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetC
                         <LemonButton
                             size="xsmall"
                             icon={<IconChevronLeft />}
+                            aria-label="Previous save target"
                             disabledReason={safeIndex === 0 ? 'First query' : undefined}
                             onClick={() => setIndex((i) => Math.max(0, i - 1))}
                         />
                         <LemonButton
                             size="xsmall"
                             icon={<IconChevronRight />}
+                            aria-label="Next save target"
                             disabledReason={safeIndex === candidates.queries.length - 1 ? 'Last query' : undefined}
                             onClick={() => setIndex((i) => Math.min(candidates.queries.length - 1, i + 1))}
                         />

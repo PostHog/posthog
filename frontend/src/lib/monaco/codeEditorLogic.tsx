@@ -150,7 +150,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         metadata: [
             null as null | [string, HogQLMetadataResponse],
             {
@@ -177,22 +177,33 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                             : undefined
                     const sourceQuery = getContextSourceQuery(props.sourceQuery, query)
 
-                    const response = await performQuery<HogQLMetadata>(
-                        setLatestVersionsOnQuery(
-                            {
-                                kind: NodeKind.HogQLMetadata,
-                                language: props.language as HogLanguage,
-                                query: query,
-                                filters: props.metadataFilters,
-                                globals: props.globals,
-                                sourceQuery,
-                                variables,
-                                connectionId,
-                                indexUsage: props.indexUsage,
-                            },
-                            { recursion: false }
+                    let response: HogQLMetadataResponse
+                    try {
+                        response = await performQuery<HogQLMetadata>(
+                            setLatestVersionsOnQuery(
+                                {
+                                    kind: NodeKind.HogQLMetadata,
+                                    language: props.language as HogLanguage,
+                                    query: query,
+                                    filters: props.metadataFilters,
+                                    globals: props.globals,
+                                    sourceQuery,
+                                    variables,
+                                    connectionId,
+                                    indexUsage: props.indexUsage,
+                                },
+                                { recursion: false }
+                            )
                         )
-                    )
+                    } catch (error: any) {
+                        // A query the server rejects is an editing state, not an app fault. Keep the
+                        // markers from the last good response instead of reporting an exception.
+                        // Every other failure still goes to the loader's failure path.
+                        if (error?.status !== 400) {
+                            throw error
+                        }
+                        return values.metadata
+                    }
                     breakpoint()
                     props.onMetadata?.(response)
                     return [query, response]
