@@ -158,7 +158,6 @@ class AdvanceCursorInputs:
 class MeasureRemainderInputs:
     backfill_id: str
     team_id: int
-    in_flight: int
 
 
 @frozen
@@ -365,9 +364,14 @@ def _measure_backfill_remainder(inputs: MeasureRemainderInputs) -> None:
     Counting the remainder here says whether anything was left behind, and the one query it costs
     runs per backfill rather than per tick.
 
-    `start_child_workflow` returns once a child has started, so the last page's verdicts are still
-    travelling through the judge and ingestion while this counts. Discounting them is what keeps a
-    backfill small enough to finish in one tick from reporting every unit it evaluated as owed.
+    `start_child_workflow` returns once a child has started, so verdicts are still travelling
+    through the judge and ingestion while this counts. Discounting what the run covered is what
+    keeps a backfill that outruns the judge from reporting every unit it handled as owed. A skipped
+    unit counts too: the live path holds it, so its verdict is on the way just the same.
+
+    The discount overshoots when a verdict lands mid-run: that unit leaves the count while the
+    discount still holds it, so a unit that will never produce one can read as covered. Only a
+    count taken after the settle horizon separates the two.
     """
     row = EvaluationBackfill.objects.for_team(inputs.team_id).select_related("evaluation").get(pk=inputs.backfill_id)
     team = Team.objects.get(pk=inputs.team_id)
@@ -383,7 +387,8 @@ def _measure_backfill_remainder(inputs: MeasureRemainderInputs) -> None:
         # question is what holds no result at all.
         rerun_existing=False,
     )
-    remaining = max(0, scope.to_evaluate - inputs.in_flight)
+    in_flight = row.dispatched_count + row.skipped_count
+    remaining = max(0, scope.to_evaluate - in_flight)
     EvaluationBackfill.objects.for_team(inputs.team_id).filter(pk=inputs.backfill_id).update(remaining_count=remaining)
     logger.info(
         "llma.evaluation_backfill_remainder",
@@ -391,7 +396,7 @@ def _measure_backfill_remainder(inputs: MeasureRemainderInputs) -> None:
         team_id=inputs.team_id,
         remaining=remaining,
         counted=scope.to_evaluate,
-        in_flight=inputs.in_flight,
+        in_flight=in_flight,
     )
 
 
@@ -480,9 +485,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             try:
                 await temporalio.workflow.execute_activity(
                     measure_evaluation_backfill_remainder_activity,
-                    MeasureRemainderInputs(
-                        backfill_id=inputs.backfill_id, team_id=inputs.team_id, in_flight=dispatched
-                    ),
+                    MeasureRemainderInputs(backfill_id=inputs.backfill_id, team_id=inputs.team_id),
                     start_to_close_timeout=timedelta(seconds=120),
                     schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
                     retry_policy=ACTIVITY_RETRY_POLICY,
