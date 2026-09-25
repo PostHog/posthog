@@ -375,6 +375,58 @@ describe('query', () => {
         })
     })
 
+    describe('a gateway that could not reach the backend', () => {
+        const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
+        const refused = (): ApiError => new ApiError('', 503, undefined, {})
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it('submits again when the gateway refused the submit, and returns what the retry gets', async () => {
+            jest.useFakeTimers()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(refused())
+                .mockResolvedValueOnce({ results: ['ok'] } as any)
+
+            const promise = performQuery(query, undefined, 'blocking')
+            await jest.advanceTimersByTimeAsync(600)
+
+            await expect(promise).resolves.toMatchObject({ results: ['ok'] })
+            expect(querySpy).toHaveBeenCalledTimes(2)
+        })
+
+        it('names the same run on each attempt when the caller passed no query id', async () => {
+            jest.useFakeTimers()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(refused())
+                .mockResolvedValueOnce({ results: ['ok'] } as any)
+
+            const promise = performQuery(query, undefined, 'blocking')
+            await jest.advanceTimersByTimeAsync(600)
+            await promise
+
+            // Without this the server mints an id per submit, so the retry starts a second run.
+            const firstId = querySpy.mock.calls[0][1]?.clientQueryId
+            expect(firstId).toBeTruthy()
+            expect(querySpy.mock.calls[1][1]?.clientQueryId).toBe(firstId)
+        })
+
+        it('reports the failure once the gateway refuses every attempt', async () => {
+            jest.useFakeTimers()
+            const querySpy = jest.spyOn(api, 'query').mockRejectedValue(refused())
+
+            const settled = performQuery(query, undefined, 'blocking').catch((e) => e)
+            await jest.advanceTimersByTimeAsync(1800)
+
+            await expect(settled).resolves.toMatchObject({ status: 503 })
+            expect(querySpy).toHaveBeenCalledTimes(3)
+        })
+    })
+
     describe('pollForResults error message parsing', () => {
         it('prefers the structured error_code from the query status over one parsed from the message', async () => {
             jest.spyOn(api.queryStatus, 'get').mockRejectedValueOnce({

@@ -374,10 +374,6 @@ function InsightCardInternal(
             )
         }
 
-        if (!hasResults && loadingQueued) {
-            return <InsightLoadingState insightProps={insightLogicProps} />
-        }
-
         if (apiErrored) {
             const validationError = extractValidationError(apiError)
             if (validationError) {
@@ -397,7 +393,7 @@ function InsightCardInternal(
                         titleStatus={apiError.status}
                         queryId={apiError.data?.queryId ?? queryId}
                         retryAfter={apiError.formattedRetryAfter}
-                        retryLoading={loading}
+                        retryLoading={loading || !!loadingQueued}
                         query={insight.query}
                         excludeActions={sharedView}
                         placement={placement}
@@ -406,6 +402,13 @@ function InsightCardInternal(
                 )
             }
             return <InsightErrorState />
+        }
+
+        // Below the failure branch on purpose: a tile whose query is known to have failed must show
+        // that, even while the next attempt is already queued. The other way round, the spinner wins
+        // for as long as the retries run and the user cannot tell a dead tile from a slow one.
+        if (!hasResults && loadingQueued) {
+            return <InsightLoadingState insightProps={insightLogicProps} />
         }
 
         if (timedOut) {

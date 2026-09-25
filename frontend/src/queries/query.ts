@@ -1,6 +1,8 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
-import { delay } from 'lib/utils/async'
+import { delay, retryWithBackoff } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import {
@@ -67,6 +69,16 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
 const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavailable'
+
+/**
+ * A transient gateway failure (502/503/504) on the submit means the request never reached the
+ * backend, so the query it carried has not started and one more attempt usually lands. Submitting
+ * again is safe: a query is a read, and the `client_query_id` is reused, so the server joins a run
+ * that did start instead of computing it twice. `getInsightWithRetry` gives the dashboard insight
+ * route the same treatment, which is why a blip there is invisible while one here loses the result.
+ */
+const TRANSIENT_SUBMIT_ATTEMPTS = 3
+const TRANSIENT_SUBMIT_DELAY_MS = 600
 
 /**
  * Parse error message that may be in ErrorDetail string format.
@@ -190,15 +202,28 @@ async function executeQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
+        // Minted here rather than left to the server, so every attempt below names the same run.
+        // Without an id the server mints its own per request, and a retry after it already accepted
+        // the first submit would start a second computation of the same query.
+        const clientQueryId = queryId || uuid()
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        const response = await retryWithBackoff(
+            () =>
+                api.query(queryNode, {
+                    requestOptions: methodOptions,
+                    clientQueryId,
+                    refresh: refreshParam,
+                    filtersOverride,
+                    variablesOverride,
+                    limitContext,
+                }),
+            {
+                maxAttempts: TRANSIENT_SUBMIT_ATTEMPTS,
+                initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
+                signal: methodOptions?.signal,
+                shouldRetry: isTransientServerError,
+            }
+        )
 
         if (response.detail) {
             throw new Error(response.detail)
