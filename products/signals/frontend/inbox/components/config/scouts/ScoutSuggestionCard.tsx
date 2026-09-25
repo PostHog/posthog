@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSparkles, IconX } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -33,6 +34,23 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const bodyDisabled = isBusy || (item.kind !== 'canonical' && creationDisabledReason !== null)
 
+    const [expanded, setExpanded] = useState(false)
+    const [overflowing, setOverflowing] = useState(false)
+    const motivationRef = useRef<HTMLParagraphElement>(null)
+    const motivationId = `scout-suggestion-motivation-${item.id}`
+
+    useLayoutEffect(() => {
+        const element = motivationRef.current
+        if (expanded || !element) {
+            return
+        }
+        const checkOverflow = (): void => setOverflowing(element.scrollHeight > element.clientHeight + 1)
+        checkOverflow()
+        const observer = new ResizeObserver(checkOverflow)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [item.why_here, expanded])
+
     return (
         <div
             className={cn(
@@ -40,28 +58,47 @@ export function ScoutSuggestionCard({ item, surface }: ScoutSuggestionCardProps)
                 !bodyDisabled && 'transition-colors hover:bg-surface-secondary'
             )}
         >
-            <button
-                type="button"
-                disabled={bodyDisabled}
-                onClick={() => openCreateFromSuggestion(item, surface, 'card')}
-                className={cn(
-                    'flex min-w-0 flex-1 flex-col items-start gap-1 text-left',
-                    !bodyDisabled && 'cursor-pointer'
-                )}
-                // A name built from the children would lead with the "Turn on" tag and then read the
-                // whole motivation, for a press that only opens the form.
-                aria-label={`${reviewActionLabel(item)}: ${item.title}`}
-                data-attr="scout-suggestion-body"
-            >
-                <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="min-w-0 truncate text-sm font-semibold leading-snug">{item.title}</span>
-                    <SuggestionTags item={item} />
+            <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                <button
+                    type="button"
+                    disabled={bodyDisabled}
+                    onClick={() => openCreateFromSuggestion(item, surface, 'card')}
+                    className={cn(
+                        'flex max-w-full flex-col items-start gap-1 text-left',
+                        !bodyDisabled && 'cursor-pointer'
+                    )}
+                    // A name built from the children would lead with the "Turn on" tag and then read the
+                    // whole motivation, for a press that only opens the form.
+                    aria-label={`${reviewActionLabel(item)}: ${item.title}`}
+                    data-attr="scout-suggestion-body"
+                >
+                    <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="min-w-0 truncate text-sm font-semibold leading-snug">{item.title}</span>
+                        <SuggestionTags item={item} />
+                    </div>
+                    <p
+                        ref={motivationRef}
+                        id={motivationId}
+                        className={cn('m-0 text-xs leading-snug text-secondary', !expanded && 'line-clamp-2')}
+                    >
+                        {item.why_here}
+                    </p>
+                </button>
+                <div className="flex flex-wrap items-center gap-x-2 text-[11px]">
+                    <span className="text-tertiary">{suggestionMetaLine(item.proposed_config)}</span>
+                    {/* Outside the row button, so keyboard and touch users can read the full motivation. */}
+                    {(overflowing || expanded) && (
+                        <Link
+                            onClick={() => setExpanded(!expanded)}
+                            aria-expanded={expanded}
+                            aria-controls={motivationId}
+                            data-attr="scout-suggestion-motivation-toggle"
+                        >
+                            {expanded ? 'Show less' : 'Show more'}
+                        </Link>
+                    )}
                 </div>
-                <Tooltip title={item.why_here} placement="bottom-start">
-                    <p className="m-0 line-clamp-2 text-xs leading-snug text-secondary">{item.why_here}</p>
-                </Tooltip>
-                <span className="text-[11px] text-tertiary">{suggestionMetaLine(item.proposed_config)}</span>
-            </button>
+            </div>
             <SuggestionActions item={item} surface={surface} isBusy={isBusy} />
         </div>
     )
