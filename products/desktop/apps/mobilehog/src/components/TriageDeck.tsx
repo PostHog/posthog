@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  FadeInDown,
   interpolate,
   runOnJS,
   useAnimatedStyle,
@@ -138,7 +139,8 @@ export function TriageDeck({
 
   return (
     <View style={styles.root} pointerEvents="box-none">
-      <View
+      <Animated.View
+        entering={FadeInDown.duration(280)}
         style={[styles.frame, { marginTop: headerHeight + 8 }]}
         onLayout={(event) => {
           const {
@@ -169,11 +171,14 @@ export function TriageDeck({
             <ReportSummary report={report} />
           </View>
         ))}
-      </View>
+      </Animated.View>
 
       {top && frame.w > 0 ? (
         <GestureDetector gesture={pan}>
-          <Animated.View style={[styles.card, styles.topCard, topStyle]}>
+          <Animated.View
+            entering={FadeInDown.duration(280)}
+            style={[styles.card, styles.topCard, topStyle]}
+          >
             <Animated.View
               style={[styles.face, faceStyle]}
               pointerEvents={expanded ? "none" : "auto"}
@@ -243,6 +248,8 @@ export function TriageDeck({
         </GestureDetector>
       ) : null}
 
+      {/* Glass never renders when mounted inside a layout animation, so the
+          footer stays out of the deck's entering fade. */}
       {!expanded ? (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 8 }]}>
           <View style={styles.verdict}>
