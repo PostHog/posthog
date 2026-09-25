@@ -534,14 +534,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         const isActionable =
                             !!billingUsageError && ACTIONABLE_BILLING_ERROR_CODES.includes(billingUsageError.code)
                         actions.setBillingUsageError(isActionable ? billingUsageError : null)
-                        actions.reportBillingUsageInteraction(
-                            buildTrackingProperties(
-                                'load_failed',
-                                values,
-                                undefined,
-                                billingUsageError?.code || 'unknown'
-                            )
-                        )
+                        actions.reportBillingUsageInteraction({
+                            ...buildTrackingProperties('load_failed', values),
+                            error_code: billingUsageError?.code || 'unknown',
+                        })
                         if (!isActionable) {
                             lemonToast.error('Failed to load billing usage. Please try again or contact support.')
                             throw error

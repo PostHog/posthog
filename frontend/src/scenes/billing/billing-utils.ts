@@ -531,12 +531,10 @@ export function buildTrackingProperties(
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
     },
-    usageTypesTotal: number = USAGE_TYPES.length,
-    errorCode?: string
+    usageTypesTotal: number = USAGE_TYPES.length
 ): BillingUsageInteractionProps {
     return {
         action,
-        ...(errorCode ? { error_code: errorCode } : {}),
         filters: values.filters,
         date_from: values.dateFrom,
         date_to: values.dateTo,
@@ -552,9 +550,8 @@ export function buildTrackingProperties(
 
 export const buildSpendTrackingProperties = (
     action: BillingUsageInteractionProps['action'],
-    values: Parameters<typeof buildTrackingProperties>[1],
-    errorCode?: string
-): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length, errorCode)
+    values: Parameters<typeof buildTrackingProperties>[1]
+): BillingUsageInteractionProps => buildTrackingProperties(action, values, getSpendTypeOptions().length)
 
 export const getUsageTypeOptions = (): { key: string; label: string }[] =>
     USAGE_TYPES.map((opt) => ({ key: opt.value, label: opt.label }))

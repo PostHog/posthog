@@ -129,14 +129,11 @@ BILLING_VALIDATION_ERROR_MESSAGES = {
 }
 
 
-USAGE_TYPE_VALUE_SET = frozenset(USAGE_TYPE_VALUES)
-
-
-def _quoted_caller_values(values: Sequence[str], limit: int = 3, max_length: int = 64) -> str:
+def _quoted_caller_values(values: Sequence[str]) -> str:
     """Quote the caller's own values for an error message, short enough to read in a banner."""
-    quoted = [f"'{value[:max_length]}'" for value in values[:limit]]
-    if len(values) > limit:
-        quoted.append(f"and {len(values) - limit} more")
+    quoted = [f"'{value[:64]}'" for value in values[:3]]
+    if len(values) > 3:
+        quoted.append(f"and {len(values) - 3} more")
     return ", ".join(quoted)
 
 
@@ -430,7 +427,7 @@ class BillingUsageRequestSerializer(serializers.Serializer):
 
         # Billing refuses a type it does not know with a message that names no value, so the
         # names are compared here while the rejected one can still go in the error.
-        unknown = [usage_type for usage_type in parsed if usage_type not in USAGE_TYPE_VALUE_SET]
+        unknown = [usage_type for usage_type in parsed if usage_type not in USAGE_TYPE_VALUES]
         if unknown:
             raise serializers.ValidationError(
                 f"Not a valid usage type: {_quoted_caller_values(unknown)}. Use the values this parameter lists."
@@ -1360,7 +1357,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # It is the request's input, never billing's text.
                 sent = (params or {}).get(field)
                 if isinstance(sent, str) and sent:
-                    message = f"{message} Rejected value: {_quoted_caller_values([sent], max_length=200)}."
+                    message = f"{message} Rejected value: '{sent[:200]}'."
                 raise ValidationError({field: [message]}, code=code) from error
         if 400 <= upstream_status < 500:
             raise BillingQueryRejected() from error
