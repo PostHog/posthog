@@ -42,6 +42,12 @@ const meta: Meta = {
         },
     },
     decorators: [
+        (StoryFn) => {
+            Object.keys(window.localStorage)
+                .filter((key) => key.startsWith('lib.components.heatmap.heatmapDataLogic.'))
+                .forEach((key) => window.localStorage.removeItem(key))
+            return <StoryFn />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:team_id/heatmap_screenshot/settings/': {
