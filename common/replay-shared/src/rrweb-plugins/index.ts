@@ -81,6 +81,18 @@ export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     UNSAFE_replayCanvas: false,
 }
 
+/**
+ * rrweb does not speed CSS animations and transitions up with playback, so at high speeds they run behind the page.
+ * Snap them to their end state instead: removing them outright leaves content a keyframe reveals stuck at opacity 0.
+ */
+export function speedDependentStyleRules(speed: number): string[] {
+    return speed >= 2
+        ? [
+              '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
+          ]
+        : []
+}
+
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
 export { WindowTitlePlugin } from './window-title-plugin'
 

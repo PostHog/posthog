@@ -3,14 +3,14 @@ import { HostBridge } from './host-bridge'
 import { MetadataFooter } from './metadata-footer'
 import { PlaybackController } from './playback-controller'
 import { METADATA_FOOTER_HEIGHT_PX } from './protocol'
-import { createReplayer } from './replayer-factory'
+import { createReplayers } from './replayer-factory'
 import type { PlayerConfig } from './types'
 import { ViewportScaler } from './viewport-scaler'
 
 async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
     const contentEl = document.querySelector('.PlayerFrame__content') as HTMLElement
 
-    const setup = await createReplayer(config, contentEl, bridge)
+    const setup = await createReplayers(config, contentEl, bridge)
     if (setup === 'no_snapshots' || setup === 'no_full_snapshot') {
         // Blocks can still be landing when nothing loaded, so that stays retryable. Loaded snapshots without a full
         // snapshot never gain one on a retry, and each attempt would render the same blank video.

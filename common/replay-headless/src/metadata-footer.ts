@@ -14,6 +14,7 @@ import type { ReplayerWindow } from './replayer-factory'
  */
 export class MetadataFooter {
     private urlByWindow = new Map<number, string>()
+    private numberByWindow = new Map<number, number>()
     private footerEl: HTMLElement | null
     private metaUrlEl: HTMLElement | null
     private metaRectEl: HTMLElement | null
@@ -32,6 +33,7 @@ export class MetadataFooter {
         this.metaWindowEl = document.getElementById('meta-window')
         this.metaStatusEl = document.getElementById('meta-status')
 
+        windows.forEach((tab, index) => this.numberByWindow.set(tab.windowId, index + 1))
         for (const tab of windows) {
             this.urlByWindow.set(tab.windowId, tab.initialURL)
             // Custom events carry the URL of in-page navigations, which record no Meta event.
@@ -70,7 +72,7 @@ export class MetadataFooter {
         const active = this.controller.activeWindow
         const sessionMs = Math.max(0, this.controller.currentSessionMs())
         this.metaRectEl.textContent = (sessionMs / 1000).toFixed(0)
-        this.metaWindowEl.textContent = `${this.windows.indexOf(active as ReplayerWindow) + 1} of ${this.windows.length}`
+        this.metaWindowEl.textContent = `${this.numberByWindow.get(active.windowId)} of ${this.windows.length}`
         this.metaUrlEl.textContent = footerUrl(this.urlByWindow.get(active.windowId) ?? '')
 
         if (this.controller.isStopped) {

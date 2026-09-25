@@ -27,8 +27,7 @@
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             font-size: 22px;
             padding: 6px 12px;
-            /* The first row is centered, and fixed widths in the monospace font keep its fields from moving
-               as their values change; the URL gets the whole second row. */
+            /* Fixed widths in the monospace font keep the first row's fields from moving as their values change. */
             grid-template-columns: 1fr 13ch 16ch 25ch 1fr;
             grid-template-areas: ". rect window status ." "url url url url url";
             align-items: center;

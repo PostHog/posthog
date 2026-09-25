@@ -73,7 +73,7 @@ export class PlaybackController {
 
     start(startOffset: number): void {
         const ts = this.firstTimestamp + startOffset
-        this.activate(this.windowAt(ts) ?? this.active, ts, true)
+        this.activate(this.windowAt(ts) ?? this.active, ts)
         this.startFrameLoop()
     }
 
@@ -113,17 +113,12 @@ export class PlaybackController {
         return fallback
     }
 
-    private activate(tab: PlaybackWindow, ts: number, force = false): void {
-        const changed = tab !== this.active
-        if (changed) {
-            this.active.replayer.pause()
-            this.active = tab
-        }
+    private activate(tab: PlaybackWindow, ts: number): void {
+        this.active.replayer.pause()
+        this.active = tab
         tab.replayer.play(Math.max(0, ts - tab.firstTimestamp))
-        if (changed || force) {
-            for (const listener of this.windowChangeListeners) {
-                listener(tab)
-            }
+        for (const listener of this.windowChangeListeners) {
+            listener(tab)
         }
     }
 

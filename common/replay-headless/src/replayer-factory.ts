@@ -1,5 +1,5 @@
 import { Replayer } from 'posthog-js/rrweb'
-import { EventType } from 'posthog-js/rrweb-types'
+import { EventType, type eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     AudioMuteReplayerPlugin,
@@ -9,6 +9,7 @@ import {
     HLSPlayerPlugin,
     noOpTelemetry,
     processAllSnapshots,
+    speedDependentStyleRules,
     createSegments,
     getHrefFromSnapshot,
     mapSnapshotsToWindowId,
@@ -30,8 +31,18 @@ export interface ReplayerWindow extends PlaybackWindow {
     initialURL: string
 }
 
-/** Why no replayer could be built: nothing loaded yet, or snapshots that no window can be drawn from. */
+/** Why no window could be replayed: nothing loaded yet, or snapshots that no window can be drawn from. */
 export type ReplayerSetupFailure = 'no_snapshots' | 'no_full_snapshot'
+
+function firstHref(events: eventWithTime[]): string {
+    for (const event of events) {
+        const href = getHrefFromSnapshot(event)
+        if (href) {
+            return href
+        }
+    }
+    return ''
+}
 
 export interface ReplayerSetup {
     /** Ordered by when each window first appears in the recording. */
@@ -73,7 +84,7 @@ function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => Vi
  *
  * Returns why not when there are no snapshots, or no window has a full snapshot to build a page from.
  */
-export async function createReplayer(
+export async function createReplayers(
     config: PlayerConfig,
     rootEl: HTMLElement,
     bridge: HostBridge
@@ -122,13 +133,7 @@ export async function createReplayer(
             ...COMMON_REPLAYER_CONFIG,
             insertStyleRules: [
                 ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
-                // At high speeds rrweb doesn't speed CSS animations up, so snap them to their end state, as the web
-                // player does. `animation: none` left content that is revealed by a keyframe stuck at opacity: 0.
-                ...(config.playbackSpeed >= 2
-                    ? [
-                          '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
-                      ]
-                    : []),
+                ...speedDependentStyleRules(config.playbackSpeed),
             ],
             mouseTail: config.mouseTail,
             useVirtualDom: false,
@@ -139,7 +144,7 @@ export async function createReplayer(
             windowId: Number(windowId),
             replayer,
             root,
-            initialURL: windowEvents.map(getHrefFromSnapshot).find(Boolean) ?? '',
+            initialURL: firstHref(windowEvents),
             firstTimestamp: windowEvents[0].timestamp,
         })
     }
