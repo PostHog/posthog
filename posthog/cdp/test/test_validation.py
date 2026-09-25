@@ -788,6 +788,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["first"]["bytecode"] is not None
         assert validated["second"]["bytecode"] is not None
 
+    def test_filters_carry_a_stamp_only_beside_bytecode(self):
+        # A client echoes stored filters back on save. The stamp it sends is ignored: bytecode filters
+        # get the compiler's stamp, transpiled filters have no bytecode and get none.
+        filters = {"events": [{"id": "$pageview", "type": "events"}], "bytecode_contract": "older"}
+        compiled = HogFunctionFiltersSerializer(data=filters, context=self.filters_context)
+        assert compiled.is_valid(), compiled.errors
+        assert compiled.validated_data["bytecode_contract"] == RUNTIME_CONTRACT
+
+        transpiled = HogFunctionFiltersSerializer(
+            data=filters, context={**self.filters_context, "function_type": "site_destination"}
+        )
+        assert transpiled.is_valid(), transpiled.errors
+        assert "bytecode" not in transpiled.validated_data
+        assert "bytecode_contract" not in transpiled.validated_data
+
     def test_validate_inputs_stamps_compiled_templates_with_the_runtime_contract(self):
         # A hog template gets the stamp beside its bytecode. A liquid template has no bytecode and no
         # stamp, and a plain value compiles to nothing that could drift.

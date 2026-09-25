@@ -1015,7 +1015,8 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
-    bytecode_contract = serializers.CharField(required=False)
+    # Written by the compiler on every save, so a value a client sends back is never kept.
+    bytecode_contract = serializers.CharField(required=False, read_only=True)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -1108,6 +1109,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
             if "bytecode" in data:
                 del data["bytecode"]
+            data.pop("bytecode_contract", None)
         else:
             data = compile_filters_bytecode(data, team)
             # Uncompilable filters are only fatal when the function will run (stay enabled).
