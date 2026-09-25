@@ -1181,7 +1181,7 @@ class PivotExpr(Expr):
     group_by: Optional[list[Expr]] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
@@ -1206,6 +1206,9 @@ class JoinExpr(Expr):
     constraint: Optional[JoinConstraint] = None
     next_join: Optional["JoinExpr"] = None
     sample: Optional["SampleExpr"] = None
+    # True for a join the lazy table resolver added. Such a join is already expanded, so a transform
+    # must not copy it into another scope where the resolver would expand it a second time.
+    generated_lazy_join: Optional[bool] = None
 
     def __post_init__(self):
         if self.join_type is None:

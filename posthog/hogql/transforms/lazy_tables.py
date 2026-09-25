@@ -639,6 +639,7 @@ class LazyTableResolver(TraversingVisitor):
                     setTimeZones=False,
                 ).visit(join_to_add)
 
+            join_to_add.generated_lazy_join = True
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
 

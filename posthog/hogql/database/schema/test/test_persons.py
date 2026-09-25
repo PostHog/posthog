@@ -195,6 +195,24 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("in(tuple(person.id, person.version)", response.clickhouse)
         self.assertNotIn("where_optimization", response.clickhouse)
 
+    @parameterized.expand(
+        [
+            ("person_id_overrides", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            ("person_distinct_ids", PersonsOnEventsMode.DISABLED),
+        ]
+    )
+    def test_events_subquery_with_a_lazy_join_is_not_lifted(self, _name: str, mode: PersonsOnEventsMode):
+        modifiers = create_default_modifiers_for_team(self.team)
+        modifiers.personsOnEventsMode = mode
+        response = execute_hogql_query(
+            parse_select("select id from persons where id in (select person_id from events where distinct_id = '1')"),
+            self.team,
+            modifiers=modifiers,
+        )
+        assert [str(row[0]) for row in response.results] == [str(self.first_person.uuid)]
+        assert response.clickhouse
+        self.assertNotIn("where_optimization", response.clickhouse)
+
     def test_person_modal_not_optimized_yet(self):
         source_query = TrendsQuery(
             series=[EventsNode(event="$pageview")],

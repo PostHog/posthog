@@ -140,6 +140,11 @@ class WhereClauseExtractor(CloningVisitor):
             left = self.visit(node.left)
 
             if isinstance(node.right, ast.SelectQuery):
+                # A subquery the lazy table resolver already expanded carries its generated joins in the
+                # AST. Lifting it makes the resolver expand the copy a second time, in a scope it was not
+                # resolved against, so fail safe and keep the predicate in the outer query.
+                if has_generated_lazy_join(node.right):
+                    return ast.Constant(value=self.tombstone_string)
                 right = clone_expr(
                     node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True
                 )
@@ -527,6 +532,9 @@ class EventsOnlyWhereClauseExtractor(WhereClauseExtractor):
 
         left = self.visit(node.left)
         if isinstance(node.right, ast.SelectQuery):
+            # Same guard as the base class: an already expanded subquery must not be lifted.
+            if has_generated_lazy_join(node.right):
+                return ast.Constant(value=self.tombstone_string)
             right = clone_expr(node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True)
         else:
             right = self.visit(node.right)
@@ -835,6 +843,23 @@ def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Opt
             return ptr
         ptr = ptr.next_join
     return None
+
+
+def has_generated_lazy_join(expr: ast.Expr) -> bool:
+    visitor = HasGeneratedLazyJoinVisitor()
+    visitor.visit(expr)
+    return visitor.found
+
+
+class HasGeneratedLazyJoinVisitor(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if node.generated_lazy_join:
+            self.found = True
+        super().visit_join_expr(node)
 
 
 def has_tombstone(expr: ast.Expr, tombstone_string: str) -> bool:
