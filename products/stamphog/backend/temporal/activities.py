@@ -25,13 +25,14 @@ import base64
 import random
 import tarfile
 import threading
-from collections.abc import Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path, PurePosixPath
+from typing import Any
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -112,6 +113,9 @@ _ENGINE_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_ENGINE_DIR).relative_to(ST
 _OWNERS_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_OWNERS_DIR).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
 _OWNERS_PACKAGE_RELATIVE_DIR = f"{_OWNERS_RELATIVE_DIR}/owners_yaml"
 _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
+
+# The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
+_CONTEXT_FETCH_WORKERS = 8
 
 # Server-shipped default policy files, the base layer every repo's config sits on. Named by the
 # basename of each STAMPHOG_POLICY_PATHS entry (policy.yml / review-guidance.md): a repo with no
@@ -413,88 +417,132 @@ def _pr_commit_messages(client: StamphogGitHubClient, repo: str, pr_number: int,
         return None
 
 
+def _timed(timings_ms: dict[str, int], name: str, fetch: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    """Run one context read and record its wall-clock milliseconds under ``name``."""
+    started = time.monotonic()
+    try:
+        return fetch(*args, **kwargs)
+    finally:
+        timings_ms[name] = int((time.monotonic() - started) * 1000)
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
-    """Load the PR, its changed files, the author's merged PRs, and default-branch policy."""
+    """Load the PR, its changed files, the author's merged PRs, and default-branch policy.
+
+    The reads are independent GitHub round trips, so they run concurrently. Only the reads that need
+    the PR's author or its file list wait for those two.
+    """
     run = _load_run(input)
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
     repo = repo_config.repository
+    number = pull_request.pr_number
 
     client = StamphogGitHubClient(repo_config.installation_id)
-    pr = client.get_pr(repo, pull_request.pr_number)
-    files = client.get_pr_files(repo, pull_request.pr_number)
     # Self-driving runs skip the author's history: the author is the App machine user, so
     # familiarity from its merged PRs would read to the engine as human trust. Without facts the
     # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
     is_inbox_review = bool((run.output or {}).get("inbox_review"))
-    # The familiarity facts cost a few GraphQL round trips and depend only on the PR and its files,
-    # so they are read in a background thread while the fetches below run. fetch_review_history
-    # bounds its own time and never raises.
-    history_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="stamphog-review-history")
-    history_future = history_executor.submit(
-        fetch_review_history, client, repo, pr, files, include_familiarity=not is_inbox_review
-    )
-    history_executor.shutdown(wait=False)
-    # Reviews feed the engine's prerequisite gate — an active CHANGES_REQUESTED must block auto-approval.
-    reviews = client.get_pr_reviews(repo, pull_request.pr_number)
-    # Top-level discussion comments are blocker context (a maintainer's "please hold").
-    discussion = client.get_pr_discussion(repo, pull_request.pr_number)
-    # Inline review threads (GraphQL-only) carry a maintainer's unresolved "do not merge" that the
-    # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
-    review_threads = client.get_pr_review_threads(repo, pull_request.pr_number)
-    # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-    check_runs = client.get_check_runs(repo, run.head_sha)
-    commit_messages = _pr_commit_messages(client, repo, pull_request.pr_number, run.head_sha)
+    timings_ms: dict[str, int] = {}
+    started = time.monotonic()
+    executor = ThreadPoolExecutor(max_workers=_CONTEXT_FETCH_WORKERS, thread_name_prefix="stamphog-context")
+    try:
 
-    author = (pr.get("user") or {}).get("login") or pull_request.author_login
-    # Skipped for self-driving runs, like the familiarity facts above.
-    author_pr_numbers = client.get_author_merged_pr_numbers(repo, author) if author and not is_inbox_review else []
-    # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
-    # no token, and the engine learns the owning teams only after it reads the checkout's ownership
-    # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
-    # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
-    # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
-    # user, so its team membership says nothing about who wrote the diff.
-    author_team_slugs = client.get_user_team_slugs(repo.split("/")[0], author) if author and not is_inbox_review else []
+        def submit(name: str, fetch: Callable[..., Any], *args: Any, **kwargs: Any) -> Future[Any]:
+            return executor.submit(_timed, timings_ms, name, fetch, *args, **kwargs)
 
-    policy_files: dict[str, str] = {}
-    for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS):
-        content = client.get_default_branch_file(repo, path)
-        if content is not None:
-            policy_files[path] = content
-    folder_policy_files = fetch_folder_policy_files(client, repo, run.head_sha, files)
+        pr_future = submit("pr", client.get_pr, repo, number)
+        files_future = submit("files", client.get_pr_files, repo, number)
+        # Reviews feed the engine's prerequisite gate — an active CHANGES_REQUESTED must block auto-approval.
+        reviews_future = submit("reviews", client.get_pr_reviews, repo, number)
+        # Top-level discussion comments are blocker context (a maintainer's "please hold").
+        discussion_future = submit("discussion", client.get_pr_discussion, repo, number)
+        # Inline review threads (GraphQL-only) carry a maintainer's unresolved "do not merge" that the
+        # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
+        review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
+        # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
+        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
+        commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
+        reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
+        policy_futures = {
+            path: submit(f"policy:{path}", client.get_default_branch_file, repo, path)
+            for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS)
+        }
 
-    history: ReviewHistory = history_future.result()
+        pr = pr_future.result()
+        files = files_future.result()
+        author = (pr.get("user") or {}).get("login") or pull_request.author_login
+        # The familiarity facts depend only on the PR and its files. fetch_review_history bounds its
+        # own time and never raises.
+        history_future = submit(
+            "history", fetch_review_history, client, repo, pr, files, include_familiarity=not is_inbox_review
+        )
+        folder_policy_future = submit(
+            "folder_policy_files", fetch_folder_policy_files, client, repo, run.head_sha, files
+        )
+        # Skipped for self-driving runs, like the familiarity facts above.
+        author_pr_numbers_future = (
+            submit("author_pr_numbers", client.get_author_merged_pr_numbers, repo, author)
+            if author and not is_inbox_review
+            else None
+        )
+        # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
+        # no token, and the engine learns the owning teams only after it reads the checkout's ownership
+        # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
+        # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
+        # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
+        # user, so its team membership says nothing about who wrote the diff.
+        author_team_slugs_future = (
+            submit("author_team_slugs", client.get_user_team_slugs, repo.split("/")[0], author)
+            if author and not is_inbox_review
+            else None
+        )
 
-    run.output = {
-        **(run.output or {}),
-        "pr": pr,
-        "files": files,
-        "reviews": reviews,
-        "discussion": discussion,
-        "review_threads": review_threads,
-        "check_runs": check_runs,
-        "pr_reactions": client.get_pr_reactions(repo, pull_request.pr_number),
-        "policy_files": policy_files,
-        "author_pr_numbers": author_pr_numbers,
-        "author_team_slugs": author_team_slugs,
-        # Always set, null included: its presence tells the engine the server owns familiarity,
-        # so a null means "absent" rather than "compute it from git".
-        "familiarity_facts": history.familiarity_facts,
-        "merge_base_sha": history.merge_base_sha,
-        # Always set, null included, for the same reason: the sandbox checkout holds no history,
-        # so the engine must not fall back to `git log` for the provenance trailers.
-        "commit_messages": commit_messages,
-        # Read at the PR head, unlike policy_files: the sandbox checkout is the head, and the pre-check
-        # must budget the size gate as the sandbox does. None means unknown.
-        "folder_policy_files": folder_policy_files,
-    }
+        policy_files: dict[str, str] = {}
+        for path, future in policy_futures.items():
+            content = future.result()
+            if content is not None:
+                policy_files[path] = content
+        history: ReviewHistory = history_future.result()
+
+        run.output = {
+            **(run.output or {}),
+            "pr": pr,
+            "files": files,
+            "reviews": reviews_future.result(),
+            "discussion": discussion_future.result(),
+            "review_threads": review_threads_future.result(),
+            "check_runs": check_runs_future.result(),
+            "pr_reactions": reactions_future.result(),
+            "policy_files": policy_files,
+            "author_pr_numbers": author_pr_numbers_future.result() if author_pr_numbers_future else [],
+            "author_team_slugs": author_team_slugs_future.result() if author_team_slugs_future else [],
+            # Always set, null included: its presence tells the engine the server owns familiarity,
+            # so a null means "absent" rather than "compute it from git".
+            "familiarity_facts": history.familiarity_facts,
+            "familiarity_status": history.status,
+            "merge_base_sha": history.merge_base_sha,
+            # Always set, null included, for the same reason: the sandbox checkout holds no history,
+            # so the engine must not fall back to `git log` for the provenance trailers.
+            "commit_messages": commit_messages_future.result(),
+            # Read at the PR head, unlike policy_files: the sandbox checkout is the head, and the pre-check
+            # must budget the size gate as the sandbox does. None means unknown.
+            "folder_policy_files": folder_policy_future.result(),
+            "context_timings_ms": {**timings_ms, "total": int((time.monotonic() - started) * 1000)},
+        }
+    finally:
+        # A failed read raises out of its result() above and fails the activity, which retries. The
+        # other reads are abandoned rather than awaited.
+        executor.shutdown(wait=False, cancel_futures=True)
     run.save(update_fields=["output", "updated_at"])
 
-    activity.logger.info(f"Fetched review context for run {run.id} (pr #{pull_request.pr_number}, {len(files)} files)")
-    return {"pr_number": pull_request.pr_number, "file_count": len(files), "head_sha": run.head_sha}
+    activity.logger.info(
+        f"Fetched review context for run {run.id} (pr #{number}, {len(files)} files); "
+        f"timings: {run.output['context_timings_ms']}"
+    )
+    return {"pr_number": number, "file_count": len(files), "head_sha": run.head_sha}
 
 
 @activity.defn

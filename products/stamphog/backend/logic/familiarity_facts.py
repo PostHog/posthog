@@ -18,6 +18,7 @@ import time
 from bisect import bisect_left
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -66,8 +67,9 @@ _BLAME_TIMEOUT_SECONDS = 6
 _HISTORY_TIMEOUT_SECONDS = 10
 _MAX_PARALLEL_REQUESTS = 8
 # History aliases per request. GitHub resolves the aliases of one request one after another, so a
-# large batch runs into the same ten-second abort as a large blame.
-_HISTORY_PATHS_PER_REQUEST = 10
+# large batch runs into the same ten-second abort as a large blame. One failed request drops every
+# fact, so small requests that run in parallel are cheaper than large ones that time out.
+_HISTORY_PATHS_PER_REQUEST = 4
 # A directory's history counts prior PRs, and the engine's MODERATE band needs only a few, so the
 # newest 100 commits per directory are enough. A file's history only answers "did the author touch it".
 _DIRECTORY_HISTORY_COMMITS = 100
@@ -170,6 +172,19 @@ def _ranges_touching(blame_ranges: list[dict], lines: list[int]) -> list[dict]:
     return touching
 
 
+class FamiliarityStatus(StrEnum):
+    """Why the familiarity facts look the way they do, for telemetry."""
+
+    OK = "ok"
+    PARTIAL_BLAME = "partial_blame"
+    NOT_WANTED = "not_wanted"
+    NO_MERGE_BASE = "no_merge_base"
+    HISTORY_TIMED_OUT = "history_timed_out"
+    HISTORY_FAILED = "history_failed"
+    RATE_LIMITED = "rate_limited"
+    ERROR = "error"
+
+
 @frozen
 class ReviewHistory:
     """What the server learned about the PR's history before the review.
@@ -180,6 +195,7 @@ class ReviewHistory:
 
     merge_base_sha: str | None
     familiarity_facts: dict | None
+    status: FamiliarityStatus
 
 
 class FamiliarityFactsCollector:
@@ -205,7 +221,7 @@ class FamiliarityFactsCollector:
             timeout=_HISTORY_TIMEOUT_SECONDS,
         )
 
-    def collect(self, considered: list[dict], deadline: float) -> dict | None:
+    def collect(self, considered: list[dict], deadline: float) -> tuple[dict | None, FamiliarityStatus]:
         """The familiarity facts for the considered files, or None on any failure but a per-file blame one.
 
         A file whose blame fails, or does not finish inside the budget, is left out, and the engine
@@ -245,9 +261,12 @@ class FamiliarityFactsCollector:
             executor.shutdown(wait=False, cancel_futures=True)
         if any(future in pending for future in history_futures):
             logger.warning("stamphog_familiarity_facts_timed_out", repo=self.repo)
-            return None
+            return None, FamiliarityStatus.HISTORY_TIMED_OUT
         finished_blame = {path: future for path, future in blame_futures.items() if future not in pending}
-        return self._assemble(blame_targets, finished_blame, history_futures, directories)
+        facts, status = self._assemble(blame_targets, finished_blame, history_futures, directories)
+        if status == FamiliarityStatus.OK and len(finished_blame) < len(blame_futures):
+            status = FamiliarityStatus.PARTIAL_BLAME
+        return facts, status
 
     def _assemble(
         self,
@@ -255,8 +274,9 @@ class FamiliarityFactsCollector:
         blame_futures: dict[str, Future[list[dict]]],
         history_futures: list[Future[dict[str, list[dict]]]],
         directories: list[str],
-    ) -> dict | None:
+    ) -> tuple[dict | None, FamiliarityStatus]:
         commits: dict[str, dict] = {}
+        status = FamiliarityStatus.OK
 
         def remember(node: dict) -> str | None:
             fact = _commit_fact(node)
@@ -270,9 +290,10 @@ class FamiliarityFactsCollector:
             error = future.exception()
             if isinstance(error, GitHubRateLimitError | GitHubEgressBudgetExhausted):
                 logger.warning("stamphog_familiarity_facts_rate_limited", repo=self.repo)
-                return None
+                return None, FamiliarityStatus.RATE_LIMITED
             if error is not None:
                 logger.info("stamphog_familiarity_blame_failed", repo=self.repo, error=type(error).__name__)
+                status = FamiliarityStatus.PARTIAL_BLAME
                 continue
             blame[path] = [
                 {"start": touching["start"], "end": touching["end"], "oid": oid}
@@ -285,21 +306,25 @@ class FamiliarityFactsCollector:
         wanted_directories = set(directories)
         for history_future in history_futures:
             error = history_future.exception()
+            if isinstance(error, GitHubRateLimitError | GitHubEgressBudgetExhausted):
+                logger.warning("stamphog_familiarity_facts_rate_limited", repo=self.repo)
+                return None, FamiliarityStatus.RATE_LIMITED
             if error is not None:
                 logger.warning("stamphog_familiarity_history_failed", repo=self.repo, error=type(error).__name__)
-                return None
+                return None, FamiliarityStatus.HISTORY_FAILED
             for path, nodes in history_future.result().items():
                 oids = [oid for node in nodes if (oid := remember(node)) is not None]
                 # A root-level file is both a directory pathspec and a file path, so it can land in both.
                 if path in wanted_directories:
                     path_history.update(oids)
                 file_history.setdefault(path, []).extend(oids)
-        return {
+        facts = {
             "commits": commits,
             "blame": blame,
             "path_history": sorted(path_history),
             "file_history": file_history,
         }
+        return facts, status
 
 
 def fetch_review_history(
@@ -316,12 +341,14 @@ def fetch_review_history(
         merge_base_sha = None
 
     author_node_id = (pr.get("user") or {}).get("node_id")
-    if not include_familiarity or merge_base_sha is None or not author_node_id:
-        return ReviewHistory(merge_base_sha=merge_base_sha, familiarity_facts=None)
+    if not include_familiarity or not author_node_id:
+        return ReviewHistory(merge_base_sha=merge_base_sha, familiarity_facts=None, status=FamiliarityStatus.NOT_WANTED)
+    if merge_base_sha is None:
+        return ReviewHistory(merge_base_sha=None, familiarity_facts=None, status=FamiliarityStatus.NO_MERGE_BASE)
     try:
         collector = FamiliarityFactsCollector(client, repo, merge_base_sha, str(author_node_id))
-        facts = collector.collect(select_considered_files(files), deadline)
+        facts, status = collector.collect(select_considered_files(files), deadline)
     except Exception:
         logger.warning("stamphog_familiarity_facts_failed", repo=repo, exc_info=True)
-        facts = None
-    return ReviewHistory(merge_base_sha=merge_base_sha, familiarity_facts=facts)
+        facts, status = None, FamiliarityStatus.ERROR
+    return ReviewHistory(merge_base_sha=merge_base_sha, familiarity_facts=facts, status=status)
