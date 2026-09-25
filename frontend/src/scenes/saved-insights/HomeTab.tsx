@@ -1,33 +1,40 @@
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Spinner } from '@posthog/lemon-ui'
 
-import { ActiveUsers } from './ActiveUsers'
-import { Activity } from './Activity'
-import { FiringAlerts } from './FiringAlerts'
-import { NewEvents } from './NewEvents'
-import { RecentlyViewed } from './RecentlyViewed'
-import { Trending } from './Trending'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { DashboardPlacement } from '~/types'
+
+import { HomeTabTemplatePicker } from './HomeTabTemplatePicker'
 
 export function HomeTab(): JSX.Element {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+
     useOnMountEffect(() => {
         posthog.capture('product analytics home viewed')
     })
 
-    return (
-        <div className="py-4">
-            <div className="flex flex-col gap-4 @min-[48rem]/main-content:flex-row @min-[48rem]/main-content:items-start">
-                <div className="flex min-w-0 flex-1 flex-col gap-4">
-                    <RecentlyViewed />
-                    <FiringAlerts />
-                    <ActiveUsers />
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-4">
-                    <Trending />
-                    <NewEvents />
-                    <Activity />
-                </div>
+    if (!currentTeam && currentTeamLoading) {
+        return (
+            <div className="flex justify-center py-12">
+                <Spinner textColored captureTime />
             </div>
-        </div>
-    )
+        )
+    }
+
+    if (currentTeam?.home_tab_dashboard) {
+        return (
+            <Dashboard
+                id={String(currentTeam.home_tab_dashboard)}
+                placement={DashboardPlacement.Builtin}
+                requireExplicitEditMode
+            />
+        )
+    }
+
+    return <HomeTabTemplatePicker />
 }

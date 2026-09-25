@@ -125,6 +125,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     ],
     has_group_types: true,
     primary_dashboard: 1,
+    home_tab_dashboard: null,
     live_events_columns: null,
     person_on_events_querying_enabled: true,
     live_events_token: '123',

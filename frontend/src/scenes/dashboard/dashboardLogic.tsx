@@ -161,6 +161,8 @@ export interface DashboardLogicProps {
     id: number
     dashboard?: DashboardType
     placement?: DashboardPlacement
+    /** Opt out of entering layout edit mode by dragging or resizing a tile — see `requireExplicitEditMode`. */
+    requireExplicitEditMode?: boolean
 }
 
 export interface RefreshStatus {
@@ -371,6 +373,7 @@ export interface dashboardLogicValues {
     }
     refreshStatus: Record<string, RefreshStatus>
     refreshTilesTotal: number | null
+    requireExplicitEditMode: boolean
     savedDashboardSettings: DashboardSettings
     scrollToBottomSignal: number
     settingsForRefresh: DashboardSettings
@@ -2956,6 +2959,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         placement: [
             () => [(_, props) => props.placement],
             (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
+        ],
+        // Some embeds (e.g. the product analytics Home tab) opt out of the drag-to-edit shortcut in
+        // DashboardItems, so a viewer can't slip into layout editing just by dragging a tile around.
+        requireExplicitEditMode: [
+            () => [(_, props) => props.requireExplicitEditMode],
+            (requireExplicitEditMode: boolean | undefined): boolean => !!requireExplicitEditMode,
         ],
         apiUrl: [
             (_, p) => [p.id],

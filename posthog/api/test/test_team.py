@@ -918,6 +918,28 @@ def team_api_test_factory():
                 self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard"),
             )
 
+        def test_update_home_tab_dashboard(self):
+            d = Dashboard.objects.create(name="Home tab dashboard", team=self.team)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            self.assertEqual(response_data["home_tab_dashboard"], d.id)
+            # Setting home_tab_dashboard must not disturb the unrelated primary_dashboard field
+            self.assertEqual(response_data["primary_dashboard"], self.team.primary_dashboard_id)
+
+        def test_cant_set_home_tab_dashboard_to_another_teams_dashboard(self):
+            team_2 = Team.objects.create(organization=self.organization, name="Default project")
+            d = Dashboard.objects.create(name="Test", team=team_2)
+
+            response = self.client.patch("/api/environments/@current/", {"home_tab_dashboard": d.id})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                self.validation_error_response("Dashboard does not belong to this team.", attr="home_tab_dashboard"),
+            )
+
         def test_is_generating_demo_data(self):
             cache_key = f"is_generating_demo_data_{self.team.pk}"
             cache.set(cache_key, "True")
