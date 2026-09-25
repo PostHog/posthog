@@ -4800,6 +4800,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             const property_key = `unsubscribed_from_${product}`
             posthog.capture('product unsubscribed', {
                 product,
+                membership_level: values.user?.organization?.membership_level,
                 $set: { [property_key]: true },
             })
         },

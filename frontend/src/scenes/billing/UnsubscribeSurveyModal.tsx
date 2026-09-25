@@ -10,6 +10,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonDivider,
+    LemonInput,
     LemonLabel,
     LemonModal,
     LemonTextArea,
@@ -22,6 +23,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -58,13 +60,28 @@ export const UnsubscribeSurveyModal = ({
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
+    const [typedConfirmation, setTypedConfirmation] = useState('')
 
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const isOnDiscountedPrice = isAddonProduct && (product as BillingProductV2AddonType).default_unit_amount_usd != null
+    const cancelsWholeSubscription = billing?.subscription_level === 'paid' && !isAddonProduct
+    const organizationName = currentOrganization?.name
+    const confirmationMatches =
+        !!organizationName && typedConfirmation.trim().toLowerCase() === organizationName.toLowerCase()
+
+    const confirmDisabledReason =
+        surveyResponse['$survey_response_2'].length === 0
+            ? 'Please select a reason'
+            : !textAreaNotEmpty
+              ? 'Please share your feedback'
+              : cancelsWholeSubscription && !confirmationMatches
+                ? 'Please type the organization name to confirm'
+                : undefined
 
     let action = 'Unsubscribe'
     let actionVerb = 'unsubscribing'
@@ -78,7 +95,7 @@ export const UnsubscribeSurveyModal = ({
             setUnsubscribeModalStep(2)
             triggerMoreHedgehogs()
         } else {
-            deactivateProduct(billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type)
+            deactivateProduct(cancelsWholeSubscription ? 'all_products' : product.type)
         }
     }
 
@@ -103,9 +120,7 @@ export const UnsubscribeSurveyModal = ({
                     loading={billingLoading}
                     onClick={() => {
                         setHedgehogSatisfied(true)
-                        deactivateProduct(
-                            billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
-                        )
+                        deactivateProduct(cancelsWholeSubscription ? 'all_products' : product.type)
                     }}
                 >
                     Never enough, proceed with {action}
@@ -154,13 +169,7 @@ export const UnsubscribeSurveyModal = ({
                             </LemonButton>
                             <LemonButton
                                 type={textAreaNotEmpty ? 'primary' : 'secondary'}
-                                disabledReason={
-                                    surveyResponse['$survey_response_2'].length === 0
-                                        ? 'Please select a reason'
-                                        : !textAreaNotEmpty
-                                          ? 'Please share your feedback'
-                                          : undefined
-                                }
+                                disabledReason={confirmDisabledReason}
                                 onClick={handleUnsubscribe}
                                 loading={billingLoading}
                             >
@@ -207,6 +216,31 @@ export const UnsubscribeSurveyModal = ({
                             </p>
                         )}
 
+                        {cancelsWholeSubscription && (
+                            <LemonBanner type="warning">
+                                <p className="font-semibold mb-1">
+                                    This cancels the whole subscription for {organizationName ?? 'this organization'}.
+                                </p>
+                                <ul className="list-disc pl-4 mb-0">
+                                    <li>
+                                        Every paid product and add-on is cancelled, not only{' '}
+                                        {billingProductDisplayName(product)}. The free plan limits apply right away.
+                                    </li>
+                                    <li>
+                                        When you reach the free monthly allowance, we stop ingesting your data for the
+                                        rest of the billing period. We cannot recover the data you send after that
+                                        point.
+                                    </li>
+                                    {!!billing?.discount_percent && (
+                                        <li>
+                                            Your {billing.discount_percent}% discount ends. Talk to support first if you
+                                            want to keep it.
+                                        </li>
+                                    )}
+                                </ul>
+                            </LemonBanner>
+                        )}
+
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
 
                         <LemonLabel>
@@ -242,6 +276,21 @@ export const UnsubscribeSurveyModal = ({
                                     setSurveyResponse(SurveyEventProperties.SURVEY_RESPONSE, value)
                                 }}
                             />
+                        )}
+
+                        {cancelsWholeSubscription && (
+                            <div>
+                                <LemonLabel>
+                                    Type <strong>{organizationName ?? "your organization's name"}</strong> to confirm
+                                </LemonLabel>
+                                <LemonInput
+                                    className="mt-1"
+                                    type="text"
+                                    value={typedConfirmation}
+                                    onChange={setTypedConfirmation}
+                                    data-attr="unsubscribe-confirmation-input"
+                                />
+                            </div>
                         )}
 
                         <LemonBanner type="info">
