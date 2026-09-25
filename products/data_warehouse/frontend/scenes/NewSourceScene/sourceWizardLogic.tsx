@@ -16,12 +16,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import {
-    VALID_NON_NATIVE_MARKETING_SOURCES,
-    VALID_SELF_MANAGED_MARKETING_SOURCES,
-} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
+import { VALID_SELF_MANAGED_MARKETING_SOURCES } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
-import { ProductIntentContext, ProductKey, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
@@ -2513,18 +2510,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             })
 
             // Track interest for marketing ad sources and marketing analytics
-            const isNativeMarketingSource =
-                connector?.name &&
-                VALID_NATIVE_MARKETING_SOURCES.includes(
-                    connector.name as (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
-                )
-            const isExternalMarketingSource =
-                connector?.name &&
-                VALID_NON_NATIVE_MARKETING_SOURCES.includes(
-                    connector.name as (typeof VALID_NON_NATIVE_MARKETING_SOURCES)[number]
-                )
-
-            if (isNativeMarketingSource || isExternalMarketingSource) {
+            if (connector?.category === 'Advertising') {
                 actions.addProductIntent({
                     product_type: ProductKey.MARKETING_ANALYTICS,
                     intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,

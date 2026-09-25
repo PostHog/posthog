@@ -109,9 +109,12 @@ export class TerminalPackages {
                     bin,
                     [
                         '#!/bin/sh',
+                        'first_install=0',
+                        `[ -d /opt/posthog-packages/${id}-${pkg.version} ] || first_install=1`,
                         ...[...pkg.dependencies, id].map(
                             (dependency) => `sh /posthog/bin/install-tool ${dependency} || exit $?`
                         ),
+                        `[ "$first_install" = 0 ] || echo 'Starting ${command}...' >&2`,
                         ...(command === 'doom'
                             ? [
                                   'mkdir -p /tmp/doom',

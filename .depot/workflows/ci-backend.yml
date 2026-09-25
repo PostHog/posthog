@@ -54,9 +54,9 @@
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
 #   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
 #   is safe only while its status remains optional.
-# - events_json variants: gated on the test-new-events-schema label only; canonical also
-#   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
-#   trial runs match handed-off PR runs
+# - events_json variants: the doubled matrices are gated on the test-new-events-schema label
+#   only; canonical also doubles them on workflow_dispatch, but a shadow dispatch runs the
+#   events_json rows instead, so trial runs match handed-off PR runs
 # - per-segment split plans (.test_durations.core/.temporal): the restore steps mirror
 #   canonical but miss until the depot timing refresher saves those files to Depot Cache;
 #   shards fall back to the union .test_durations
@@ -143,6 +143,10 @@ on:
         # labeled/unlabeled triggers, so a label takes effect from the next push
         # or from ready_for_review. Every event, merge-queue PRs included, runs here
         # only when GitHub Actions hands it off (see the `wait-for-handoff` job).
+        # The events_json leg runs wherever the legacy tests run, over the paths in
+        # .github/new-events-schema-targets.txt, the same as canonical, so a routed PR
+        # cannot pass here and fail the queue. The `test-new-events-schema` label runs
+        # the doubled matrices in place of that leg.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -445,6 +449,7 @@ jobs:
                         - 'products/*/turbo.json'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
+                        - .github/new-events-schema-targets.txt
                         - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
@@ -499,6 +504,7 @@ jobs:
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
+                        - .github/new-events-schema-targets.txt
                         - .depot/actions/setup-uv/**
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
@@ -922,6 +928,7 @@ jobs:
                   # A draft has a later ready run to defer to, so an untrusted selection skips
                   # the heavy matrices there instead of running all of them.
                   PR_DRAFT: ${{ github.event.pull_request.draft }}
+                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
                   SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
                   # Kill switch — drop comma-separated products from the matrix; empty = run all.
@@ -1050,8 +1057,10 @@ jobs:
               id: build
               env:
                   PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
-                  # The new-events-schema variants double the matrix, so run them only on
-                  # opted-in PRs.
+                  # The new-events-schema variants double the matrix, so they run only on
+                  # opted-in PRs. Other runs cover the product paths in
+                  # .github/new-events-schema-targets.txt with the Django matrix's
+                  # events_json rows.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
@@ -1060,17 +1069,10 @@ jobs:
                       schema_modes='[false]'
                       echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                   fi
-                  # Experiments reads flags from $feature/<key> properties. The native-JSON table keeps
-                  # them in the $feature_flags map, which HogQL does not read yet, so it runs legacy-only.
                   include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
                       | $schema_modes[] as $new_events_schema
-                      | select(
-                          ($new_events_schema | not)
-                          or ([($entry.legs // [{"filters": ($entry.filters // "")}])[].filters]
-                              | any(contains("products-experiments")) | not)
-                        )
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
@@ -1409,6 +1411,9 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: trunk-junit/junit-product-*.xml
+                  # A native-JSON leg uploads under its own variant, so a failure in that mode
+                  # does not read as a flake of the legacy test with the same id.
+                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   previous-step-outcome: ${{ steps.run-product-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -1440,7 +1445,11 @@ jobs:
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               # Only the legacy-schema variant uploads durations — both schema variants run the
               # same test IDs, and two artifacts for the same tests would race in the merge.
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema) }}
+              # A job whose products have no backend tests writes no JUnit, so it has no fresh
+              # timings either. Its artifact would hold only the restored map, and the timing
+              # refresh then rejects the whole Products slice because the timing and JUnit shard
+              # sets differ.
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (github.ref == 'refs/heads/master' && !matrix.new-events-schema && hashFiles('junit-staging/junit-product-*.xml') != '') }}
               with:
                   name: timing_data-Products-${{ strategy.job-index }}
                   path: .test_durations
@@ -2416,9 +2425,19 @@ jobs:
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
-                  # The new-events-schema variants double the matrix, so run them only on
-                  # opted-in PRs.
+                  # The new-events-schema variants double the matrix, so they run only on
+                  # opted-in PRs. Every other run takes the events_json rows, which cover
+                  # .github/new-events-schema-targets.txt only.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
+                  # Narrowed events_json paths and their shard count. Empty files on a run
+                  # that takes the whole list.
+                  JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
+                  JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
+                  # Same rule as the django job's condition: the suite runs for a legacy
+                  # edit, for a product change that reaches legacy code, and when discovery
+                  # failed, which leaves run_legacy empty. Without it only the events_json
+                  # rows for the product matrix run.
+                  DJANGO_SUITE: ${{ needs.changes.outputs.legacy == 'true' || needs.turbo-discover.outputs.run_legacy != 'false' }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
@@ -2440,7 +2459,20 @@ jobs:
                       echo "Django matrix size: 0 (mode=skip)"
                       exit 0
                   fi
-                  if [[ "$MODE" == "selected" ]]; then
+                  if [[ "$DJANGO_SUITE" != "true" ]]; then
+                      # A product change that reaches no legacy code skips the Django suite.
+                      # The product jobs read the legacy events table only, so the events_json
+                      # rows still run the listed paths of the products in the product matrix.
+                      core="[]"
+                      core_new_events_schema="[]"
+                      core_persons_on_events="[]"
+                      core_persons_on_events_new_schema="[]"
+                      temporal="[]"
+                      temporal_new_events_schema="[]"
+                      compat="[]"
+                      json_targets_count=0
+                      [[ -n "$JSON_TARGETS_FILES" ]] && json_targets_count="${JSON_TARGETS_SHARDS:-1}"
+                  elif [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the segments that have selected files. Shard
                       # counts come from turbo-discover, which applies its per-shard budget to
                       # the selected tests' recorded seconds. A wide selection therefore
@@ -2558,20 +2590,28 @@ jobs:
                       else
                           compat="[]"
                       fi
+                      # The narrowed events_json paths: selected files under a listed path,
+                      # plus the listed paths of the products in the narrowed product matrix.
+                      json_targets_count=0
+                      [[ -n "$JSON_TARGETS_FILES" ]] && json_targets_count="${JSON_TARGETS_SHARDS:-1}"
                   else
                       # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
                       # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
                       CORE_SHARDS=38
                       CORE_POE_SHARDS=7
                       TEMPORAL_SHARDS=7
+                      JSON_TARGETS_FULL_SHARDS=5
                       if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
                         CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
                         CORE_POE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.CorePOE.shards')
                         TEMPORAL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Temporal.shards')
-                        echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                        JSON_TARGETS_FULL_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r --argjson fallback "$JSON_TARGETS_FULL_SHARDS" '.JsonTargets.shards // $fallback')
+                        echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS, JsonTargets=$JSON_TARGETS_FULL_SHARDS"
                       else
-                        echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                        echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS, JsonTargets=$JSON_TARGETS_FULL_SHARDS"
                       fi
+                      # A full run takes every listed events_json path.
+                      json_targets_count="$JSON_TARGETS_FULL_SHARDS"
 
                       # The legacy-mode safeguard leg runs only where a regression must not
                       # land: merge queue and master. Ordinary PR lanes run the
@@ -2685,11 +2725,35 @@ jobs:
                   fi
 
                   if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
+                      # Without the schema copies, only the events_json rows below refresh
+                      # *.new_events_schema.ambr files, so a module outside
+                      # .github/new-events-schema-targets.txt lets its file go stale.
                       echo "Skipping new-events-schema variants (RUN_NEW_EVENTS_SCHEMA is off)"
                       core_new_events_schema="[]"
                       core_persons_on_events_new_schema="[]"
                       temporal_new_events_schema="[]"
+                  else
+                      # The doubled matrices exclude some curated paths, such as Dagster tests.
+                      # Discovery keeps only those paths so the other tests do not run a third time.
+                      json_targets_count="${JSON_TARGETS_SHARDS:-0}"
                   fi
+
+                  # The events_json rows: Core jobs over the listed paths with the
+                  # native-JSON events table. They keep Core's person-on-events default.
+                  json_targets=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$json_targets_count" '
+                    [range(1; $n + 1) | {
+                      segment: "Core",
+                      "json-targets": true,
+                      "person-on-events": false,
+                      "new-events-schema": true,
+                      "python-version": "3.13.13",
+                      "clickhouse-server-image": $image,
+                      concurrency: $n,
+                      group: .,
+                      artifact_key: ("json-targets-" + (.|tostring)),
+                      compat: false
+                    }]
+                  ')
 
                   include=$(jq -cn \
                     --argjson core "$core" \
@@ -2699,7 +2763,8 @@ jobs:
                     --argjson temporal "$temporal" \
                     --argjson temporal_new_events_schema "$temporal_new_events_schema" \
                     --argjson compat "$compat" \
-                    '$core + $core_new_events_schema + $core_persons_on_events + $core_persons_on_events_new_schema + $temporal + $temporal_new_events_schema + $compat')
+                    --argjson json_targets "$json_targets" \
+                    '$core + $core_new_events_schema + $core_persons_on_events + $core_persons_on_events_new_schema + $temporal + $temporal_new_events_schema + $compat + $json_targets')
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
@@ -2717,6 +2782,8 @@ jobs:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
+        # 4. OR a product-only change has events_json paths to run. build_django_matrix
+        #    then builds only the events_json rows, because the Django suite does not run.
         # The non-empty include guard covers drafts in skip mode and selected runs
         # that chose zero files — an empty matrix would otherwise fail the job.
         # A status function is required to inspect dependency results after failures.
@@ -2728,11 +2795,12 @@ jobs:
             needs.build_django_matrix.outputs.include != '[]' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
-             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
+             (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped') ||
+             fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files != '')
         # increase for tmate testing
         # 45 to match canonical.
         timeout-minutes: 45
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }}${{ matrix.json-targets && ' json-targets' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
         # migrations exactly like canonical once Depot's cache is warmed by a master run.
@@ -3160,11 +3228,15 @@ jobs:
                   CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
                   POE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_files }}
                   COMPAT_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').compat_files }}
+                  JSON_TARGETS: ${{ matrix.json-targets && 'true' || 'false' }}
+                  # The narrowed events_json paths. Empty when the row takes the whole list.
+                  JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
                   # Mirrors canonical: the coverage report skips narrowed runs, so
-                  # instrumenting one is pure overhead.
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
+                  # instrumenting one is pure overhead, and the events_json rows rerun
+                  # tests the legacy rows already measure.
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && !matrix.json-targets && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=' || '' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
@@ -3198,12 +3270,55 @@ jobs:
                       SPLIT_GRANULARITY=(--split-granularity=file)
                       # Scope the file-mode plan to Core's clean per-segment durations when the
                       # pinned pytest-split supports it; only persons-on-events-off, non-compat Core
-                      # matches the .core run-set, and a missing file falls back to the union.
-                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
+                      # matches the .core run-set (the events_json rows do not), and a missing
+                      # file falls back to the union.
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
                           SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
                       fi
                   fi
-                  if [[ "$MODE" == "selected" ]]; then
+                  if [[ "$JSON_TARGETS" == "true" ]]; then
+                      # The events_json leg. The job checks out the PR head, and a head without
+                      # the list also predates the JSON-mode test fixes that came before it, so
+                      # its listed tests would fail on code the PR did not touch. The merge
+                      # queue's trunk-merge/** head always has the list, so the gate still runs.
+                      if [[ ! -f .github/new-events-schema-targets.txt ]]; then
+                          echo "::notice::The checked-out revision predates .github/new-events-schema-targets.txt, so the events_json leg runs nothing until this branch rebases onto master"
+                          exit 0
+                      fi
+                      # A narrowed run hands over its paths, and every other run takes the
+                      # whole list. Parse it the way turbo-discover.js does.
+                      if [[ -n "$JSON_TARGETS_FILES" ]]; then
+                          read -r -a json_candidates <<< "$JSON_TARGETS_FILES"
+                      else
+                          mapfile -t json_candidates < <(sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's:/*$::' -e '/^$/d' .github/new-events-schema-targets.txt)
+                      fi
+                      # The PR head can lack a path that the merged list names. pytest stops
+                      # with a usage error on a missing path, so skip that path and say so.
+                      json_targets=()
+                      for target in "${json_candidates[@]}"; do
+                          if [[ -e "$target" ]]; then
+                              json_targets+=("$target")
+                          else
+                              echo "::warning::events_json path $target does not exist in this checkout, so it does not run"
+                          fi
+                      done
+                      if [[ ${#json_targets[@]} -eq 0 ]]; then
+                          exit 0
+                      fi
+                      JSON_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          JSON_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                      --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
+                      fi
+                      # No --store-durations, because the timing data describes legacy-table runs only.
+                      # shellcheck disable=SC2086
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
+                          "${JSON_SPLIT[@]}" \
+                          "${RETRY_ARGS[@]}" -r fEsxXR \
+                          --junitxml=junit-core.xml \
+                          $COV_ARGS \
+                          $PYTEST_ARGS
+                  elif [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # Sharded only when build_django_matrix sized the segment above one
                       # shard. One pytest retry mirrors canonical's budget.
@@ -3410,7 +3525,7 @@ jobs:
 
             - name: Upload core coverage
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core') }}
+              if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && github.event_name == 'pull_request' && needs.turbo-discover.outputs.mode != 'selected' && matrix.segment == 'Core' && !matrix.json-targets) }}
               with:
                   name: coverage-core-${{ strategy.job-index }}
                   path: .coverage
@@ -3497,6 +3612,9 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
+                  # A native-JSON row uploads under its own variant, so a failure in that mode
+                  # does not read as a flake of the legacy test with the same id.
+                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
@@ -3510,6 +3628,9 @@ jobs:
               with:
                   junit-paths: junit-temporal.xml,junit-temporal-retry-failures.xml
                   org-slug: posthog-inc
+                  # A native-JSON row uploads under its own variant, so a failure in that mode
+                  # does not read as a flake of the legacy test with the same id.
+                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-temporal-tests.outcome }}

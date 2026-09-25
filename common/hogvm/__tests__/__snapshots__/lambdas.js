@@ -37,7 +37,7 @@ function jsonParse (str) {
             const obj = {}; for (const key in x) { obj[key] = convert(x[key]) }; return obj }
         return x }
     return convert(JSON.parse(str)) }
-function arrayMap (func, arr) { let result = []; for (let i = 0; i < arr.length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
+function arrayMap (func, arr) { let result = []; for (let i = 0; i < (arr ?? []).length; i++) { result = arrayPushBack(result, func(arr[i])) } return result }
 function arrayPushBack (arr, item) { if (!Array.isArray(arr)) { return [item] } return [...arr, item] }
 function __toHogDateTime(timestamp, zone) {
     if (__isHogDate(timestamp)) {

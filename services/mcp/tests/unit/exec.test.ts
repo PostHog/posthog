@@ -2219,7 +2219,7 @@ describe('exec tool', () => {
 
                 it.each([
                     ['vision-scanners-get', 'scanner_id', 'replay scanner'],
-                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                    ['vision-observations-get', 'observation_id', 'replay observation'],
                 ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
                     expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
                         `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
@@ -2227,10 +2227,10 @@ describe('exec tool', () => {
                 })
 
                 it('does not tell the caller to resend a scanner id as an observation id', () => {
-                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `vision-observations-get` does not declare `scanner_id`, and its
                     // `id` has no format constraint. Matching the two by name suffix would
                     // advise reusing a value that identifies a different entity.
-                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+                    const message = formatFor('vision-observations-get', { scanner_id: SOME_UUID })
 
                     expect(message).toContain('"scanner_id"')
                     expect(message).not.toContain('resend')

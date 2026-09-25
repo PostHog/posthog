@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import {
@@ -8,6 +9,7 @@ import {
     IconPencil,
     IconShortcut,
     IconStar,
+    IconTerminal,
     IconTrash,
 } from '@posthog/icons'
 
@@ -32,9 +34,11 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { pluralize } from 'lib/utils/strings'
 import { openDeleteGroupTypeDialog } from 'scenes/settings/environment/GroupAnalyticsConfig'
 import { groupAnalyticsConfigLogic } from 'scenes/settings/environment/groupAnalyticsConfigLogic'
+import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -77,6 +81,9 @@ export function MenuItems({
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
     const { enabledToolPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
+    const { dockOpen, terminalEnabled } = useValues(terminalDockLogic)
+    const { openInTerminal } = useActions(terminalDockLogic)
+    const { location } = useValues(router)
 
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, isActiveInPanel }
     const { checkedItems, checkedItemCountNumeric, checkedItemsArray } = useValues(
@@ -160,6 +167,13 @@ export function MenuItems({
     const isItemAFolder = item.record?.type === 'folder'
     const isStarredFolder = isItemAFolder && item.id.startsWith('shortcuts://') && !!item.record?.ref
     const newMenuItem = isStarredFolder ? { ...item, record: { ...item.record, path: item.record?.ref } } : item
+    const terminalFolder = isStarredFolder ? item.record?.ref : item.record?.path
+    const showOpenInTerminal =
+        terminalEnabled &&
+        (dockOpen || removeProjectIdIfPresent(location.pathname) === '/terminal') &&
+        isItemAFolder &&
+        (root === 'project://' || item.record?.protocol === 'project://' || isStarredFolder) &&
+        typeof terminalFolder === 'string'
     const itemShortcutPath = joinPath([splitPath(item.record?.path).pop() ?? 'Unnamed'])
     const isItemAlreadyInShortcut = !isItemAFolder && shortcutNonFolderPaths.has(itemShortcutPath)
     const shortcutId =
@@ -176,6 +190,24 @@ export function MenuItems({
     return (
         <>
             {productMenu}
+            {showOpenInTerminal && (
+                <>
+                    <MenuItem
+                        asChild
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            openInTerminal(terminalFolder)
+                        }}
+                        data-attr="tree-item-menu-open-in-terminal-button"
+                    >
+                        <ButtonPrimitive menuItem>
+                            <IconTerminal className="size-4 text-tertiary" />
+                            <span>Open in terminal</span>
+                        </ButtonPrimitive>
+                    </MenuItem>
+                    <MenuSeparator />
+                </>
+            )}
             {showSelectMenuItems ? (
                 <>
                     <MenuItem
