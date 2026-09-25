@@ -215,7 +215,7 @@ class CaptureInternalResult:
 # --------------------------------------------------------------------------- #
 
 
-def _build_v1_headers(token: str, attempt: int, body: bytes) -> dict[str, str]:
+def _build_v1_headers(token: str, attempt: int, body: bytes, *, sign: bool = False) -> dict[str, str]:
     request_id = str(uuid4())
     now = datetime.now(UTC).isoformat()
     headers = {
@@ -227,7 +227,7 @@ def _build_v1_headers(token: str, attempt: int, body: bytes) -> dict[str, str]:
         "PostHog-Request-Id": request_id,
         "PostHog-Request-Timestamp": now,
     }
-    if CAPTURE_INTERNAL_SIGNING_SECRET:
+    if sign and CAPTURE_INTERNAL_SIGNING_SECRET:
         headers["PostHog-Internal-Signed-At"] = now
         headers["PostHog-Internal-Signature"] = sign_internal_request(token, request_id, now, body)
     return headers
@@ -516,6 +516,7 @@ def _submit_batch_chunk(
     max_attempts: int,
     timeout: float,
     ai_lane: bool = False,
+    internal_producer: bool = False,
 ) -> CaptureInternalResult:
     """Submit a single chunk of events to the v1 batch endpoint with retry logic.
 
@@ -594,7 +595,7 @@ def _submit_batch_chunk(
                 "batch": pending_batch,
             }
             body = json.dumps(submit_payload).encode()
-            headers = _build_v1_headers(token, attempt, body)
+            headers = _build_v1_headers(token, attempt, body, sign=internal_producer)
 
             CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source=event_source, lane=lane).inc()
             try:
@@ -728,6 +729,7 @@ def _submit_chunks(
     process_person_profile: bool,
     max_attempts: int,
     timeout: float,
+    internal_producer: bool,
 ) -> CaptureInternalResult:
     """Submit every lane's chunks over one shared worker pool.
 
@@ -751,6 +753,7 @@ def _submit_chunks(
             max_attempts=max_attempts,
             timeout=timeout,
             ai_lane=ai_lane,
+            internal_producer=internal_producer,
         )
 
     # Hot path: one lane, one chunk, so skip the pool.
@@ -813,6 +816,7 @@ def _capture_batch_impl(
     max_attempts: int,
     timeout: float,
     ai_lane: bool,
+    internal_producer: bool,
 ) -> CaptureInternalResult:
     """Shared body of capture_batch_internal and capture_batch_ai_internal.
 
@@ -853,6 +857,7 @@ def _capture_batch_impl(
         process_person_profile=process_person_profile,
         max_attempts=max_attempts,
         timeout=timeout,
+        internal_producer=internal_producer,
     )
 
 
@@ -865,6 +870,7 @@ def capture_batch_internal(
     process_person_profile: bool = False,
     max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     timeout: float = 2,
+    internal_producer: bool = False,
 ) -> CaptureInternalResult:
     """
     capture_batch_internal submits multiple capture request payloads to capture-rs on
@@ -960,6 +966,8 @@ def capture_batch_internal(
         max_attempts: application-level retry budget for per-event ``retry`` results from
             capture-rs (default: 4). Does not affect transport-level 5xx retries.
         timeout: HTTP request timeout in seconds (default: 2)
+        internal_producer: signs the request so capture-rs routes it to the internal lane,
+            skipping the team's event filters and transformations.  Never set for client input.
 
     Returns:
         CaptureInternalResult with per-event outcomes.  Call ``.raise_for_status()`` to
@@ -982,6 +990,7 @@ def capture_batch_internal(
         max_attempts=max_attempts,
         timeout=timeout,
         ai_lane=False,
+        internal_producer=internal_producer,
     )
 
 
@@ -1017,6 +1026,7 @@ def _capture_single_impl(
     historical_migration: bool,
     timeout: float,
     ai_lane: bool,
+    internal_producer: bool,
 ) -> CaptureInternalResult:
     """Shared body of capture_internal and capture_ai_internal.
 
@@ -1048,6 +1058,7 @@ def _capture_single_impl(
         max_attempts=CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
         timeout=timeout,
         ai_lane=ai_lane,
+        internal_producer=internal_producer,
     )
 
 
@@ -1066,6 +1077,7 @@ def capture_internal(
     process_person_profile: bool = False,
     historical_migration: bool = False,
     timeout: float = 2,
+    internal_producer: bool = False,
 ) -> CaptureInternalResult:
     """
     capture_internal submits a single-event capture request payload to the capture-rs
@@ -1114,6 +1126,7 @@ def capture_internal(
         historical_migration: if True, routes to the historical ingestion path in
             capture-rs (separate Kafka topic/consumer group).
         timeout: HTTP request timeout in seconds (default: 2)
+        internal_producer: see capture_batch_internal.
 
     Returns:
         CaptureInternalResult with per-event outcome.  Call ``.raise_for_status()`` to raise
@@ -1141,6 +1154,7 @@ def capture_internal(
         historical_migration=historical_migration,
         timeout=timeout,
         ai_lane=False,
+        internal_producer=internal_producer,
     )
 
 
@@ -1199,6 +1213,7 @@ def capture_ai_internal(
         historical_migration=False,
         timeout=timeout,
         ai_lane=True,
+        internal_producer=False,
     )
 
 
@@ -1229,4 +1244,5 @@ def capture_batch_ai_internal(
         max_attempts=max_attempts,
         timeout=timeout,
         ai_lane=True,
+        internal_producer=False,
     )

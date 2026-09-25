@@ -460,13 +460,38 @@ class TestCaptureBatchInternal(SimpleTestCase):
         uid = str(uuid4())
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_batch_internal(events=[_make_event(event_uuid=uid)], token="phc_abc", event_source="hdr")
+        capture_batch_internal(
+            events=[_make_event(event_uuid=uid)], token="phc_abc", event_source="hdr", internal_producer=True
+        )
 
         headers = spy.calls[0]["headers"]
         assert headers["PostHog-Internal-Signed-At"] == headers["PostHog-Request-Timestamp"]
         assert headers["PostHog-Internal-Signature"] == sign_internal_request(
             "phc_abc", headers["PostHog-Request-Id"], headers["PostHog-Internal-Signed-At"], spy.calls[0]["data"]
         )
+
+    @parameterized.expand(
+        [
+            ("secret_but_not_internal_producer", "s3cret", False),
+            ("internal_producer_but_no_secret", "", True),
+        ]
+    )
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_signs_only_internal_producers_with_a_secret(
+        self, _name: str, secret: str, internal_producer: bool, mock_session_fn: MagicMock
+    ) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        with patch("posthog.api.capture.CAPTURE_INTERNAL_SIGNING_SECRET", secret):
+            capture_batch_internal(
+                events=[_make_event(event_uuid=uid)],
+                token="phc_abc",
+                event_source="hdr",
+                internal_producer=internal_producer,
+            )
+
+        assert "PostHog-Internal-Signature" not in spy.calls[0]["headers"]
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_envelope_shape_on_wire(self, mock_session_fn: MagicMock) -> None:
@@ -1049,6 +1074,17 @@ class TestCaptureInternal(SimpleTestCase):
             distinct_id="u1",
         )
         assert result.status_code == 200
+
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_SIGNING_SECRET", "s3cret")
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_single_event_internal_producer_is_signed(self, mock_session_fn: MagicMock) -> None:
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body={"results": {}})])
+
+        capture_internal(
+            token="tok", event_name="observed", event_source="rv", distinct_id="u1", internal_producer=True
+        )
+
+        assert "PostHog-Internal-Signature" in spy.calls[0]["headers"]
 
 
 class TestCaptureInternalResult(SimpleTestCase):

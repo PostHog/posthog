@@ -89,6 +89,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         process_person_profile=False,
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
         event_uuid=str(observation.id),
+        internal_producer=True,
     )
     result.raise_for_status()
 
