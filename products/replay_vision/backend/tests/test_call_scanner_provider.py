@@ -510,14 +510,6 @@ async def test_video_cache_creation_is_best_effort() -> None:
 
 
 class TestParseAndValidate:
-    def test_a_missing_confidence_keeps_an_otherwise_complete_answer(self) -> None:
-        parsed, error = _parse_and_validate(
-            MissionStep(name="core", instruction="c", response_model=MonitorLlmResponse),
-            '{"reasoning": "They exported the report.", "verdict": "yes"}',
-        )
-        assert error is None
-        assert cast(MonitorLlmResponse, parsed).confidence is None
-
     def test_the_schema_error_names_the_field_without_quoting_the_model_answer(self) -> None:
         _, error = _parse_and_validate(
             MissionStep(name="core", instruction="c", response_model=MonitorLlmResponse),

@@ -19,7 +19,7 @@ from products.replay_vision.backend.temporal.scanners import (
 )
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, SignalFinding, SignalsResponse
 from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
-from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
+from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput, ScannerResult
 
 
 def _build_replay_scanner(**overrides) -> ReplayScanner:
@@ -747,15 +747,6 @@ class TestSummarizerScannerSteps:
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
         assert signals == []
 
-    def test_assemble_keeps_a_summary_whose_confidence_the_model_left_out(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        summary = SummarizerSummaryResponse.model_validate({"title": "Onboarding", "summary": "Walked through demo"})
-        out, _ = scanner.assemble({"summary": summary})
-        assert isinstance(out, SummarizerOutput)
-        assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", None)
-
     def test_output_round_trip_ignores_legacy_facet_fields(self) -> None:
         # Rows written by the old facet turn still load; the extra keys are dropped rather than rejected.
         stored = {
@@ -926,8 +917,26 @@ class TestSignalSideMission:
         assert signal.description == clean
 
 
-class TestConfidenceIsOptional:
-    """A model that answers everything else must not have its whole turn discarded over one missing scalar."""
+class TestConfidenceNullability:
+    """`BaseScannerOutput` accepts a null `confidence` one release before any scanner step emits one.
+
+    The output crosses a Temporal activity payload and a persisted JSONB column, and both decode it against
+    this model. A worker only accepts a null it was deployed knowing about, so widening the reader has to
+    reach every pod before a writer produces one.
+    """
+
+    @pytest.mark.parametrize(
+        "scanner_type,fields",
+        [
+            (ScannerType.MONITOR, {"verdict": "yes", "reasoning": "r"}),
+            (ScannerType.CLASSIFIER, {"tags": ["checkout"], "reasoning": "r"}),
+            (ScannerType.SCORER, {"score": 0.5, "reasoning": "r"}),
+            (ScannerType.SUMMARIZER, {"title": "t", "summary": "s"}),
+        ],
+    )
+    def test_a_persisted_output_decodes_with_a_null_confidence(self, scanner_type: ScannerType, fields: dict) -> None:
+        payload = {"model_output": {**fields, "scanner_type": scanner_type.value, "confidence": None}}
+        assert ScannerResult.model_validate(payload).model_output.confidence is None
 
     @pytest.mark.parametrize(
         "scanner_config,scanner_type,answer",
@@ -942,14 +951,11 @@ class TestConfidenceIsOptional:
             ({"prompt": "p"}, ScannerType.SUMMARIZER, {"title": "t", "summary": "s"}),
         ],
     )
-    def test_a_core_answer_without_confidence_parses(
+    def test_a_core_response_still_requires_a_confidence(
         self, scanner_config: dict, scanner_type: ScannerType, answer: dict
     ) -> None:
+        # Holds until the widened reader has drained everywhere; relaxing this is what emits the first null.
         scanner = scanner_from_db(_build_replay_scanner(scanner_type=scanner_type, scanner_config=scanner_config))
         (core_step,) = scanner.core_steps()
-        assert core_step.response_model.model_validate(answer).model_dump()["confidence"] is None
-
-    @pytest.mark.parametrize("value", [-0.1, 1.1])
-    def test_a_confidence_outside_the_range_is_still_rejected(self, value: float) -> None:
         with pytest.raises(ValidationError):
-            MonitorLlmResponse(reasoning="r", verdict="yes", confidence=value)
+            core_step.response_model.model_validate(answer)
