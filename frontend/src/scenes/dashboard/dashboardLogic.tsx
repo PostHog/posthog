@@ -138,6 +138,7 @@ import {
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
     IS_TEST_MODE,
     AUTO_PREVIEW_TILE_LIMIT,
+    isEffectiveRefreshStale,
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
@@ -1209,6 +1210,7 @@ export interface dashboardLogicMeta {
         nextAllowedDashboardRefresh: (lastDashboardRefresh: Dayjs | null) => Dayjs | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
+            effectiveLastRefresh: Dayjs | null,
             placement: DashboardPlacement,
             pageVisibility: boolean
         ) => boolean
@@ -1559,6 +1561,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             values.filtersOverrideForLoad,
                             values.currentDashboardVariables
                         )
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType | null = await getJSONOrNull(dashboardResponse)
 
@@ -1677,6 +1680,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 : {
                                       tiles: layoutsToUpdate,
                                   }
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                         const persistedDashboard: DashboardType = await api.update(
                             `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             payload
@@ -1716,6 +1720,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 removeTile: async ({ tile }) => {
                     // The reducer drops the tile optimistically; here we only persist and roll back on failure.
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
                         })
@@ -1763,6 +1768,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         const { duplicateLayouts, tilesToUpdate } = calculateDuplicateLayout(values.layouts, tile.id)
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                         const dashboard: DashboardType = await api.update(
                             `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             {
@@ -1786,6 +1792,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     if (fromDashboard !== props.id) {
                         return values.dashboard
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsMoveTilePartialUpdate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const dashboard: DashboardType = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
@@ -1827,6 +1834,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. dashboardsCopyTileCreate() from 'products/dashboards/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         await api.create(
                             `api/projects/${teamLogic.values.currentTeamId}/dashboards/${toDashboard}/copy_tile`,
                             { fromDashboardId: fromDashboard, tileId: tile.id }
@@ -3080,13 +3088,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         blockRefresh: [
             // page visibility is only here to trigger a recompute when the page is hidden/shown
-            (s) => [s.nextAllowedDashboardRefresh, s.placement, s.pageVisibility],
-            (nextAllowedDashboardRefresh: Dayjs, placement: DashboardPlacement) => {
+            (s) => [s.nextAllowedDashboardRefresh, s.effectiveLastRefresh, s.placement, s.pageVisibility],
+            (nextAllowedDashboardRefresh: Dayjs, effectiveLastRefresh: Dayjs | null, placement: DashboardPlacement) => {
                 return (
                     !(placement === DashboardPlacement.FeatureFlag) &&
                     !(placement === DashboardPlacement.Group) &&
                     !!nextAllowedDashboardRefresh &&
-                    nextAllowedDashboardRefresh?.isAfter(now())
+                    nextAllowedDashboardRefresh?.isAfter(now()) &&
+                    !isEffectiveRefreshStale(effectiveLastRefresh)
                 )
             },
         ],
@@ -3454,6 +3463,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const previousColor = values.tiles.find((tile) => tile.id === tileId)?.color
             actions.setTileProperty(tileId, { color })
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                     tiles: [{ id: tileId, color }],
                 })
@@ -3472,6 +3482,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newValue = previousValue === false
             actions.setTileProperty(tileId, { show_description: newValue })
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                     tiles: [{ id: tileId, show_description: newValue }],
                 })
@@ -3701,6 +3712,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
             const undoTileRemoval = async (): Promise<void> => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tile.id, deleted: false }],
                     })
@@ -3875,6 +3887,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.dashboardTileSpacingSaveInFlight = true
             actions.setDashboardTileSpacingSaving(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const dashboard = await api.update<DashboardType>(
                     `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                     {
@@ -3918,6 +3931,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : DashboardGridCompaction.Vertical
             cache.dashboardGridCompactionSaveInFlight = true
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const dashboard = await api.update<DashboardType>(
                     `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                     {
@@ -4297,6 +4311,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 const widgetsPayload = widgets.map(({ widgetType, config }) => ({ widget_type: widgetType, config }))
 
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsWidgetsBatchCreate() from 'products/dashboards/frontend/generated/api' instead.
                 const response = await api.create(
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${dashboardId}/widgets/batch/`,
                     { widgets: widgetsPayload }
@@ -4340,6 +4355,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const settings = values.currentDashboardSettings
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const dashboard = await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                     filters: settings.filters,
                     variables: settings.variables,
@@ -4582,6 +4598,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insightIds = insights.map((insight: InsightModel) => insight?.id).filter((id): id is number => !!id)
 
             if (insightIds.length > 0 && values.currentTeamId && !isSharedView()) {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. insightsViewedCreate() from 'products/product_analytics/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 void api.create(`api/projects/${values.currentTeamId}/insights/viewed`, {
                     insight_ids: insightIds,
                 })
@@ -4866,6 +4883,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const wasIgnored = !!tile.filters_overrides?.ignoreDashboardFilters
                     const isIgnored = !!tileFilterOverrides.ignoreDashboardFilters
 
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                     await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
                     })

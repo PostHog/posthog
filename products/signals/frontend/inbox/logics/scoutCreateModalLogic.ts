@@ -1,4 +1,16 @@
-import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
@@ -83,6 +95,8 @@ export type ScoutCreateInitialValues = Partial<
 export interface ScoutCreateModalLogicProps {
     logicKey: string
     initialValues?: ScoutCreateInitialValues
+    /** Replaces the description of the restored draft, for example with the text the person edited in the chat. */
+    descriptionOverride?: string
     onClose: () => void
     onCreated?: (scout: SignalScoutCreateResponseApi) => void
     /** Called instead of `onCreated` when the form turned an existing scout on. */
@@ -166,8 +180,11 @@ export function scoutCreateModalLogicKey(initialValues: ScoutCreateInitialValues
         // one. Keying on name alone then returns 'new' for that template, the same key the blank
         // create form uses, so their persisted drafts share one slot and each overwrites the other.
         // Key a name-less prefill by a stable hash of its content instead, so every opening context
-        // keeps its own draft. Hash the two fields apart so a description/body split cannot collide.
-        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}`
+        // keeps its own draft. Hash the fields apart so a description/body split cannot collide, and
+        // include the config so a cadence the catalog has since changed opens fresh rather than
+        // restoring the draft taken from the old one.
+        const config = hashCodeForString(JSON.stringify(initialValues?.config ?? {}))
+        return `template-${hashCodeForString(description ?? '')}-${hashCodeForString(body ?? '')}-${config}`
     }
     return 'new'
 }
@@ -566,4 +583,11 @@ export const scoutCreateModalLogic: LogicWrapper<scoutCreateModalLogicType> = ke
             })
         },
     })),
+    // The draft restores before this runs, so only the description changes and the other fields stay.
+    afterMount(({ props: logicProps, values, actions }) => {
+        const { descriptionOverride } = logicProps
+        if (descriptionOverride !== undefined && descriptionOverride !== values.scoutCreateForm.description) {
+            actions.setScoutCreateFormValue('description', descriptionOverride)
+        }
+    }),
 ])

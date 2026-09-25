@@ -120,8 +120,8 @@ class TestBytecodeExecute:
         assert self._run("1 != null") is True
 
     def test_ordering_comparison_type_error_raises_hogvm_exception(self):
-        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'NoneType' and 'float'"):
-            self._run("properties.missing <= 1.0")
+        with pytest.raises(HogVMException, match="'<=' not supported between instances of 'list' and 'float'"):
+            self._run("[1] <= 1.0")
 
     @parameterized.expand(
         [
@@ -839,9 +839,32 @@ class TestBytecodeExecute:
         assert self._run_program("if (lower('Tdd4gh') == 'tdd4gh') return upper('test');") == "TEST"
         assert self._run_program("return reverse('spinner');") == "rennips"
 
-    def test_bytecode_length_null_raises_hogvm_exception(self):
-        with pytest.raises(HogVMException, match="Can not call length on null"):
-            self._run_program("return length(null);")
+    def test_bytecode_string_functions_return_null_for_null(self):
+        for program in (
+            "return length(null);",
+            "return upper(null);",
+            "return reverse(null);",
+            "return replaceOne(null, 'a', 'b');",
+            "return replaceAll(null, 'a', 'b');",
+            "return trim(null);",
+            "return splitByString(' ', null);",
+        ):
+            assert self._run_program(program) is None, program
+
+    def test_bytecode_ordering_with_a_null_operand_is_false(self):
+        # A filter comparing a missing value must not match, and must not fail either.
+        for program in (
+            "return length(null) > 3;",
+            "return length(null) < 3;",
+            "return null >= 0;",
+            "return 1 > null;",
+            "return null > true;",
+            "return null < null;",
+        ):
+            assert self._run_program(program) is False, program
+        # Equality does not coerce: a zero is not a null.
+        assert self._run_program("return 0 == null;") is False
+        assert self._run_program("return 0 != null;") is True
 
     @parameterized.expand(
         [

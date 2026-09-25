@@ -81,9 +81,6 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         gatewayToolsEnabled: false,
         distinctId: 'distinct-id',
         renderUiEnabled: false,
-        metadata: undefined,
-        metadataCompact: undefined,
-        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -134,6 +131,10 @@ describe('Hono MCP analytics contexts', () => {
         await trackInitEvent(makeState())
 
         expect(mockCaptureInitialize).toHaveBeenCalledTimes(1)
+        // The SDK maps its own `conversationId` field, so the property is stamped only when a
+        // handle exists. An explicit `undefined` would erase the SDK's value.
+        expect(mockCaptureInitialize.mock.calls[0]![0].conversationId).toBe('conversation-request')
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties.$mcp_conversation_id).toBe('conversation-request')
         expect(mockCaptureInitialize.mock.calls[0]![0].properties).toMatchObject({
             $mcp_client_name: 'Claude Desktop',
             $mcp_client_version: '2.0',
@@ -141,7 +142,6 @@ describe('Hono MCP analytics contexts', () => {
             $mcp_protocol_version: '2025-03-26',
             $mcp_transport: 'streamable-http',
             $mcp_session_id: 'mcp-session-request',
-            $mcp_conversation_id: 'conversation-request',
             $mcp_consumer: 'request-consumer',
             $mcp_mode: 'cli',
             $mcp_region: 'us',

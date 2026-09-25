@@ -134,8 +134,8 @@ const dataQualityCheckRun = (): ToolBase<
 const DataQualityCheckScheduleSchema = () => {
     const DataQualityChecksSchedulePartialUpdateBody = orvalSchemas.DataQualityChecksSchedulePartialUpdateBody()
     return DataQualityChecksSchedulePartialUpdateBody.extend({
-        subject_type: DataQualityChecksSchedulePartialUpdateBody.shape['subject_type'].unwrap(),
-        subject_uuid: DataQualityChecksSchedulePartialUpdateBody.shape['subject_uuid'].unwrap(),
+        subject_type: DataQualityChecksSchedulePartialUpdateBody.shape['subject_type'].nonoptional(),
+        subject_uuid: DataQualityChecksSchedulePartialUpdateBody.shape['subject_uuid'].nonoptional(),
     })
 }
 

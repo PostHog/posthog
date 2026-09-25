@@ -5,7 +5,6 @@ import asyncio
 import datetime as dt
 import operator
 import functools
-import dataclasses
 
 from django.conf import settings
 from django.test import override_settings
@@ -28,7 +27,6 @@ from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportModel,
     BatchExportSchema,
-    S3BatchExportInputs,
     S3CompatibleBatchExportInputs,
     S3FamilyBaseInputs,
 )
@@ -57,8 +55,7 @@ from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_produce
 from products.batch_exports.backend.tests.temporal.utils.records import get_record_batch_from_queue
 from products.batch_exports.backend.tests.temporal.utils.s3 import assert_file_in_s3, assert_no_files_in_s3
 
-_INPUTS_BY_DESTINATION_TYPE: dict[str, type[S3BatchExportInputs] | type[S3FamilyBaseInputs]] = {
-    "S3": S3BatchExportInputs,
+_INPUTS_BY_DESTINATION_TYPE: dict[str, type[S3FamilyBaseInputs]] = {
     "AwsS3": AwsS3BatchExportInputs,
     "S3Compatible": S3CompatibleBatchExportInputs,
 }
@@ -333,7 +330,9 @@ async def assert_clickhouse_records_in_s3(
         # Re-running the query itself yields the expected rows, with the same interval bounds
         # substituted as the run exported with.
         producer = ClickHouseTestProducer(
-            model=HogQLQueryRecordBatchModel(team_id=team_id, hogql_query=batch_export_model.hogql_query)
+            model=HogQLQueryRecordBatchModel(
+                team_id=team_id, hogql_query=batch_export_model.hogql_query, user_id=batch_export_model.user_id
+            )
         )
     else:
         producer = ClickHouseTestProducer()
@@ -403,19 +402,17 @@ async def run_s3_batch_export_workflow(
     data_interval_end,
     clickhouse_client,
     s3_client,
+    destination_type: str,
     backfill_details: BackfillDetails | None = None,
     expect_no_data: bool = False,
-    destination_type: str = "S3",
     integration_id: int | None = None,
 ):
     """Run the S3 batch export workflow and assert it completes successfully.
 
     This is a shared helper function used by tests for S3, GCS, and local object storage buckets.
 
-    `destination_type` selects which input dataclass is constructed and passed
-    to the workflow — exercising the per-destination → canonical-inputs adaptation
-    that happens in production. Defaults to the legacy "S3" type for backwards
-    compatibility with any callers that still need it.
+    `destination_type` selects which input dataclass is constructed and passed to the workflow,
+    so the test exercises the same per-destination inputs that production dispatches with.
     """
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
@@ -454,7 +451,6 @@ async def run_s3_batch_export_workflow(
         integration_id=integration_id,
         **s3_destination_config,
     )
-    workflow_inputs = S3BatchExportInputs(**dataclasses.asdict(per_destination_inputs))
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -469,9 +465,11 @@ async def run_s3_batch_export_workflow(
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
+            # Dispatch by workflow name, the way DESTINATION_WORKFLOWS does, so the worker
+            # widens the per-destination inputs to the superset the workflow declares.
             await activity_environment.client.execute_workflow(
-                S3BatchExportWorkflow.run,
-                workflow_inputs,
+                "s3-export",
+                per_destination_inputs,
                 id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),

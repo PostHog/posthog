@@ -63,6 +63,7 @@ import type {
     ScoutSuggestionItemApi,
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
+    ScoutToolCatalogueApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -931,7 +932,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -951,7 +952,7 @@ export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: st
 }
 
 /**
- * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
+ * Fetch the unified diff for a `commit` artefact via the team's GitHub integration. A commit linked to a report pull request uses GitHub's durable pull request diff. A commit without that link compares the branch's current tip with the default branch.
  * @summary Fetch the diff for a commit artefact
  */
 export const signalsReportArtefactsDiff = async (
@@ -1209,7 +1210,7 @@ export const getSignalsScoutChatTasksCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; the response carries the task id to navigate to.
+ * Create and run a cloud task for one of the fixed scout chat templates (suggest a scout, fleet overview, recent signals). The prompt is server-owned; an `author_scout` chat can carry the user's request, which the server fences inside that prompt. The response carries the task id to navigate to.
  * @summary Start a scout chat task
  */
 export const signalsScoutChatTasksCreate = async (
@@ -1368,6 +1369,24 @@ export const signalsScoutConfigSync = async (
     return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId, params), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getSignalsScoutConfigToolCatalogueUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/tool_catalogue/`
+}
+
+/**
+ * List every MCP tool a scout could be configured with. Each entry carries the tool's name, label, one-line summary, category, and required scopes, plus `holdable`: whether a scout run can hold every scope the tool needs, and `missing_scopes`: what it would have to be granted on top of the baseline preset. The response also returns the scout scope presets and the write scopes a person can grant to one scout, so a caller can show why a tool is out of reach. Tools a successor has replaced are left out. A tool can carry a `feature_flag`, which resolves per project: evaluate it for the project you are configuring before you offer the tool. Read-only, and the same for every project.
+ * @summary List the MCP tool catalogue
+ */
+export const signalsScoutConfigToolCatalogue = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutToolCatalogueApi> => {
+    return apiMutator<ScoutToolCatalogueApi>(getSignalsScoutConfigToolCatalogueUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -283,7 +283,18 @@ pub struct Config {
     pub historical_rerouting_threshold_days: i64,
 
     #[envconfig(nested = true)]
-    pub kafka: KafkaConfig,
+    pub kafka_topics: KafkaTopicsConfig,
+
+    /// Application-level compression of session replay payloads, independent of
+    /// broker-level compression. Consumers detect and decompress it.
+    #[envconfig(from = "KAFKA_REPLAY_ENVELOPE_COMPRESSION", default = "none")]
+    pub replay_envelope_compression: EnvelopeCompression,
+
+    /// Refuse to boot when a registered output has an empty topic name (see
+    /// `TopicTable::check_complete`). Off by default so that a deployment which
+    /// blanks a topic it never produces to still boots.
+    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
+    pub outputs_completeness_check_enabled: bool,
 
     #[envconfig(default = "1.0")]
     pub otel_sampling_rate: f64,
@@ -330,7 +341,7 @@ pub struct Config {
     ///
     /// Set it below what the deployment's broker accepts, leaving room for the
     /// `CapturedEvent` envelope and the JSON-escaping of `data`:
-    /// `KAFKA_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
+    /// `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES` bounds the produced message, not the
     /// event inside it. capture-analytics needs a smaller value than capture-ai
     /// because its AI topic is on MSK.
     ///
@@ -353,7 +364,7 @@ pub struct Config {
     /// event in it, not just the offender. The multipart handler counts no
     /// drop at all: like every other error it raises, the refusal shows up
     /// only on `capture_error_by_stage_and_type`.
-    /// Keep this under the deployment's `KAFKA_PRODUCER_MESSAGE_MAX_BYTES`.
+    /// Keep this under the deployment's `KAFKA_INGESTION_PRODUCER_MESSAGE_MAX_BYTES`.
     /// Above it the ceiling stops being a guard: capture reads the body, builds
     /// the event, and the producer refuses it anyway. A deployment that has not
     /// raised its producer cap wants a lower value than this default; the boot
@@ -439,10 +450,9 @@ pub struct Config {
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
 
     // The warnings emitter's own destination. It serves every pipeline that
-    // emits (v1 and legacy analytics, both AI endpoints, and replay) but is
-    // independent of the v0 `KAFKA_*` block: it reads only these three vars,
-    // never `kafka_hosts` / `kafka_tls` /
-    // `kafka_client_ingestion_warning_topic`. charts sets all three per env,
+    // emits (v1 and legacy analytics, both AI endpoints, and replay) but reads
+    // only these three vars, never the ingestion producer's settings or
+    // `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`. charts sets all three per env,
     // pointed at the MSK cluster the clientwarnings consumer reads from.
     //
     // Defaults are inert on purpose: empty hosts or topic makes
@@ -493,6 +503,54 @@ pub struct Config {
     pub ai_byte_limit_local_cache_max_entries: u64,
 }
 
+/// The topic each capture destination produces to. Connection settings live
+/// with the named producers in [`crate::producers`].
+#[derive(Envconfig, Clone)]
+pub struct KafkaTopicsConfig {
+    #[envconfig(from = "KAFKA_TOPIC", default = "events_plugin_ingestion")]
+    pub main: String,
+    #[envconfig(
+        from = "KAFKA_OVERFLOW_TOPIC",
+        default = "events_plugin_ingestion_overflow"
+    )]
+    pub overflow: String,
+    #[envconfig(
+        from = "KAFKA_HISTORICAL_TOPIC",
+        default = "events_plugin_ingestion_historical"
+    )]
+    pub historical: String,
+    #[envconfig(
+        from = "KAFKA_CLIENT_INGESTION_WARNING_TOPIC",
+        default = "ingestion-clientwarnings-main-1"
+    )]
+    pub client_ingestion_warning: String,
+    #[envconfig(from = "KAFKA_ERROR_TRACKING_TOPIC", default = "error_tracking_events")]
+    pub error_tracking: String,
+    #[envconfig(from = "KAFKA_HEATMAPS_TOPIC", default = "heatmaps_ingestion")]
+    pub heatmaps: String,
+    #[envconfig(
+        from = "KAFKA_REPLAY_OVERFLOW_TOPIC",
+        default = "session_recording_snapshot_item_overflow"
+    )]
+    pub replay_overflow: String,
+    #[envconfig(from = "KAFKA_DLQ_TOPIC", default = "events_plugin_ingestion_dlq")]
+    pub dlq: String,
+    /// The v0 (`DataType::AiEvents`) and v1 (`Destination::AiEvents`) pipelines
+    /// divert AI events here instead of the main topic on every deployment,
+    /// capture-ai included. Setup also injects it into every v1 sink config.
+    #[envconfig(
+        from = "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC",
+        default = "events_plugin_ingestion_ai"
+    )]
+    pub ai_events: String,
+    /// Unset means AI events never overflow. When set, the AI lane uses the
+    /// analytics main lane's overflow limiter and restriction-driven
+    /// force_overflow, and reroutes here. Import mode refuses it at boot
+    /// because imports must never overflow.
+    #[envconfig(from = "CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC")]
+    pub ai_events_overflow: Option<String>,
+}
+
 #[derive(Envconfig, Clone)]
 pub struct KafkaConfig {
     #[envconfig(default = "20")]
@@ -505,19 +563,6 @@ pub struct KafkaConfig {
     pub kafka_producer_message_max_bytes: u32, // message.max.bytes - max kafka message size we will produce
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String, // none, gzip, snappy, lz4, zstd
-    /// Application-level compression for session replay (snapshot) Kafka payloads.
-    /// Independent of broker-level compression; consumers must detect and decompress.
-    /// Set to "lz4" to enable. Default "none" for safe rollout and rollback.
-    #[envconfig(default = "none")]
-    pub kafka_replay_envelope_compression: EnvelopeCompression,
-    /// Refuse to boot when a registered output resolves to an empty topic
-    /// name (see `TopicTable::check_complete`). Config-only — the broker
-    /// is never probed, so topic autocreation on first publish is unaffected.
-    /// Opt-in (default off) so deployments that deliberately blank a topic
-    /// they never produce to keep booting; arm it per deployment once its
-    /// topic wiring is known-complete.
-    #[envconfig(from = "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED", default = "false")]
-    pub outputs_completeness_check_enabled: bool,
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
@@ -525,35 +570,6 @@ pub struct KafkaConfig {
     pub kafka_traces_topic: String,
     #[envconfig(default = "ingestion-metrics")]
     pub kafka_metrics_topic: String,
-    #[envconfig(default = "events_plugin_ingestion_overflow")]
-    pub kafka_overflow_topic: String,
-    #[envconfig(default = "events_plugin_ingestion_historical")]
-    pub kafka_historical_topic: String,
-    #[envconfig(default = "ingestion-clientwarnings-main-1")]
-    pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "error_tracking_events")]
-    pub kafka_error_tracking_topic: String,
-    #[envconfig(default = "heatmaps_ingestion")]
-    pub kafka_heatmaps_topic: String,
-    #[envconfig(default = "session_recording_snapshot_item_overflow")]
-    pub kafka_replay_overflow_topic: String,
-    #[envconfig(default = "events_plugin_ingestion_dlq")]
-    pub kafka_dlq_topic: String,
-    /// Dedicated Kafka topic for AI events (env: `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`).
-    /// Both the v0 pipeline (via `DataType::AiEvents`) and the v1 pipeline
-    /// (via `Destination::AiEvents`) divert AI events here instead of the
-    /// analytics main topic, on every deployment that accepts them — including
-    /// capture-ai, whose main topic used to double as the AI topic. Setup also
-    /// injects it into every v1 sink config.
-    #[envconfig(default = "events_plugin_ingestion_ai")]
-    pub capture_analytics_ai_events_topic: String,
-    /// Optional overflow topic for the AI lane (env: `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`).
-    /// Unset means AI events never overflow (the pre-overflow behavior). When
-    /// set, the AI lane participates in the same overflow limiter and
-    /// restriction-driven force_overflow as the analytics main lane, rerouting
-    /// here instead of the analytics overflow topic. Refused at boot in import
-    /// mode because imports must never overflow.
-    pub capture_analytics_ai_events_overflow_topic: Option<String>,
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
     #[envconfig(default = "")]
@@ -568,32 +584,6 @@ pub struct KafkaConfig {
     // default is 3x metadata refresh interval so we maintain that here
     #[envconfig(default = "60000")]
     pub kafka_metadata_max_age_ms: u32,
-    #[envconfig(default = "60000")] // lib default, can tweak in env overrides
-    pub kafka_socket_timeout_ms: u32,
-    #[envconfig(default = "10000")] // librdkafka default
-    pub kafka_producer_batch_num_messages: u32, // batch.num.messages - max messages per batch
-    #[envconfig(default = "1000000")] // librdkafka default
-    pub kafka_producer_batch_size: u32, // batch.size - max batch size in bytes
-    #[envconfig(default = "1000000")] // librdkafka default
-    pub kafka_producer_max_in_flight_requests: u32, // max.in.flight.requests.per.connection
-    #[envconfig(default = "10")] // librdkafka default
-    pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
-    #[envconfig(default = "false")] // librdkafka default
-    pub kafka_producer_enable_idempotence: bool, // enable.idempotence
-    #[envconfig(default = "murmur2_random")]
-    pub kafka_producer_partitioner: String, // partitioner
-    #[envconfig(default = "")]
-    pub kafka_broker_address_family: String, // broker.address.family - v4, v6, any; empty = don't set
-    #[envconfig(default = "true")] // librdkafka default
-    pub kafka_log_connection_close: bool, // log.connection.close
-    #[envconfig(default = "100000")] // librdkafka default
-    pub kafka_producer_queue_buffering_max_messages: u32, // queue.buffering.max.messages
-    #[envconfig(default = "1000")] // librdkafka default
-    pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms
-    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
-    pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
-    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
-    pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
 
     // Traces-cluster overrides (consumed by capture-logs). When unset, the
     // traces producer reuses the corresponding `kafka_*` value above.
@@ -634,38 +624,55 @@ mod tests {
     use std::str::FromStr;
 
     fn required_config_env() -> HashMap<String, String> {
-        [
-            ("REDIS_URL", "redis://localhost:6379/"),
-            ("KAFKA_HOSTS", "localhost:9092"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect()
+        [("REDIS_URL", "redis://localhost:6379/")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
     }
 
     #[test]
     fn capture_analytics_ai_events_topic_defaults() {
         let config: Config =
             envconfig::Envconfig::init_from_hashmap(&required_config_env()).unwrap();
-        assert_eq!(
-            config.kafka.capture_analytics_ai_events_topic,
-            "events_plugin_ingestion_ai"
-        );
-        assert_eq!(
-            config.kafka.capture_analytics_ai_events_overflow_topic,
-            None
-        );
+        assert_eq!(config.kafka_topics.ai_events, "events_plugin_ingestion_ai");
+        assert_eq!(config.kafka_topics.ai_events_overflow, None);
+    }
+
+    #[rstest::rstest]
+    #[case("KAFKA_TOPIC", |c: &Config| c.kafka_topics.main.clone())]
+    #[case("KAFKA_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.overflow.clone())]
+    #[case("KAFKA_HISTORICAL_TOPIC", |c: &Config| c.kafka_topics.historical.clone())]
+    #[case("KAFKA_CLIENT_INGESTION_WARNING_TOPIC", |c: &Config| c.kafka_topics.client_ingestion_warning.clone())]
+    #[case("KAFKA_ERROR_TRACKING_TOPIC", |c: &Config| c.kafka_topics.error_tracking.clone())]
+    #[case("KAFKA_HEATMAPS_TOPIC", |c: &Config| c.kafka_topics.heatmaps.clone())]
+    #[case("KAFKA_REPLAY_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.replay_overflow.clone())]
+    #[case("KAFKA_DLQ_TOPIC", |c: &Config| c.kafka_topics.dlq.clone())]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", |c: &Config| c.kafka_topics.ai_events.clone())]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC", |c: &Config| c.kafka_topics.ai_events_overflow.clone().unwrap_or_default())]
+    fn topic_env_var_binds_to_its_field(
+        #[case] env_var: &str,
+        #[case] field: fn(&Config) -> String,
+    ) {
+        let mut env = required_config_env();
+        env.insert(env_var.into(), "configured_topic".into());
+        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
+        assert_eq!(field(&config), "configured_topic");
     }
 
     #[test]
-    fn capture_analytics_ai_events_topic_parses() {
+    fn moved_output_settings_keep_their_env_vars() {
         let mut env = required_config_env();
+        env.insert("KAFKA_REPLAY_ENVELOPE_COMPRESSION".into(), "lz4".into());
         env.insert(
-            "CAPTURE_ANALYTICS_AI_EVENTS_TOPIC".into(),
-            "ai_events".into(),
+            "CAPTURE_OUTPUTS_COMPLETENESS_CHECK_ENABLED".into(),
+            "true".into(),
         );
         let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(config.kafka.capture_analytics_ai_events_topic, "ai_events");
+        assert_eq!(
+            config.replay_envelope_compression,
+            super::EnvelopeCompression::Lz4
+        );
+        assert!(config.outputs_completeness_check_enabled);
     }
 
     #[test]
