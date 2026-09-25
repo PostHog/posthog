@@ -98,6 +98,13 @@ USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
         status_reason=EvaluationStatusReason.MODEL_NOT_FOUND,
         disables_evaluation=True,
     ),
+    "model_not_supported": EvaluationErrorSpec(
+        error_type="model_not_supported",
+        owner="user",
+        safe_message="The selected model does not support chat completions. Choose a chat model before re-enabling.",
+        status_reason=EvaluationStatusReason.MODEL_NOT_SUPPORTED,
+        disables_evaluation=True,
+    ),
     "hog_error": EvaluationErrorSpec(
         error_type="hog_error",
         owner="user",

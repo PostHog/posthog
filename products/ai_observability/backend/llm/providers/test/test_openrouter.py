@@ -4,8 +4,18 @@ from unittest.mock import MagicMock, patch
 import httpx
 from parameterized import parameterized
 
+from products.ai_observability.backend.llm.errors import (
+    ModelNotFoundError,
+    RateLimitError,
+    StructuredOutputParseError,
+    UnsupportedModelError,
+)
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, OpenRouterAdapter
+from products.ai_observability.backend.llm.providers.openrouter import (
+    OPENROUTER_HEADERS,
+    OpenRouterAdapter,
+    _non_chat_model_ids,
+)
 
 
 class TestOpenRouterValidateKey:
@@ -120,3 +130,67 @@ class TestOpenRouterHeaders:
 
         mock_constructor.assert_called_once()
         assert mock_constructor.call_args.kwargs["default_headers"] == OPENROUTER_HEADERS
+
+
+class TestOpenRouterNonChatModels:
+    @parameterized.expand(
+        [
+            (
+                "not_found_on_decision_model",
+                ModelNotFoundError("typesafe/jev-1.13"),
+                "typesafe/jev-1.13",
+                {"typesafe/jev-1.13"},
+                UnsupportedModelError,
+            ),
+            (
+                "parse_error_on_decision_model",
+                StructuredOutputParseError("bad"),
+                "typesafe/jev-1.13",
+                {"typesafe/jev-1.13"},
+                UnsupportedModelError,
+            ),
+            (
+                "error_on_chat_model",
+                ModelNotFoundError("openai/gpt-4o"),
+                "openai/gpt-4o",
+                {"typesafe/jev-1.13"},
+                ModelNotFoundError,
+            ),
+            ("catalogue_unavailable", ValueError("400"), "typesafe/jev-1.13", None, ValueError),
+            (
+                "rate_limit_on_decision_model",
+                RateLimitError("slow down"),
+                "typesafe/jev-1.13",
+                {"typesafe/jev-1.13"},
+                RateLimitError,
+            ),
+        ]
+    )
+    def test_complete_maps_failures_of_non_chat_models(self, _name, raised, model, non_chat_ids, expected):
+        request = MagicMock(model=model)
+        with (
+            patch.object(OpenAIAdapter, "complete", side_effect=raised),
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+                return_value=frozenset(non_chat_ids) if non_chat_ids is not None else None,
+            ),
+            pytest.raises(expected),
+        ):
+            OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
+
+    def test_catalogue_keeps_only_models_without_text_output(self):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "openai/gpt-4o", "architecture": {"output_modalities": ["text"]}},
+                {"id": "google/image-model", "architecture": {"output_modalities": ["image", "text"]}},
+                {"id": "typesafe/jev-1.13", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "no-architecture/model"},
+            ]
+        }
+        with (
+            patch("products.ai_observability.backend.llm.providers.openrouter.cache.get", return_value=None),
+            patch("products.ai_observability.backend.llm.providers.openrouter.cache.set"),
+            patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get", return_value=mock_response),
+        ):
+            assert _non_chat_model_ids() == frozenset({"typesafe/jev-1.13"})

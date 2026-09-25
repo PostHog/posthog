@@ -46,6 +46,7 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
+    UnsupportedModelError,
 )
 from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
@@ -541,6 +542,18 @@ def call_llm_judge(
             f"Model '{model}' not found.",
             {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
+        )
+    except UnsupportedModelError:
+        increment_user_errors("model_not_supported", provider=provider)
+        return terminal_user_error_result(
+            spec=require_user_error_spec("model_not_supported", is_byok=is_byok),
+            message=f"Model '{model}' does not support chat completions. Choose a chat model.",
+            allows_na=allows_na,
+            output_type=output_type,
+            provider=provider,
+            model=model,
+            key_id=key_id,
+            is_byok=is_byok,
         )
     except StructuredOutputParseError as e:
         # Skip rather than raise: non-conforming model output is not a PostHog defect, and raising

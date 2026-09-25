@@ -38456,6 +38456,7 @@ export namespace Schemas {
      * * `provider_key_quota_exceeded` - Provider API key quota exceeded
      * * `provider_key_rate_limited` - Provider API key is rate limited
      * * `model_not_found` - Model not found
+     * * `model_not_supported` - Model does not support chat completions
      * * `hog_error` - Hog evaluation code failed
      */
     export type EvaluationStatusReasonEnum = typeof EvaluationStatusReasonEnum[keyof typeof EvaluationStatusReasonEnum];
@@ -38470,6 +38471,7 @@ export namespace Schemas {
       ProviderKeyQuotaExceeded: 'provider_key_quota_exceeded',
       ProviderKeyRateLimited: 'provider_key_rate_limited',
       ModelNotFound: 'model_not_found',
+      ModelNotSupported: 'model_not_supported',
       HogError: 'hog_error',
     } as const;
 
