@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { InAppNotification } from '~/types'
 
@@ -51,7 +52,9 @@ export function connectToNotificationsSSE(
                 throw new DOMException('Aborted', 'AbortError')
             }
             hooks.onError?.(error)
-            throw new Error('SSE disconnected')
+            // Keep the HTTP status on the rejection, so the caller can tell a rejected token
+            // (401) from an ordinary disconnect and refresh the token before it retries.
+            throw error instanceof ApiError ? error : new Error('SSE disconnected')
         },
     })
 }

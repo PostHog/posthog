@@ -3,10 +3,13 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, props, r
 import { Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isUnauthorizedError } from 'lib/api-error'
 import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { retryWithBackoff } from 'lib/utils/async'
+import { refreshLiveEventsToken } from 'lib/utils/liveEventsToken'
 import { isOperatorFlag } from 'lib/utils/operators'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,6 +20,8 @@ import type { TeamPublicType, TeamType } from '../../../types'
 import { deduplicateEvents } from './deduplicateEvents'
 
 const ERROR_TOAST_ID = 'live-stream-error'
+const TOKEN_REFRESH_ATTEMPTS = 3
+const TOKEN_REFRESH_DELAY_MS = 2000
 
 export const LIVE_EVENTS_SUPPORTED_OPERATORS: PropertyOperator[] = [
     PropertyOperator.Exact,
@@ -255,11 +260,12 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
             // background tab accumulates off-heap in Blink's partition_alloc/buffer.
             cache.disposables.add(() => {
                 cache.batch = []
+                const token = values.currentTeam?.live_events_token
                 const controller = new AbortController()
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 void api.stream(url.toString(), {
                     headers: {
-                        Authorization: `Bearer ${values.currentTeam?.live_events_token}`,
+                        Authorization: `Bearer ${token}`,
                     },
                     signal: controller.signal,
                     onMessage: (event) => {
@@ -277,7 +283,45 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                             cache.batch.length = 0
                         }
                     },
+                    onOpen: () => {
+                        // A reopened stream can sit silent for a while, and only a message dismisses
+                        // the toast, so clear it here as well. Resetting the flag lets the next
+                        // outage report itself.
+                        lemonToast.dismiss(ERROR_TOAST_ID)
+                        cache.hasShownLiveStreamErrorToast = false
+                    },
                     onError: (error) => {
+                        // A rejected token is stale rather than wrong, so reopen the stream with a
+                        // fresh one. An unchanged token means the refetch answered from the team the
+                        // page already had — a failed refetch does that too, so try again a few
+                        // times before giving up, and never reopen with the token that was refused.
+                        if (isUnauthorizedError(error)) {
+                            void retryWithBackoff(
+                                async () => {
+                                    const freshToken = await refreshLiveEventsToken(token)
+                                    if (!freshToken || freshToken === token) {
+                                        throw new Error('Livestream token unchanged')
+                                    }
+                                },
+                                {
+                                    maxAttempts: TOKEN_REFRESH_ATTEMPTS,
+                                    initialDelayMs: TOKEN_REFRESH_DELAY_MS,
+                                    signal: controller.signal,
+                                }
+                            )
+                                .then(() => {
+                                    // Filters can change while the refresh is pending, which
+                                    // disposes this stream and opens a newer one. Reconnecting then
+                                    // would throw that newer stream away.
+                                    if (!controller.signal.aborted) {
+                                        actions.updateEventsConnection()
+                                    }
+                                })
+                                .catch(() => {
+                                    // Out of attempts, or the stream was disposed. The toast below
+                                    // already said the feed is not live.
+                                })
+                        }
                         if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
                             console.error('Failed to poll events. You likely have no events coming in.', error)
                             lemonToast.error(`No live events found. Continuing to retry in the background…`, {
