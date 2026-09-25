@@ -185,6 +185,29 @@ Two signals size how often that precedence matters:
 
 Both are removable once the precedence change has settled.
 
+#### `$initial_` person properties come from the persons row
+
+Ingestion writes every `$initial_` property with `$set_once`, so the persons row holds one value for the whole person.
+A browser SDK keeps its own copy in per-device persistence and sends it in `person_properties` on every request, which gives a person with two devices two different copies.
+Neither copy can stand in for the row, so the row answers these keys and the request copy loses at the merge.
+
+Three rules carry that:
+
+- `PropertyFilter::requires_db_property` treats an `$initial_` key as always needing the persons row. The key's presence in `person_properties` no longer skips the fetch.
+- The row's own `$initial_` values are derived from the row's counterparts, `$browser` into `$initial_browser` and so on, before the request joins the map. A request `$browser` therefore cannot manufacture an `$initial_browser` the row does not support. A counterpart the row holds as null derives nothing, because ingestion never writes a null with `$set_once`.
+- A request `$initial_` value still stands where the row answers nothing. That is the first session, before ingestion has written the row. posthog-js sends these keys without the counterparts a derivation needs, so dropping them outright would leave that session with no value at all.
+
+`only_use_override_person_properties` is unaffected. That mode reads no persons row, so the request answers every key, `$initial_` included.
+
+One signal sizes how often the precedence matters:
+
+- The canonical log line carries `initial_person_properties_from_row` for a request where a stored `$initial_` value replaced a differing request value. That is the set of evaluations this rule changes, attributable by team and flag in Loki.
+- There is no paired counter. `get_person_properties` runs once per flag, so a counter would multiply by flag count while the log field stays per request.
+
+The field is removable once the change has settled.
+
+Expect more person reads. A team with an `$initial_` flag condition and a browser SDK moves from override-served to one person query per request, so watch `flags_db_person_and_group_properties_reads_total` on rollout.
+
 ### `FlagsResponse` (v2 response)
 
 ```rust

@@ -133,6 +133,23 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
     Ok(hash_val as f64 / LONG_SCALE as f64)
 }
 
+/// The prefix ingestion uses for the person properties it writes once, on first sight.
+const INITIAL_PROPERTY_PREFIX: &str = "$initial_";
+
+/// Returns true for a person property the persons table owns exclusively.
+///
+/// Ingestion writes every `$initial_` property with `$set_once`, so the row holds one value
+/// for the whole person. A browser SDK keeps its own copy in per-device persistence and sends
+/// it on every `/flags` request, which gives a person with two devices two different copies.
+/// Neither copy can stand in for the row, so flag matching reads these keys from the DB.
+///
+/// The prefix test is deliberately wider than `INITIAL_PROPERTY_MAP`: the map only lists the
+/// keys this file can derive from a counterpart, while ownership covers every `$initial_` key
+/// ingestion writes, including ones no derivation reaches.
+pub fn is_initial_person_property(key: &str) -> bool {
+    key.starts_with(INITIAL_PROPERTY_PREFIX)
+}
+
 /// Populates missing `$initial_` properties from their non-initial counterparts.
 ///
 /// This mitigates ingestion lag: `$initial_` properties are set by ingestion upon
@@ -144,9 +161,27 @@ pub fn calculate_hash(prefix: &str, hashed_identifier: &str, salt: &str) -> Resu
 /// - `$browser` -> `$initial_browser`
 /// - `utm_source` -> `$initial_utm_source`
 pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Value>) {
+    populate_initial_properties(properties, false);
+}
+
+/// The same derivation over the persons row alone, ignoring a counterpart the row holds as null.
+///
+/// Ingestion never writes a null with `$set_once` (`personInitialAndUTMProperties` in
+/// nodejs/src/common/utils/db/utils.ts): a browser SDK sends every absent campaign parameter as
+/// an explicit null, and a stored `$initial_gclid: null` would block the real first-touch value
+/// for good. A row that holds `gclid: null` owns no initial value to answer with, so deriving a
+/// null from it would answer the key anyway and lock out the value the request supplies.
+pub fn populate_row_owned_initial_properties(properties: &mut HashMap<String, Value>) {
+    populate_initial_properties(properties, true);
+}
+
+fn populate_initial_properties(properties: &mut HashMap<String, Value>, skip_null_sources: bool) {
     let properties_to_add: Vec<(&str, Value)> = properties
         .iter()
         .filter_map(|(key, value)| {
+            if skip_null_sources && value.is_null() {
+                return None;
+            }
             let initial_key = INITIAL_PROPERTY_MAP.get(key.as_str())?;
             if !properties.contains_key(*initial_key) {
                 Some((*initial_key, value.clone()))
@@ -2764,6 +2799,24 @@ mod tests {
         assert!(!properties.contains_key("$initial_timestamp"));
         assert!(!properties.contains_key("$initial_random_prop"));
         assert_eq!(properties.len(), 3);
+    }
+
+    #[test]
+    fn test_populate_row_owned_initial_properties_ignores_null_counterparts() {
+        let mut properties = HashMap::from([
+            ("gclid".to_string(), json!(null)),
+            ("utm_source".to_string(), json!("google")),
+        ]);
+
+        populate_row_owned_initial_properties(&mut properties);
+
+        // A null counterpart is no value for the row to own, so the key stays free for the
+        // request to answer. A counterpart the row does hold still derives.
+        assert!(!properties.contains_key("$initial_gclid"));
+        assert_eq!(
+            properties.get("$initial_utm_source"),
+            Some(&json!("google"))
+        );
     }
 
     #[test]
