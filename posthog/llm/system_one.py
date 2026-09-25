@@ -132,13 +132,14 @@ def _parse_answer(question_id: str, question: Question, raw: object) -> Answer:
 
     if isinstance(question, NoulQuestion):
         probability = _as_probability(answer.get("noul"))
-        if answer.get("type") != "noul" or probability is None:
+        # A server can leave out `type`, because the question already says which answer it expects.
+        if answer.get("type", "noul") != "noul" or probability is None:
             raise SystemOneRequestFailed(f"The System One server returned a malformed noul for {question_id!r}")
         return NoulAnswer(probability=probability)
 
     choice = answer.get("choice")
     confidence = _as_probability(answer.get("confidence"))
-    if answer.get("type") != "choice" or not isinstance(choice, str) or choice not in question.criteria:
+    if answer.get("type", "choice") != "choice" or not isinstance(choice, str) or choice not in question.criteria:
         raise SystemOneRequestFailed(f"The System One server returned a malformed choice for {question_id!r}")
     if confidence is None:
         raise SystemOneRequestFailed(f"The System One server returned a malformed confidence for {question_id!r}")

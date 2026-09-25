@@ -36,7 +36,8 @@ QUESTIONS: dict[str, Question] = {
 ANSWERS = {
     "model": GATEWAY_MODEL,
     "answers": {
-        "urgent": {"type": "noul", "noul": 0.8},
+        # The hogference server leaves out `type`, and TypeSafe sends it.
+        "urgent": {"noul": 0.8},
         "team": {
             "type": "choice",
             "choice": "billing",
@@ -59,6 +60,16 @@ class TestBuildSystemOneClient(SimpleTestCase):
         [
             ("gateway_wins", {**GATEWAY, "TYPESAFE_API_KEY": "ts-key"}, GatewaySystemOneClient, GATEWAY_MODEL),
             ("typesafe_fallback", {"TYPESAFE_API_KEY": "ts-key"}, TypeSafeSystemOneClient, FALLBACK.model),
+            (
+                "gateway_over_plain_http_falls_back",
+                {
+                    "AI_GATEWAY_URL": "http://ai-gateway.example.com/v1",
+                    "AI_GATEWAY_API_KEY": "phs_test",
+                    "TYPESAFE_API_KEY": "ts-key",
+                },
+                TypeSafeSystemOneClient,
+                FALLBACK.model,
+            ),
         ]
     )
     def test_picks_the_server_and_its_model(
@@ -122,13 +133,30 @@ class TestBuildSystemOneClient(SimpleTestCase):
 
         assert raised.exception.status_code == status_code
 
-    def test_gateway_rejects_a_choice_past_its_option_limit_before_sending(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "choice_past_the_option_limit",
+                {
+                    "pick": ChoiceQuestion(
+                        instructions="Which one?", criteria={f"option_{index}": None for index in range(17)}
+                    )
+                },
+            ),
+            (
+                "past_the_question_limit",
+                {f"question_{index}": NoulQuestion(instructions="Is it?") for index in range(33)},
+            ),
+        ]
+    )
+    def test_gateway_rejects_an_oversized_request_before_sending(
+        self, _name: str, questions: dict[str, Question]
+    ) -> None:
         with override_settings(**{**NOTHING, **GATEWAY}):
             client = _build()
-        wide = ChoiceQuestion(instructions="Which one?", criteria={f"option_{index}": None for index in range(17)})
 
         with patch.object(httpx.Client, "send") as send, self.assertRaises(ValueError):
-            client.decide(state="x", questions={"pick": wide})
+            client.decide(state="x", questions=questions)
 
         send.assert_not_called()
 

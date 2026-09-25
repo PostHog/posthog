@@ -14,11 +14,12 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 
 import httpx
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe.client import system_one
-from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
     ChoiceQuestion,
@@ -31,11 +32,13 @@ from posthog.llm.system_one import (
     parse_system_one_response,
 )
 
-# A decision takes milliseconds, and the gateway gives up on a silent host within seconds.
-DEFAULT_TIMEOUT_SECONDS = 5.0
+logger = structlog.get_logger(__name__)
+
+DEFAULT_TIMEOUT_SECONDS = 30.0
 
 # The decision models the gateway serves (JevK5) answer with one letter per option, A to P.
 GATEWAY_MAX_CHOICE_OPTIONS = 16
+GATEWAY_MAX_QUESTIONS = 32
 
 
 @frozen
@@ -56,8 +59,8 @@ class GatewaySystemOneClient:
     timeout: float
 
     def decide(self, *, state: JsonValue, questions: Mapping[str, Question]) -> SystemOneResult:
-        if not questions:
-            raise ValueError("A System One request needs at least one question")
+        if not 1 <= len(questions) <= GATEWAY_MAX_QUESTIONS:
+            raise ValueError(f"A System One request needs between 1 and {GATEWAY_MAX_QUESTIONS} questions")
         for question_id, question in questions.items():
             if isinstance(question, ChoiceQuestion) and len(question.criteria) > GATEWAY_MAX_CHOICE_OPTIONS:
                 raise ValueError(f"{question_id!r} has more than {GATEWAY_MAX_CHOICE_OPTIONS} options")
@@ -110,13 +113,20 @@ def _system_one_url(gateway_url: str) -> str:
     return urlunparse(parsed._replace(path=path + SYSTEM_ONE_PATH, params="", query="", fragment=""))
 
 
-def _carries_credentials_safely(gateway_url: str) -> bool:
-    parsed = urlparse(gateway_url)
-    return parsed.scheme == "https" or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+def _usable_gateway() -> AIGatewayConfig | None:
+    """The gateway config, unless its key would travel in clear to a host off this machine."""
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    parsed = urlparse(gateway.url)
+    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        logger.warning("system_one_gateway_url_not_https")
+        return None
+    return gateway
 
 
 def system_one_configured(typesafe_fallback: TypeSafeFallback | None = None) -> bool:
-    if resolve_ai_gateway_config() is not None:
+    if _usable_gateway() is not None:
         return True
     return typesafe_fallback is not None and bool(settings.TYPESAFE_API_KEY)
 
@@ -137,10 +147,8 @@ def build_system_one_client(
     ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. Raises
     :class:`SystemOneNotConfigured` when no server the caller allows is configured.
     """
-    gateway = resolve_ai_gateway_config()
+    gateway = _usable_gateway()
     if gateway is not None:
-        if not _carries_credentials_safely(gateway.url):
-            raise SystemOneNotConfigured("AI_GATEWAY_URL must use https unless it points at this machine")
         return GatewaySystemOneClient(
             url=_system_one_url(gateway.url),
             api_key=gateway.api_key,
@@ -152,7 +160,7 @@ def build_system_one_client(
             timeout=timeout,
         )
     if typesafe_fallback is None:
-        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY")
+        raise SystemOneNotConfigured("Configure AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY")
     if not settings.TYPESAFE_API_KEY:
         raise SystemOneNotConfigured("Configure AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY")
     return TypeSafeSystemOneClient(
