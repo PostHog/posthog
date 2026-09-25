@@ -139,20 +139,14 @@ type RowsNeeded = 'buckets' | 'totals' | 'heatmap' | 'boxPlot'
 interface PreviewRecipe {
     needs: RowsNeeded
     when?: (source: TrendsQuery, rows: PreviewRows) => boolean
-    keep?: (result: TrendResult) => boolean
     transform?: (result: TrendResult) => TrendResult
     sampleRows?: (loaded: TrendResult[]) => unknown[]
 }
 
 const noBreakdown = (source: TrendsQuery): boolean => !hasBreakdown(source)
 const summable = (source: TrendsQuery, rows: PreviewRows): boolean => canSumBuckets(source, rows.results)
-const canSlope = (source: TrendsQuery, rows: PreviewRows): boolean =>
-    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && (!hasBreakdown(source) || isCompleteBreakdown(rows.response))
 const completeCountries = (source: TrendsQuery, rows: PreviewRows): boolean =>
     hasCountryCodeBreakdown(source) && isCompleteBreakdown(rows.response)
-// The slope query scans only the two end buckets, so a breakdown value with no events in either never comes back.
-const hasSlopeEnds = (result: TrendResult): boolean =>
-    result.breakdown_value == null || !!result.data?.[0] || !!result.data?.[result.data.length - 1]
 
 // A display without a recipe renders the loaded result as it is.
 const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
@@ -163,7 +157,7 @@ const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
     [ChartDisplayType.ActionsStackedBar]: { needs: 'buckets' },
     [ChartDisplayType.Metric]: { needs: 'buckets', when: noBreakdown },
     [ChartDisplayType.ActionsLineGraphCumulative]: { needs: 'buckets', when: summable, transform: toCumulative },
-    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', when: canSlope, keep: hasSlopeEnds, transform: toSlope },
+    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', transform: toSlope },
     [ChartDisplayType.BoldNumber]: { needs: 'totals', when: noBreakdown },
     [ChartDisplayType.ActionsPie]: { needs: 'totals' },
     [ChartDisplayType.ActionsDonut]: { needs: 'totals' },
@@ -219,12 +213,11 @@ export function deriveChartPreview(
     )
 
     if (rows) {
-        const kept = recipe.keep ? rows.results.filter(recipe.keep) : rows.results
-        if (kept.length > 0) {
-            const derived = recipe.transform ? kept.map(recipe.transform) : kept
-            const response = derived === rows.results ? rows.response : withResults(rows.response, derived)
-            return { response, sample: false }
-        }
+        const response = recipe.transform
+            ? withResults(rows.response, rows.results.map(recipe.transform))
+            : rows.response
+
+        return { response, sample: false }
     }
 
     return recipe.sampleRows
