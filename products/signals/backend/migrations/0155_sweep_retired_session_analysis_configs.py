@@ -10,7 +10,7 @@ def delete_session_analysis_configs(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("signals", "0135_signalreportcheck")]
+    dependencies = [("signals", "0154_backfill_report_actionability")]
 
     # Re-creating rows for a source that emits nothing would invent config a team never asked for.
     operations = [
