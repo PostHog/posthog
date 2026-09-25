@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
-import { slackConnectLogic } from './slackConnectLogic'
+import { SLACK_CONNECT_TIMEOUT_MS, slackConnectLogic } from './slackConnectLogic'
 
 const OTHER_MEMBER = { ...MOCK_DEFAULT_BASIC_USER, id: 999, uuid: 'other-member-uuid' }
 
@@ -86,6 +86,18 @@ describe('slackConnectLogic', () => {
 
         expect(onConnected).not.toHaveBeenCalled()
         expect(logic.values.waitingForSlack).toBe(true)
+    })
+
+    it('stops waiting and polling when Slack never reports back', () => {
+        jest.useFakeTimers()
+        integrationsLogic.actions.loadIntegrationsSuccess([])
+        logic.actions.connectSlackClicked()
+
+        jest.advanceTimersByTime(SLACK_CONNECT_TIMEOUT_MS)
+
+        expect(logic.values.waitingForSlack).toBe(false)
+        expect(integrationsLogic.values.pollingSubscribers).toBe(0)
+        jest.useRealTimers()
     })
 
     it('stops polling when the banner unmounts before Slack connects', () => {

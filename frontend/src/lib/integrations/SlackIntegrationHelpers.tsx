@@ -43,7 +43,7 @@ export function SlackNotConfiguredBanner({
 }: SlackNotConfiguredBannerProps): JSX.Element {
     const connectKey = useId()
     const logic = slackConnectLogic({ connectKey, onConnected })
-    const { waitingForSlack } = useValues(logic)
+    const { waitingForSlack, slackIntegrations } = useValues(logic)
     const { connectSlackClicked } = useActions(logic)
 
     return (
@@ -54,27 +54,32 @@ export function SlackNotConfiguredBanner({
                         {description ??
                             'Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.'}
                     </span>
-                    <Link
-                        // nosemgrep: prefer-codegen-api-namespaced-integrations - the generated authorize URL takes no query params
-                        to={api.integrations.authorizeUrl({
-                            kind: 'slack',
-                            next: urls.settings('project-integrations'),
-                        })}
-                        target="_blank"
-                        disableClientSideRouting
-                        onClick={() => {
-                            connectSlackClicked()
-                            onConnectClick?.()
-                        }}
-                    >
-                        <img
-                            alt="Add to Slack"
-                            height="40"
-                            width="139"
-                            src="https://platform.slack-edge.com/img/add_to_slack.png"
-                            srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                        />
-                    </Link>
+                    {/* A click before the first load has no workspace list to compare the new one against. */}
+                    {slackIntegrations === undefined ? (
+                        <Spinner className="text-lg" />
+                    ) : (
+                        <Link
+                            // nosemgrep: prefer-codegen-api-namespaced-integrations - the generated authorize URL takes no query params
+                            to={api.integrations.authorizeUrl({
+                                kind: 'slack',
+                                next: urls.settings('project-integrations'),
+                            })}
+                            target="_blank"
+                            disableClientSideRouting
+                            onClick={() => {
+                                connectSlackClicked()
+                                onConnectClick?.()
+                            }}
+                        >
+                            <img
+                                alt="Add to Slack"
+                                height="40"
+                                width="139"
+                                src="https://platform.slack-edge.com/img/add_to_slack.png"
+                                srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                            />
+                        </Link>
+                    )}
                 </div>
                 {waitingForSlack ? (
                     <span className="flex items-center gap-1 text-sm text-secondary">
