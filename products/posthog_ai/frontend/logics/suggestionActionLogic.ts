@@ -178,7 +178,10 @@ export const suggestionActionLogic: LogicWrapper<suggestionActionLogicType> = ke
                             conversationBlocks: values.conversationBlocks,
                         })
                     } catch (error) {
-                        captureTurnSuggestionEvent('accept failed', props, suggestion, { error })
+                        // posthog-js serializes an Error instance as an empty object.
+                        captureTurnSuggestionEvent('accept failed', props, suggestion, {
+                            error: error instanceof Error ? error.message : String(error),
+                        })
                         throw error
                     }
                     captureTurnSuggestionEvent('accepted', props, suggestion, outcome.eventProperties)
