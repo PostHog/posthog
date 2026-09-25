@@ -1233,9 +1233,12 @@ class TestBillingUsageRequestSerializer(TestCase):
             self.assertEqual(serializer.validated_data[key], value)
 
     def test_usage_type_options_match_usage_type_literal(self):
+        # This captured counter remains accepted by the API for compatibility, but it duplicates
+        # the billable mobile counter and is not offered as a selectable usage type.
+        non_selectable_usage_types = {"mobile_recording_count_in_period"}
         self.assertEqual(
             {option["value"] for option in USAGE_TYPE_OPTIONS},
-            set(get_args(UsageType)),
+            set(get_args(UsageType)) - non_selectable_usage_types,
         )
 
     @parameterized.expand(
