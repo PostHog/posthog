@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import tempfile
 import subprocess
@@ -141,6 +142,47 @@ class TestSavedScoutPreflight(SimpleTestCase):
         if failure == "missing_environment":
             self.assertIn(str(self.env_file), str(error.exception))
             self.assertNotIn("hogli evals:sandboxed", str(error.exception))
+        elif failure == "missing_gateway":
+
+            def capture_source(
+                command: list[str], **_kwargs: object
+            ) -> subprocess.CompletedProcess[bytes] | subprocess.CompletedProcess[str]:
+                if command == ["git", "rev-parse", "--show-toplevel"]:
+                    return subprocess.CompletedProcess(command, 1, stdout="", stderr="not a git repository")
+                if command == ["git", "diff", "HEAD", "--binary"]:
+                    self.case_path.write_text(self.case_path.read_text() + "\n")
+                    return subprocess.CompletedProcess(command, 0, stdout=b"")
+                if command == ["git", "rev-parse", "HEAD"]:
+                    return subprocess.CompletedProcess(command, 0, stdout="a" * 40)
+                if command == ["git", "ls-files", "--others", "--exclude-standard", "-z"]:
+                    return subprocess.CompletedProcess(command, 0, stdout="")
+                raise AssertionError(f"Unexpected source command: {command}")
+
+            with (
+                patch("products.signals.evals.saved_scout.subprocess.run", side_effect=capture_source),
+                patch("products.signals.evals.saved_scout.logging.basicConfig"),
+                patch("products.signals.evals.saved_scout.logging.shutdown"),
+            ):
+                self.assertEqual(
+                    main(
+                        [
+                            "--case",
+                            str(self.case_path),
+                            "--output-dir",
+                            str(self.output_dir),
+                            "--target-cutoff",
+                            SOURCE.isoformat(),
+                            "--agent-runtime",
+                            "codex",
+                        ]
+                    ),
+                    1,
+                )
+            history_paths = list(self.output_dir.glob("invocations/*/invocation.json"))
+            self.assertEqual(len(history_paths), 1)
+            history = json.loads(history_paths[0].read_text())
+            self.assertEqual(history["case_sha256"], saved.manifest_sha256)
+            self.assertEqual(history["case"]["manifest_sha256"], saved.manifest_sha256)
 
 
 class TestSavedScoutSuite(BaseTest):

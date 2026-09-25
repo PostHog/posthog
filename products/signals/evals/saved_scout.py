@@ -326,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
     history = {
         "started_at": datetime.now(UTC).isoformat(),
         "case_path": str(case_path),
-        "case_sha256": hashlib.sha256(case_path.read_bytes()).hexdigest(),
+        "case_sha256": saved.manifest_sha256,
         "skill_sha256": saved.manifest.skill.body.sha256,
         "case": saved.metadata,
         "source_commit": commit,

@@ -830,7 +830,7 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
             team_id=request.team_id,
             report_id=request.report_id,
             title=report.title,
-            description=_build_autostart_task_description(
+            description=build_implementation_task_description(
                 report_id=request.report_id,
                 team_id=request.team_id,
                 summary=report.summary,
