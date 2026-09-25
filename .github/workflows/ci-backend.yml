@@ -14,7 +14,7 @@ on:
         # matrix coverage, flaky-test baseline, and per-test timing data come from.
         # Only the every-third-hour cron runs the events_json leg. The merge queue
         # already runs that leg before every commit lands, and this cadence still gives
-        # Trunk's master monitors enough runs. build_django_matrix matches this string.
+        # Trunk's master monitors enough runs. EVENTS_JSON_SCHEDULE in env repeats this string.
         - cron: '23 */3 * * *'
         - cron: '23 1,2,4,5,7,8,10,11,13,14,16,17,19,20,22,23 * * *'
     workflow_dispatch:
@@ -85,6 +85,9 @@ env:
     # The root conftest ends a green pytest session with os._exit once every report is written.
     # That also hides a crash during interpreter teardown, so the hourly schedule exits normally.
     POSTHOG_PYTEST_HARD_EXIT: ${{ github.event_name == 'schedule' && '0' || '1' }}
+    # The on.schedule cron whose runs keep the events_json leg. GitHub cannot reference a cron
+    # from an expression, so this copy must match it.
+    EVENTS_JSON_SCHEDULE: '23 */3 * * *'
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
     OBJECT_STORAGE_ENABLED: 'True'
@@ -2655,8 +2658,7 @@ jobs:
                   # that takes the whole list.
                   JSON_TARGETS_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_files }}
                   JSON_TARGETS_SHARDS: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').json_targets_shards }}
-                  # Must match the events_json cron in on.schedule.
-                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *' }}
+                  RUN_JSON_TARGETS: ${{ github.event_name != 'schedule' || github.event.schedule == env.EVENTS_JSON_SCHEDULE }}
                   # Same rule as the django job's condition: the suite runs for a legacy
                   # edit, for a product change that reaches legacy code, and when discovery
                   # failed, which leaves run_legacy empty. Without it only the events_json
