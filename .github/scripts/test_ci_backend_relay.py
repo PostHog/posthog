@@ -23,6 +23,8 @@ EVENT_AT = "2026-09-24T09:54:20Z"
 EVENT = relay.Event(repo="PostHog/posthog", sha="a8a3755cf964", pr_number=PR, event_at=EVENT_AT)
 EVENT_WAIT = relay.wait_check_name(PR, EVENT_AT)
 PLAIN_WAIT = f"{relay.DEPOT_WORKFLOW} / {relay.WAIT_JOB}"
+OLDER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:19Z")
+NEWER_RACING_WAIT = relay.wait_check_name(PR, "2026-09-24T09:54:22Z")
 
 
 def run(
@@ -159,6 +161,76 @@ class FakeClock:
         ),
         pytest.param([{}], (relay.Phase.ABSENT, ""), 15, id="no run fails after the grace window"),
         pytest.param(
+            [
+                {
+                    OLDER_RACING_WAIT: [run(1, "success", workflow="racing")],
+                    relay.GATE_CHECK: [run(10, "failure", workflow="racing")],
+                }
+            ],
+            (relay.Phase.FINISHED, "failure"),
+            15,
+            id="an older racing event's run stands in for an absent run",
+        ),
+        pytest.param(
+            [
+                {
+                    EVENT_WAIT: [run(1, "cancelled")],
+                    NEWER_RACING_WAIT: [run(2, "success", workflow="racing")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="racing")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="a newer racing event's run stands in for a cancelled run",
+        ),
+        pytest.param(
+            [
+                {
+                    NEWER_RACING_WAIT: [run(1, "success", workflow="newer")],
+                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
+                    relay.GATE_CHECK: [run(10, "cancelled", workflow="newer"), run(11, "success", workflow="older")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="the next racing event's run stands in when the followed one is cancelled",
+        ),
+        pytest.param(
+            [
+                {
+                    NEWER_RACING_WAIT: [run(1, "success", workflow="newer")],
+                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="newer"), run(11, "failure", workflow="older")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="the newer of two racing runs stands in",
+        ),
+        pytest.param(
+            [
+                {
+                    NEWER_RACING_WAIT: [run(1, "skipped", workflow="declined")],
+                    OLDER_RACING_WAIT: [run(2, "success", workflow="older")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="older")],
+                }
+            ],
+            (relay.Phase.FINISHED, "success"),
+            15,
+            id="a racing run that declined the hand-off does not stand in",
+        ),
+        pytest.param(
+            [
+                {
+                    relay.wait_check_name(PR, "2026-09-24T09:54:17Z"): [run(1, "success", workflow="earlier")],
+                    relay.GATE_CHECK: [run(10, "success", workflow="earlier")],
+                }
+            ],
+            (relay.Phase.ABSENT, ""),
+            15,
+            id="an event outside the race window does not stand in",
+        ),
+        pytest.param(
             [{EVENT_WAIT: [run(1, "success")]}],
             (relay.Phase.RUNNING, ""),
             90,
@@ -264,18 +336,34 @@ def test_migration_report_stops_when_depot_did_not_receive_the_handoff() -> None
     assert clock.now == 0
 
 
-def test_migration_report_waits_for_a_late_replacement_of_a_cancelled_run() -> None:
+@pytest.mark.parametrize(
+    "late_poll,workflow",
+    [
+        pytest.param(
+            {
+                EVENT_WAIT: [run(1, "cancelled"), run(2, "success", workflow="replacement")],
+                relay.MIGRATION_CHECK: [run(3, "success", workflow="replacement")],
+            },
+            "replacement",
+            id="a late replacement of this event's run",
+        ),
+        pytest.param(
+            {
+                EVENT_WAIT: [run(1, "cancelled")],
+                OLDER_RACING_WAIT: [run(2, "success", workflow="racing")],
+                relay.MIGRATION_CHECK: [run(3, "success", workflow="racing")],
+            },
+            "racing",
+            id="a racing event's run at the deadline",
+        ),
+    ],
+)
+def test_migration_report_finds_the_run_that_stands_in_for_a_cancelled_one(
+    late_poll: dict[str, list[Any]], workflow: str
+) -> None:
     clock = FakeClock()
     result = relay.poll(
-        FakeReader(
-            [{EVENT_WAIT: [run(1, "cancelled")]}] * 25
-            + [
-                {
-                    EVENT_WAIT: [run(1, "cancelled"), run(2, "success", workflow="replacement")],
-                    relay.MIGRATION_CHECK: [run(3, "success", workflow="replacement")],
-                }
-            ]
-        ),
+        FakeReader([{EVENT_WAIT: [run(1, "cancelled")]}] * 25 + [late_poll]),
         EVENT,
         relay.MIGRATION_CHECK,
         deadline_minutes=70,
@@ -283,7 +371,7 @@ def test_migration_report_waits_for_a_late_replacement_of_a_cancelled_run() -> N
         clock=clock,
         sleep=clock.sleep,
     )
-    assert (result.phase, result.state) == (relay.Phase.FINISHED, "success")
+    assert relay.report_migrations(result)[2] == {"migration_state": "success", "workflow_id": workflow}
     assert clock.now > 10 * 60
 
 
