@@ -4103,12 +4103,21 @@ jobs:
               # Depot CI evaluates github.run_attempt as an empty string in a job-level if,
               # so this guard stays on the step for the Depot copy of this job to run.
               if: github.run_attempt == '1'
+              id: capture
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
                   event: 'posthog-ci-test-selection'
                   properties: ${{ needs.turbo-discover.outputs.telemetry }}
+            - name: Throwaway proof of the capture step outcome
+              if: always()
+              env:
+                  CAPTURE_OUTCOME: ${{ steps.capture.outcome }}
+                  CAPTURE_CONCLUSION: ${{ steps.capture.conclusion }}
+                  ATTEMPT: ${{ github.run_attempt }}
+                  MODE: ${{ needs.turbo-discover.outputs.mode }}
+              run: echo "capture outcome=$CAPTURE_OUTCOME conclusion=$CAPTURE_CONCLUSION attempt=$ATTEMPT mode=$MODE"
 
     report-test-timings:
         name: Report per-test traces
