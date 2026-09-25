@@ -25,21 +25,12 @@ import { colors, fonts, radius } from "@/lib/theme";
 export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [filter, setFilter] = useState<keyof typeof TASK_FILTERS>("all");
   const [archived, setArchived] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
-  const tasks = useTasks(
-    "",
-    true,
-    filter === "all" ? undefined : filter,
-    archived,
-  );
+  const tasks = useTasks("", true, archived);
   const userName = useAuth((s) => s.session?.userName ?? "");
   const activity = useActivity().data;
   const unread = activity?.unread_count ?? 0;
-  const unreadTasks = new Set(
-    activity?.results.filter((row) => row.is_unread).map((row) => row.task_id),
-  );
   const reports = useReports().data ?? [];
   const seenReports = useSeenReports((s) => s.seen);
   const newReports = reports.filter(
@@ -138,7 +129,7 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
         </View>
         <View style={styles.taskHeader}>
           <Text accessibilityRole="header" style={styles.sectionTitle}>
-            {archived ? "Archived tasks" : "Tasks"}
+            {archived ? "Archived tasks" : "Recent Tasks"}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -155,37 +146,6 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             </Text>
           </Pressable>
         </View>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filters}
-        >
-          {(Object.keys(TASK_FILTERS) as Array<keyof typeof TASK_FILTERS>).map(
-            (value) => (
-              <Pressable
-                key={value}
-                accessibilityRole="button"
-                accessibilityLabel={`${TASK_FILTERS[value]} tasks`}
-                accessibilityState={{ selected: filter === value }}
-                onPress={() => setFilter(value)}
-                style={({ pressed }) => [
-                  styles.filter,
-                  filter === value && styles.filterSelected,
-                  pressed && { opacity: 0.5 },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.filterText,
-                    filter === value && styles.filterTextSelected,
-                  ]}
-                >
-                  {TASK_FILTERS[value]}
-                </Text>
-              </Pressable>
-            ),
-          )}
-        </ScrollView>
         <ConnectionBanner />
         {tasks.isLoading ? (
           <Text style={styles.hint}>Loading tasks</Text>
@@ -209,7 +169,6 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
           <TaskListRow
             key={task.id}
             task={task}
-            unread={unreadTasks.has(task.id)}
             onPress={() => {
               closeDrawer();
               router.push({
@@ -227,11 +186,9 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
             <Text style={styles.hint}>
               {tasks.hasNextPage
                 ? "No cloud tasks in this page. Load more to continue."
-                : filter !== "all"
-                  ? "No tasks match this status. Select All to see other tasks."
-                  : archived
-                    ? "No archived tasks. Tasks you archive will appear here."
-                    : "No tasks yet. Start a new task below."}
+                : archived
+                  ? "No archived tasks. Tasks you archive will appear here."
+                  : "No tasks yet. Start a new task below."}
             </Text>
           </View>
         ) : null}
@@ -277,14 +234,6 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     </View>
   );
 }
-
-const TASK_FILTERS = {
-  all: "All",
-  in_progress: "Running",
-  failed: "Failed",
-  queued: "Queued",
-  completed: "Done",
-} as const;
 
 const FOOTER_HEIGHT = 52;
 const styles = StyleSheet.create({
@@ -356,28 +305,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   listOptionsText: { fontSize: 16, fontWeight: "500", color: colors.inkSoft },
-  filters: {
-    gap: 4,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    marginBottom: 4,
-  },
-  filter: {
-    minHeight: 44,
-    minWidth: 44,
-    paddingHorizontal: 8,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 12,
-  },
-  filterSelected: { backgroundColor: colors.fill },
-  filterText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "500",
-    color: colors.inkSoft,
-  },
-  filterTextSelected: { color: colors.ink, fontWeight: "600" },
   hint: {
     fontSize: 13,
     lineHeight: 20,

@@ -44,10 +44,18 @@ export const reportKeys = {
   artefacts: (id: string) => ["reports", id, "artefacts"] as const,
 };
 
-// Inbox and its badge use the same reviewer filter.
-export type ReportView = "active" | "unread" | "history";
+export const REPORT_VIEWS = {
+  active: "All active",
+  needs_decision: "Needs attention",
+  review_and_merge: "Review PR",
+  resolved: "Resolved",
+  dismissed: "Dismissed",
+} as const;
+
+export type ReportView = keyof typeof REPORT_VIEWS | "unread";
 
 export function useReports(view: ReportView = "active", search = "") {
+  const terminal = view === "resolved" || view === "dismissed";
   const session = useAuth((s) => s.session);
   const queryClient = useQueryClient();
   const sort = usePrefs((s) => s.reportSort);
@@ -65,13 +73,23 @@ export function useReports(view: ReportView = "active", search = "") {
         throw new Error("Could not identify your account. Try again.");
       const page = await client.getSignalReports({
         status:
-          view === "history"
-            ? "suppressed,resolved"
-            : INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
+          view === "resolved"
+            ? "resolved"
+            : view === "dismissed"
+              ? "suppressed"
+              : view === "review_and_merge"
+                ? "ready"
+                : INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
         actionability:
-          view === "history"
-            ? undefined
-            : INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
+          view === "needs_decision"
+            ? INBOX_ACTIONABLE_ACTIONABILITY_FILTER
+            : undefined,
+        has_implementation_pr:
+          view === "needs_decision"
+            ? false
+            : view === "review_and_merge"
+              ? true
+              : undefined,
         search: search || undefined,
         suggested_reviewers: user.uuid,
         ordering: (REPORT_SORTS[sort] ?? REPORT_SORTS.newest).ordering,
@@ -99,7 +117,12 @@ export function useReports(view: ReportView = "active", search = "") {
       data.pages
         .flatMap((page) => page.results)
         .filter(
-          (report) => view === "history" || canCreateImplementationPr(report),
+          (report) =>
+            terminal ||
+            (report.status === "ready" &&
+              !!report.implementation_pr_url &&
+              !report.implementation_pr_merged) ||
+            canCreateImplementationPr(report),
         ),
   });
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { savedDraftSchema } from "./schemas";
 import { OfflineWorkspace } from "./workspace";
 
 function storage() {
@@ -16,6 +17,22 @@ function storage() {
 }
 
 describe("offline workspace", () => {
+  it.each([3, 4, 10])("restores a draft with %i photos", async (count) => {
+    const store = storage();
+    const draft = {
+      text: "Review these images",
+      photos: Array.from({ length: count }, (_, i) => ({
+        id: `photo-${i}`,
+        uri: `file:///example/${i}.jpg`,
+        name: `${i}.jpg`,
+        mimeType: "image/jpeg",
+      })),
+    };
+    await new OfflineWorkspace(store).write("draft", draft);
+    const restored = await new OfflineWorkspace(store).read("draft", 1000);
+    expect(savedDraftSchema.parse(restored)).toEqual(draft);
+  });
+
   it("does not resurrect a cleared draft after pending writes", async () => {
     const store = storage();
     const workspace = new OfflineWorkspace(store);

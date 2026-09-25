@@ -17,7 +17,6 @@ import { Glass, GlassCircleButton } from "@/components/Glass";
 import { SearchIcon } from "@/components/Icons";
 import { ListState } from "@/components/ListState";
 import { TaskListRow } from "@/components/TaskListRow";
-import { useActivity } from "@/lib/activity";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { useTasks } from "@/lib/queries";
@@ -34,10 +33,6 @@ export default function SearchScreen() {
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const session = useAuth((state) => state.session);
   const identity = sessionIdentity();
-  const activity = useActivity().data;
-  const unreadTasks = new Set(
-    activity?.results.filter((row) => row.is_unread).map((row) => row.task_id),
-  );
 
   useEffect(() => {
     if (!session) return;
@@ -150,7 +145,6 @@ export default function SearchScreen() {
         renderItem={({ item }) => (
           <TaskListRow
             task={item}
-            unread={unreadTasks.has(item.id)}
             preview={!!search}
             onPress={() => {
               saveSearch(query);

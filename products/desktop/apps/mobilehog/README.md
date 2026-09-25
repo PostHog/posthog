@@ -59,19 +59,19 @@ The app cannot use permissions that your account or project does not have.
 
 ## Tasks and chat
 
-- **Tasks** lists your cloud tasks in the selected project, across all spaces, with the latest activity first. Internal tasks and sandbox image builders are hidden. Pull to refresh or return to the app to load changes.
+- **Recent Tasks** lists your cloud tasks in the selected project, across all spaces, with the latest activity first. Internal tasks and sandbox image builders are hidden. Pull to refresh or return to the app to load changes.
 - Use **Search** for task titles and descriptions or Self-driving report titles and summaries. Before you enter text, Search shows recent searches.
 - Model and reasoning selections apply to the next message. The app waits for the agent to accept them before it sends your message. If a change fails, the draft stays on the phone. A live Claude Code or Codex run can change models within its provider. Start a new task to use another provider. Pi runs can change providers.
 - Start a task from the main menu. Select a repository and model, then send your request.
 - New tasks use the server's Personal default. Mobile does not show space controls or labels.
 - Open an existing task to read it and send replies. Tasks from Desktop must use cloud runs and remain accessible to your account.
-- Select **All**, **Running**, **Failed**, **Queued**, or **Done** above the list to filter by status. **All** includes tasks that have not started or were canceled. Select **Task list options → View archived** to open archived tasks. Status filters also work in this view; select **Back** to return. The task menu can rename, archive, or restore a task. Archiving does not stop a running task.
+- Tasks show a running indicator only. Read indicators belong to Activity. Select **Task list options → View archived** to open archived tasks, then **Back** to return. The task menu can rename, archive, or restore a task. Archiving does not stop a running task.
 - Select **+** to attach photos. You can send text, photos, or both. Remove a preview before sending to exclude that photo.
 - Select the microphone to dictate. Select Stop or wait for recognition to finish. Edit the resulting text, then select Send.
 - Chats load the latest messages first. Select **Load older messages** to read earlier history. While the agent works, you can read earlier messages without forced scrolling. Select **Latest message** to return to the end.
 
 Photo attachments support JPEG, PNG, GIF, and WebP. iOS converts HEIC selections to JPEG.
-You can attach up to three photos, with a combined size below 5 MB. Text and photo drafts survive app restarts.
+You can attach up to ten photos in one selection, with a combined size below 5 MB. Text and photo drafts survive app restarts.
 Drafts are scoped to the account, project, and task. They expire after seven days without edits. Signing out removes drafts and cached conversations.
 When offline, you can read saved content and edit drafts. Send is disabled until the connection returns. Failed sends keep the draft; the app does not resend it automatically.
 If a request reached the server but its response was lost, check Tasks or the conversation before sending again.
@@ -84,23 +84,26 @@ This is speech-to-text input, not a voice conversation with the agent.
 
 ## Self-driving
 
-The list shows actionable reports for which you are a suggested reviewer.
+The list shows reports that need attention and PRs ready for review where you are a suggested reviewer.
+Use the status control for **All active**, **Needs attention**, **Review PR**, **Resolved**, or **Dismissed**.
+Status filters apply on the server, including unloaded pages.
 Select a report to open its full details on a separate screen. The report options menu contains task and report actions. Opening it marks it as read for your account.
 
 Use the sort control to choose **Newest first**, **Oldest first**, **Priority**, or **Recently updated**.
 Sorting applies on the server, including reports you have not loaded yet. Newest first is the default.
 Use **Load more** to read older pages.
 
-The **⋯** menu contains **Triage reports** and a counted action to mark loaded reports as read.
+Select **Triage** above the list to work through reports that need a decision. Reports with an existing PR stay in the list for review.
+The **⋯** menu contains a counted action to mark loaded reports as read.
 Triage is optional. It lets you review reports one at a time and dismiss them or start a task.
 The read action asks for confirmation and leaves reports in the list. It does not dismiss them.
 Read state syncs with Desktop when both apps and the backend include the read-state API. The phone saves read changes before sending them to the server and keeps up to 500 local indicators. If sync is unavailable, local indicators still work and pending changes survive restarts. Sync retries when reports refresh or the connection returns. The notice can be dismissed.
-The menu also contains Unread and History views. History contains dismissed and resolved reports. Mark unread keeps a report for later.
+The menu also contains an Unread view. Use the status control for dismissed and resolved reports. Mark unread keeps a report for later.
 Dismissal changes the report for the project and can close its pull request. Undo restores the report; it does not reopen a closed pull request.
 
 ## Activity
 
-Activity shows task updates and replies. Unread items have a yellow icon and stronger text; read icons are neutral. The task list uses the same distinction for loaded activity.
+Activity shows task updates and replies. Unread items have a yellow icon and stronger text; read icons are neutral. The task list does not have read indicators.
 Open an item to read its task, or use its read action. The bulk action shows how many loaded updates it will change.
 Opening a loaded conversation also marks its task activity read. Newer updates remain unread. Activity read state is stored on the server; a failed update restores the unread indicator.
 

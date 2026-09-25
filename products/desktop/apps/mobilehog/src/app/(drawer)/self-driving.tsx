@@ -1,4 +1,7 @@
-import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
+import {
+  buildCreatePrReportPrompt,
+  canCreateImplementationPr,
+} from "@posthog/core/inbox/reportActions";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +34,7 @@ import { getClient } from "@/lib/client";
 import { type ReportSort, usePrefs } from "@/lib/prefs";
 import {
   REPORT_SORTS,
+  REPORT_VIEWS,
   type ReportView,
   useDismissReport,
   useReports,
@@ -62,7 +66,7 @@ export default function SelfDrivingScreen() {
   });
   const sort = usePrefs((s) => s.reportSort);
   const savePrefs = usePrefs((s) => s.set);
-  const [menu, setMenu] = useState<"sort" | "actions" | null>(null);
+  const [menu, setMenu] = useState<"sort" | "actions" | "filter" | null>(null);
   const syncError = useSeenReports((s) => s.syncError);
   const [syncNoticeDismissed, setSyncNoticeDismissed] = useState(false);
   useEffect(() => {
@@ -105,9 +109,10 @@ export default function SelfDrivingScreen() {
   const deckReports = useMemo(
     () =>
       (deck ?? [])
-        .map((id) => all.find((report) => report.id === id))
+        .filter((id) => !handled.has(id))
+        .map((id) => reports.data?.find((report) => report.id === id))
         .filter((report): report is SignalReport => !!report),
-    [deck, all],
+    [deck, reports.data, handled],
   );
   // Whatever surfaces at the top of the deck counts as seen.
   const topId = deckReports[0]?.id;
@@ -156,7 +161,7 @@ export default function SelfDrivingScreen() {
       "Dismiss report?",
       report.implementation_pr_url
         ? "This dismisses the report for the project and closes its open pull request. Restoring the report will not reopen the pull request."
-        : "This dismisses the report for everyone in this project. You can restore it from History.",
+        : "This dismisses the report for everyone in this project. Select Dismissed in the status filter to restore it.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -223,7 +228,9 @@ export default function SelfDrivingScreen() {
   };
 
   const showDeck = deck !== null && deckReports.length > 0;
-  const headerHeight = insets.top + 58;
+  const triageReports = all.filter((report) =>
+    canCreateImplementationPr(report),
+  );
 
   return (
     <DrawerScene>
@@ -263,7 +270,7 @@ export default function SelfDrivingScreen() {
         <Animated.View
           key="deck"
           exiting={FadeOutDown.duration(200)}
-          style={StyleSheet.absoluteFill}
+          style={{ flex: 1 }}
           pointerEvents="box-none"
         >
           <TriageDeck
@@ -271,7 +278,7 @@ export default function SelfDrivingScreen() {
             onDismiss={onDismiss}
             onStart={onStart}
             starting={start.isPending}
-            headerHeight={headerHeight}
+            dismissing={dismiss.isPending}
           />
         </Animated.View>
       ) : (
@@ -290,13 +297,30 @@ export default function SelfDrivingScreen() {
             { paddingBottom: insets.bottom + 24 },
           ]}
         >
-          <Text style={styles.rowMeta}>
-            {view === "history"
-              ? "History"
-              : view === "unread"
-                ? "Unread reports"
-                : "Reports for you"}
-          </Text>
+          <View style={styles.toolbar}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Filter report status"
+              onPress={() => setMenu("filter")}
+              style={styles.filterButton}
+            >
+              <Text style={styles.filterText}>
+                {view === "unread" ? "Unread" : REPORT_VIEWS[view]} ▾
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Triage reports"
+              disabled={triageReports.length === 0}
+              onPress={() => setDeck(triageReports.map((report) => report.id))}
+              style={[
+                styles.triageButton,
+                triageReports.length === 0 && { opacity: 0.4 },
+              ]}
+            >
+              <Text style={styles.triageText}>Triage</Text>
+            </Pressable>
+          </View>
           {all.length > 0 ? (
             <View style={styles.toolbar}>
               <Text style={styles.rowMeta}>
@@ -334,14 +358,14 @@ export default function SelfDrivingScreen() {
                   ? "Loading reports"
                   : reports.hasNextPage
                     ? "No reports in this page"
-                    : "No reports to review"
+                    : "No matching reports"
               }
               description={
                 reports.isLoading
                   ? undefined
                   : reports.hasNextPage
                     ? "Load more to check the remaining reports."
-                    : "Reports that need your review will appear here."
+                    : "Choose another status to see other reports."
               }
             />
           ) : null}
@@ -373,9 +397,15 @@ export default function SelfDrivingScreen() {
                   {report.title ?? "Untitled report"}
                 </Text>
                 <Text style={styles.rowMeta}>
-                  {report.signal_count} signal
-                  {report.signal_count === 1 ? "" : "s"} ·{" "}
-                  {formatRelativeAge(report.updated_at)}
+                  {report.status === "resolved"
+                    ? "Resolved"
+                    : report.status === "suppressed"
+                      ? "Dismissed"
+                      : report.implementation_pr_url &&
+                          !report.implementation_pr_merged
+                        ? "Review PR"
+                        : "Needs attention"}{" "}
+                  · {formatRelativeAge(report.updated_at)}
                 </Text>
               </View>
               {!seen.has(report.id) ? <View style={styles.newDot} /> : null}
@@ -400,6 +430,7 @@ export default function SelfDrivingScreen() {
             flexDirection: "row",
             alignItems: "center",
             padding: 12,
+            paddingBottom: Math.max(insets.bottom, 12),
             gap: 8,
           }}
         >
@@ -443,7 +474,13 @@ export default function SelfDrivingScreen() {
       ) : null}
       {menu ? (
         <OptionsSheet
-          title={menu === "sort" ? "Sort reports" : "Self-driving"}
+          title={
+            menu === "sort"
+              ? "Sort reports"
+              : menu === "filter"
+                ? "Report status"
+                : "Self-driving"
+          }
           onClose={() => setMenu(null)}
           options={
             menu === "sort"
@@ -456,52 +493,49 @@ export default function SelfDrivingScreen() {
                     );
                   },
                 }))
-              : [
-                  ...Object.entries({
-                    active: "Reports for you",
-                    unread: "Unread",
-                    history: "History",
-                  }).map(([value, label]) => ({
+              : menu === "filter"
+                ? Object.entries(REPORT_VIEWS).map(([value, label]) => ({
                     label,
                     selected: view === value,
                     onPress: () => {
                       setView(value as ReportView);
                       setHandled(new Set());
                     },
-                  })),
-                  {
-                    label: "Triage reports",
-                    disabled: view === "history" || all.length === 0,
-                    onPress: () =>
-                      setDeck(
-                        (unseen.length > 0 ? unseen : all).map(
-                          (report) => report.id,
-                        ),
-                      ),
-                  },
-                  ...(unseen.length > 0
-                    ? [
-                        {
-                          label: markingRead
-                            ? "Marking reports as read"
-                            : `Mark ${unseen.length} report${unseen.length === 1 ? "" : "s"} as read`,
-                          disabled: markingRead,
-                          onPress: () =>
-                            Alert.alert(
-                              "Mark reports as read?",
-                              `This marks ${unseen.length} loaded report${unseen.length === 1 ? "" : "s"} as read on your devices. Reports stay in the list.`,
-                              [
-                                { text: "Cancel", style: "cancel" },
-                                {
-                                  text: "Mark as read",
-                                  onPress: () => void markLoadedRead(),
-                                },
-                              ],
-                            ),
-                        },
-                      ]
-                    : []),
-                ]
+                  }))
+                : [
+                    {
+                      label:
+                        view === "unread"
+                          ? "Show all active reports"
+                          : "Show unread reports",
+                      onPress: () => {
+                        setView(view === "unread" ? "active" : "unread");
+                        setHandled(new Set());
+                      },
+                    },
+                    ...(unseen.length > 0
+                      ? [
+                          {
+                            label: markingRead
+                              ? "Marking reports as read"
+                              : `Mark ${unseen.length} report${unseen.length === 1 ? "" : "s"} as read`,
+                            disabled: markingRead,
+                            onPress: () =>
+                              Alert.alert(
+                                "Mark reports as read?",
+                                `This marks ${unseen.length} loaded report${unseen.length === 1 ? "" : "s"} as read on your devices. Reports stay in the list.`,
+                                [
+                                  { text: "Cancel", style: "cancel" },
+                                  {
+                                    text: "Mark as read",
+                                    onPress: () => void markLoadedRead(),
+                                  },
+                                ],
+                              ),
+                          },
+                        ]
+                      : []),
+                  ]
           }
         />
       ) : null}
@@ -548,6 +582,22 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  filterButton: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.fill,
+    justifyContent: "center",
+  },
+  filterText: { color: colors.ink, fontSize: 14, fontWeight: "500" },
+  triageButton: {
+    minHeight: 44,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    backgroundColor: colors.dark,
+    justifyContent: "center",
+  },
+  triageText: { color: colors.darkText, fontSize: 14, fontWeight: "600" },
   sortButton: { minHeight: 44, justifyContent: "center" },
   rowUnread: { backgroundColor: colors.surface },
   rowTitleUnread: { fontFamily: fonts.sansSemi, color: colors.ink },
@@ -557,11 +607,11 @@ const styles = StyleSheet.create({
     gap: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.line,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: 0,
+    paddingVertical: 14,
     paddingHorizontal: 12,
   },
-  rowBody: { flex: 1, gap: 3 },
+  rowBody: { flex: 1, minWidth: 0, gap: 5 },
   rowTitle: {
     fontFamily: fonts.sansMedium,
     fontSize: 15,

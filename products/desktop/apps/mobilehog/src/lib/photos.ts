@@ -1,9 +1,10 @@
+import { MAX_DRAFT_PHOTOS } from "@posthog/core/offline/schemas";
 import { getImageMimeType, serializeCloudPrompt } from "@posthog/shared";
 import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 import { accountStorageKey, sessionIdentity } from "@/lib/auth";
 
-export const MAX_PHOTOS = 3;
+export const MAX_PHOTOS = MAX_DRAFT_PHOTOS;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const IMAGE_TYPES = new Set([
   "image/jpeg",
@@ -20,7 +21,8 @@ export interface PendingPhoto {
   jpegBase64?: string;
 }
 
-export async function pickPhoto(): Promise<PendingPhoto | null> {
+export async function pickPhotos(remaining: number): Promise<PendingPhoto[]> {
+  if (remaining <= 0) return [];
   const identity = sessionIdentity();
   const scope = accountStorageKey("mobilehog_workspace");
   let ImagePicker: typeof import("expo-image-picker");
@@ -31,54 +33,69 @@ export async function pickPhoto(): Promise<PendingPhoto | null> {
   }
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
-    allowsMultipleSelection: false,
+    allowsMultipleSelection: true,
+    selectionLimit: Math.min(remaining, MAX_PHOTOS),
+    orderedSelection: true,
     quality: 0.8,
     exif: false,
     base64: Platform.OS === "ios",
   });
   if (identity !== sessionIdentity())
-    throw new Error("Account changed. Select the photo again.");
-  if (result.canceled || !result.assets.length) return null;
-  const asset = result.assets[0];
-  const name = asset.fileName ?? "image.jpg";
-  const mimeType = asset.mimeType ?? getImageMimeType(name);
-  const jpegBase64 =
-    !IMAGE_TYPES.has(mimeType) && Platform.OS === "ios"
-      ? (asset.base64 ?? undefined)
-      : undefined;
-  if (!IMAGE_TYPES.has(mimeType) && !jpegBase64) {
-    throw new Error("Choose a JPEG, PNG, GIF, or WebP image.");
-  }
-  if (
-    (asset.fileSize && !jpegBase64 && asset.fileSize > MAX_IMAGE_BYTES) ||
-    (jpegBase64 && Math.floor((jpegBase64.length * 3) / 4) > MAX_IMAGE_BYTES)
-  ) {
-    throw new Error("Choose an image smaller than 5 MB.");
-  }
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  let uri = asset.uri;
-  if (Platform.OS !== "web") {
-    const directory = `${FileSystem.documentDirectory}${scope}/photos/`;
-    await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
-    uri = `${directory}${id}`;
-    if (jpegBase64)
-      await FileSystem.writeAsStringAsync(uri, jpegBase64, {
-        encoding: FileSystem.EncodingType.Base64,
+    throw new Error("Account changed. Select the photos again.");
+  if (result.canceled || !result.assets.length) return [];
+  const photos: PendingPhoto[] = [];
+  const copiedUris: string[] = [];
+  try {
+    for (const asset of result.assets.slice(0, remaining)) {
+      const name = asset.fileName ?? "image.jpg";
+      const mimeType = asset.mimeType ?? getImageMimeType(name);
+      const jpegBase64 =
+        !IMAGE_TYPES.has(mimeType) && Platform.OS === "ios"
+          ? (asset.base64 ?? undefined)
+          : undefined;
+      if (!IMAGE_TYPES.has(mimeType) && !jpegBase64) {
+        throw new Error("Choose a JPEG, PNG, GIF, or WebP image.");
+      }
+      if (
+        (asset.fileSize && !jpegBase64 && asset.fileSize > MAX_IMAGE_BYTES) ||
+        (jpegBase64 &&
+          Math.floor((jpegBase64.length * 3) / 4) > MAX_IMAGE_BYTES)
+      ) {
+        throw new Error("Choose an image smaller than 5 MB.");
+      }
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      let uri = asset.uri;
+      if (Platform.OS !== "web") {
+        const directory = `${FileSystem.documentDirectory}${scope}/photos/`;
+        await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+        uri = `${directory}${id}`;
+        copiedUris.push(uri);
+        if (jpegBase64)
+          await FileSystem.writeAsStringAsync(uri, jpegBase64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        else await FileSystem.copyAsync({ from: asset.uri, to: uri });
+      }
+      if (identity !== sessionIdentity()) {
+        throw new Error("Account changed. Select the photos again.");
+      }
+      photos.push({
+        id,
+        uri,
+        name: jpegBase64 ? `${name.replace(/\.[^.]+$/, "")}.jpg` : name,
+        mimeType: jpegBase64 ? "image/jpeg" : mimeType,
+        jpegBase64: Platform.OS === "web" ? jpegBase64 : undefined,
       });
-    else await FileSystem.copyAsync({ from: asset.uri, to: uri });
+    }
+    return photos;
+  } catch (error) {
+    await Promise.all(
+      copiedUris.map((uri) =>
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {}),
+      ),
+    );
+    throw error;
   }
-  if (identity !== sessionIdentity()) {
-    if (Platform.OS !== "web")
-      await FileSystem.deleteAsync(uri, { idempotent: true });
-    throw new Error("Account changed. Select the photo again.");
-  }
-  return {
-    id,
-    uri,
-    name: jpegBase64 ? `${name.replace(/\.[^.]+$/, "")}.jpg` : name,
-    mimeType: jpegBase64 ? "image/jpeg" : mimeType,
-    jpegBase64: Platform.OS === "web" ? jpegBase64 : undefined,
-  };
 }
 
 export async function buildPhotoPrompt(

@@ -35,9 +35,8 @@ Cloud sign-in lists only projects included in the OAuth grant.
 
 The drawer starts with the signed-in user's cloud tasks in the selected project, including tasks started from Desktop.
 The drawer shows one task list across all spaces, without space names or space filters.
-Tasks use system text, status symbols, and labeled timestamps.
-All excludes archived tasks and sorts by the latest activity, as do the Running, Failed, Queued, and Done filters.
-Task list options opens the archive view, where the same status filters apply.
+Tasks use system text, relative timestamps, and a running indicator. Task rows have no read markers or status filters.
+The active list excludes archived tasks. Task list options opens the archive view.
 Task lists use the server's most recent activity order and support loading older pages.
 The search button opens a separate screen with its input above the keyboard.
 Search matches task titles, descriptions, and task numbers on the server, across all of the user's spaces in the selected project.
@@ -57,9 +56,11 @@ To check cross-device delivery, start a cloud task from Desktop, put the mobile 
 
 ## Self-driving and task conversations
 
-Self-driving lists actionable reports where the signed-in user is a suggested reviewer. Newest first is the default; the sort menu also offers Priority.
+Self-driving lists reports needing attention and PRs ready for review where the signed-in user is a suggested reviewer.
+Its status control filters All active, Needs attention, Review PR, Resolved, or Dismissed before pagination. Newest first is the default; the sort menu also offers Priority.
 Opening a report marks it read for the current account and syncs with Desktop. Read actions clear the new-item indicators without dismissing the reports.
-Tapping a report in the list opens a separate full-detail screen. Report actions stay in its options menu. The options menu opens the optional triage deck.
+Tapping a report in the list opens a separate full-detail screen. Report actions stay in its options menu. The visible Triage button opens the optional decision deck. Existing PRs remain in the report list.
+The sync notice sits below the deck and cannot cover a card.
 Dismiss changes the report state for the project. Activity read state is stored on the server.
 Both lists support refresh and loading older items.
 Read actions appear only when visible items are unread.
@@ -68,10 +69,11 @@ The empty Self-driving list does not show report instructions or review actions.
 
 Task conversations keep the header and reply box outside the scrolling messages.
 Conversations have no new-chat shortcut; use the drawer to start another task. The reply box has no top divider.
-The + button in both composers selects up to three photos from the device library.
+The + button in both composers selects up to ten photos at once from the device library. Previews scroll horizontally.
 The composer previews selected photos, lets the user remove them, and sends images with the task message.
 Image-only messages get a short prompt. Images total no more than 5 MB; unsupported iOS formats convert to JPEG.
 New tasks keep the composer open until an image message is accepted, so a failed send keeps the draft.
+Select more than three photos, remove one preview, and restart the app. Confirm that the remaining draft photos return.
 This uses native image picker and file system modules, so install a fresh native build before testing attachments.
 Images can be expanded. Saved insights and SQL references render charts or tables; unsupported insight types link to PostHog.
 Mobile run requests set `X-PostHog-Client-Platform: mobile` for the PR footer.
@@ -157,7 +159,7 @@ The [app README](../../products/desktop/apps/mobilehog/README.md) covers setup a
 - Open tasks and Self-driving, then disconnect the network. Saved content remains readable, drafts remain editable, and Send is disabled. Reconnect; the app must not send the draft by itself.
 - Interrupt a send. The draft must remain. Check for server acceptance before retrying when the result is uncertain.
 - Rename, archive, and restore a task. Confirm the same state in Desktop and use each status filter. Archived running tasks must keep running.
-- Mark a report read on mobile and check Desktop, then reverse the direction. Mark unread, dismiss, undo, and restore from History. Another user's read state must not change.
+- Mark a report read on mobile and check Desktop, then reverse the direction. Mark unread, dismiss, undo, and restore from the Dismissed status filter. Another user's read state must not change.
 - Search task and report text. Only Tasks and Self-driving tabs appear. A result opens its task or report.
 - Open task options. Only Rename and Archive (or Restore) appear. Internal tasks and sandbox image-builder tasks stay out of the task list.
 - Use large text and VoiceOver to operate task menus, search tabs, the composer, and report actions. Check reduced motion and a narrow device in both appearances.
