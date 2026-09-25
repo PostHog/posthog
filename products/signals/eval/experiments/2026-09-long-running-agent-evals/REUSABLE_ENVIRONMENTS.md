@@ -332,6 +332,11 @@ If committing or pushing is unavailable, continue independent authorized impleme
 Keep recoverable local source snapshots and attempt history, then commit the sanitized implementation history when publishing is available.
 Private inputs and full transcripts remain outside Git.
 
+The [saved-case command guide](../../../../../docs/internal/ai-offline-evaluation-reporting.md#private-saved-scout-cases) covers worktree setup and the validation, preflight, and execution modes.
+`--preflight-only` checks saved inputs and local execution prerequisites without starting Django, services, or a model.
+Actual execution repeats those checks before repository preparation and retains failed prerequisite checks in its invocation history.
+Preflight does not verify provider authentication, databases, free ports, retained bundles, or sandbox images.
+
 ## Implementation history
 
 ### September 22, 2026: restore and capture support

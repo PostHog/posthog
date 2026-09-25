@@ -130,6 +130,40 @@ def test_setup_django_disables_self_capture_before_settings_load() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_harness_import_and_server_start_preserve_existing_logs() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import logging, sys\n"
+                "from products.posthog_ai.eval_harness.harness.django_env import setup_django\n"
+                "setup_django()\n"
+                "logger = logging.getLogger('saved_scout_logging_regression')\n"
+                "logger.setLevel(logging.WARNING)\n"
+                "logger.addHandler(logging.StreamHandler(sys.stdout))\n"
+                "from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness\n"
+                "logger.warning('log after harness import')\n"
+                "from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer\n"
+                "server = EvalLiveServer(port=0)\n"
+                "try:\n"
+                "    logger.warning('log after server startup')\n"
+                "finally:\n"
+                "    server.stop()\n"
+            ),
+        ],
+        cwd=Path(__file__).resolve().parents[4],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "log after harness import" in result.stdout
+    assert "log after server startup" in result.stdout
+
+
 @parameterized.expand([(0,), (-1,)])
 def test_parse_args_rejects_non_positive_case_timeout(case_timeout: int) -> None:
     with pytest.raises(SystemExit) as error:

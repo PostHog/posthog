@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import shlex
 import hashlib
 import logging
 import argparse
@@ -15,9 +16,9 @@ from typing import TYPE_CHECKING
 
 from products.posthog_ai.eval_harness.harness.cli import HarnessOptions, parse_args
 from products.posthog_ai.eval_harness.harness.django_env import setup_django
-from products.posthog_ai.eval_harness.harness.env_preflight import load_env_file
+from products.posthog_ai.eval_harness.harness.env_preflight import load_env_file, validate_eval_env
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT, PERSONHOG_ROUTER_PORT
-from products.posthog_ai.eval_harness.harness.providers import SANDBOX_PROVIDER_SETTING
+from products.posthog_ai.eval_harness.harness.providers import SANDBOX_PROVIDER_SETTING, PreflightError, build_provider
 from products.posthog_ai.eval_harness.harness.transcript import RunTranscript
 
 if TYPE_CHECKING:
@@ -65,6 +66,34 @@ def parse_cutoff(value: str) -> datetime:
     if result.tzinfo is None:
         raise argparse.ArgumentTypeError("The cutoff must include a timezone")
     return result.astimezone(UTC)
+
+
+def preflight_saved_case(saved: SavedScoutCase, options: HarnessOptions) -> None:
+    if saved.manifest.repository is not None and options.provider != "docker":
+        raise PreflightError("Retained code repositories require --provider docker.")
+    load_env_file()
+    validate_eval_env(
+        options.agent_runtime,
+        env_hint=(
+            f"Add them to {REPO_ROOT / '.env'} (loaded automatically by this saved-case command), "
+            "or supply them explicitly through its launch environment. "
+            "The command does not load .env.local; .codex/with-flox may discard ambient shell variables."
+        ),
+    )
+    gateway_environment = REPO_ROOT / "services" / "llm-gateway" / ".venv"
+    gateway_executable = gateway_environment / "bin" / "uvicorn"
+    if not gateway_executable.is_file() or not os.access(gateway_executable, os.X_OK):
+        raise PreflightError(
+            f"The local LLM gateway executable is missing or not executable: {gateway_executable}. "
+            "From this checkout's root, prepare its dependencies with "
+            f"`.codex/with-flox env UV_PROJECT_ENVIRONMENT={shlex.quote(str(gateway_environment))} "
+            "uv sync --project services/llm-gateway --frozen`."
+        )
+    build_provider(
+        options.provider,
+        keep_containers=options.keep_sandbox_containers,
+        rebuild_image=options.rebuild_sandbox_image,
+    ).preflight()
 
 
 @asynccontextmanager
@@ -179,7 +208,7 @@ class SavedScoutSuite:
 
 
 def run_saved_case(saved: SavedScoutCase, options: HarnessOptions, target_cutoff: datetime, output_dir: Path) -> int:
-    load_env_file()
+    preflight_saved_case(saved, options)
     os.environ.update(
         SANDBOX_PROVIDER=SANDBOX_PROVIDER_SETTING[options.provider],
         PERSONHOG_ADDR=f"127.0.0.1:{PERSONHOG_ROUTER_PORT}",
@@ -202,8 +231,6 @@ def run_saved_case(saved: SavedScoutCase, options: HarnessOptions, target_cutoff
     with ExitStack() as stack:
         retained = None
         if repository := saved.manifest.repository:
-            if options.provider != "docker":
-                raise ValueError("Retained code repositories currently require --provider docker")
             source = Path(repository.source_path)
             if not source.is_absolute():
                 source = saved.path.parent / source
@@ -238,7 +265,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--case", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--target-cutoff", required=True, type=parse_cutoff)
-    parser.add_argument("--validate-only", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--validate-only", action="store_true", help="Validate saved inputs without checking execution prerequisites."
+    )
+    mode.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Validate saved inputs and local execution prerequisites without starting services or an agent.",
+    )
     args, harness_args = parser.parse_known_args(argv)
     options = parse_args(harness_args)
 
@@ -252,6 +287,16 @@ def main(argv: list[str] | None = None) -> int:
     saved = SavedScoutCase.load(case_path)
     if args.validate_only:
         print(json.dumps(saved.metadata, indent=2, default=str))  # noqa: T201
+        return 0
+    if args.preflight_only:
+        try:
+            preflight_saved_case(saved, options)
+        except PreflightError as error:
+            parser.error(str(error))
+        print(  # noqa: T201
+            "Saved scout preflight passed. This does not verify model authentication, databases, "
+            "service ports, repository bundles, or sandbox images."
+        )
         return 0
     output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     transcript = RunTranscript.create(output_dir / "harness")

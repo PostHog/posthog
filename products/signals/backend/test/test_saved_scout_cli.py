@@ -1,4 +1,6 @@
+import os
 import asyncio
+import tempfile
 import subprocess
 from contextlib import nullcontext
 from datetime import UTC, datetime
@@ -11,7 +13,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
@@ -21,11 +23,14 @@ from posthog.models import PersonalAPIKey
 from posthog.models.utils import hash_key_value
 
 from products.posthog_ai.eval_harness.base import EvalTaskError
+from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
+from products.posthog_ai.eval_harness.harness.providers import PreflightError
+from products.signals.backend.test.test_saved_case import SOURCE, write_case
 from products.signals.evals.agentic.datasets import ScoutCase
-from products.signals.evals.agentic.saved_case import SavedScoutCase
-from products.signals.evals.saved_scout import SavedScoutSuite, require_private_path
+from products.signals.evals.agentic.saved_case import SavedRepository, SavedScoutCase
+from products.signals.evals.saved_scout import SavedScoutSuite, main, require_private_path, run_saved_case
 
 
 def test_private_case_rejects_tracked_file_and_symlink_to_it(tmp_path: Path) -> None:
@@ -42,6 +47,100 @@ def test_private_case_rejects_tracked_file_and_symlink_to_it(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="outside Git or ignored"):
         require_private_path(sibling / "results")
     assert require_private_path(sibling / "private" / "results") == sibling / "private" / "results"
+
+
+class TestSavedScoutPreflight(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.addCleanup(os.umask, os.umask(0o077))
+        self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.case_path = write_case(self.directory)
+        self.output_dir = self.directory / "results"
+        self.env_file = self.directory / ".env"
+        self.env_file.write_text(
+            "SANDBOX_JWT_PRIVATE_KEY=test-signing-key\n"
+            "LLM_GATEWAY_ANTHROPIC_API_KEY=test-anthropic-key\n"
+            "LLM_GATEWAY_OPENAI_API_KEY=test-openai-key\n"
+        )
+        self.gateway = self.directory / "services" / "llm-gateway" / ".venv" / "bin" / "uvicorn"
+        self.gateway.parent.mkdir(parents=True)
+        self.gateway.write_text("#!/bin/sh\nexit 0\n")
+        self.gateway.chmod(0o700)
+        self.docker = self.directory / "bin" / "docker"
+        self.docker.parent.mkdir()
+        self.docker.write_text('#!/bin/sh\n[ "$1" = info ]\n')
+        self.docker.chmod(0o700)
+        self.enterContext(patch.dict(os.environ, {"PATH": f"{self.docker.parent}:{os.defpath}"}, clear=True))
+        self.enterContext(patch("products.signals.evals.saved_scout.REPO_ROOT", self.directory))
+        self.enterContext(patch("products.posthog_ai.eval_harness.harness.env_preflight.REPO_ROOT", self.directory))
+        self.enterContext(
+            patch(
+                "products.signals.evals.saved_scout.setup_django", side_effect=AssertionError("Django must not start")
+            )
+        )
+
+    @parameterized.expand(["--validate-only", "--preflight-only"])
+    def test_read_only_modes_do_not_start_execution(self, mode: str) -> None:
+        if mode == "--validate-only":
+            self.env_file.unlink()
+            self.gateway.unlink()
+            self.docker.unlink()
+
+        assert (
+            main(
+                [
+                    "--case",
+                    str(self.case_path),
+                    "--output-dir",
+                    str(self.output_dir),
+                    "--target-cutoff",
+                    SOURCE.isoformat(),
+                    "--agent-runtime",
+                    "codex",
+                    mode,
+                ]
+            )
+            == 0
+        )
+        assert not self.output_dir.exists()
+
+    @parameterized.expand(
+        [
+            ("missing_environment", "LLM_GATEWAY_OPENAI_API_KEY"),
+            ("missing_gateway", "local LLM gateway executable"),
+            ("nonexecutable_gateway", "local LLM gateway executable"),
+            ("unavailable_docker", "Docker daemon is not reachable"),
+            ("repository_with_modal", "require --provider docker"),
+        ]
+    )
+    def test_run_rejects_missing_prerequisites_before_django(self, failure: str, message: str) -> None:
+        saved = SavedScoutCase.load(self.case_path)
+        options = parse_args(["--agent-runtime", "codex"])
+        if failure == "missing_environment":
+            self.env_file.write_text(
+                self.env_file.read_text().replace("LLM_GATEWAY_OPENAI_API_KEY=test-openai-key\n", "")
+            )
+        elif failure == "missing_gateway":
+            self.gateway.unlink()
+        elif failure == "nonexecutable_gateway":
+            self.gateway.chmod(0o600)
+        elif failure == "unavailable_docker":
+            self.docker.write_text("#!/bin/sh\nexit 1\n")
+        elif failure == "repository_with_modal":
+            saved = SavedScoutCase(
+                saved.path,
+                saved.manifest.model_copy(
+                    update={"repository": SavedRepository(source_path=str(self.directory), commit="a" * 40)}
+                ),
+                saved.state,
+            )
+            options = parse_args(["--provider", "modal"])
+
+        with self.assertRaisesRegex(PreflightError, message) as error:
+            run_saved_case(saved, options, SOURCE, self.output_dir)
+        if failure == "missing_environment":
+            self.assertIn(str(self.env_file), str(error.exception))
+            self.assertNotIn("hogli evals:sandboxed", str(error.exception))
 
 
 class TestSavedScoutSuite(BaseTest):
