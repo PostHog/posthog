@@ -2,7 +2,7 @@ import { DEFAULT_CHART_COLORS } from '@posthog/quill-charts'
 
 import { MCPProtocolVersionBreakdownItem } from '~/queries/schema/schema-general'
 
-import { formatShare, versionGroup, segmentStyles, specVersionUrl, summarizeProtocolVersions } from './protocolVersions'
+import { formatShare, specVersionUrl, summarizeProtocolVersions, versionColor, versionGroup } from './protocolVersions'
 
 const theme = { colors: [...DEFAULT_CHART_COLORS], axisColor: '#888888' }
 
@@ -53,21 +53,18 @@ describe('protocol versions', () => {
         expect(formatShare(pct)).toBe(expected)
     })
 
-    it('keeps current, legacy, Other, and Unknown visually distinct', () => {
-        const rows = [
-            row('draft', true),
+    it('colors each group once, with Other as faded legacy and Unknown muted', () => {
+        const colors = [
             row('2026-07-28', true),
-            ...['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'].map((v) => row(v, false)),
+            row('2025-06-18', false),
             row('Other', false),
             row('Unknown', false),
-        ]
+        ].map((item) => versionColor(theme, item))
 
-        const styles = segmentStyles(theme, rows)
-
-        const colors = styles.map((style) => style.color)
-        expect(new Set(colors.slice(0, 6)).size).toBe(6)
-        expect(styles[6]).toEqual({ color: styles[2].color, opacity: 0.45 })
-        expect(styles[7]).toEqual({ color: theme.axisColor })
+        expect(colors[0]).toBe(versionColor(theme, row('draft', true)))
+        expect(colors[1]).toBe(versionColor(theme, row('v2', false)))
+        expect(new Set(colors).size).toBe(4)
+        expect(colors[3]).toBe(theme.axisColor)
     })
 
     it.each([
@@ -84,8 +81,6 @@ describe('protocol versions', () => {
     })
 
     it('falls back to the axis color when the palette is too short', () => {
-        expect(segmentStyles({ colors: [], axisColor: '#888888' }, [row('2025-06-18', false)])).toEqual([
-            { color: '#888888' },
-        ])
+        expect(versionColor({ colors: [], axisColor: '#888888' }, row('2025-06-18', false))).toBe('#888888')
     })
 })
