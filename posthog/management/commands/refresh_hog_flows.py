@@ -2,6 +2,7 @@ import time
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.test import RequestFactory
 
 import structlog
@@ -49,7 +50,7 @@ class Command(BaseCommand):
 
         self.stdout.write("Starting HogFlow refresh..." + (" (dry run, nothing is saved)" if dry_run else ""))
 
-        queryset = HogFlow.objects.select_related("team")
+        queryset = HogFlow.objects.all()
 
         if hog_flow_id:
             queryset = queryset.filter(id=hog_flow_id)
@@ -67,85 +68,93 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("No HogFlows found matching criteria"))
             return
 
-        paginator = Paginator(queryset.order_by("id"), page_size)
+        paginator = Paginator(queryset.order_by("id").values_list("id", flat=True), page_size)
 
         for page_num in paginator.page_range:
             page = paginator.page(page_num)
 
             self.stdout.write(f"Processing page {page_num}/{paginator.num_pages} ({len(page.object_list)} flows)...")
 
-            for hog_flow in page.object_list:
+            for flow_id in page.object_list:
+                hog_flow = None
                 try:
-                    total_processed += 1
+                    # Reload and lock each flow just before its save. A copy loaded with the page goes
+                    # stale, and a full save of it overwrites any edit made while the page runs.
+                    with transaction.atomic():
+                        flows = HogFlow.objects if dry_run else HogFlow.objects.select_for_update()
+                        hog_flow = flows.filter(id=flow_id).first()
+                        if hog_flow is None:
+                            continue
+                        total_processed += 1
 
-                    # Create a mock request context for the serializer
-                    request = RequestFactory().post("/")
-                    if hog_flow.created_by:
-                        request.user = hog_flow.created_by
+                        # Create a mock request context for the serializer
+                        request = RequestFactory().post("/")
+                        if hog_flow.created_by:
+                            request.user = hog_flow.created_by
 
-                    def get_team_func(flow=hog_flow):
-                        return flow.team
+                        def get_team_func(flow=hog_flow):
+                            return flow.team
 
-                    serializer_context = {
-                        "request": request,
-                        "team_id": hog_flow.team_id,
-                        "get_team": get_team_func,
-                    }
+                        serializer_context = {
+                            "request": request,
+                            "team_id": hog_flow.team_id,
+                            "get_team": get_team_func,
+                        }
 
-                    # Get the current data from the HogFlow
-                    data = {
-                        "name": hog_flow.name,
-                        "description": hog_flow.description,
-                        "status": hog_flow.status,
-                        "trigger": hog_flow.trigger,
-                        "trigger_masking": hog_flow.trigger_masking,
-                        "conversion": hog_flow.conversion,
-                        "exit_condition": hog_flow.exit_condition,
-                        "edges": hog_flow.edges,
-                        "actions": hog_flow.actions,
-                        "variables": hog_flow.variables,
-                    }
+                        # Get the current data from the HogFlow
+                        data = {
+                            "name": hog_flow.name,
+                            "description": hog_flow.description,
+                            "status": hog_flow.status,
+                            "trigger": hog_flow.trigger,
+                            "trigger_masking": hog_flow.trigger_masking,
+                            "conversion": hog_flow.conversion,
+                            "exit_condition": hog_flow.exit_condition,
+                            "edges": hog_flow.edges,
+                            "actions": hog_flow.actions,
+                            "variables": hog_flow.variables,
+                        }
 
-                    # Process through serializer to regenerate bytecode
-                    serializer = HogFlowSerializer(
-                        instance=hog_flow, data=data, context=serializer_context, partial=True
-                    )
-
-                    if serializer.is_valid():
-                        if not dry_run:
-                            serializer.save()
-                        total_updated += 1
-                        logger.info(
-                            "Would refresh HogFlow" if dry_run else "Successfully refreshed HogFlow",
-                            hog_flow_id=str(hog_flow.id),
-                            team_id=hog_flow.team_id,
-                            status=hog_flow.status,
-                            name=hog_flow.name,
-                            version=hog_flow.version,
-                            dry_run=dry_run,
+                        # Process through serializer to regenerate bytecode
+                        serializer = HogFlowSerializer(
+                            instance=hog_flow, data=data, context=serializer_context, partial=True
                         )
-                    else:
-                        # A workflow that no longer validates cannot be re-saved, so it keeps whatever
-                        # it was last compiled against. Name it: the owner has to fix it or turn it off.
-                        self.stdout.write(
-                            self.style.WARNING(
-                                f"Does not validate: team {hog_flow.team_id}, workflow {hog_flow.id} ({hog_flow.name})"
+
+                        if serializer.is_valid():
+                            if not dry_run:
+                                serializer.save()
+                            total_updated += 1
+                            logger.info(
+                                "Would refresh HogFlow" if dry_run else "Successfully refreshed HogFlow",
+                                hog_flow_id=str(hog_flow.id),
+                                team_id=hog_flow.team_id,
+                                status=hog_flow.status,
+                                name=hog_flow.name,
+                                version=hog_flow.version,
+                                dry_run=dry_run,
                             )
-                        )
-                        raise Exception(f"Serializer validation failed: {serializer.errors}")
+                        else:
+                            # A workflow that no longer validates cannot be re-saved, so it keeps whatever
+                            # it was last compiled against. Name it: the owner has to fix it or turn it off.
+                            self.stdout.write(
+                                self.style.WARNING(
+                                    f"Does not validate: team {hog_flow.team_id}, workflow {hog_flow.id} ({hog_flow.name})"
+                                )
+                            )
+                            raise Exception(f"Serializer validation failed: {serializer.errors}")
 
                 except Exception as e:
                     error_count += 1
                     logger.error(
                         "Error refreshing HogFlow",
-                        hog_flow_id=str(hog_flow.id),
-                        team_id=hog_flow.team_id,
-                        status=hog_flow.status,
-                        name=hog_flow.name,
+                        hog_flow_id=str(flow_id),
+                        team_id=hog_flow.team_id if hog_flow else None,
+                        status=hog_flow.status if hog_flow else None,
+                        name=hog_flow.name if hog_flow else None,
                         error=str(e),
                         exc_info=True,
                     )
-                    self.stdout.write(self.style.ERROR(f"Error processing flow {hog_flow.id}: {str(e)}"))
+                    self.stdout.write(self.style.ERROR(f"Error processing flow {flow_id}: {str(e)}"))
 
         # Output summary
         duration = time.time() - start_time

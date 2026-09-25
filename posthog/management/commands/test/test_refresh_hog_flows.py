@@ -221,6 +221,21 @@ class TestRefreshHogFlows(BaseTest):
             self.assertIn("Check logs for details on 1 errors encountered", output)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_keeps_an_edit_made_to_a_workflow_while_the_run_is_in_progress(self, mock_reload):
+        first_saved: list[str] = []
+
+        def turn_off_the_rest_once(team_id: int, hog_flow_ids: list[str]) -> None:
+            if not first_saved:
+                first_saved.extend(hog_flow_ids)
+                HogFlow.objects.exclude(id__in=hog_flow_ids).update(status=HogFlow.State.DRAFT)
+
+        mock_reload.side_effect = turn_off_the_rest_once
+        call_command("refresh_hog_flows", stdout=StringIO())
+
+        statuses = set(HogFlow.objects.exclude(id__in=first_saved).values_list("status", flat=True))
+        assert statuses == {HogFlow.State.DRAFT}
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_refuses_a_conditional_branch_carrying_event_filters(self, mock_reload):
 
         # Create a HogFlow with conditional branch that has filters but no bytecode
