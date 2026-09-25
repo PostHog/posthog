@@ -63,6 +63,7 @@ import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsMod
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import {
+    featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
@@ -163,7 +164,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
-    const isV1Config = isV1FeatureFlagConfig(featureFlag.filters)
+    const configFormat = featureFlagConfigFormat(featureFlag.filters)
+    const isV1Config = configFormat === 'v1'
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -271,7 +273,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         ? 'Updating…'
                                         : featureFlag.archived
                                           ? 'Unarchive this flag before enabling it.'
-                                          : undefined
+                                          : configFormat === 'unsupported'
+                                            ? 'This flag is stored in a configuration version this page cannot change.'
+                                            : undefined
                                 }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'}
@@ -303,7 +307,13 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     }}
                                     fullWidth
                                     loading={isUpdating}
-                                    disabledReason={isUpdating ? 'Updating…' : undefined}
+                                    disabledReason={
+                                        isUpdating
+                                            ? 'Updating…'
+                                            : !isV1Config
+                                              ? 'Archiving is not available for this flag yet.'
+                                              : undefined
+                                    }
                                 >
                                     {featureFlag.archived ? 'Unarchive' : 'Archive'}
                                 </LemonButton>
@@ -638,9 +648,11 @@ export function OverviewTab({
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
-                            : flag.can_edit
-                              ? true
-                              : { disabledReason: "You don't have permission to edit this feature flag." },
+                            : !isV1FeatureFlagConfig(flag.filters)
+                              ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
+                              : flag.can_edit
+                                ? true
+                                : { disabledReason: "You don't have permission to edit this feature flag." },
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],

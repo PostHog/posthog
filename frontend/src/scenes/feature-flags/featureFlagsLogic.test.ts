@@ -666,8 +666,9 @@ describe('displayedFlags stability while a load is in flight', () => {
 describe('rows in config version 2', () => {
     let logic: ReturnType<typeof featureFlagsLogic.build>
 
-    const V1_ROW = { id: 1, key: 'release-v1', active: true, version: 4, filters: { groups: [] } }
-    const V2_ROW = {
+    const V1_ROW: FeatureFlagType = { ...NEW_FLAG, id: 1, key: 'release-v1', active: true, version: 4 }
+    const V2_ROW: FeatureFlagType = {
+        ...NEW_FLAG,
         id: 2,
         key: 'checkout-rules-v2',
         active: false,
@@ -725,7 +726,9 @@ describe('rows in config version 2', () => {
             .mockRejectedValueOnce({ status: 409, data: { detail: 'This feature flag has changed since version 7' } })
 
         logic.actions.updateFeatureFlag({ id: 2, payload: { active: true } })
-        await expectLogic(logic).toDispatchActions(['updateFlag', 'updateFeatureFlagFailure']).toFinishAllListeners()
+        await expectLogic(logic)
+            .toDispatchActions(['updateFlagFromPartial', 'updateFeatureFlagFailure'])
+            .toFinishAllListeners()
 
         expect(update).toHaveBeenCalledTimes(1)
         expect(logic.values.featureFlags.results.find((flag) => flag.id === 2)?.version).toBe(8)

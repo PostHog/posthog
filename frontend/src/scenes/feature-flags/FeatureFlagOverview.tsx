@@ -14,12 +14,13 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
-import { isRulesV2FeatureFlagConfig, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import { featureFlagConfigFormat, isRulesV2FeatureFlagConfig, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
-import { FeatureFlagConfigReadonlyNotice, FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
+import { FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -159,7 +160,9 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                                     disabledReason={
                                         !featureFlag.can_edit
                                             ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                            : null
+                                            : featureFlagConfigFormat(featureFlag.filters) === 'unsupported'
+                                              ? 'This flag is stored in a configuration version this page cannot change.'
+                                              : null
                                     }
                                     label="Enable feature flag"
                                     bordered

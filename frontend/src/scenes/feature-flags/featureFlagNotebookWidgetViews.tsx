@@ -13,9 +13,9 @@ import { FeatureFlagType } from '~/types'
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { featureFlagConfigFormatLabel, isV1FeatureFlagConfig } from './featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
-import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagRulesV2Readonly'
 
 export type FeatureFlagNotebookWidgetAttributes = {
     id: FeatureFlagLogicProps['id']

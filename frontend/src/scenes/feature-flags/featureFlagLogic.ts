@@ -24,7 +24,7 @@ import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -815,6 +815,11 @@ export const getRecordingFilterForFlagVariant = (
             ],
         },
     }
+}
+
+// Rows in another config version are written with their row version; a 409 without a change request is a stale one.
+function isStaleRowVersionRejection(configFormat: FeatureFlagConfigFormat, error: any): boolean {
+    return configFormat !== 'v1' && error?.status === 409 && !isApprovalRequiredError(error)
 }
 
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
@@ -3830,6 +3835,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
+            if (isStaleRowVersionRejection(values.configFormat, errorObject)) {
+                lemonToast.error(errorObject?.detail || 'This flag changed elsewhere and has been reloaded.')
+                actions.refreshFeatureFlag()
+                return
+            }
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 return
             }
@@ -3935,10 +3945,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
+            const row = values.projectsWithCurrentFlag.find((p) => p.team_id === teamId && p.flag_id === flagId)
             const updatedFlag = await updateFlagActiveInProject({
                 teamId,
                 flagId,
                 active,
+                filters: row?.filters,
                 ...(flagId === values.featureFlag.id ? values.rowVersionToken : {}),
             })
             if (!updatedFlag) {
@@ -4047,6 +4059,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
+            if (isStaleRowVersionRejection(values.configFormat, errorObject)) {
+                lemonToast.error(errorObject?.detail || 'This flag changed elsewhere and has been reloaded.')
+                actions.refreshFeatureFlag()
+                return
+            }
             // Archiving an enabled flag also disables it, which can trip the approval gate (409).
             // Surface the change-request flow instead of silently doing nothing.
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
@@ -4404,6 +4421,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                 const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     name,
+                    ...values.rowVersionToken,
                 })
                 actions.setFeatureFlag({ ...flag, name: savedFlag.name })
                 if (values.originalFeatureFlag) {
@@ -4442,6 +4460,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                 const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
                     tags,
+                    ...values.rowVersionToken,
                 })
                 // If the listener has been invoked again since this await started, bail out
                 // — the newer call owns reconciliation.

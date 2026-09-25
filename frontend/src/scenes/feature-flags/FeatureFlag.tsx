@@ -432,6 +432,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         disabledReasons={{
                                             "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
                                                 !featureFlag.can_edit,
+                                            'Archiving is not available for this flag yet.': !isV1Config,
                                         }}
                                     >
                                         {featureFlag.archived ? <IconRewind /> : <IconArchive />}

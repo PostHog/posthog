@@ -3856,6 +3856,9 @@ describe('variant reordering', () => {
 describe('a flag in config version 2', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
+    beforeEach(silenceKeaLoadersErrors)
+    afterEach(resumeKeaLoadersErrors)
+
     const V2_FLAG = {
         ...NEW_FLAG,
         id: 7,
@@ -3911,6 +3914,25 @@ describe('a flag in config version 2', () => {
         expect(logic.values.availableTabs).toEqual(
             expect.arrayContaining([FeatureFlagsTab.OVERVIEW, FeatureFlagsTab.USAGE, FeatureFlagsTab.HISTORY])
         )
+    })
+
+    it('refreshes the flag when its row version was stale instead of retrying', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, { ...V2_FLAG, version: 4 }],
+            },
+        })
+        const update = jest
+            .spyOn(api, 'update')
+            .mockRejectedValueOnce({ status: 409, data: { detail: 'This feature flag has changed since version 3' } })
+
+        logic.actions.updateFeatureFlagActive(true)
+        await expectLogic(logic)
+            .toDispatchActions(['updateFeatureFlagActiveFailure', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+            .toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledTimes(1)
+        expect(logic.values.featureFlag.version).toBe(4)
     })
 
     it('carries the row version when toggling active and when archiving', async () => {

@@ -1,41 +1,22 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagConfig, FeatureFlagRulesV2Config, FeatureFlagRulesV2Rule } from '~/types'
+import { FeatureFlagRulesV2Config, FeatureFlagRulesV2Rule } from '~/types'
 
 import { formatPercentage } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
-import { featureFlagConfigFormat, featureFlagConfigFormatLabel } from './featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from './FeatureFlagConfigReadonlyNotice'
 
 const RULE_TYPE_LABELS: Record<FeatureFlagRulesV2Rule['rule_type'], string> = {
     targeted_release: 'Targeted release',
     percentage_rollout: 'Percentage rollout',
     experiment: 'Experiment',
-}
-
-export function FeatureFlagConfigReadonlyNotice({ filters }: { filters: FeatureFlagConfig }): JSX.Element {
-    const label = featureFlagConfigFormatLabel(filters)
-    return (
-        <LemonBanner type="info">
-            {featureFlagConfigFormat(filters) === 'v2' ? (
-                <>
-                    This flag is stored as <strong>{label}</strong> and is shown read-only here. You can enable, disable
-                    and archive it; editing its rules is not available yet.
-                </>
-            ) : (
-                <>
-                    This flag is stored as <strong>{label}</strong>, which this page cannot display. You can disable and
-                    archive it.
-                </>
-            )}
-        </LemonBanner>
-    )
 }
 
 function JsonValue({ value }: { value: unknown }): JSX.Element {

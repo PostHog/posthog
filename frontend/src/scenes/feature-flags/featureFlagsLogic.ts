@@ -19,6 +19,8 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, FeatureFlagType } from '~/types'
 
+import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
+
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { isV1FeatureFlagConfig } from './featureFlagConfigFormat'
 import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
@@ -508,7 +510,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                         handleFlagApprovalRequired(e, id, actionDescription)
                         if (versioned.version !== undefined && e?.status === 409 && !isApprovalRequiredError(e)) {
                             // The row version we sent is stale: refresh the row so the next attempt carries the current one.
-                            actions.updateFlag(await api.featureFlags.get(id))
+                            const fresh = await featureFlagsRetrieve(String(values.currentProjectId), id)
+                            actions.updateFlagFromPartial({ id, active: fresh.active, version: fresh.version })
                         }
                         throw e
                     }
