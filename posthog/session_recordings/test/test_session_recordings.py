@@ -34,6 +34,7 @@ from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
 from posthog.test.persons import create_person
 
@@ -1442,6 +1443,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             # Verify the error was called multiple times and we get 503
             assert call_count > 2, f"Expected multiple calls, got {call_count}"
             assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @patch("posthog.session_recordings.session_recording_api.posthoganalytics.capture_exception")
+    def test_snapshots_missing_recording_api_credential_returns_503(self, mock_capture_exception):
+        with patch(
+            "posthog.session_recordings.session_recording_api.list_blocks",
+            side_effect=RecordingApiConfigurationError(
+                "Neither INTERNAL_API_SECRET nor RECORDING_API_JWT_SECRET is configured"
+            ),
+        ):
+            session_id = str(uuid7())
+            self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true"
+            )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        body = response.json()
+        assert body["error"] == "recording_api_not_configured"
+        assert "RECORDING_API_JWT_SECRET" in body["message"]
+        mock_capture_exception.assert_not_called()
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",

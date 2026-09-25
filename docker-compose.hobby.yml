@@ -100,7 +100,7 @@ services:
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
-            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-${POSTHOG_SECRET:?POSTHOG_SECRET must be set in .env}}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
@@ -161,7 +161,7 @@ services:
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
             OBJECT_STORAGE_ENABLED: true
             RECORDING_API_URL: http://recording-api:6738
-            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-${POSTHOG_SECRET:?POSTHOG_SECRET must be set in .env}}
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             OTEL_SERVICE_NAME: 'posthog'
             OTEL_EXPORTER_OTLP_ENDPOINT: ''
@@ -293,7 +293,7 @@ services:
             # Must resolve to the same value as the web and worker services, which send it as
             # X-Internal-Api-Secret. The JWT signing secret is deliberately left unset here, so hobby
             # stays on the legacy shared secret until that scheme is rolled out.
-            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-${POSTHOG_SECRET:?POSTHOG_SECRET must be set in .env}}
         depends_on:
             - db
             - redis7
@@ -504,7 +504,7 @@ services:
             # recording-api. Without these two the calls go out unauthenticated and
             # recording-api rejects them with a 401.
             RECORDING_API_URL: http://recording-api:6738
-            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-$POSTHOG_SECRET}
+            INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-${POSTHOG_SECRET:?POSTHOG_SECRET must be set in .env}}
             # Point Django at the Rust feature-flags container; the setting
             # otherwise defaults to localhost:3001.
             FEATURE_FLAGS_SERVICE_URL: 'http://feature-flags:3001'

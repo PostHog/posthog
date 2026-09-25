@@ -98,7 +98,11 @@ from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
     get_latest_session_event_properties,
 )
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import (
+    BlockFetchError,
+    RecordingApiConfigurationError,
+    RecordingDeletedError,
+)
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -1418,6 +1422,23 @@ class SessionRecordingViewSet(
                     "deleted_by": e.deleted_by,
                 },
                 status=status.HTTP_410_GONE,
+            )
+        except RecordingApiConfigurationError as e:
+            # A missing setting is a deployment fault that no retry can fix. The generic 500 below
+            # captures it as an exception and hides the name of the setting from the operator.
+            logger.error(  # noqa: TRY400 - a missing setting has no useful stack trace
+                "recording_api_not_configured",
+                session_id=str(recording.session_id),
+                team_id=self.team.id,
+                reason=str(e),
+            )
+            return Response(
+                {
+                    "error": "recording_api_not_configured",
+                    "message": f"Recordings can't load because this PostHog instance is missing a setting. {e}. "
+                    "Set it, then restart PostHog.",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception as e:
             posthoganalytics.capture_exception(
