@@ -55,7 +55,7 @@ describe('TeamService', () => {
             await teamService.getTeamByToken('valid-token-2')
 
             // Advance time but not enough to trigger refresh
-            jest.advanceTimersByTime(4 * 60 * 1000) // 4 minutes (refresh is 5 minutes)
+            jest.advanceTimersByTime(3 * 60 * 1000) // 3 minutes (the shortest refresh period is 4 minutes)
 
             await teamService.getTeamByToken('valid-token')
             await teamService.getTeamByToken('valid-token-2')
@@ -67,7 +67,7 @@ describe('TeamService', () => {
             await teamService.getTeamByToken('valid-token')
             expect(fetchSpy).toHaveBeenCalledTimes(1)
 
-            // Move time forward past the refresh interval
+            // Move time forward past the longest refresh period (4 minutes plus up to 1 minute of jitter)
             jest.advanceTimersByTime(5 * 60 * 1000 + 1)
 
             // This should trigger a refresh
