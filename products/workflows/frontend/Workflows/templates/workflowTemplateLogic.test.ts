@@ -102,7 +102,7 @@ describe('workflowTemplateLogic', () => {
                 updated_at: '2024-01-02T00:00:00Z',
                 actions: [],
                 edges: [],
-                conversion: { window_minutes: 0, filters: [] },
+                conversion: { filters: [] },
                 exit_condition: 'exit_only_at_end',
             }
 
@@ -147,7 +147,7 @@ describe('workflowTemplateLogic', () => {
                 updated_at: '2024-01-02T00:00:00Z',
                 actions: [],
                 edges: [],
-                conversion: { window_minutes: 0, filters: [] },
+                conversion: { filters: [] },
                 exit_condition: 'exit_only_at_end',
             }
 
@@ -234,7 +234,7 @@ describe('workflowTemplateLogic', () => {
                     },
                 ],
                 edges: [{ from: 'trigger_node', to: 'function-action-1', type: 'continue' }],
-                conversion: { window_minutes: 0, filters: [] },
+                conversion: { filters: [] },
                 exit_condition: 'exit_only_at_end',
             }
         }
@@ -426,7 +426,7 @@ describe('workflowTemplateLogic', () => {
                 },
             ],
             edges: [],
-            conversion: { window_minutes: 0, filters: [] },
+            conversion: { filters: [] },
             exit_condition: 'exit_only_at_end',
         })
 

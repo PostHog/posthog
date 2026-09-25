@@ -65,6 +65,12 @@ from products.signals.backend.ranking.features import (
     Extras,
     FeatureSet,
 )
+from products.signals.backend.ranking.model_contract import (
+    model_feature_set,
+    model_mismatch,
+    readable_head_names,
+    trained_head_files,
+)
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ServingManifest, serving_manifest_key
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
@@ -139,15 +145,11 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     head_grades,
     leaked_report_ids,
     missing_label_columns,
-    model_feature_set,
-    model_mismatch,
-    readable_head_names,
     report_grade_rows,
     score_event_rows,
     score_pool,
     scored_pool,
     scores_table,
-    trained_head_files,
     unseen_pool,
     with_model_names,
 )
@@ -971,7 +973,7 @@ def load_family_models(
             context.log.warning(f"{model_name} {role} {metadata.get('model_version')} not scored: {mismatch}")
             continue
         boosters = {}
-        for head_name, filename in trained_head_files(metadata).items():
+        for head_name, filename in trained_head_files(metadata, HEADS_BY_NAME).items():
             body = _read_bytes_if_exists(
                 client, bucket, model_object_key(prefix, model_name, metadata["model_version"], filename)
             )
