@@ -1,5 +1,5 @@
 import { Replayer } from 'posthog-js/rrweb'
-import { EventType, type eventWithTime } from 'posthog-js/rrweb-types'
+import { EventType } from 'posthog-js/rrweb-types'
 
 import {
     AudioMuteReplayerPlugin,
@@ -10,6 +10,7 @@ import {
     noOpTelemetry,
     processAllSnapshots,
     createSegments,
+    getHrefFromSnapshot,
     mapSnapshotsToWindowId,
     mergeInactiveSegments,
     type ProcessingCache,
@@ -19,22 +20,21 @@ import {
 
 import { loadAllSources } from './data-loader'
 import type { HostBridge } from './host-bridge'
+import type { PlaybackWindow } from './playback-controller'
 import type { PlayerConfig, ViewportEvent } from './types'
 
-/** Extract the page URL from an rrweb Meta event, if present. */
-export function getMetaHref(event: eventWithTime): string | undefined {
-    if (event.type === EventType.Meta) {
-        return (event.data as { href?: string })?.href
-    }
-    return undefined
+export interface ReplayerWindow extends PlaybackWindow {
+    /** The element the window's replayer renders into, shown only while the window is on screen. */
+    root: HTMLElement
+    /** The first page URL the window recorded, before any event has played. */
+    initialURL: string
 }
 
 export interface ReplayerSetup {
-    replayer: Replayer
-    events: eventWithTime[]
+    /** Ordered by when each window first appears in the recording. */
+    windows: ReplayerWindow[]
     segments: RecordingSegment[]
     firstTimestamp: number
-    initialURL: string
 }
 
 function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => ViewportResolution | undefined {
@@ -66,7 +66,7 @@ function buildViewportLookup(events: ViewportEvent[]): (timestamp: number) => Vi
 
 /**
  * Load recording data, process snapshots, build segments, and create
- * an rrweb Replayer — but don't start playback.
+ * one rrweb Replayer per recorded window — but don't start playback.
  *
  * Returns null if no snapshots are available after processing.
  */
@@ -105,31 +105,41 @@ export async function createReplayer(
     )
     const segments = mergeInactiveSegments(rawSegments)
     const firstTimestamp = snapshots[0].timestamp
-    const events: eventWithTime[] = [...snapshots]
-
-    const replayer = new Replayer(events, {
-        root: rootEl,
-        ...COMMON_REPLAYER_CONFIG,
-        insertStyleRules: [
-            ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
-            ...(config.playbackSpeed >= 2
-                ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
-                : []),
-        ],
-        mouseTail: config.mouseTail,
-        useVirtualDom: false,
-        plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(events)],
-        speed: config.playbackSpeed,
-    })
-
-    let initialURL = ''
-    for (const e of events) {
-        const href = getMetaHref(e)
-        if (href) {
-            initialURL = href
-            break
+    const windows: ReplayerWindow[] = []
+    for (const [windowId, windowEvents] of Object.entries(snapshotsByWindowId)) {
+        // rrweb cannot build a page without a full snapshot, so such a window has nothing to show.
+        if (!windowEvents.some((event) => event.type === EventType.FullSnapshot)) {
+            continue
         }
+        const root = document.createElement('div')
+        root.style.display = 'none'
+        rootEl.appendChild(root)
+        const replayer = new Replayer(windowEvents, {
+            root,
+            ...COMMON_REPLAYER_CONFIG,
+            insertStyleRules: [
+                ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
+                ...(config.playbackSpeed >= 2
+                    ? ['*, *::before, *::after { animation: none !important; transition: none !important; }']
+                    : []),
+            ],
+            mouseTail: config.mouseTail,
+            useVirtualDom: false,
+            plugins: [CorsPlugin, HLSPlayerPlugin, AudioMuteReplayerPlugin(true), CanvasReplayerPlugin(windowEvents)],
+            speed: config.playbackSpeed,
+        })
+        windows.push({
+            windowId: Number(windowId),
+            replayer,
+            root,
+            initialURL: windowEvents.map(getHrefFromSnapshot).find(Boolean) ?? '',
+            firstTimestamp: windowEvents[0].timestamp,
+        })
     }
+    if (!windows.length) {
+        return null
+    }
+    windows.sort((a, b) => a.firstTimestamp - b.firstTimestamp)
 
-    return { replayer, events, segments, firstTimestamp, initialURL }
+    return { windows, segments, firstTimestamp }
 }

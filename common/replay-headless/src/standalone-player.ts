@@ -20,14 +20,13 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         return
     }
 
-    const { replayer, segments, firstTimestamp } = setup
+    const { windows, segments, firstTimestamp } = setup
 
     const footerHeight = config.showMetadataFooter ? 32 : 0
     const scaler = new ViewportScaler(contentEl, footerHeight)
-    scaler.attachToReplayer(replayer)
 
     const controller = new PlaybackController(
-        replayer,
+        windows,
         segments,
         firstTimestamp,
         {
@@ -36,9 +35,18 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
         },
         bridge
     )
+    for (const tab of windows) {
+        scaler.attachToReplayer(tab.replayer, () => controller.activeWindow === tab)
+    }
+    controller.onWindowChange((onScreen) => {
+        for (const tab of windows) {
+            tab.root.style.display = tab === onScreen ? '' : 'none'
+        }
+        scaler.fitReplayer(onScreen.replayer)
+    })
 
     if (config.showMetadataFooter) {
-        const footer = new MetadataFooter(replayer, segments, firstTimestamp, controller, setup.initialURL)
+        const footer = new MetadataFooter(windows, segments, firstTimestamp, controller)
         footer.start()
     }
 

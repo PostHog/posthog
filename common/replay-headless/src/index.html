@@ -29,13 +29,17 @@
             font-size: 14px;
             padding: 4px 8px 8px 8px;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             gap: 16px;
             white-space: nowrap;
             overflow: hidden;
         }
         #metadata-footer .label { font-weight: bold; }
-        #metadata-footer .url { overflow: hidden; text-overflow: ellipsis; }
+        /* Fixed widths in the monospace font, so REC_T and the window never move as their values change. */
+        #metadata-footer .rect { flex: 0 0 13ch; }
+        #metadata-footer .window { flex: 0 0 16ch; }
+        #metadata-footer .url { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        #meta-status { flex: 0 0 auto; margin-left: auto; }
         #metadata-footer .status-ended { font-weight: bold; color: #4ade80; }
         #metadata-footer .status-idle { font-weight: bold; color: #facc15; }
         .PlayerFrame__content .replayer-wrapper { position: relative; }
@@ -51,8 +55,9 @@
     <div class="PlayerFrame">
         <div class="PlayerFrame__content-wrapper"><div class="PlayerFrame__content"></div></div>
         <div id="metadata-footer">
+            <span class="rect"><span class="label">REC_T:</span> <span id="meta-rect"></span></span>
+            <span class="window"><span class="label">Window</span> <span id="meta-window"></span></span>
             <span class="url"><span class="label">URL:</span> <span id="meta-url"></span></span>
-            <span><span class="label">REC_T:</span> <span id="meta-rect"></span></span>
             <span id="meta-status"></span>
         </div>
     </div>

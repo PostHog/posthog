@@ -1,7 +1,7 @@
 import type { RecordingSegment } from '@posthog/replay-shared'
 
 import type { HostBridge } from '../host-bridge'
-import { PlaybackController } from '../playback-controller'
+import { PlaybackController, type PlaybackWindow } from '../playback-controller'
 
 function makeSegment(
     overrides: Partial<RecordingSegment> & Pick<RecordingSegment, 'startTimestamp' | 'endTimestamp'>
@@ -37,19 +37,23 @@ function mockReplayer() {
     }
 }
 
+function oneWindow(replayer: ReturnType<typeof mockReplayer>, firstTimestamp: number): PlaybackWindow[] {
+    return [{ windowId: 1, replayer: replayer as any, firstTimestamp }]
+}
+
 describe('PlaybackController', () => {
     describe('lifecycle', () => {
         it('starts not stopped', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const controller = new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
             expect(controller.isStopped).toBe(false)
         })
 
         it('signals ended on stop()', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const controller = new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
 
             controller.stop()
 
@@ -60,7 +64,7 @@ describe('PlaybackController', () => {
         it('stop() is idempotent', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const controller = new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
 
             controller.stop()
             controller.stop()
@@ -72,7 +76,7 @@ describe('PlaybackController', () => {
         it('calls replayer.play with startOffset on start()', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const controller = new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
 
             controller.start(5000)
 
@@ -84,7 +88,7 @@ describe('PlaybackController', () => {
         it('stops when replayer emits finish', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const _controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const _controller = new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
 
             replayer._emit('finish')
 
@@ -99,7 +103,7 @@ describe('PlaybackController', () => {
             const bridge = mockBridge()
             // firstTimestamp=1000, endOffsetS=4 → absolute cutoff at 1000 + 4*1000 = 5000
             const _controller = new PlaybackController(
-                replayer as any,
+                oneWindow(replayer, 1000),
                 [],
                 1000,
                 {
@@ -121,7 +125,7 @@ describe('PlaybackController', () => {
         it('does not register event-cast listener when no endOffsetS', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            new PlaybackController(replayer as any, [], 0, {}, bridge)
+            new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
 
             const eventCastCalls = replayer.on.mock.calls.filter((c: any[]) => c[0] === 'event-cast')
             expect(eventCastCalls).toHaveLength(0)
@@ -136,7 +140,7 @@ describe('PlaybackController', () => {
             const replayer = mockReplayer()
             const bridge = mockBridge()
             const segments = [makeSegment({ startTimestamp: 0, endTimestamp: 5000, isActive: false, kind: 'gap' })]
-            const controller = new PlaybackController(replayer as any, segments, 0, {}, bridge)
+            const controller = new PlaybackController(oneWindow(replayer, 0), segments, 0, {}, bridge)
 
             controller.start(0)
             rafSpy.mock.calls[0][0](0)
@@ -151,7 +155,7 @@ describe('PlaybackController', () => {
             const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0)
             const replayer = mockReplayer()
             const bridge = mockBridge()
-            const controller = new PlaybackController(replayer as any, [], 0, {}, bridge)
+            const controller = new PlaybackController(oneWindow(replayer, 0), [], 0, {}, bridge)
 
             controller.start(0)
             rafSpy.mock.calls[0][0](0)
@@ -179,7 +183,7 @@ describe('PlaybackController', () => {
                 }),
             ]
             const controller = new PlaybackController(
-                replayer as any,
+                oneWindow(replayer, 1000),
                 segments,
                 1000,
                 {
@@ -225,7 +229,7 @@ describe('PlaybackController', () => {
             replayer.getCurrentTime.mockReturnValue(6000)
 
             const controller = new PlaybackController(
-                replayer as any,
+                oneWindow(replayer, 1000),
                 segments,
                 1000,
                 {
@@ -264,7 +268,7 @@ describe('PlaybackController', () => {
             replayer.getCurrentTime.mockReturnValue(2000)
 
             const controller = new PlaybackController(
-                replayer as any,
+                oneWindow(replayer, 1000),
                 segments,
                 1000,
                 {
@@ -282,6 +286,66 @@ describe('PlaybackController', () => {
             expect(replayer.play).not.toHaveBeenCalled()
 
             jest.restoreAllMocks()
+        })
+    })
+
+    describe('multiple windows', () => {
+        function twoWindows(): {
+            a: ReturnType<typeof mockReplayer>
+            b: ReturnType<typeof mockReplayer>
+            windows: PlaybackWindow[]
+            segments: RecordingSegment[]
+        } {
+            const a = mockReplayer()
+            const b = mockReplayer()
+            return {
+                a,
+                b,
+                windows: [
+                    { windowId: 1, replayer: a as any, firstTimestamp: 1000 },
+                    { windowId: 2, replayer: b as any, firstTimestamp: 3000 },
+                ],
+                segments: [
+                    makeSegment({ startTimestamp: 1000, endTimestamp: 5000, windowId: 1 }),
+                    makeSegment({ startTimestamp: 5000, endTimestamp: 9000, windowId: 2 }),
+                ],
+            }
+        }
+
+        it('hands playback to the window that owns the next segment', () => {
+            let rafCallback: FrameRequestCallback | null = null
+            jest.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+                rafCallback = cb
+                return 0
+            })
+            const { a, b, windows, segments } = twoWindows()
+            const controller = new PlaybackController(windows, segments, 1000, {}, mockBridge())
+            const shown: number[] = []
+            controller.onWindowChange((tab) => shown.push(tab.windowId))
+
+            controller.start(0)
+            a.getCurrentTime.mockReturnValue(4500)
+            rafCallback!(0)
+
+            expect(a.pause).toHaveBeenCalled()
+            expect(b.play).toHaveBeenCalledWith(2500)
+            expect(shown).toEqual([1, 2])
+            expect(controller.getFrameSessionMs()).toEqual([4500])
+
+            jest.restoreAllMocks()
+        })
+
+        it('continues in another window when the one on screen runs out of events', () => {
+            const { a, b, windows, segments } = twoWindows()
+            const bridge = mockBridge()
+            const controller = new PlaybackController(windows, segments, 1000, {}, bridge)
+
+            a.getCurrentTime.mockReturnValue(3000)
+            a._emit('finish')
+
+            expect(controller.isStopped).toBe(false)
+            expect(controller.activeWindow.windowId).toBe(2)
+            expect(b.play).toHaveBeenCalledWith(2000)
         })
     })
 })
