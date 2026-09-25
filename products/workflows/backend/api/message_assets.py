@@ -325,6 +325,8 @@ def fetch_message_assets_for_person(
 # URLs resolve as before.
 _NEW_TAB_BASE_TAG = '<base target="_blank">'
 _HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^>]*)?>", re.IGNORECASE)
+# Any tag before the doctype puts the page in quirks mode, so with no head the base tag goes after it.
+_LEADING_DOCTYPE = re.compile(r"\s*<!doctype\b[^>]*>", re.IGNORECASE)
 _LINK_OPEN_TAG = re.compile(r"""<(?:a|area)\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
 # Requires whitespace before `target` so a `&target=` inside a click-tracking href is left alone.
 _TARGET_ATTRIBUTE = re.compile(r"""(\s)target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)""", re.IGNORECASE)
@@ -332,10 +334,10 @@ _TARGET_ATTRIBUTE = re.compile(r"""(\s)target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+
 
 def with_new_tab_link_target(html: str) -> str:
     html = _LINK_OPEN_TAG.sub(lambda tag: _TARGET_ATTRIBUTE.sub(r'\1target="_blank"', tag.group(0)), html)
-    head_open_tag = _HEAD_OPEN_TAG.search(html)
-    if head_open_tag is None:
+    insert_after = _HEAD_OPEN_TAG.search(html) or _LEADING_DOCTYPE.match(html)
+    if insert_after is None:
         return _NEW_TAB_BASE_TAG + html
-    return html[: head_open_tag.end()] + _NEW_TAB_BASE_TAG + html[head_open_tag.end() :]
+    return html[: insert_after.end()] + _NEW_TAB_BASE_TAG + html[insert_after.end() :]
 
 
 def fetch_message_asset_html(

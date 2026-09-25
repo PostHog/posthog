@@ -201,6 +201,11 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
                 '<html><head><base target="_blank">',
             ),
             ("without_head", "<div>hi</div>", '<base target="_blank"><div>hi</div>'),
+            (
+                "doctype_without_head",
+                '<!doctype html><meta charset="utf-8"><pre>hi</pre>',
+                '<!doctype html><base target="_blank"><meta charset="utf-8">',
+            ),
         ]
     )
     def test_content_sends_link_clicks_to_a_new_tab(self, _name: str, html: str, expected_prefix: str):
