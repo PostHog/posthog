@@ -108,13 +108,9 @@ class SkillVersionActionsMixin(SkillAccessMixin):
     @llma_track_latency("llma_skills_publish_by_name")
     @monitor(feature=None, endpoint="llma_skills_publish_by_name", method="PATCH")
     def update_by_name(self, request: Request, skill_name: str = "", **kwargs) -> Response:
-        auth_error = self._ensure_web_authenticated(request)
-        if auth_error is not None:
-            return auth_error
-
-        access_error = self._guard_object_access(request, skill_name)
-        if access_error is not None:
-            return access_error
+        guard_error = self._guard_write(request, skill_name)
+        if guard_error is not None:
+            return guard_error
 
         payload = LLMSkillPublishSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -194,8 +190,12 @@ class SkillVersionActionsMixin(SkillAccessMixin):
             if base_version is not None and base_version != current_latest.version:
                 return version_conflict_response(current_latest.version)
             set_skill_owners(self.team, skill_name, owner_users)
+        # Reread outside the transaction, so an archive landing in between can leave nothing to
+        # serialize. Answer that the same way every other `name/<slug>` action answers it.
         refreshed = get_skill_by_name_from_db(self.team, skill_name=skill_name)
-        return Response(self._serialize_skill(cast(LLMSkill, refreshed)))
+        if refreshed is None:
+            return self._skill_not_found_response(skill_name)
+        return Response(self._serialize_skill(refreshed))
 
     def _publish_version(
         self,
