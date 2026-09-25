@@ -1463,3 +1463,29 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response_restricted, CachedEventsQueryResponse)
         person_restricted = response_restricted.results[0][0]
         assert "email" not in person_restricted["properties"]
+
+    @parameterized.expand(
+        [
+            ("relative_window", "-1h", None, 2),
+            ("pinned_window", "2020-01-12T00:00:00", "2020-01-12T23:59:59", 1),
+        ]
+    )
+    def test_cached_results_are_reused_only_for_a_pinned_window(
+        self, _name: str, after: str, before: str | None, expected_rows_on_second_run: int
+    ):
+        with time_machine.travel("2020-01-12T12:30:00Z", tick=False):
+            self._create_events(data=[("p1", "2020-01-12T12:00:00", {})])
+            flush_persons_and_events()
+
+            query = EventsQuery(select=["*"], after=after, before=before, orderBy=["timestamp ASC"])
+
+            first_response = EventsQueryRunner(query=query, team=self.team).run()
+            assert isinstance(first_response, CachedEventsQueryResponse)
+            assert len(first_response.results) == 1
+
+            self._create_events(data=[("p2", "2020-01-12T12:20:00", {})])
+            flush_persons_and_events()
+
+            second_response = EventsQueryRunner(query=query, team=self.team).run()
+            assert isinstance(second_response, CachedEventsQueryResponse)
+            assert len(second_response.results) == expected_rows_on_second_run

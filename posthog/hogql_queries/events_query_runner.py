@@ -24,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.caching.utils import ThresholdMode, is_stale
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
@@ -35,7 +36,7 @@ from posthog.models.element import chain_to_elements
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, relative_date_parse_with_delta_mapping
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 
@@ -407,6 +408,40 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             },
             timings=self.timings,
         )
+
+    def _pinned_boundary(self, boundary: str) -> datetime | None:
+        timestamp = split_pagination_cursor(boundary)[0]
+        parsed, delta_mapping, _ = relative_date_parse_with_delta_mapping(timestamp, self.team.timezone_info)
+        return parsed if delta_mapping is None else None
+
+    @cached_property
+    def _pinned_date_to(self) -> datetime | None:
+        """The end of the queried window, but only when both ends of it are pinned to fixed instants.
+
+        `None` means an end moves with the clock, so the window a cached result covers has already
+        slid past and every event since that calculation is missing from it.
+        """
+        before, after = self.query.before, self.query.after
+        if before is None or after is None:
+            return None
+        date_to = self._pinned_boundary(before)
+        if date_to is None:
+            return None
+        if after != "all" and self._pinned_boundary(after) is None:
+            return None
+        return date_to
+
+    def _is_stale(self, last_refresh: datetime | None, lazy: bool = False) -> bool:
+        date_to = self._pinned_date_to
+        if date_to is None:
+            return True
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return is_stale(self.team, date_to=date_to, interval=None, last_refresh=last_refresh, mode=mode)
+
+    def cache_target_age(self, last_refresh: datetime | None, lazy: bool = False) -> datetime | None:
+        if last_refresh is not None and self._pinned_date_to is None:
+            return last_refresh
+        return super().cache_target_age(last_refresh, lazy=lazy)
 
     def _order_by_exprs(
         self,
