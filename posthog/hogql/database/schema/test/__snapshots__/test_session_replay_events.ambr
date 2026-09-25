@@ -2,7 +2,7 @@
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_by_console_log_text
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
+  FROM session_replay_events GLOBAL
   LEFT JOIN
     (SELECT console_logs_log_entries.message AS message,
             console_logs_log_entries.log_source_id AS log_source_id
@@ -30,7 +30,7 @@
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_by_console_log_text_and_level
   '''
   SELECT DISTINCT session_replay_events.session_id AS session_id
-  FROM session_replay_events
+  FROM session_replay_events GLOBAL
   LEFT JOIN
     (SELECT console_logs_log_entries.message AS message,
             console_logs_log_entries.level AS level,
@@ -60,7 +60,7 @@
 # name: TestFilterSessionReplaysByConsoleLogs.test_select_log_text
   '''
   SELECT DISTINCT raw_session_replay_events__console_logs.message AS message
-  FROM session_replay_events
+  FROM session_replay_events GLOBAL
   LEFT JOIN
     (SELECT console_logs_log_entries.message AS message,
             console_logs_log_entries.level AS level,
