@@ -13,7 +13,7 @@ imports, so the schema API can call it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
@@ -159,9 +159,21 @@ def hand_reset_to_capture_if_sync_running(schema: ExternalDataSchema, logger: Fi
     except Exception:
         # Capture pauses the schedule again before it resets the table.
         logger.warning("cdc_reset_schedule_pause_failed", schema_id=str(schema.id), exc_info=True)
-    pending = {"clear_deferred_runs": True, "trigger": True}
-    update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_RESET_PENDING_KEY: pending})
+
+    def merge_pending(config: dict[str, Any]) -> None:
+        # Merged, not replaced: a reset already waiting on a slot must keep waiting, or the snapshot
+        # this hands over would start before capture has a point to resume from.
+        current = config.get(CDC_RESET_PENDING_KEY)
+        fields = dict(current) if isinstance(current, dict) else {}
+        fields["clear_deferred_runs"] = True
+        fields["trigger"] = True
+        config[CDC_RESET_PENDING_KEY] = fields
+
+    persisted = update_sync_type_config_keys(schema.id, schema.team_id, mutate=merge_pending)
     # Only this key in memory, so a caller that saves the schema afterwards keeps its own edits.
-    schema.sync_type_config = {**(schema.sync_type_config or {}), CDC_RESET_PENDING_KEY: pending}
+    schema.sync_type_config = {
+        **(schema.sync_type_config or {}),
+        CDC_RESET_PENDING_KEY: persisted[CDC_RESET_PENDING_KEY],
+    }
     logger.info("cdc_reset_handed_to_capture", schema_id=str(schema.id))
     return True

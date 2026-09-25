@@ -4036,9 +4036,17 @@ class TestBufferedIngressCapture:
         assert MockBufferWriter.return_value.write_batch.called is not waits
         reader.confirm_position.assert_called_once_with("0/100")
 
+    @parameterized.expand(
+        [
+            ("schedule_recreated", None, False),
+            ("recovery_failed", RuntimeError("temporal down"), True),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
-    def test_a_handed_over_reset_recreates_a_schedule_that_is_gone(self, MockBufferWriter, _mock_purge):
+    def test_a_handed_over_reset_recreates_a_schedule_that_is_gone(
+        self, _name, create_error, stays_pending, MockBufferWriter, _mock_purge
+    ):
         # Unpausing a schedule that is gone succeeds silently, so the trigger is the first call to
         # see it missing. Left there, the table would carry a reset with nothing to run it, while
         # the request that handed the reset over would have recreated the schedule itself.
@@ -4057,12 +4065,16 @@ class TestBufferedIngressCapture:
                 "products.data_warehouse.backend.facade.api.trigger_external_data_workflow",
                 side_effect=RPCError("schedule not found", RPCStatusCode.NOT_FOUND, b""),
             ),
-            patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow") as create_schedule,
+            patch(
+                "products.data_warehouse.backend.facade.api.sync_external_data_job_workflow",
+                side_effect=create_error,
+            ) as create_schedule,
         ):
             self._run(MockBufferWriter, events, [schema], source)
 
         create_schedule.assert_called_once_with(schema, create=True, should_sync=True)
-        assert "cdc_reset_pending" not in schema.sync_type_config
+        # A snapshot that never started keeps the key, so a later run repeats the reset and its start.
+        assert ("cdc_reset_pending" in schema.sync_type_config) is stays_pending
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")

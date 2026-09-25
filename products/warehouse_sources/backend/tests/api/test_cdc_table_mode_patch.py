@@ -238,6 +238,42 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
     mock_trigger.assert_not_called()
 
 
+def test_a_hand_over_keeps_a_reset_that_is_still_waiting_on_a_slot(team, user, client: HttpClient):
+    # Replacing the key instead of merging into it would drop `awaiting_slot`, and the next capture
+    # run would start the snapshot before slot recovery has a point for it to resume from.
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        sync_type_config={
+            **schema.sync_type_config,
+            "cdc_reset_pending": {"clear_deferred_runs": False, "awaiting_slot": True},
+        }
+    )
+    ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        schema=schema,
+        status=ExternalDataJob.Status.RUNNING,
+        workflow_id="running-workflow-id",
+    )
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
+        mock.patch(_PATCH_TARGETS["cancel_external_data_workflow"]),
+        mock.patch(_PATCH_TARGETS["pause_external_data_schedule"]),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]),
+    ):
+        response = client.post(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/resync")
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_reset_pending"] == {
+        "clear_deferred_runs": True,
+        "trigger": True,
+        "awaiting_slot": True,
+    }
+
+
 @pytest.mark.parametrize(("should_sync_before", "should_sync_after"), [(True, False), (False, True)])
 def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient, should_sync_before, should_sync_after):
     # Capture skips a table while its sync is off, so its buffer has a gap. A marker left behind would

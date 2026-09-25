@@ -1653,16 +1653,20 @@ class CDCExtractActivity:
         except Exception:
             schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
             return
+        # A reset handed over by a request starts its snapshot now, as the request would have. The
+        # key is dropped only once that snapshot is under way, so a failed start is retried too.
+        if isinstance(pending, dict) and pending.get("trigger") and not self._trigger_resnapshot(schema):
+            return
         self._update_schema_sync_type_config(schema, removes=[CDC_RESET_PENDING_KEY])
-        # A reset handed over by a request starts its snapshot now, as the request would have.
-        if isinstance(pending, dict) and pending.get("trigger"):
-            self._trigger_resnapshot(schema)
 
-    def _trigger_resnapshot(self, schema: ExternalDataSchema) -> None:
+    def _trigger_resnapshot(self, schema: ExternalDataSchema) -> bool:
         """Start the snapshot for a reset a request handed over, recovering a missing schedule first.
 
         Unpausing a schedule that is gone succeeds silently, so without the recovery the table would
         keep a reset nothing runs. The request recovers the same way when it triggers the sync itself.
+
+        Returns whether the snapshot started. The reset stays pending otherwise, and a later run
+        repeats it rather than leaving the table with a snapshot nobody asked for again.
         """
         # Deferred: data_load.service participates in the CDC schedule<->workflow import cycle.
         from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
@@ -1673,22 +1677,23 @@ class CDCExtractActivity:
         schema_log = self._schema_log(schema)
         try:
             trigger_external_data_workflow(schema)
-            return
+            return True
         except RPCError as e:
             # Recovery builds the schedule from the table's own cadence, so one without it has
             # nothing to build from, and a table whose sync is off must not get one that fires a run.
             if e.status != RPCStatusCode.NOT_FOUND or not schema.should_sync or schema.sync_frequency_interval is None:
                 schema_log.warning("failed_to_trigger_resnapshot", schema_id=str(schema.id), exc_info=True)
-                return
+                return False
         except Exception:
-            # The schedule runs again, so the snapshot still starts at its next interval.
             schema_log.warning("failed_to_trigger_resnapshot", schema_id=str(schema.id), exc_info=True)
-            return
+            return False
         try:
             # Creating the schedule fires its first run, which is the snapshot this reset owes.
             sync_external_data_job_workflow(schema, create=True, should_sync=True)
         except Exception:
             schema_log.warning("failed_to_recover_schema_schedule", schema_id=str(schema.id), exc_info=True)
+            return False
+        return True
 
     def _pause_cdc_extraction_schedule(self) -> None:
         """Pause the source's CDC extraction schedule after a non-retryable failure (best-effort)."""
