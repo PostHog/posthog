@@ -11559,6 +11559,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -33609,6 +33613,18 @@
                     "$ref": "#/definitions/integer",
                     "description": "Calls in the previous period: the same length of time right before the window, or for a to-date range (\"This month\") the same part of the previous unit."
                 },
+                "previous_error_rate_pct": {
+                    "description": "Error rate in the previous period, or null when the tool had no calls then.",
+                    "type": ["number", "null"]
+                },
+                "previous_p95_duration_ms": {
+                    "description": "p95 duration in the previous period, or null when the tool had no calls then.",
+                    "type": ["number", "null"]
+                },
+                "previous_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions that called the tool in the previous period."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33722,6 +33738,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -48287,6 +48307,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "previousTotalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "The same total for the previous period, the denominator for each row's previous session share."
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",

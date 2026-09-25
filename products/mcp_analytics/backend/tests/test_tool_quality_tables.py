@@ -252,6 +252,36 @@ class TestMCPToolQualityRowsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickh
 
         assert (response.results[0].sessions, response.totalSessions) == (2, 2)
 
+    def test_previous_sessions_and_previous_total_sessions(self) -> None:
+        now = datetime.now(tz=UTC)
+        previous_window = now - timedelta(days=10)
+        _emit(self.team, tool_name="query_run", session_id="old_1", timestamp=previous_window)
+        _emit(self.team, tool_name="insight_get", session_id="old_2", timestamp=previous_window)
+        _emit(self.team, tool_name="insight_get", session_id="old_3", timestamp=previous_window)
+        _emit(self.team, tool_name="query_run", session_id="new_1", timestamp=now)
+        flush_persons_and_events()
+
+        response = self._run()
+
+        assert [(row.tool, row.sessions, row.previous_sessions) for row in response.results] == [("query_run", 1, 1)]
+        assert (response.totalSessions, response.previousTotalSessions) == (1, 3)
+
+    def test_previous_error_rate_and_p95_come_from_the_previous_window_only(self) -> None:
+        now = datetime.now(tz=UTC)
+        previous_window = now - timedelta(days=10)
+        _emit(self.team, tool_name="steady_tool", is_error=True, duration_ms=1000, timestamp=previous_window)
+        for _ in range(3):
+            _emit(self.team, tool_name="steady_tool", duration_ms=1000, timestamp=previous_window)
+        _emit(self.team, tool_name="steady_tool", duration_ms=100, timestamp=now)
+        _emit(self.team, tool_name="new_tool", timestamp=now)
+        flush_persons_and_events()
+
+        rows = {row.tool: row for row in self._run().results}
+
+        assert (rows["steady_tool"].error_rate_pct, rows["steady_tool"].previous_error_rate_pct) == (0, 25)
+        assert (rows["steady_tool"].p95_duration_ms, rows["steady_tool"].previous_p95_duration_ms) == (100, 1000)
+        assert (rows["new_tool"].previous_error_rate_pct, rows["new_tool"].previous_p95_duration_ms) == (None, None)
+
     def test_tool_with_only_previous_calls_is_absent_and_excluded_from_total_count(self) -> None:
         now = datetime.now(tz=UTC)
         _emit(self.team, tool_name="old_only_tool", timestamp=now - timedelta(days=10))

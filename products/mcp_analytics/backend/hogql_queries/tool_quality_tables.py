@@ -189,7 +189,6 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
         sort_direction = cast(Literal["ASC", "DESC"], self.query.sortDirection or "DESC")
 
         current_range = self.query_date_range
-        previous = self.previous_window
 
         query = parse_select(
             """
@@ -209,18 +208,25 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 (total_calls - previous_calls)
                     / (previous_calls + greatest({_min_k}, round({_volume_fraction} * sum(total_calls) OVER ())))
                     AS trend_score,
-                count() OVER () AS total_count
+                count() OVER () AS total_count,
+                if(previous_calls = 0, NULL, round(previous_errors * 100.0 / previous_calls, 1))
+                    AS previous_error_rate_pct,
+                if(previous_calls = 0 OR isNaN(previous_p95), NULL, previous_p95) AS previous_p95_duration_ms,
+                previous_sessions
             FROM (
                 SELECT
                     tool,
                     countIf(is_current) AS total_calls,
                     countIf(NOT is_current) AS previous_calls,
                     countIf(is_current AND is_error) AS errors,
+                    countIf(NOT is_current AND is_error) AS previous_errors,
                     round(quantileIf(0.5)(duration_ms, is_current)) AS p50_duration_ms,
                     round(quantileIf(0.95)(duration_ms, is_current)) AS p95_duration_ms,
+                    round(quantileIf(0.95)(duration_ms, NOT is_current)) AS previous_p95,
                     round(quantileIf(0.99)(duration_ms, is_current)) AS p99_duration_ms,
                     uniqIf(distinct_id, is_current) AS users,
                     uniqIf(session_id, is_current) AS sessions,
+                    uniqIf(session_id, NOT is_current) AS previous_sessions,
                     minIf(timestamp, is_current) AS first_seen,
                     maxIf(timestamp, is_current) AS last_seen
                 FROM (
@@ -250,16 +256,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 "_volume_fraction": ast.Constant(value=_TREND_SCORE_VOLUME_FRACTION),
                 # Scans only the two windows, so every row outside the current one is a previous call.
                 "where": _named_tool_where(
-                    ast.Or(
-                        exprs=[
-                            _within(
-                                _hogql_datetime(previous.date_from),
-                                _hogql_datetime(previous.date_to),
-                                exclusive_end=True,
-                            ),
-                            _within(current_range.date_from_as_hogql(), current_range.date_to_as_hogql()),
-                        ]
-                    ),
+                    self._both_windows(),
                     self.query.categories,
                     self.team,
                     self.query.properties,
@@ -277,18 +274,31 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             ]
         return query
 
+    def _both_windows(self) -> ast.Expr:
+        previous = self.previous_window
+        return ast.Or(
+            exprs=[
+                _within(_hogql_datetime(previous.date_from), _hogql_datetime(previous.date_to), exclusive_end=True),
+                _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
+            ]
+        )
+
     def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # Ignores category and search so that narrowing the table does not turn a tool's share into 100%.
         return parse_select(
             """
-            SELECT uniq(nullIf({conversation_id}, ''))
-            FROM events
-            WHERE {where}
+            SELECT uniqIf(session_id, is_current), uniqIf(session_id, NOT is_current)
+            FROM (
+                SELECT nullIf({conversation_id}, '') AS session_id, timestamp >= {current_from} AS is_current
+                FROM events
+                WHERE {where}
+            )
             """,
             placeholders={
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
+                "current_from": self.query_date_range.date_from_as_hogql(),
                 "where": _named_tool_where(
-                    _within(self.query_date_range.date_from_as_hogql(), self.query_date_range.date_to_as_hogql()),
+                    self._both_windows(),
                     None,
                     self.team,
                     self.query.properties,
@@ -336,6 +346,7 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
             )
+        total_sessions_row = (total_sessions_response.results or [[0, 0]])[0]
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
@@ -351,13 +362,17 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 first_seen=str(row[10] or ""),
                 last_seen=str(row[11] or ""),
                 trend_score=float(row[12] or 0),
+                previous_error_rate_pct=None if row[14] is None else float(row[14]),
+                previous_p95_duration_ms=None if row[15] is None else float(row[15]),
+                previous_sessions=int(row[16] or 0),
             )
             for row in rows
         ]
         return MCPToolQualityRowsQueryResponse(
             results=results,
             totalCount=total_count,
-            totalSessions=int((total_sessions_response.results or [[0]])[0][0] or 0),
+            totalSessions=int(total_sessions_row[0] or 0),
+            previousTotalSessions=int(total_sessions_row[1] or 0),
             timings=response.timings,
             hogql=response.hogql,
             modifiers=self.modifiers,

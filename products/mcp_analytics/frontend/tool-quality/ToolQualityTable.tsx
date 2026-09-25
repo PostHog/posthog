@@ -33,6 +33,7 @@ import {
 } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
@@ -41,6 +42,7 @@ import { pluralize } from 'lib/utils/strings'
 import { formatMs, formatNumber } from '../dashboard/formatters'
 import {
     type SortState,
+    type ToolQualityRow,
     type ToolQualitySortColumn,
     TOOL_QUALITY_PAGE_SIZE,
     mcpAnalyticsToolQualityLogic,
@@ -85,6 +87,67 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
 
 const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
 
+// Below this many calls in either period, one error or one slow call swings the numbers too much.
+const MIN_CALLS_FOR_CHANGE = 20
+// Starting points, not tuned: flag an error rate that moved 2 points, or a p95 that got 25% slower
+// (or 20% faster, the same ratio in reverse).
+const ERROR_RATE_CHANGE_POINTS = 2
+const P95_SLOWER_RATIO = 1.25
+// Two-proportion z-score an error rate change must also clear (about 95% confidence), so normal
+// period-to-period noise on a busy tool is not flagged as a regression.
+const ERROR_RATE_MIN_Z = 2
+
+interface QualityChange {
+    worse: boolean
+    label: string
+    previous: string
+}
+
+function errorRateChange(row: ToolQualityRow): QualityChange | null {
+    const previous = row.previous_error_rate_pct
+    if (previous == null || Math.min(row.total_calls, row.previous_calls) < MIN_CALLS_FOR_CHANGE) {
+        return null
+    }
+    const points = Math.round((row.error_rate_pct - previous) * 10) / 10
+    const pooled =
+        (row.error_rate_pct * row.total_calls + previous * row.previous_calls) /
+        (100 * (row.total_calls + row.previous_calls))
+    const standardError = Math.sqrt(pooled * (1 - pooled) * (1 / row.total_calls + 1 / row.previous_calls)) * 100
+    if (Math.abs(points) < ERROR_RATE_CHANGE_POINTS || Math.abs(points) < ERROR_RATE_MIN_Z * standardError) {
+        return null
+    }
+    return { worse: points > 0, label: `${Math.abs(points)}pt`, previous: `${previous}%` }
+}
+
+function p95Change(row: ToolQualityRow): QualityChange | null {
+    const previous = row.previous_p95_duration_ms
+    if (!previous || Math.min(row.total_calls, row.previous_calls) < MIN_CALLS_FOR_CHANGE) {
+        return null
+    }
+    const ratio = row.p95_duration_ms / previous
+    if (ratio < P95_SLOWER_RATIO && ratio > 1 / P95_SLOWER_RATIO) {
+        return null
+    }
+    return { worse: ratio > 1, label: `${Math.round(Math.abs(ratio - 1) * 100)}%`, previous: formatMs(previous) }
+}
+
+function QualityChangeMarker({ change }: { change: QualityChange | null }): JSX.Element | null {
+    if (!change) {
+        return null
+    }
+    const Icon = change.worse ? IconArrowUp : IconArrowDown
+    return (
+        <Tooltip title={`Was ${change.previous} in the previous period`}>
+            <span
+                className={`ml-1 inline-flex items-center gap-0.5 text-xs tabular-nums ${change.worse ? 'text-danger' : 'text-success'}`}
+            >
+                <Icon />
+                {change.label}
+            </span>
+        </Tooltip>
+    )
+}
+
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
         return <Badge variant="success">0%</Badge>
@@ -93,6 +156,38 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
         <Badge variant={pct >= DESTRUCTIVE_ERROR_PCT ? 'destructive' : 'warning'}>
             {formatPercentage(pct, { compact: true })}
         </Badge>
+    )
+}
+
+function SessionsCell({
+    sessions,
+    totalSessions,
+    previousSessions,
+    previousTotalSessions,
+}: {
+    sessions: number
+    totalSessions: number
+    previousSessions: number
+    previousTotalSessions: number
+}): JSX.Element {
+    const share = (count: number, total: number): string => formatPercentage((count / total) * 100, { compact: true })
+    const cell = (
+        <span className="whitespace-nowrap">
+            <span className="tabular-nums">{formatNumber(sessions)}</span>
+            {totalSessions > 0 ? (
+                <span className="text-secondary tabular-nums">{` · ${share(sessions, totalSessions)}`}</span>
+            ) : null}
+        </span>
+    )
+    if (totalSessions === 0 || previousTotalSessions === 0) {
+        return cell
+    }
+    return (
+        <Tooltip
+            title={`${share(sessions, totalSessions)} of sessions, was ${share(previousSessions, previousTotalSessions)} in the previous period`}
+        >
+            {cell}
+        </Tooltip>
     )
 }
 
@@ -131,8 +226,15 @@ function SortableHead({
 }
 
 function ToolRows(): JSX.Element {
-    const { toolRows, toolRowsTotalSessions, toolRowsPageLoading, selectedTool, dateFilter, pinnedInterval } =
-        useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        toolRows,
+        toolRowsTotalSessions,
+        toolRowsPreviousTotalSessions,
+        toolRowsPageLoading,
+        selectedTool,
+        dateFilter,
+        pinnedInterval,
+    } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (toolRowsPageLoading && toolRows.length === 0) {
@@ -171,17 +273,25 @@ function ToolRows(): JSX.Element {
                         <TrendCell totalCalls={row.total_calls} previousCalls={row.previous_calls} />
                     </TableCell>
                     <TableCell align="right">
-                        <ErrorRateBadge pct={row.error_rate_pct} />
+                        <span className="inline-flex items-center whitespace-nowrap">
+                            <ErrorRateBadge pct={row.error_rate_pct} />
+                            <QualityChangeMarker change={errorRateChange(row)} />
+                        </span>
                     </TableCell>
-                    <TableCell align="right">{formatMs(row.p95_duration_ms)}</TableCell>
+                    <TableCell align="right">
+                        <span className="inline-flex items-center whitespace-nowrap">
+                            <span className="tabular-nums">{formatMs(row.p95_duration_ms)}</span>
+                            <QualityChangeMarker change={p95Change(row)} />
+                        </span>
+                    </TableCell>
                     <TableCell align="right">{formatNumber(row.users)}</TableCell>
                     <TableCell align="right">
-                        <span className="tabular-nums">{formatNumber(row.sessions)}</span>
-                        {toolRowsTotalSessions > 0 ? (
-                            <span className="text-secondary tabular-nums">
-                                {` · ${formatPercentage((row.sessions / toolRowsTotalSessions) * 100, { compact: true })}`}
-                            </span>
-                        ) : null}
+                        <SessionsCell
+                            sessions={row.sessions}
+                            totalSessions={toolRowsTotalSessions}
+                            previousSessions={row.previous_sessions ?? 0}
+                            previousTotalSessions={toolRowsPreviousTotalSessions}
+                        />
                     </TableCell>
                     <TableCell className="whitespace-nowrap">
                         <TZLabel time={row.last_seen} />

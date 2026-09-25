@@ -3749,6 +3749,12 @@ export interface MCPToolQualityRowItem {
     /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a
      * large tool's surge. Not a percentage; only meaningful for ordering. */
     trend_score: number
+    /** Error rate in the previous period, or null when the tool had no calls then. */
+    previous_error_rate_pct?: number | null
+    /** p95 duration in the previous period, or null when the tool had no calls then. */
+    previous_p95_duration_ms?: number | null
+    /** Distinct sessions that called the tool in the previous period. */
+    previous_sessions?: integer
 }
 
 export type MCPToolQualitySortColumn =
@@ -3770,6 +3776,8 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
     totalCount: integer
     /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
     totalSessions: integer
+    /** The same total for the previous period, the denominator for each row's previous session share. */
+    previousTotalSessions?: integer
 }
 
 /** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
