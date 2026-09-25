@@ -81,6 +81,10 @@ Two settings, both off by default, decide how much of what follows runs:
 - `COHORT_MEMBERSHIP_SWEEP_ENABLED` turns on the marker consumer and the sweep.
   It requires version writes and the marker topic.
 
+Each pod refuses the sweep without version writes, but nothing checks the pairing across the fleet.
+During a rolling change, a pod with version writes off writes rows without a new version, and a sweep on another pod can delete them even when a reconcile just asserted them.
+So turn version writes on across the whole fleet before turning the sweep on, and turn the sweep off before turning version writes off.
+
 With version writes on, for each batch the consumer:
 
 1. parses and validates every message,
@@ -91,21 +95,23 @@ With version writes on, for each batch the consumer:
    - records, per topic partition, how far the consumer has applied,
 4. commits the Kafka offsets after the transaction.
 
-The version guard makes the consumer idempotent and safe against reordering.
+The version guard makes the consumer idempotent and safe against reordering, as far as the versions themselves are ordered.
 A replayed or late change cannot overwrite a newer one, and a crash only replays batches whose rows are already applied or rolled back.
+Versions are ordered only within one processor worker's tenure, as the field list above says.
+After a restart with a clock that went back, the guard can reject a newer change as stale.
 Recording progress in the same transaction as the rows means progress never claims rows that rolled back.
 
-A change with no `last_updated`, or with one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and an off-format value is counted.
+A change with no `last_updated`, or with a non-empty one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and an off-format value is counted.
 A reconcile row like that also drags its run's snapshot minimum to the lowest possible value, so that run sweeps nothing.
-The consumer checks only the format.
-A value in the right format that Postgres cannot read as a timestamp, such as one with a thirteenth month, or an empty string, reaches the database and fails the whole batch.
+The consumer checks only the format, and it skips the check for an empty string.
+So an empty string, or a value in the right format that Postgres cannot read as a timestamp, such as one with a thirteenth month, reaches the database and fails the whole batch.
 
 A message that fails validation fails the whole batch every time.
 There is no dead-letter queue, so a malformed message stops the feed until it is skipped or the code is fixed.
 
 ## Mark and sweep
 
-Live output is at most once, and a cohort edit or a person merge can leave rows that no longer match.
+Live output is never retried, so it can lose changes, and a cohort edit or a person merge can leave rows that no longer match.
 Reconcile re-emits every person the processor holds a Stage 2 row for, but re-emitting only overwrites rows.
 It cannot remove a row for a person the processor no longer holds any row for, such as a person merged away.
 The sweep does that.
@@ -219,10 +225,11 @@ The workflows executor reads the table from `conditional_branch` and `wait_until
 When evaluation reaches such a condition, it loads the person's full set of `in_cohort = true` cohorts once per action and passes it to the condition.
 An invocation with no person is a non-member of every cohort.
 
-A failed lookup fails the action.
-With the default error handling, the run then takes the branch's fall-through edge, the same edge it takes when no condition matches.
+A failed lookup fails the action, and the lookup is not retried.
 With `abort`, the run stops.
-The lookup is not retried.
+With the default error handling, the run takes the action's continue edge at once.
+For `conditional_branch` that is the same edge it takes when no condition matches.
+For `wait_until_condition` it is not: an unmatched wait with a maximum duration checks again until its deadline, but a failed lookup ends the wait immediately.
 
 No workflow save path compiles a cohort condition yet: the compiler rejects cohort filters in workflow conditions.
 This read path is therefore dormant.

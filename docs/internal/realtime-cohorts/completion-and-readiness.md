@@ -43,16 +43,23 @@ sequenceDiagram
 
 ## Gates
 
-Every stage of completion is off by default.
+Every stage of completion is off by default, except the finalizer's run allowlist, which admits every run.
 
 | Setting                                        | Stage                                                                                                                                                                    |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `COHORT_SEED_CONSUMER_ENABLED`                 | The processor consumes the seed topic. Without it, no request is ever committed, so the liveness proof below never passes and runs stay in `reconciling`                 |
+| `COHORT_SEED_RECONCILE_ENABLED`                | The processor walks reconcile requests and produces markers. Without it, requests are skipped and committed, and every cohort ends as a retryable shortfall              |
 | `SEEDER_RECONCILE_AUTO_DISPATCH_ENABLED`       | The seeder dispatches reconcile on its own. It also requires `SEEDER_CONFIRM_REGISTER_BACKFILLED`. Without it, an operator dispatches with the `reconcile_dispatch` tool |
-| `SEEDER_RECONCILE_OBSERVER_ENABLED`            | The seeder watches markers and records outcomes                                                                                                                          |
+| `SEEDER_RECONCILE_OBSERVER_ENABLED`            | The seeder watches markers and records outcomes, for runs dispatched either way                                                                                          |
 | `SEEDER_PERSON_RECONCILE_DISPATCH_ENABLED`     | Completion also covers person runs                                                                                                                                       |
 | `BEHAVIORAL_BACKFILL_FINALIZER_ENABLED`        | Django finalizes observed runs and writes stamps                                                                                                                         |
-| `BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST`  | Which observed runs the finalizer may close                                                                                                                              |
+| `BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST`  | Which observed runs the finalizer may close. The default, `all`, admits every run                                                                                        |
 | `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` | Whether person runs are finalized at all                                                                                                                                 |
+
+Two orderings matter.
+The processor switches must be on across the fleet before the seeder dispatches, or no marker arrives.
+And a stamp cannot be undone, so set the run allowlist to `none`, or to a list of run ids someone has checked, in every region before turning the finalizer on.
+Otherwise the finalizer stamps every observed run at once, including runs nobody reviewed.
 
 ## Dispatch
 
@@ -111,6 +118,11 @@ Missing markers with an unchanged hash usually mean the processor discarded or s
 An edit that moved only the other kind's hash, or only the composition, also leaves this kind's hash unchanged and gives a retryable shortfall.
 A retryable shortfall needs an operator to dispatch the run again.
 Until then the run keeps the cohort's run slot for that kind, and the automatic driver never retries an observed run.
+
+Two rarer cases hold a run with no outcome at all, so the finalizer never sees it.
+If the marker topic's retention passes a run's start positions before the watcher reads them, the watcher drops the run and counts `seeder_reconcile_watch_truncated_total`.
+If the marker topic gains partitions after a dispatch, the watcher never reads the new ones.
+In both cases a run still short of markers never finishes the read-to-end step, and only a new dispatch with `reconcile_dispatch` recovers it.
 
 The seeder writes `reconcile_observed_at` **last**, after every participation's outcome.
 Django never sees an observed run with an undecided participation.

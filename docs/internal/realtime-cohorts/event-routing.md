@@ -48,7 +48,9 @@ It cannot filter by event name: person-property criteria are re-evaluated from e
 So every event from an enabled team with a person id is forwarded.
 
 The shuffler consumes nothing until the team index has loaded once.
-If Postgres is down when it boots, the shuffler lags and loses nothing, and it retries on its refresh interval.
+If Postgres is down when it boots, the shuffler lags and retries on its refresh interval.
+It loses nothing as long as its consumer group has a committed offset that is still inside the firehose's retention.
+A group with no usable offset starts at the tail when consumption begins, as described below, so it skips what arrived during the wait.
 
 ### The envelope
 
@@ -89,7 +91,7 @@ It commits every few seconds.
 
 Across crashes and rebalances this is at least once: a restart replays the uncommitted tail, and the processor discards what it already applied.
 But a forward that is not acknowledged within the producer's delivery timeout, for any reason, is **abandoned** and committed past.
-During a broker or network outage, that is every forwarded event.
+A broker or network outage longer than that timeout abandons every forward still waiting when its timeout expires.
 Other losses:
 
 - a message that cannot be parsed,
@@ -146,9 +148,13 @@ It checks the cascade and seed topics the same way when those consumers are enab
 The seeder refuses to produce to a seed topic with any other count.
 Node's modulus is not checked against anything, so a mismatch there would misroute merges silently.
 
+The count is also fixed in code.
+`cohort-core` defines it as a constant, and with its completion driver or observer enabled, the seeder refuses to start when its setting disagrees.
+Completion tracks markers in a 64-bit bitmap, and the Node sweeper has its own constant of 64.
+
 The processor runs one worker per partition, so 64 is also the pipeline's parallelism ceiling.
 Changing the count would move almost every person to a different partition, and each worker's state would belong to someone else.
-A change means wiping every store and rebuilding from backfills.
+A change means code changes to those constants, a new marker format for any count above 64, and then wiping every store and rebuilding from backfills.
 Treat the count as a constant of the system, not a tuning knob.
 
 ### What breaks if affinity breaks

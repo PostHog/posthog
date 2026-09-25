@@ -14,7 +14,7 @@ It never touches the processor's state directly.
 The seeder is a set of replicas polling Postgres, every 15 seconds by default.
 Each tick it:
 
-1. discovers runs in `awaiting_boundary` or `seeding` for allowlisted teams and enabled kinds,
+1. discovers runs in `awaiting_boundary` or `seeding` for allowlisted teams and enabled kinds, where person runs need `SEEDER_PERSON_SEEDS_ENABLED`,
 2. sets the boundary on newly discovered runs,
 3. validates each run's pinned payload and plans its chunks,
 4. fails chunks abandoned at the attempt cap, and fails runs that hold an exhausted chunk,
@@ -170,7 +170,8 @@ stateDiagram-v2
 ```
 
 A failed chunk backs off exponentially with jitter before it can be claimed again.
-A chunk that reaches the attempt cap fails the whole run, which frees the cohort's run slot.
+A chunk that fails at the attempt cap, or whose `scanning` lease expires at the cap, fails the whole run, which frees the cohort's run slot.
+A `produced` chunk whose lease expires is reclaimed at any attempt count, so a chunk whose worker keeps dying after `produced` never fails the run.
 A reclaimed chunk is scanned and produced again from scratch.
 The duplicate tiles are absorbed by max-merge.
 A graceful shutdown before a chunk is marked produced returns it to `pending`, even if some of its tiles already reached Kafka.
@@ -230,7 +231,8 @@ These matter for broad conditions.
 ## Completion
 
 Automatic reconcile dispatch and observation are separate gates, off by default.
-Without them an operator dispatches reconcile with a command-line tool.
+Without the dispatch gate, an operator dispatches reconcile with the `reconcile_dispatch` command-line tool.
+The tool only dispatches, so the seeder records an outcome only while the observer gate is on.
 
 When every chunk of a run is confirmed and the planning proof is stamped, the seeder:
 

@@ -140,14 +140,17 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Why: on the boundary day, the live count and a seed would be two partial counts of one day, which neither `max` nor `+` can merge correctly.
 - Kept by: a run seeds only whole team-timezone days before the day of its boundary.
 - Note: earlier days can hold live counts as well, from events live folded after loading the leaf and from late events.
-  That overlap is expected, and invariants 19 and 20 make it safe.
+  That overlap is expected.
+  Invariants 19 and 20 keep it from counting an event twice, but a late arrival can still leave the day under-counted, see the limit of invariant 20.
 - See [backfill overview](backfill-overview.md#rule-1-split-days-at-a-boundary).
 
 **19. Seeds carry absolute values and merge idempotently.**
 
 - Why: seeds are produced at least once and applied again after failures.
-- Kept by: day tiles carry absolute counts merged with `max`, and a person seed applies only when its scan is fresher than the record's stamp.
+- Kept by: day tiles carry absolute counts merged with `max`, and a person seed applies only when its scan instant beats the record's stamp by a margin.
 - Limit: a person seed that changes nothing leaves no stamp, so person seeds from different runs are not ordered by scan time.
+- Limit: the person check compares clocks, not property versions.
+  A property change that reaches ClickHouse later than the margin can lose to an older scan.
 
 **20. A day tile applies only after the live path should have folded every event the tile counted.**
 
@@ -155,6 +158,9 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Kept by: the scan counts only events that reached ClickHouse before the chunk's claim instant, and the processor holds each tile until the partition's live watermark passes that instant plus a margin.
 - Limit: it holds only while the live topic trails ClickHouse by less than the margin.
   An event the shuffler abandoned never reaches the live path, so only the tile counts it, which `max` handles correctly.
+- Limit: it prevents double counting, not under-counting.
+  A late event that reaches ClickHouse after the claim instant is not in the tile, and if live folds it before the tile applies, `max` keeps the larger of two disjoint counts.
+  [Backfill overview](backfill-overview.md#rule-3-the-arrival-bound-and-the-apply-fence) describes this residue.
 
 **21. Seeds never touch replay marks.**
 

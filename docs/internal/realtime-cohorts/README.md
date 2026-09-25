@@ -74,16 +74,18 @@ The worker folds each event into the person's state for every criterion the even
 A sweep expires criteria whose window has passed.
 
 **Backfill.**
-When a cohort is created or edited, Django creates a backfill run and pins the definition.
+When a cohort is created, or edited in a way that changes what it matches, Django creates a backfill run and pins the definition.
+It does so only for teams where automatic runs are enabled and every gate is open, and operators create the other runs.
 The seeder scans ClickHouse history for that definition and sends it to the processor as seeds, which merge into the same state the live path maintains.
 Then every partition re-emits the cohort's full membership, a step called reconcile, and reports completion.
 When all partitions have reported, Django stamps the cohort ready, and feature flags may read it from the membership table.
 
 ## Three things to know first
 
-- **Live output is at most once, and reconcile repairs it.**
+- **Live output is at most once, and the next reconcile repairs it.**
   The live paths commit state before they produce a membership change, so a failed produce loses the change for good on that path.
   Every backfill ends with a reconcile that re-emits the cohort's full membership, and the downstream sweep deletes rows the reconcile did not re-assert.
+  Reconcile runs only inside a backfill, and nothing schedules one, so a change lost on a cohort nobody edits stays lost until an edit or an operator starts a run.
   Reconcile re-emits from the state the processor holds, so it repairs lost output, not lost state.
   [Processor runtime](processor-runtime.md#delivery-semantics) lists each path's guarantee.
 - **The processor runs as a single pod.**

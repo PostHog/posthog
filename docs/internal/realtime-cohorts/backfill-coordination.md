@@ -105,7 +105,8 @@ sequenceDiagram
 1. **Hashes and stamps.**
    For a realtime, non-static, non-deleted cohort on a realtime-allowlisted team, on a save that includes `filters`, `save()` computes the new fingerprints and compares them with the stored ones.
    For each invalidated kind, it clears that kind's readiness stamp, and the legacy `last_realtime_cohort_calculation_at`, in the same `UPDATE` that stores the new definition.
-   While the cohort stays realtime and this maintenance succeeds, no committed state pairs a new definition with a stamp earned by the old one.
+   While the cohort stays realtime and this maintenance succeeds, no committed state pairs a new definition with a stamp of a kind the edit invalidated.
+   A stamp of a kind the edit did not invalidate stays, because it still vouches for that kind's unchanged leaves.
    Maintenance is best effort: an error is logged and the save goes ahead.
 2. **Supersede, on commit.**
    Active cohort-scoped runs of an invalidated kind move to `superseded`.
@@ -142,7 +143,9 @@ A cohort-scoped run then stops at the seeder's next lease renewal.
 In a team-scoped run, the seeder drops the edited cohort's conditions and carries on for the rest.
 
 Supersession lives in Postgres, and the processor and the membership consumer never read it.
-Reconcile requests already on the seed topic still run unless the edit moved the shape hash of their kind, and the markers they produce still count downstream.
+Reconcile requests already on the seed topic still run unless the edit moved the shape hash of their kind, and they still produce markers.
+The seeder ignores a marker for a superseded participation, so it can never complete or stamp it.
+The membership consumer does count those markers toward its sweep, see [membership output and readers](membership-output-and-readers.md#mark-and-sweep).
 
 ## Gates
 
@@ -155,6 +158,13 @@ Missing one of them fails quietly, so they are worth knowing.
 | `COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST` | Teams whose saves create runs automatically. Unset or empty means **no** teams                                                                                                                                                                                                                                                                                                                              |
 | Operator attestations                    | Settings an operator sets to declare that prerequisites hold. They are declarations, not live checks. Behavioral runs need `BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED` and `BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED`. Person runs also need the person TTL and sizing attestations and a positive seed-bytes budget                                                                                           |
 | Person sizing budget                     | A cohort-scoped person run is refused when the team's active person-run estimates plus its own would exceed the budget. The check reads the active estimates before the run exists and reserves nothing, so two cohorts sized at the same time can together exceed the budget. A team run checks only its own estimate. Hitting the size estimate's scan cap, or the cap on pinned conditions, also refuses |
+
+The Rust services have their own switches, and Django cannot see them.
+Two of them gate person runs, and they must open in order.
+The processor's `COHORT_SEED_PERSON_APPLY_ENABLED` must be on everywhere before the seeder's `SEEDER_PERSON_SEEDS_ENABLED`, or the processor skips and commits the seeds.
+The seeder's switch must be on before a team with person-leaf cohorts joins the trigger allowlist.
+Until it is, the seeder never discovers person runs, so each one waits in `awaiting_boundary`, holding its cohort's run slot.
+[Completion and readiness](completion-and-readiness.md#gates) lists the switches that completion needs.
 
 The difference between the two allowlists matters.
 On a team that is realtime-allowlisted but not trigger-allowlisted, an edit clears the readiness stamp and supersedes the run, but nothing creates a replacement.
@@ -191,18 +201,22 @@ A cohort created before its team was trigger-allowlisted also gets no run on its
 Other cases to know:
 
 - **A run never ends.**
-  A run stuck in `awaiting_boundary`, `seeding` or `reconciling` holds its slot, and its cohorts stay unstamped.
-  Examples: a disaster-recovery run without a boundary, a run whose cohort has no condition the seeder can replay, or a run parked in `reconciling` by a shortfall or a disabled finalizer.
+  A run stuck in `awaiting_boundary`, `seeding` or `reconciling` holds its slot, and its unfinished cohorts stay unstamped.
+  Examples: a disaster-recovery run without a boundary, a person run while the seeder's person switch is off, a run whose cohort has no condition the seeder can replay, or a run parked in `reconciling` by a shortfall or a disabled finalizer.
   Nothing times these out.
-  An edit clears a cohort-scoped one, and a team-scoped one needs `terminalize`.
+  An edit clears a cohort-scoped one.
+  A run held by a retryable shortfall needs reconcile dispatched again, after which the finalizer can finish it.
+  `terminalize` cancels other stuck team-scoped runs, but it refuses any run with a stamped participation.
+  A team run held by one short cohort can already have stamped its other cohorts, because the finalizer stamps each complete participation before it holds the run.
 - **Supersession fails.**
   A failed supersession is only logged.
   The replacement task then finds the stale run's participation still open and refuses, and the stale run later fails its stamp check, so the cohort ends up with neither run nor stamp.
 - **An edit races the finalizer.**
   The cohort row lock serializes them.
-  If the edit commits first, the stamp's hash check fails and the run is superseded.
+  If an edit that invalidates the run's kind commits first, the stamp's hash or composition check fails and the run is superseded.
   If the stamp commits first, the edit clears it.
-  Either way no stamp survives over the new definition.
+  Either way no stamp of an invalidated kind survives over the new definition.
+  An edit that invalidates only the other kind leaves this run and its stamp valid.
 - **An edit is reverted.**
   Editing A to B and back to A restores the old hashes, but the participation superseded during B can never stamp.
   The state it seeded went stale while B was live.

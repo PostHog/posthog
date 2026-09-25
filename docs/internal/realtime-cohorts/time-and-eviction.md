@@ -83,10 +83,10 @@ The worker does not sweep on receipt.
 It records the request, keeping only the latest cutoff, and works through it on later turns.
 
 1. **Select.**
-   Up to 10,000 due keys are selected from the queue, grouped by person.
+   Up to 10,000 due keys are selected from the queue in deadline order, then grouped by person.
    Due keys beyond that wait for the next tick.
 2. **Batch.**
-   Whole persons from one team are packed into a batch of about 256 keys.
+   Whole persons from one team, as far as this pass selected them, are packed into a batch of about 256 keys.
    Each key is claimed only if its deadline is still due, so a key that an event rescheduled since selection is skipped.
 3. **Read.**
    The batch's rows are read with one batched read that uses the maintenance I/O permits, the pool reserved for background work.
@@ -106,6 +106,11 @@ It records the request, keeping only the latest cutoff, and works through it on 
 Sweep batches alternate with live batches on the worker.
 Neither can starve the other, and a sweep never holds the whole partition while a large wave of deadlines expires.
 
+The 10,000-key cut comes before the grouping, so it can split one person's due leaves across two passes, about one tick apart.
+Keys that share a deadline sit in the order they were scheduled, so in a midnight wave the cut can split many persons, not only the last one.
+Between the two passes, Stage 2 composes against half of the person's evictions.
+Take `AND[A, NOT B]` with A and B due at the same midnight: if the first pass evicts only B, the cohort emits `entered`, and the second pass then emits `left`.
+
 A batch drops its keys without rescheduling them when their team is missing from the catalog, including before the first catalog load, and when a key's leaf, row or encoding is gone or bad.
 Those rows are not scheduled again until the person's next matching event, or a durable-restore rebuild.
 
@@ -115,7 +120,10 @@ The two kinds of sweep output make different promises.
 
 - **Single-leaf cohorts** are produced first and committed after the acknowledgment.
   If the produce or the commit fails, the keys go back on their deadlines and the next pass retries them.
-  This is at least once.
+  This is at least once while the worker runs.
+  The retry lives in the in-memory queue.
+  After a restart it survives only with durable restore on, where the row is still on disk and the rebuild at spawn queues it again.
+  With durable restore off, the restart wipes the store, and the missed `left` is lost with the rest of the state.
 - **Composed cohorts** are committed by Stage 2 first and produced after.
   A failed Stage 2 read, commit or produce is dropped.
   This is at most once.

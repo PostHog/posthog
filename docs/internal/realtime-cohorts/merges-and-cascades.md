@@ -229,8 +229,9 @@ It resumes from a cursor, so large partitions are covered over several runs.
 
 Rows received through a merge are the exception.
 With register transfer enabled, a merge records a person-first inventory entry for each row it moves onto the survivor, and the collection never deletes a row that still has one.
-The protection ends when the row is deleted, when a local evaluation overwrites it, or when the current catalog registers the cohort again.
-Absence from the catalog alone does not end it, so a transferred row for a cohort that never comes back stays, with its inventory entry.
+The protection ends when the row is deleted, when a local evaluation overwrites it, or when the current catalog registers the cohort with the same register kind the transfer carried.
+A catalog that registers the cohort with a different kind, for example after an edit from one leaf to two, does not end it, and only a local evaluation does.
+Absence from the catalog alone does not end it either, so a transferred row for a cohort that never comes back stays, with its inventory entry.
 
 Two gates protect it.
 It never runs before the first catalog load, and it never runs when the catalog is empty, because an empty catalog after a database hiccup would otherwise wipe everything.

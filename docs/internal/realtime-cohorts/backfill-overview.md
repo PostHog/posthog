@@ -68,7 +68,8 @@ flowchart LR
 
 A cohort that mixes behavioral and person leaves can need both kinds.
 Each kind has its own run, its own readiness stamp and its own shape hash.
-An edit invalidates a kind when that kind's shape hash moves, or when a composition-only edit owes that kind a repair run.
+An edit invalidates a kind when that kind's shape hash moves, or when the edit owes that kind a repair run even though its hash did not move.
+A composition change owes one, and so does an edit that changes a behavioral leaf together with the tree around a person leaf, which owes a person run as well as the behavioral one.
 
 A run is either **cohort-scoped**, for one cohort, or **team-scoped**, covering every eligible cohort of a team at once.
 Save-triggered runs are cohort-scoped.
@@ -145,7 +146,7 @@ If live folds it after the tile applies, live adds it on top of the tile, which 
 That is bounded to late arrivals on old days.
 It can drop a person out of a `gte` or `gt` cohort, and wrongly keep one in an `lt`, `lte`, `eq` or negated one.
 
-### Rule 4: person seeds apply only when fresher than live, with a margin
+### Rule 4: person seeds are judged by time, with a margin
 
 A person seed lists every pinned person condition the seeder evaluated and the subset that matched.
 A condition that was evaluated and did not match retracts a stored match.
@@ -161,6 +162,11 @@ So the processor applies a person seed only when:
 Otherwise the live answer stands.
 Applying a seed never touches the replay marks of the live path.
 
+The check compares two clocks, not property versions: the seeder's scan instant and the client's event time.
+The margin, 15 minutes by default, covers ClickHouse replication lag and client clock skew.
+A property change that reaches ClickHouse later than the margin, or a client clock skewed by more than it, lets a scan with older properties overwrite the live answer.
+Person seeds have no apply fence to catch that.
+
 This is not last-write-wins between seeds.
 A seed that changes nothing writes nothing, so it leaves no stamp for a later seed to compare against.
 When two runs share a person condition, the newer scan can arrive first, change nothing, and leave an older scan free to apply after it.
@@ -172,7 +178,11 @@ Seeding fixes state.
 Reconcile fixes what downstream was told.
 
 After every chunk of a run is confirmed, the seeder sends one reconcile request per cohort to each of the 64 partitions.
-Each request waits behind that partition's earlier tiles, so it runs only after that partition applied the run's seeds.
+Each request waits behind that partition's earlier tiles, so it cannot overtake a tile that admission still holds.
+That is not proof that every earlier seed applied.
+A seed run that fails before its Stage 1 commit is held for the next tenure to replay, while the request behind it still runs.
+A tile re-keyed to a merge survivor on another partition joins the back of that partition.
+[Invariant 23](invariants.md#backfill) names both.
 The processor then walks every Stage 2 row of the cohort on the partition, recomputes it from stored leaf state, and emits it, `entered` or `left`, whether or not it changed.
 Rows whose stored bit was wrong are corrected.
 When the walk is done, the partition produces a completion marker for the cohort and the run.
@@ -224,8 +234,9 @@ stateDiagram-v2
 - The seeder owns the boundary, `seeding`, `reconciling`, `failed`, and the observation that the finalizer waits for.
 - At most one active cohort-scoped run may exist per cohort and kind, and one active team-scoped run per team and kind.
   On top of that, the creators refuse a cohort that already has an open participation of that kind in any active run.
-- An edit supersedes a cohort-scoped run.
+- An edit that invalidates a run's kind supersedes a cohort-scoped run of that kind.
   In a team-scoped run, only the edited cohort's participation is superseded, and the run continues for the others.
+  An edit that invalidates no kind, such as a rename, leaves active runs alone.
 
 ## One run, end to end
 
@@ -285,7 +296,7 @@ A backlog, a failure or a slow catalog refresh makes it longer.
 ## Things that surprise people
 
 - A chunk is confirmed when Kafka acknowledges its seeds, not when the processor applies them.
-  So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's seeds.
+  So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition is discarded without a marker, and the run ends with a retryable shortfall.
 - Every chunk of every run is claimed oldest day first, so a small new cohort's recent days wait behind a large team run's older days.

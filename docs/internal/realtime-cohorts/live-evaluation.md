@@ -235,13 +235,15 @@ Every change applies lazily, person by person, on their next relevant event, fli
   Live events fill it from now on.
   Unless another cohort still uses the old key, its rows become orphans: never deleted, with their eviction entries dropped by the sweep.
   If the edit is reverted, those stale rows are read again.
-- **Members the edit disqualifies are not retracted on the live path.**
-  Take `gte 3` edited to `gte 5`: a member with 4 events starts counting from zero on the new key, never flips, and stays in the cohort until reconcile corrects them.
+- **The swap itself retracts no member the edit disqualifies.**
+  Take `gte 3` edited to `gte 5` on a single-leaf cohort: a member with 4 events starts counting from zero on the new key, never flips, and stays in the cohort until reconcile corrects them.
   This holds whether or not the person sends events.
+  In a composed cohort, the next flip of another of the person's leaves recomposes the new tree, which reads the empty new key as false, so the member can leave before reconcile.
 - **A composition edit** keeps every leaf's state.
-  A person is recomposed under the new tree only when one of their leaves next flips.
+  A person is recomposed under the new tree when one of their leaves next flips, or, with cascades on, when a cohort it references flips for them.
 - **A change to the set of distinct person conditions** changes the catalog fingerprint, so every person in the team is re-evaluated on their next event with person properties.
-  A new cohort that reuses a person condition the team already has does not change the fingerprint, so its current matchers get `entered` only from the backfill.
+  A new cohort that reuses a person condition the team already has does not change the fingerprint, so the reused condition makes no transition.
+  Its current matchers enter a single-leaf cohort only through the backfill, and a composed cohort through the backfill or the next flip of one of its other leaves.
 - **A cohort that is deleted, stops being realtime, or becomes excluded** stops producing output.
   No `left` is emitted, and Stage 2 garbage collection later deletes its rows silently.
 

@@ -122,11 +122,14 @@ With durable restore on, the processor picks where its store comes from at boot,
 4. **An empty store**, the cold start.
 
 Checkpoints are disabled by default, so in practice the choice is between reopening the live store and starting empty.
-A failed checkpoint restore falls back to a cold start.
-A live store that fails to open does not fall back: the pod fails to start.
+A checkpoint restore that fails to clear the store, copy or download the checkpoint, or read its offsets falls back to a cold start.
+The restore never opens the RocksDB files, so a checkpoint whose files cannot open passes it, and the store open that follows fails the pod instead.
+A live store that fails to open does not fall back either: the pod fails to start.
 
 A cold start does not rebuild history.
 The consumers resume at their committed offsets, so the store only fills from new traffic, and every cohort's past membership has to come back through a backfill.
+A backfill cannot bring back everything.
+`performed_event` leaves with an hour or minute window refill only from new live events, and a cohort made only of references refills through cascades from the backfills of the cohorts it references.
 
 With durable restore on, the processor also:
 

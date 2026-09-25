@@ -135,11 +135,12 @@ An edit that takes the cohort out of realtime, a soft delete, a switch to static
 
 ## Two identities per leaf: condition hash and leaf state key
 
-The pipeline keeps per-person state for each leaf.
+The pipeline keeps per-person state for each behavioral and person leaf.
 The condition hash cannot be the key for that state, because two leaves with the same matcher but different windows need different state.
 "Viewed pricing 3 or more times in 7 days" and "viewed pricing in the last 30 days" match exactly the same events, yet one needs 8 daily counters and the other needs one boolean.
 
-So every leaf has two identities.
+So every behavioral and person leaf has two identities.
+A cohort reference has neither: it keeps no state of its own, and Stage 2 reads the referenced cohort's membership instead.
 
 - The **condition hash** identifies the matcher.
   The processor runs each condition hash's program once per event.
@@ -239,12 +240,12 @@ The class decides whether the processor emits membership for the cohort and how 
 Stage 1 and Stage 2 below are the two halves of live evaluation: Stage 1 keeps each leaf's state, and Stage 2 combines leaves into a cohort.
 [Live evaluation](live-evaluation.md) explains both.
 
-| Class                 | Meaning                                                                                                                                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SingleLeaf`          | Exactly one leaf. The leaf's own state is the membership, so no composition is needed                                                                                                   |
-| `Stage2Composable`    | Two or more leaves under a root that is not negated. Membership is the tree folded over the leaf answers                                                                                |
-| `Stage2ComposableRef` | The cohort references other cohorts, and cascades are enabled. Every positively referenced cohort must be in the team's catalog and itself composable, there must be no reference cycle |
-| `Excluded(reason)`    | Nothing is emitted for this cohort                                                                                                                                                      |
+| Class                 | Meaning                                                                                                                                                                                                                                       |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SingleLeaf`          | Exactly one leaf. The leaf's own state is the membership, so no composition is needed                                                                                                                                                         |
+| `Stage2Composable`    | Two or more leaves under a root that is not negated. Membership is the tree folded over the leaf answers                                                                                                                                      |
+| `Stage2ComposableRef` | The cohort references other cohorts, and cascades are enabled. Every positively referenced cohort must be in the team's catalog and eligible itself, as a single-leaf, composable or referencing cohort, and there must be no reference cycle |
+| `Excluded(reason)`    | Nothing is emitted for this cohort                                                                                                                                                                                                            |
 
 The exclusion checks run in a fixed order, and the first match wins.
 
@@ -456,7 +457,8 @@ They are parsed and `H_p` runs when the person has no record yet or the properti
 
 - A condition hash is a pure function of the compiled matcher, and every service treats it as the same 16 bytes.
 - The LSK derivation is frozen, and Django's behavioral shape hash moves whenever the LSK fields of the cohort's leaves change.
-- The processor and the seeder classify and compose through the same `cohort-core` code.
+- The processor and the seeder parse and classify through the same `cohort-core` code.
+  Composition is not shared: the processor folds the tree in its own crate, and the seeder's relevance pruning runs a separate three-valued fold that only inspection keeps in agreement with it.
 - A cohort with any leaf the pipeline cannot represent emits nothing, rather than emitting a wrong answer.
 - While a cohort stays realtime and its hash maintenance succeeds, a readiness stamp is cleared in the same write that changes the definition it vouches for.
 
