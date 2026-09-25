@@ -254,6 +254,9 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        # Same lock_timeout as default_direct: without it a migration that waits for a lock
+        # queues every later query on the table behind it until the lock comes free.
+        DATABASES[direct_alias]["OPTIONS"]["options"] = f"-c lock_timeout={os.getenv('MIGRATE_LOCK_TIMEOUT', '20000')}"
         _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True

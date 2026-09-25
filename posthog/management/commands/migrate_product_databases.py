@@ -5,7 +5,7 @@ import time
 
 from django.conf import settings
 from django.core.management import call_command
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, OutputWrapper
 from django.db import OperationalError, connections
 from django.db.migrations.executor import MigrationExecutor
 
@@ -19,11 +19,8 @@ from posthog.settings.base_variables import DEBUG
 
 logger = structlog.get_logger(__name__)
 
-# Retry knobs share the names bin/migrate uses for the main-database loop, so a
-# deploy tunes both the same way. A product migration runs after that shell loop,
-# as a single un-retried call, so without an in-process retry a lock_timeout
-# cancellation — or a deadlock, which lock_timeout cannot prevent — fails the
-# deploy on the first try.
+# bin/migrate retries only the main-database migrate, so product databases retry here.
+# The knobs share its env names, so a deploy tunes both loops the same way.
 DEFAULT_MAX_RETRIES = 10
 DEFAULT_RETRY_DELAY = 3.0
 DEFAULT_BACKOFF = 2.0
@@ -88,7 +85,7 @@ def _next_unapplied_migration(alias: str, app_label: str) -> str | None:
 
 
 def _migrate_app(
-    stdout,
+    stdout: OutputWrapper,
     alias: str,
     app_label: str,
     *,
