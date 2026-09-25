@@ -11,7 +11,11 @@ from products.ai_observability.backend.llm.errors import (
     ProviderConnectionError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.llm.system_one import SystemOneClient, SystemOneRateLimitError
+from products.ai_observability.backend.llm.system_one import (
+    SystemOneClient,
+    SystemOneRateLimitError,
+    SystemOneRequestRejectedError,
+)
 
 
 @pytest.mark.parametrize("status, expected_state", [(200, "ok"), (401, "invalid"), (403, "invalid"), (500, "error")])
@@ -130,7 +134,7 @@ def test_typesafe_requires_every_requested_answer(answers: dict[str, object]) ->
         (500, "Unavailable", ProviderConnectionError),
         (413, "Request too large", ContextWindowExceededError),
         (422, "Input exceeds the context window", ContextWindowExceededError),
-        (422, "Invalid question", StructuredOutputParseError),
+        (422, "Invalid question", SystemOneRequestRejectedError),
     ],
 )
 def test_typesafe_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:

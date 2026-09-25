@@ -13,6 +13,7 @@ from posthog.security.url_validation import has_authority_bypass_chars
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
+    LLMError,
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
@@ -36,6 +37,10 @@ class SystemOneResponse(BaseModel):
     model: str = Field(min_length=1)
     answers: dict[str, NoulAnswer]
     usage: SystemOneUsage
+
+
+class SystemOneRequestRejectedError(LLMError):
+    pass
 
 
 class SystemOneRateLimitError(RateLimitError):
@@ -98,7 +103,7 @@ class SystemOneClient:
                 timeout=60,
             )
         except SSRFBlockedError as error:
-            raise StructuredOutputParseError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
+            raise SystemOneRequestRejectedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
         except requests.RequestException as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
 
@@ -117,7 +122,7 @@ class SystemOneClient:
         ):
             raise ContextWindowExceededError("This input exceeds the endpoint's size limit. Reduce the input.")
         if response.status_code != 200:
-            raise StructuredOutputParseError(
+            raise SystemOneRequestRejectedError(
                 "The endpoint rejected the evaluation request. Check the model and criteria."
             )
         try:
@@ -152,6 +157,7 @@ class SystemOneClient:
             ProviderConnectionError,
             RateLimitError,
             StructuredOutputParseError,
+            SystemOneRequestRejectedError,
             ContextWindowExceededError,
         ) as error:
             return "error", str(error)

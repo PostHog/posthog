@@ -65,6 +65,7 @@ Jev provides no written reasoning, so reports inspect the original source when e
 
 Rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
 If retries fail, the run fails and the evaluation stays enabled.
+Blocked endpoints and rejected requests disable the evaluation and mark the connection for revalidation, without recording model usage.
 Invalid probabilities or missing answers fail the evaluation rather than producing a false result.
 Inputs rejected for exceeding the model's context window are skipped.
 See TypeSafe's [API reference](https://docs.typesafe.ai/api) and [model limits and pricing](https://docs.typesafe.ai/models).

@@ -48,7 +48,11 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.llm.system_one import SystemOneClient, SystemOneRateLimitError
+from products.ai_observability.backend.llm.system_one import (
+    SystemOneClient,
+    SystemOneRateLimitError,
+    SystemOneRequestRejectedError,
+)
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
 from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
@@ -504,6 +508,16 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
+    except SystemOneRequestRejectedError as e:
+        increment_user_errors("request_rejected", provider=provider)
+        return terminal_user_error_result(
+            spec=require_user_error_spec("request_rejected", is_byok=is_byok),
+            message=str(e),
+            allows_na=allows_na,
+            output_type=output_type,
+            key_id=key_id,
+            is_byok=is_byok,
+        )
     except SystemOneRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
         raise ApplicationError(

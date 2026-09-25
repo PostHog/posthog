@@ -158,6 +158,33 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
     assert properties["$ai_evaluation_key_type"] == "byok"
 
 
+@pytest.mark.parametrize("status", [301, 400, 422])
+def test_system_one_rejected_requests_disable_without_model_cost_attribution(status: int) -> None:
+    key = MagicMock(provider="typesafe", encrypted_config={"api_key": "example-token"})
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "products.ai_observability.backend.llm.system_one.pinned_request",
+            return_value=MagicMock(status_code=status, text="Invalid request"),
+        ),
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="typesafe", model="jev-1.13.0", provider_key=key, is_byok=True
+        )
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert result["terminal_user_error"] is True
+    assert result["skip_reason"] == "request_rejected"
+    assert result["provider_key_state"] == "error"
+    assert result["status_reason"] == "provider_key_invalid"
+    assert "model" not in result
+    assert "provider" not in result
+
+
 def test_typesafe_rate_limit_retries_without_disabling_the_evaluation() -> None:
     key = MagicMock(provider="typesafe", encrypted_config={"api_key": "test-typesafe-key"})
     with (
