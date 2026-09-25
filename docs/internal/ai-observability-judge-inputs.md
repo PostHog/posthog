@@ -42,6 +42,11 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 ## System One judges
 
 System One-compatible models are available under the existing LLM judge option.
+The experiment requires the `llm-analytics-system-one-evaluations` feature flag and an organization in `POSTHOG_INTERNAL_ORG_IDS`.
+Configure the flag as a project-group flag targeting only PostHog staff projects so the browser and background workers evaluate the same rollout.
+Connection validation and every evaluation check this gate; an absent flag, failed flag lookup, or customer project blocks the call.
+Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
+Use only synthetic or PostHog-owned data, following the [TypeSafe usage policy](../../posthog/egress/typesafe/README.md#usage-policy).
 Add a connection under **System One (Jev)** in provider key settings.
 The default endpoint is TypeSafe's `https://api.typesafe.ai/v1`, with model `jev-1.13.0` and a TypeSafe API key.
 Advanced configuration accepts a different public HTTPS base URL and model ID for compatible services.

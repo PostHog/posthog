@@ -50,7 +50,9 @@ The default reserve ladder applies, and `typesafe_request` defaults to `NORMAL`.
 `typesafe_request` rejects `CRITICAL`, because a `CRITICAL` call is never shed and would skip the hourly spend ceiling.
 Give every caller an explicit lane: `NORMAL` when a person waits for the answer, `BATCH` for background work.
 AI observability uses `llma_evaluations` as its source, `BATCH` for evaluation runs, and `NORMAL` for synthetic connection validation.
-The evaluation caller must meet the usage policy above before launch.
+The evaluation caller checks `llm-analytics-system-one-evaluations` and `POSTHOG_INTERNAL_ORG_IDS` before connection validation and every evaluation.
+The project-group flag stays off until it targets PostHog staff projects; customer projects are blocked regardless of the flag.
+Customer-data launch still requires the opt-in and sign-off above.
 
 ## Rate-limit headers
 

@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from ipaddress import ip_address
+from uuid import uuid4
 
 import pytest
 from unittest.mock import Mock, patch
@@ -7,6 +8,7 @@ from unittest.mock import Mock, patch
 from django.test import override_settings
 
 from posthog.egress.typesafe.client import NoulAnswer, NoulQuestion
+from posthog.models import Team
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.errors import (
@@ -20,6 +22,7 @@ from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneRateLimitError,
     SystemOneRequestRejectedError,
+    system_one_evaluations_enabled,
 )
 
 
@@ -30,6 +33,22 @@ def isolated_egress_budget() -> Iterator[None]:
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
     ):
         yield
+
+
+@pytest.mark.parametrize(
+    "internal,flag,enabled", [(False, True, False), (True, False, False), (True, None, False), (True, True, True)]
+)
+def test_system_one_experiment_requires_internal_project_and_flag(
+    internal: bool, flag: bool | None, enabled: bool
+) -> None:
+    team = Team(id=1, organization_id=uuid4(), uuid=uuid4())
+    with (
+        override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(team.organization_id)] if internal else []),
+        patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
+    ):
+        teams.return_value.get.return_value = team
+        assert system_one_evaluations_enabled(team.id) is enabled
 
 
 @pytest.mark.parametrize("status, expected_state", [(200, "ok"), (401, "invalid"), (403, "invalid"), (500, "error")])

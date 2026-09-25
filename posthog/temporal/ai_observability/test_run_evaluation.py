@@ -137,6 +137,9 @@ def test_typesafe_judge_emits_boolean_probability_without_reasoning(
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
         patch("requests.Session.request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = resolved
@@ -166,12 +169,35 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
         patch("requests.Session.request") as request,
         pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(provider="typesafe")
         call_llm_judge(
             evaluation={"team_id": 1, "output_type": "numeric"},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+    assert error.value.non_retryable
+    request.assert_not_called()
+
+
+def test_system_one_disabled_experiment_does_not_send_evaluation_data() -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=False
+        ),
+        patch("requests.Session.request") as request,
+        pytest.raises(ApplicationError) as error,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(provider="typesafe")
+        call_llm_judge(
+            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is this a greeting?"}},
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
@@ -187,6 +213,9 @@ def test_system_one_rejected_requests_disable_without_model_cost_attribution(sta
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
         patch(
             "requests.Session.request",
             return_value=MagicMock(status_code=status, text="Invalid request"),
@@ -216,6 +245,9 @@ def test_typesafe_rate_limit_retries_without_disabling_the_evaluation(budget_gra
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=budget_granted),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
         patch(
             "requests.Session.request",
             return_value=MagicMock(status_code=429, headers={"Retry-After": "15"}),

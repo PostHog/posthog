@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { LLMProviderKeysSettings } from './LLMProviderKeysSettings'
@@ -25,4 +27,8 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
-export const ProviderSettings: Story = { render: () => <LLMProviderKeysSettings /> }
+export const ProviderSettings: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] },
+    render: () => <LLMProviderKeysSettings />,
+}
+export const ProviderSettingsFlagOff: Story = { render: () => <LLMProviderKeysSettings /> }

@@ -30,7 +30,7 @@ from ..llm.providers.azure_openai import (
     error_field_for_validation_message,
     is_allowed_azure_endpoint,
 )
-from ..llm.system_one import SystemOneClient
+from ..llm.system_one import SystemOneClient, system_one_evaluations_enabled
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -69,8 +69,10 @@ def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: li
         transaction.on_commit(lambda: reload_taggers_on_workers(team_id=team_id, tagger_ids=tagger_ids))
 
 
-def validate_provider_key(provider: str, api_key: str, **kwargs) -> tuple[str, str | None]:
+def validate_provider_key(provider: str, api_key: str, *, team_id: int, **kwargs: str) -> tuple[str, str | None]:
     """Validate an API key for any supported provider using the unified client."""
+    if provider == LLMProvider.TYPESAFE and not system_one_evaluations_enabled(team_id):
+        raise exceptions.PermissionDenied("System One evaluations are not available for this project.")
     try:
         return Client.validate_key(provider, api_key, **kwargs)
     except Exception:
@@ -274,7 +276,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
         if provider == LLMProvider.TYPESAFE:
             connection_config = self._system_one_config(validated_data)
-            state, error_message = validate_provider_key(provider, api_key or "", **connection_config)
+            state, error_message = validate_provider_key(provider, api_key or "", team_id=team.id, **connection_config)
             if state != LLMProviderKey.State.OK:
                 raise serializers.ValidationError({"api_key": error_message})
             validated_data["encrypted_config"] = {"api_key": api_key or "", **connection_config}
@@ -283,7 +285,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             return super().create(validated_data)
 
         if api_key:
-            state, error_message = validate_provider_key(provider, api_key, **azure_kwargs)
+            state, error_message = validate_provider_key(provider, api_key, team_id=team.id, **azure_kwargs)
             if state != LLMProviderKey.State.OK:
                 error_field = _validation_error_field(provider, error_message)
                 raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
@@ -305,7 +307,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             if any(field in validated_data for field in ("api_key", "base_url", "system_one_model")):
                 config = self._system_one_config(validated_data, instance.encrypted_config)
                 config["api_key"] = validated_data.pop("api_key", config.get("api_key", ""))
-                state, error_message = validate_provider_key(instance.provider, **config)
+                state, error_message = validate_provider_key(instance.provider, team_id=instance.team_id, **config)
                 if state != LLMProviderKey.State.OK:
                     raise serializers.ValidationError({"api_key": error_message})
                 instance.encrypted_config = config
@@ -319,7 +321,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             # Fall back to existing config for Azure fields not provided in the update.
             extra_kwargs = {**instance.provider_extra_kwargs(), **azure_kwargs}
 
-            state, error_message = validate_provider_key(instance.provider, api_key, **extra_kwargs)
+            state, error_message = validate_provider_key(
+                instance.provider, api_key, team_id=instance.team_id, **extra_kwargs
+            )
             if state != LLMProviderKey.State.OK:
                 error_field = _validation_error_field(instance.provider, error_message)
                 raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
@@ -443,7 +447,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             )
 
         state, error_message = validate_provider_key(
-            instance.provider, api_key or "", **instance.provider_extra_kwargs()
+            instance.provider, api_key or "", team_id=self.team_id, **instance.provider_extra_kwargs()
         )
         instance.state = state
         instance.error_message = error_message
@@ -637,7 +641,7 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if api_version:
                 extra_kwargs["api_version"] = api_version
 
-        state, error_message = validate_provider_key(provider, api_key, **extra_kwargs)
+        state, error_message = validate_provider_key(provider, api_key, team_id=self.team_id, **extra_kwargs)
         error_field = (
             error_field_for_validation_message(error_message) if provider == LLMProvider.AZURE_OPENAI else None
         )

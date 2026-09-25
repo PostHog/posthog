@@ -53,6 +53,7 @@ from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
     SystemOneRateLimitError,
     SystemOneRequestRejectedError,
+    system_one_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
@@ -447,6 +448,8 @@ def call_llm_judge(
     provider = resolved.provider
     if provider == "typesafe" and output_type != "boolean":
         raise ApplicationError("This System One evaluation output type is not supported.", non_retryable=True)
+    if provider == "typesafe" and not system_one_evaluations_enabled(team_id):
+        raise ApplicationError("System One evaluations are not available for this project.", non_retryable=True)
     model = resolved.model
     provider_key = resolved.provider_key
     is_byok = resolved.is_byok

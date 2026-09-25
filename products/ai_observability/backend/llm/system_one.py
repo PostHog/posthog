@@ -4,6 +4,8 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
 
+from django.conf import settings
+
 import requests
 
 from posthog.egress.limiter.policies import Priority
@@ -18,6 +20,8 @@ from posthog.egress.typesafe.client import (
     system_one,
 )
 from posthog.egress.typesafe.transport import TypeSafeEgressBudgetExhausted
+from posthog.models import Team
+from posthog.ph_client import get_feature_flag_or_none
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_session
 from posthog.security.url_validation import has_authority_bypass_chars
 
@@ -32,6 +36,22 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     is_context_window_error_message,
 )
+
+
+def system_one_evaluations_enabled(team_id: int) -> bool:
+    team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    # Staff access to a customer project does not make its data eligible for this experiment.
+    if str(team.organization_id) not in settings.POSTHOG_INTERNAL_ORG_IDS:
+        return False
+    return (
+        get_feature_flag_or_none(
+            "llm-analytics-system-one-evaluations",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            send_feature_flag_events=False,
+        )
+        is True
+    )
 
 
 class SystemOneRequestRejectedError(LLMError):
