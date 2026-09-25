@@ -237,7 +237,8 @@ pub async fn do_spike_detection(
 
     let get_spiking_timer = common_metrics::timing_guard(SPIKE_GET_SPIKING_ISSUES_TIME, &[]);
     let spiking = get_spiking_issues(
-        &*context.issue_buckets_redis_client,
+        &context.issue_buckets_heal_gate,
+        &context.issue_buckets_redis_client,
         &issues_by_id,
         &issue_samples_by_id,
         &team_configs,
@@ -400,7 +401,8 @@ fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) 
 }
 
 async fn get_spiking_issues(
-    redis: &(dyn Client + Send + Sync),
+    heal_gate: &HealGate,
+    redis: &Arc<dyn Client + Send + Sync>,
     issues_by_id: &HashMap<Uuid, Issue>,
     issue_samples_by_id: &HashMap<Uuid, SpikeSample>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
@@ -419,8 +421,17 @@ async fn get_spiking_issues(
         .into_iter()
         .collect();
 
-    let (issue_buckets, team_buckets) =
-        fetch_bucket_data(redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await?;
+    let bucket_data =
+        fetch_bucket_data(&**redis, &issue_ids, &unique_team_ids, &bucket_timestamps).await;
+    let (issue_buckets, team_buckets) = match bucket_data {
+        Ok(data) => data,
+        Err(err) => {
+            // Alerting is best effort, so a failed read skips this batch instead of failing event processing.
+            warn!("Failed to read spike detection buckets: {err}");
+            heal_on_connection_error(heal_gate, redis, &err);
+            return Ok(vec![]);
+        }
+    };
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
 
@@ -560,6 +571,10 @@ mod tests {
         v.to_string().into_bytes()
     }
 
+    fn shared(redis: MockRedisClient) -> Arc<dyn Client + Send + Sync> {
+        Arc::new(redis)
+    }
+
     fn processed_properties(issue_id: Uuid) -> ProcessedExceptionProperties {
         serde_json::from_value(serde_json::json!({
             "$exception_list": [{"type": "Error", "value": "boom"}],
@@ -660,9 +675,15 @@ mod tests {
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
             let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
             let samples = HashMap::from([(self.issue_id, spike_sample(self.issue_id))]);
-            get_spiking_issues(&self.redis, &self.issues_by_id(), &samples, &configs)
-                .await
-                .unwrap()
+            get_spiking_issues(
+                &HealGate::new(),
+                &shared(self.redis.clone()),
+                &self.issues_by_id(),
+                &samples,
+                &configs,
+            )
+            .await
+            .unwrap()
         }
     }
 
@@ -1093,9 +1114,15 @@ mod tests {
             .keys()
             .map(|issue_id| (*issue_id, spike_sample(*issue_id)))
             .collect();
-        let result = get_spiking_issues(&redis, &issues_by_id, &samples, &configs)
-            .await
-            .unwrap();
+        let result = get_spiking_issues(
+            &HealGate::new(),
+            &shared(redis),
+            &issues_by_id,
+            &samples,
+            &configs,
+        )
+        .await
+        .unwrap();
 
         // Should have 3 spiking issues: A, B, E
         assert_eq!(result.len(), 3);
@@ -1163,5 +1190,17 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].computed_baseline, 10.0);
         assert_eq!(result[0].current_bucket_value, 1000);
+    }
+
+    // A transient Redis failure in the alerting read must not fail the batch of events that carries it.
+    #[tokio::test]
+    async fn test_redis_read_failure_skips_alerting() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(1000)]);
+        ctx.setup_team_buckets(&[Some(100)], &[1]);
+        ctx.redis
+            .mget_error(common_redis::CustomRedisError::Timeout);
+
+        assert!(ctx.get_spiking().await.is_empty());
     }
 }
