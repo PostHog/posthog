@@ -81,6 +81,9 @@ describe('navFilesTabLogic', () => {
         ])
         const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
         const starred = projectTreeLogic({ key: FILES_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'files' })
+        const report = { id: 'report', path: 'Research/Report', type: 'notebook', ref: 'report' }
+        files.actions.setExpandedFolders(['project://', 'project://Research'])
+        projectTreeDataLogic.actions.loadFolderSuccess('Research', [report], false, 1)
 
         files.actions.setSearchTerm('Overview')
         expect(starred.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(['Overview'])
@@ -90,6 +93,8 @@ describe('navFilesTabLogic', () => {
 
         files.actions.clearSearch()
         expect(starred.values.fullFileSystemFiltered.map((item) => item.name)).toEqual(['Overview', 'Research'])
+        expect(files.values.folders.Research).toEqual([report])
+        expect(files.values.folderStates.Research).toBe('loaded')
     })
 
     it('combines ownership and type filters without dropping text or desynchronizing starred files', () => {

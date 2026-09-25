@@ -1290,7 +1290,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         clearSearch: () => {
-            actions.pruneClosedFolders(values.expandedFolders)
+            // All trees share the folder data. A non-project tree has no project:// expanded folders,
+            // so a prune from it removes every loaded project folder, including folders open in other trees.
+            if (props.root === undefined || props.root.startsWith('project://')) {
+                actions.pruneClosedFolders(values.expandedFolders)
+            }
         },
         loadFolderSuccess: ({ folder }) => {
             if (props.root?.startsWith('project://') && props.isActiveInPanel === true && folder === '') {
