@@ -583,10 +583,9 @@ class SignalReport(UUIDModel):
                 # Just pass through to status setting
                 pass
 
-            # A snoozed report resolves too. A snooze returns a researched report to POTENTIAL, so
-            # without this edge a merged implementation pull request cannot close the report it
-            # shipped for: the completion rule is refused and the finished work stays in the inbox
-            # as unresolved. An unresearched report has no content to resolve and keeps the refusal.
+            # A snooze returns a researched report to POTENTIAL. Without this edge the completion
+            # rule cannot close the report its merged pull request shipped for, and the finished
+            # work stays in the inbox. An unresearched report has nothing to resolve.
             case (S.POTENTIAL, S.RESOLVED) if self.has_been_researched:
                 pass
 
