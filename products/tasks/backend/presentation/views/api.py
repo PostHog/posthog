@@ -45,7 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.models.integration.claude import ClaudeReauthRequired
@@ -3251,6 +3251,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         request_id = request.validated_data.get("id")
         params = request.validated_data.get("params")
+        if method == "credential_response":
+            params, relay_blocked = tasks_facade.claude_relay_params(self._user_id(), params)
+            if relay_blocked:
+                report_user_action(request.user, "claude subscription reauth required", {"source": "relay_guard"})
 
         if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(
             pk, task_id, self.team_id

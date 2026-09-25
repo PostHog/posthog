@@ -1,5 +1,6 @@
 import re
 import hashlib
+from datetime import datetime, timedelta
 
 from django.db import connection, models, transaction
 from django.utils import timezone
@@ -13,6 +14,7 @@ logger = structlog.get_logger(__name__)
 CLAUDE_SETUP_TOKEN_PATTERN = re.compile(r"^sk-ant-oat01-\S{29,}$")
 CLAUDE_SETUP_TOKEN_MAX_LENGTH = 4096
 CLAUDE_INTEGRATION_ID = "setup_token"
+CLAUDE_SETUP_TOKEN_LIFETIME = timedelta(days=365)
 
 
 class ClaudeIntegrationStatus(models.TextChoices):
@@ -32,6 +34,12 @@ class ClaudeAuthError(Exception):
 
 class ClaudeReauthRequired(ClaudeAuthError):
     pass
+
+
+class ClaudeTokenRejected(ClaudeReauthRequired):
+    def __init__(self, message: str, *, token_age_days: int | None) -> None:
+        super().__init__(message)
+        self.token_age_days = token_age_days
 
 
 def claude_token_fingerprint(token: str) -> str:
@@ -78,7 +86,7 @@ class ClaudeUserIntegration:
 
     @classmethod
     def issue_token(cls, user_id: int, *, rejected_token_sha256: str | None) -> str:
-        reauth_error: ClaudeReauthRequired | None = None
+        reauth_error: ClaudeTokenRejected | None = None
         token: str | None = None
         with transaction.atomic():
             cls._lock_user(user_id)
@@ -90,8 +98,11 @@ class ClaudeUserIntegration:
             if not integration.is_connected() or token is None:
                 raise ClaudeReauthRequired("The Claude account must be reconnected.")
             if rejected_token_sha256 is not None and claude_token_fingerprint(token) == rejected_token_sha256:
-                integration._mark_reauth_required("Anthropic rejected the token.")
-                reauth_error = ClaudeReauthRequired("Anthropic rejected the Claude token.")
+                token_age_days = integration._token_age_days()
+                integration._mark_reauth_required("Anthropic rejected the token.", rejected_token_sha256)
+                reauth_error = ClaudeTokenRejected(
+                    "Anthropic rejected the Claude token.", token_age_days=token_age_days
+                )
         if reauth_error is not None:
             raise reauth_error
         return token
@@ -105,8 +116,23 @@ class ClaudeUserIntegration:
         value = self.integration.config.get("connected_at")
         return value if isinstance(value, str) and value else None
 
+    @property
+    def expires_at(self) -> str | None:
+        connected_at = self._connected_at_datetime()
+        if not self.is_connected() or connected_at is None:
+            return None
+        return (connected_at + CLAUDE_SETUP_TOKEN_LIFETIME).isoformat()
+
     def is_connected(self) -> bool:
         return self.status == STATUS_CONNECTED
+
+    def rejects(self, token: str) -> bool:
+        rejected = self.integration.config.get("rejected_token_sha256")
+        return (
+            self.status == STATUS_REAUTH_REQUIRED
+            and isinstance(rejected, str)
+            and claude_token_fingerprint(token) == rejected
+        )
 
     def disconnect(self) -> None:
         with transaction.atomic():
@@ -117,12 +143,26 @@ class ClaudeUserIntegration:
         value = self.integration.sensitive_config.get("token")
         return value if isinstance(value, str) and value else None
 
-    def _mark_reauth_required(self, reason: str) -> None:
+    def _connected_at_datetime(self) -> datetime | None:
+        value = self.connected_at
+        if value is None:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _token_age_days(self) -> int | None:
+        connected_at = self._connected_at_datetime()
+        return (timezone.now() - connected_at).days if connected_at is not None else None
+
+    def _mark_reauth_required(self, reason: str, rejected_token_sha256: str) -> None:
         self.integration.sensitive_config = {}
         self.integration.config = {
             **self.integration.config,
             "status": STATUS_REAUTH_REQUIRED,
             "reauth_reason": reason,
+            "rejected_token_sha256": rejected_token_sha256,
         }
         self.integration.save(update_fields=["config", "sensitive_config"])
         logger.warning("claude_subscription_reauth_required", user_id=self.integration.user_id, reason=reason)

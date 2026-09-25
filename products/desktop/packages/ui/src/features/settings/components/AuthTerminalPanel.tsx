@@ -17,6 +17,7 @@ interface AuthTerminalPanelProps {
   status: AuthTerminalStatus;
   terminal: AuthTerminalConfig;
   onExit: (exitCode?: number) => void;
+  onOutput?: (data: string) => void;
 }
 
 const SURFACE = {
@@ -43,6 +44,7 @@ export function AuthTerminalPanel({
   status,
   terminal,
   onExit,
+  onOutput,
 }: AuthTerminalPanelProps): ReactElement {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const surface = isDarkMode ? SURFACE.dark : SURFACE.light;
@@ -78,6 +80,7 @@ export function AuthTerminalPanel({
           unsetEnv={terminal.unsetEnv}
           sensitive
           onExit={onExit}
+          onOutput={onOutput}
         />
       </div>
     </div>

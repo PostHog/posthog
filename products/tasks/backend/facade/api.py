@@ -47,11 +47,11 @@ import posthoganalytics
 from jwt import InvalidTokenError
 
 from posthog.dataclasses import frozen
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.integration import Integration
-from posthog.models.integration.claude import ClaudeReauthRequired, ClaudeUserIntegration
+from posthog.models.integration.claude import ClaudeReauthRequired, ClaudeTokenRejected, ClaudeUserIntegration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
@@ -3697,11 +3697,38 @@ def issue_claude_subscription_token(
         return None
     try:
         token = ClaudeUserIntegration.issue_token(owner_id, rejected_token_sha256=rejected_token_sha256)
+    except ClaudeTokenRejected as error:
+        increment_credential_refresh("claude", "orphaned")
+        owner = User.objects.filter(id=owner_id).first()
+        if owner is not None:
+            report_user_action(
+                owner,
+                "claude subscription reauth required",
+                {"source": "run", "token_age_days": error.token_age_days},
+            )
+        raise
     except ClaudeReauthRequired:
         increment_credential_refresh("claude", "orphaned")
         raise
     increment_credential_refresh("claude", "skipped")
     return token
+
+
+def claude_relay_params(owner_id: int, params: dict[str, Any] | None) -> tuple[dict[str, Any] | None, bool]:
+    token = params.get("token") if isinstance(params, dict) else None
+    if params is None or not isinstance(token, str) or not token:
+        return params, False
+    integration = ClaudeUserIntegration.for_user(owner_id)
+    if integration is None or not integration.rejects(token):
+        return params, False
+    from products.tasks.backend.temporal.metrics import increment_credential_refresh
+
+    increment_credential_refresh("claude", "blocked")
+    return {
+        **{key: value for key, value in params.items() if key != "token"},
+        "error": "no_token",
+        "reason": "reauth_required",
+    }, True
 
 
 def sync_task_run_session(

@@ -31,6 +31,8 @@ import {
   subscriptionModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
+import { useClaudeCloudAccount } from "@posthog/ui/features/settings/claudeCloudAccount";
+import { claudeTokenExpiryWarning } from "@posthog/ui/features/settings/claudeCloudToken";
 import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendingPromptActions";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
@@ -231,6 +233,14 @@ export function useTaskCreation({
   const hostClient = useHostTRPCClient();
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
+  const claudeCloudAccount = useClaudeCloudAccount({
+    enabled:
+      workspaceMode === "cloud" &&
+      runtime !== "pi" &&
+      adapter === "claude" &&
+      claudeSubscription.cloudFlagEnabled &&
+      claudeSubscription.cloudSubscriptionOn,
+  });
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -587,6 +597,15 @@ export function useTaskCreation({
               }
             }
             setAdditionalDirectoriesOverride(null);
+            const claudeTokenWarning =
+              input.claudeCloudModelAccess === "own-subscription"
+                ? claudeTokenExpiryWarning(claudeCloudAccount.data, new Date())
+                : null;
+            if (claudeTokenWarning) {
+              toast.warning("Claude token expires soon", {
+                description: claudeTokenWarning,
+              });
+            }
             // Guarantee the editor draft is wiped on success. editor.clear()
             // above only runs inside the onTaskReady callback (and after it
             // navigates the editor may be torn down); clearing the persisted
@@ -697,6 +716,7 @@ export function useTaskCreation({
       taskService,
       tasks,
       claudeSubscription,
+      claudeCloudAccount.data,
       codexSubscription,
     ],
   );

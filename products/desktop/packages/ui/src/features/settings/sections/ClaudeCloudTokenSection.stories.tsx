@@ -14,12 +14,13 @@ import { ClaudeCloudTokenSection } from "./ClaudeCloudTokenSection";
 const meta: Meta<typeof ClaudeCloudTokenSection> = {
   title: "Settings/ClaudeCloudTokenSection",
   component: ClaudeCloudTokenSection,
-  args: { cloudSubscriptionOn: false, onCreateToken: () => {} },
+  args: { cloudSubscriptionOn: false },
   decorators: [
     (Story, context) => {
       const serverStatus: ClaudeIntegrationStatus =
         context.parameters.serverStatus ?? "not_connected";
       const localToken = context.parameters.localToken === true;
+      const expiresInDays: number = context.parameters.expiresInDays ?? 300;
       const { container, queryClient } = useMemo(() => {
         let saved = localToken;
         const tokenSettings: ClaudeSubscriptionTokenSettings = {
@@ -40,12 +41,18 @@ const meta: Meta<typeof ClaudeCloudTokenSection> = {
           },
         };
         const queryClient = new QueryClient();
-        queryClient.setQueryData(claudeCloudAccountQueryKey, {
+        queryClient.setQueryData(claudeCloudAccountQueryKey(null), {
           status: serverStatus,
           connected_at: serverStatus === "connected" ? "2026-01-01" : null,
+          expires_at:
+            serverStatus === "connected"
+              ? new Date(
+                  Date.now() + expiresInDays * 24 * 60 * 60 * 1000 - 60_000,
+                ).toISOString()
+              : null,
         });
         return { container, queryClient };
-      }, [serverStatus, localToken]);
+      }, [serverStatus, localToken, expiresInDays]);
       return (
         <ServiceProvider container={container}>
           <QueryClientProvider client={queryClient}>
@@ -66,6 +73,14 @@ export const NoToken: Story = {};
 export const TokenSaved: Story = {
   args: { cloudSubscriptionOn: true },
   parameters: { serverStatus: "connected" },
+};
+export const TokenExpiresSoon: Story = {
+  args: { cloudSubscriptionOn: true },
+  parameters: { serverStatus: "connected", expiresInDays: 6 },
+};
+export const TokenExpiresToday: Story = {
+  args: { cloudSubscriptionOn: true },
+  parameters: { serverStatus: "connected", expiresInDays: 0 },
 };
 export const ReauthRequired: Story = {
   args: { cloudSubscriptionOn: true },

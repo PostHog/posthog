@@ -32,6 +32,7 @@ from pydantic import BaseModel, model_validator
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import (
+    CLAUDE_REJECTED_TOKEN_MESSAGE,
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
     SANDBOX_REPOSITORIES_ROOT,
@@ -832,6 +833,8 @@ def parse_sandbox_repo_mount_map() -> dict[str, str]:
     return result
 
 
+CLAUDE_CREDENTIAL_REJECTED_CODE = "claude_credential_unavailable_rejected"
+
 CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE = (
     "This run could not get a ChatGPT token from PostHog. Start the task again. "
     "If it keeps failing, connect your ChatGPT account again in Settings > Harness."
@@ -872,6 +875,15 @@ def wait_for_health_check(
     """
     health_script = build_health_check_command(port, max_attempts, poll_interval, pid_file)
     result = execute(health_script, timeout_seconds=health_check_timeout_seconds(max_attempts, poll_interval))
+    if CLAUDE_CREDENTIAL_REJECTED_CODE in result.stdout:
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        raise ProcessTaskFatalError(
+            CLAUDE_REJECTED_TOKEN_MESSAGE,
+            {"sandbox_id": sandbox_id},
+            RuntimeError("Claude rejected the token"),
+            capture=False,
+        )
     if "claude_credential_unavailable" in result.stdout:
         from products.tasks.backend.exceptions import ProcessTaskFatalError
 
@@ -917,7 +929,8 @@ def build_health_check_command(
         f"  body=$(curl -s --max-time {HEALTH_CURL_MAX_TIME_SECONDS} http://localhost:{port}/health); "
         "  status=$?; "
         '  if [ "$status" = "0" ]; then '
-        '    case "$body" in *claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
+        f'    case "$body" in *{CLAUDE_CREDENTIAL_REJECTED_CODE}*) echo "{CLAUDE_CREDENTIAL_REJECTED_CODE}"; exit 1;; '
+        '*claude_credential_unavailable*) echo "claude_credential_unavailable"; exit 1;; '
         '*codex_credential_unavailable*) echo "codex_credential_unavailable"; exit 1;; esac; '
         "    python3 -c '"
         "import json, sys; "

@@ -310,9 +310,17 @@ describe("TerminalManager shell output subscription", () => {
 
   it("writes shell data to the terminal without a mounted component", () => {
     terminalManager.create({ sessionId, persistenceKey: "task-hidden" });
+    const outputListener = vi.fn();
+    const off = terminalManager.on("output", outputListener);
 
     const emitShellData = mocks.onData.mock.calls[0][1];
     emitShellData({ sessionId, data: "output while hidden" });
+    off();
+    expect(outputListener).toHaveBeenCalledExactlyOnceWith({
+      sessionId,
+      persistenceKey: "task-hidden",
+      data: "output while hidden",
+    });
     for (const cb of rafCallbacks) {
       cb(0);
     }

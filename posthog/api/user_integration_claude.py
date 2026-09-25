@@ -38,12 +38,24 @@ class UserClaudeIntegrationSerializer(serializers.Serializer):
         ),
     )
     connected_at = serializers.DateTimeField(required=False, allow_null=True, help_text="When the token was connected.")
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the token is expected to expire: one year after it was connected, the lifetime of a "
+            "`claude setup-token` token. Null when no working token is stored."
+        ),
+    )
 
 
 def serialize_claude_integration(integration: ClaudeUserIntegration | None) -> dict[str, str | None]:
     if integration is None:
-        return {"status": STATUS_NOT_CONNECTED, "connected_at": None}
-    return {"status": integration.status, "connected_at": integration.connected_at}
+        return {"status": STATUS_NOT_CONNECTED, "connected_at": None, "expires_at": None}
+    return {
+        "status": integration.status,
+        "connected_at": integration.connected_at,
+        "expires_at": integration.expires_at,
+    }
 
 
 def ensure_not_sandbox_claude_request(request: Request) -> None:

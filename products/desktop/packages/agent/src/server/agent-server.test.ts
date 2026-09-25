@@ -2206,6 +2206,36 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
+    it("asks for a new token when Claude rejects a relayed token", async () => {
+      const testServer = createFailureTestServer() as ReturnType<
+        typeof createFailureTestServer
+      > & {
+        posthogAPI: {
+          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+        };
+        handleClaudeTokenRejected(token: string): void;
+      };
+      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn();
+
+      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+      await testServer.handleTurnFailure(
+        interactivePayload,
+        "initial",
+        RequestError.authRequired(),
+      );
+
+      expect(
+        testServer.posthogAPI.requestClaudeSubscriptionToken,
+      ).not.toHaveBeenCalled();
+      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
+        }),
+      );
+    });
+
     it("does not blame the Claude token for a failure in a later turn", async () => {
       const testServer = createFailureTestServer({
         claudeRunToken: "run-token",
@@ -3740,7 +3770,7 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it.each(["token", "no_token", "cancel", "reconnect"])(
+    it.each(["token", "no_token", "rejected", "cancel", "reconnect"])(
       "handles %s during subscription initialization",
       async (outcome) => {
         const s = createServer({ claudeModelAccess: "own-subscription" });
@@ -3793,7 +3823,9 @@ describe("AgentServer HTTP Mode", () => {
               credential: "claude_subscription_token",
               ...(outcome === "no_token"
                 ? { error: "no_token" }
-                : { token: "sk-ant-oat01-fake-test-token" }),
+                : outcome === "rejected"
+                  ? { error: "no_token", reason: "reauth_required" }
+                  : { token: "sk-ant-oat01-fake-test-token" }),
             },
           });
           for (const overrides of [
@@ -3830,13 +3862,15 @@ describe("AgentServer HTTP Mode", () => {
               result: { resolved: true },
             });
           }
-          if (outcome === "no_token") {
+          if (outcome === "no_token" || outcome === "rejected") {
             await vi.waitFor(async () => {
               const failed = await app.fetch(
                 new Request("http://localhost/health"),
               );
               expect((await failed.json()).failureCode).toBe(
-                "claude_credential_unavailable",
+                outcome === "rejected"
+                  ? "claude_credential_unavailable_rejected"
+                  : "claude_credential_unavailable",
               );
             });
             return;
@@ -3893,7 +3927,7 @@ describe("AgentServer HTTP Mode", () => {
                 new Request("http://localhost/health"),
               );
               expect((await failed.json()).failureCode).toBe(
-                "claude_credential_unavailable",
+                "claude_credential_unavailable_rejected",
               );
             });
           } else {

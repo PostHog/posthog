@@ -19,6 +19,7 @@ export interface TerminalProps {
   sensitive?: boolean;
   onReady?: () => void;
   onExit?: (exitCode?: number) => void;
+  onOutput?: (data: string) => void;
 }
 
 export function Terminal({
@@ -33,6 +34,7 @@ export function Terminal({
   sensitive,
   onReady,
   onExit,
+  onOutput,
 }: TerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
@@ -114,11 +116,20 @@ export function Terminal({
       },
     );
 
+    const offOutput = onOutput
+      ? terminalManager.on("output", ({ sessionId: id, data }) => {
+          if (id === sessionId) {
+            onOutput(data);
+          }
+        })
+      : undefined;
+
     return () => {
       offReady();
       offExit();
+      offOutput?.();
     };
-  }, [sessionId, onReady, onExit]);
+  }, [sessionId, onReady, onExit, onOutput]);
 
   // mousedown so the xterm textarea is focused before the browser's native focus shift, not after.
   const handleMouseDown = useCallback(() => {

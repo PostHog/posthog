@@ -13181,6 +13181,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(
             integration.sensitive_config.get("token") is None, expected_account_status == "reauth_required"
         )
+        self.assertEqual(
+            integration.config.get("rejected_token_sha256"),
+            rejected if expected_account_status == "reauth_required" else None,
+        )
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
@@ -13491,10 +13495,11 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
         self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
 
-    @parameterized.expand([(True,), (False,)])
+    @parameterized.expand([("owner",), ("other_user",), ("rejected_token",)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_proxies_credential_response_and_never_persists_the_token(self, owner_matches, mock_post):
+    def test_command_proxies_credential_response_and_never_persists_the_token(self, caller, mock_post):
+        owner_matches = caller != "other_user"
         reset_sandbox_jwt_key_cache()
         token = "sk-ant-oat01-fake-test-token-0000000000000000"
         self._mock_agent_response(
@@ -13507,6 +13512,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         run.state["claude_subscription_user_id"] = self.user.id if owner_matches else self.user.id + 1
         run.save(update_fields=["state"])
         state_before = dict(run.state or {})
+        if caller == "rejected_token":
+            UserIntegration.objects.create(
+                user=self.user,
+                kind="claude",
+                integration_id="setup_token",
+                config={"status": "reauth_required", "rejected_token_sha256": claude_token_fingerprint(token)},
+                sensitive_config={},
+            )
 
         with self.assertLogs(level="DEBUG") as captured:
             response = self.client.post(
@@ -13533,7 +13546,18 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         assert call_kwargs["allow_redirects"] is False
         assert call_kwargs["timeout"] == 5
         self.assertEqual(call_kwargs["json"]["method"], "credential_response")
-        self.assertEqual(call_kwargs["json"]["params"]["token"], token)
+        if caller == "rejected_token":
+            self.assertEqual(
+                call_kwargs["json"]["params"],
+                {
+                    "requestId": "cred-1",
+                    "credential": "claude_subscription_token",
+                    "error": "no_token",
+                    "reason": "reauth_required",
+                },
+            )
+        else:
+            self.assertEqual(call_kwargs["json"]["params"]["token"], token)
         run.refresh_from_db()
         self.assertEqual(run.state, state_before)
         for record in captured.records:

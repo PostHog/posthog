@@ -955,8 +955,9 @@ class TestModalSandboxAgentServer:
         [
             (0, "ok:3", True),
             (1, "", False),
-            (1, "claude_credential_unavailable", None),
-            (1, "codex_credential_unavailable", None),
+            (1, "claude_credential_unavailable", "The Claude token did not arrive"),
+            (1, "claude_credential_unavailable_rejected", "Claude does not accept your token"),
+            (1, "codex_credential_unavailable", "ChatGPT token"),
         ],
     )
     def test_wait_for_health_check(self, mock_sandbox: Any, exit_code, stdout, expected):
@@ -965,8 +966,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=exit_code, error=None),
         )
-        if expected is None:
-            with pytest.raises(ProcessTaskFatalError) as error:
+        if isinstance(expected, str):
+            with pytest.raises(ProcessTaskFatalError, match=expected) as error:
                 mock_sandbox._wait_for_health_check()
             assert error.value.non_retryable
         else:

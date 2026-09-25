@@ -132,6 +132,7 @@ import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
+  CLAUDE_REJECTED_TOKEN_MESSAGE,
   CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES,
   CLAUDE_SUBSCRIPTION_TOKEN_PHASE,
   ClaudeSubscriptionTokenClient,
@@ -365,6 +366,19 @@ const SUBSCRIPTION_TOKEN_FAILURE = {
     message: CODEX_SUBSCRIPTION_TOKEN_MISSING_MESSAGE,
   },
 } as const;
+
+export const CLAUDE_CREDENTIAL_REJECTED_FAILURE_CODE =
+  "claude_credential_unavailable_rejected";
+
+function subscriptionCredentialFailureCode(
+  adapter: "claude" | "codex",
+  reason: string,
+): string {
+  return adapter === "claude" &&
+    (reason === "rejected" || reason === "reauth_required")
+    ? CLAUDE_CREDENTIAL_REJECTED_FAILURE_CODE
+    : `${adapter}_credential_unavailable`;
+}
 
 function hiddenTextBlock(text: string): ContentBlock {
   return {
@@ -1207,10 +1221,12 @@ export class AgentServer {
     const errorMessage = redactSecrets(
       error instanceof ClaudeSubscriptionTokenError
         ? claudeSubscriptionTokenFailureMessage(error)
-        : error instanceof CredentialRelayError ||
-            error instanceof CodexSubscriptionTokenError
-          ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
-          : describeFatalError(error),
+        : error instanceof CredentialRelayError && error.code === "rejected"
+          ? CLAUDE_REJECTED_TOKEN_MESSAGE
+          : error instanceof CredentialRelayError ||
+              error instanceof CodexSubscriptionTokenError
+            ? SUBSCRIPTION_TOKEN_FAILURE[this.subscriptionAdapter()].message
+            : describeFatalError(error),
     );
     this.logger.error("Fatal agent-server error; marking run failed", error);
 
@@ -1317,9 +1333,9 @@ export class AgentServer {
   }
 
   private handleClaudeTokenRejected(token: string): void {
+    this.claudeTokenRejected = true;
     const runToken = this.config.claudeRunToken;
     if (!runToken) return;
-    this.claudeTokenRejected = true;
     this.claudeRejectionReport =
       this.claudeSubscriptionTokens(runToken).reportRejected(token);
   }
@@ -1335,7 +1351,10 @@ export class AgentServer {
       adapter
     ],
   ): Promise<void> {
-    this.initializationFailureCode = `${adapter}_credential_unavailable`;
+    this.initializationFailureCode = subscriptionCredentialFailureCode(
+      adapter,
+      reason,
+    );
     this.logger.warn(this.initializationFailureCode);
     try {
       this.broadcastEvent({
@@ -1963,7 +1982,10 @@ export class AgentServer {
         error instanceof CodexSubscriptionTokenError ||
         error instanceof ClaudeSubscriptionTokenError
       ) {
-        this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
+        this.initializationFailureCode = subscriptionCredentialFailureCode(
+          this.subscriptionAdapter(),
+          error.code,
+        );
       }
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
@@ -2249,6 +2271,17 @@ export class AgentServer {
             phase: CLAUDE_SUBSCRIPTION_TOKEN_PHASE,
             message: claudeSubscriptionTokenFailureMessage(error),
           });
+        } else if (
+          error instanceof CredentialRelayError &&
+          error.code === "rejected"
+        ) {
+          this.logger.warn("Claude subscription token relay failed", {
+            reason: error.code,
+          });
+          await this.reportSubscriptionTokenMissing("claude", error.code, {
+            phase: SUBSCRIPTION_TOKEN_FAILURE.claude.phase,
+            message: CLAUDE_REJECTED_TOKEN_MESSAGE,
+          });
         } else {
           const reason = error instanceof Error ? error.message : String(error);
           this.logger.warn("Claude subscription token relay failed", {
@@ -2282,7 +2315,7 @@ export class AgentServer {
     }
 
     this.shutdownController.signal.throwIfAborted();
-    const serverClaudeToken = claudeSubscriptionToken;
+    const claudeTokenInUse = claudeSubscriptionToken;
     const acpConnection = createAcpConnection({
       adapter: runtimeAdapter,
       taskRunId: payload.run_id,
@@ -2303,8 +2336,8 @@ export class AgentServer {
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
       onClaudeAuthenticationFailed:
-        this.config.claudeRunToken && serverClaudeToken !== null
-          ? () => this.handleClaudeTokenRejected(serverClaudeToken)
+        claudeTokenInUse !== null
+          ? () => this.handleClaudeTokenRejected(claudeTokenInUse)
           : undefined,
       codexOptions:
         runtimeAdapter === "codex"

@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@posthog/quill";
+import { findClaudeSetupToken } from "@posthog/ui/features/settings/claudeCloudToken";
 import {
   AuthTerminalPanel,
   type AuthTerminalStatus,
@@ -15,15 +16,29 @@ import {
 import { destroyTerminalSession } from "@posthog/ui/features/terminal/destroyShellTerminal";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 export type ClaudeAuthAction = "login" | "logout" | "setup-token";
 
 interface ClaudeAuthTerminalDialogProps {
   action: ClaudeAuthAction;
   onClose: () => void;
-  onFinished: () => void;
+  onFinished?: () => void;
+  onSaveToken?: (token: string) => void;
+  savingToken?: boolean;
 }
+
+const MAX_OUTPUT_CHARS = 64 * 1024;
+const SETUP_TOKEN_SAVE_LEAD =
+  "Follow the steps in this terminal. Desktop reads the token when the command ends.";
+const SETUP_TOKEN_FOUND =
+  "Desktop found a new Claude token. Save it for your cloud tasks?";
 
 const COPY = {
   "setup-token": {
@@ -54,6 +69,8 @@ export function ClaudeAuthTerminalDialog({
   action,
   onClose,
   onFinished,
+  onSaveToken,
+  savingToken = false,
 }: ClaudeAuthTerminalDialogProps): ReactElement {
   const hostTRPC = useHostTRPC();
   const [started, setStarted] = useState(action !== "logout");
@@ -70,6 +87,9 @@ export function ClaudeAuthTerminalDialog({
   );
   const [stopped, setStopped] = useState(false);
   const [exitCode, setExitCode] = useState<number | undefined>();
+  const readsToken = action === "setup-token" && !!onSaveToken;
+  const outputRef = useRef("");
+  const [foundToken, setFoundToken] = useState<string | null>(null);
 
   const statusQuery = useQuery({
     ...hostTRPC.agent.claudeSubscriptionStatus.queryOptions(),
@@ -89,6 +109,7 @@ export function ClaudeAuthTerminalDialog({
   })();
 
   const copy = COPY[action];
+  const lead = readsToken ? SETUP_TOKEN_SAVE_LEAD : copy.lead;
 
   const status = ((): AuthTerminalStatus => {
     if (terminalError) return "failed";
@@ -97,6 +118,8 @@ export function ClaudeAuthTerminalDialog({
     return verified ? "done" : "failed";
   })();
 
+  const offersSave = readsToken && status === "done" && foundToken !== null;
+
   const hint = ((): string => {
     if (!started) return "Nothing changes until you select Log out.";
     if (terminalError)
@@ -104,6 +127,7 @@ export function ClaudeAuthTerminalDialog({
     if (terminalPending) return "Opening the terminal.";
     if (status === "running") return "The command runs. Close to stop it.";
     if (status === "checking") return "Reading the login status.";
+    if (offersSave) return SETUP_TOKEN_FOUND;
     return verified ? copy.ok : copy.failed;
   })();
 
@@ -111,10 +135,15 @@ export function ClaudeAuthTerminalDialog({
     (code?: number) => {
       setExitCode(code);
       setStopped(true);
-      onFinished();
+      onFinished?.();
     },
     [onFinished],
   );
+
+  const handleOutput = useCallback((data: string) => {
+    outputRef.current = (outputRef.current + data).slice(-MAX_OUTPUT_CHARS);
+    setFoundToken(findClaudeSetupToken(outputRef.current));
+  }, []);
 
   const handleClose = useCallback(() => {
     destroyTerminalSession(sessionId);
@@ -134,9 +163,7 @@ export function ClaudeAuthTerminalDialog({
           <DialogTitle>{copy.title}</DialogTitle>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
-          <p className="text-(--gray-11) text-xs leading-relaxed">
-            {copy.lead}
-          </p>
+          <p className="text-(--gray-11) text-xs leading-relaxed">{lead}</p>
 
           {started && terminalPending ? (
             <output className="text-muted-foreground text-xs">
@@ -155,12 +182,36 @@ export function ClaudeAuthTerminalDialog({
               status={status}
               terminal={terminal}
               onExit={handleExit}
+              onOutput={readsToken ? handleOutput : undefined}
             />
           ) : null}
         </DialogBody>
         <DialogFooter className="items-center justify-between gap-3">
           <span className="text-(--gray-10) text-[11px]">{hint}</span>
-          {started ? (
+          {offersSave ? (
+            <span className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={savingToken}
+                onClick={handleClose}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                loading={savingToken}
+                disabled={savingToken}
+                data-attr="claude-cloud-token-save-found"
+                onClick={() => {
+                  if (foundToken && !savingToken) onSaveToken?.(foundToken);
+                }}
+              >
+                Save token
+              </Button>
+            </span>
+          ) : started ? (
             <Button
               variant={status === "done" ? "primary" : "outline"}
               size="sm"

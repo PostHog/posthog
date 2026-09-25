@@ -121,6 +121,7 @@ export const credentialResponseParamsSchema = z
     credential: z.literal("claude_subscription_token"),
     token: z.string().min(1).max(4096).optional(),
     error: z.enum(["no_token", "store_unavailable"]).optional(),
+    reason: z.enum(["reauth_required"]).optional(),
   })
   .refine((params) => Boolean(params.token) !== Boolean(params.error), {
     error: "Exactly one of token or error is required",

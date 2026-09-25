@@ -54,6 +54,15 @@ describe("CredentialRelay", () => {
     );
   });
 
+  it("rejects with the rejected code when PostHog refuses the token", async () => {
+    const relay = makeRelay();
+    const tokenPromise = relay.request("claude_subscription_token");
+    const { requestId } = events[0] as { requestId: string };
+
+    relay.resolve({ requestId, error: "no_token", reason: "reauth_required" });
+    await expect(tokenPromise).rejects.toMatchObject({ code: "rejected" });
+  });
+
   it("rejects on timeout", async () => {
     const relay = makeRelay(120_000);
     const tokenPromise = relay.request("claude_subscription_token");

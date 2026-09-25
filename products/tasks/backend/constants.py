@@ -226,6 +226,9 @@ CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription
 # The plan name a person reads when a subscription run is refused. Every layer that gates,
 # refuses, or explains one of these runs takes the name from here.
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
+CLAUDE_REJECTED_TOKEN_MESSAGE = (
+    "Claude does not accept your token. Create a new token in Settings > Harness. Then start the task again."
+)
 CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"

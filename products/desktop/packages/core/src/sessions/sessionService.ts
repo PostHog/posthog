@@ -351,7 +351,7 @@ export interface SessionTrpc {
     onSessionIdleKilled: TrpcSubscription;
   };
   workspace: { verify: TrpcQuery };
-  claudeSubscriptionToken: { has: TrpcQuery };
+  claudeSubscriptionToken: { has: TrpcQuery; clear: TrpcMutation };
   cloudTask: {
     watch: TrpcMutation;
     unwatch: TrpcMutation;
@@ -6782,14 +6782,24 @@ export class SessionService {
     }
     if (adapter === "claude") {
       const serverStatus = await this.claudeCloudTokenStatus();
+      if (serverStatus === "reauth_required") {
+        try {
+          await this.d.trpc.claudeSubscriptionToken.clear.mutate();
+        } catch (error) {
+          this.d.log.warn("Failed to delete the rejected Claude token", {
+            error,
+          });
+        }
+        throw new Error(
+          "Claude does not accept your token. Go to Settings > Harness and create a new token.",
+        );
+      }
       if (
         serverStatus !== "connected" &&
         !(await this.d.trpc.claudeSubscriptionToken.has.query())
       ) {
         throw new Error(
-          serverStatus === "reauth_required"
-            ? "Your Claude token stopped working. Paste a new token in Settings > Harness before you start or resume this task."
-            : "Save a Claude token in Settings > Harness before you start or resume this task.",
+          "Save a Claude token in Settings > Harness before you start or resume this task.",
         );
       }
     } else {
@@ -9056,7 +9066,7 @@ export class SessionService {
               : "Claude token unavailable",
             errorMessage:
               notification.params?.reason === "reauth_required"
-                ? "Your Claude token stopped working. Paste a new token in Settings > Harness. Then start the task again."
+                ? "Claude does not accept your token. Create a new token in Settings > Harness. Then start the task again."
                 : "PostHog could not get your Claude token for this run. Start the task again.",
             errorRetryable: transient,
             isPromptPending: false,
@@ -9064,11 +9074,13 @@ export class SessionService {
         } else if (
           notification.params?.initializationPhase === "credential_relay"
         ) {
+          const rejected = notification.params?.reason === "rejected";
           this.d.store.updateSession(taskRunId, {
             status: "error",
             errorTitle: "Claude token unavailable",
-            errorMessage:
-              "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
+            errorMessage: rejected
+              ? "Claude does not accept your token. Create a new token in Settings > Harness. Then start the task again."
+              : "Open Desktop and check your Claude token in Settings > Harness. Then start the task again.",
             errorRetryable: false,
             isPromptPending: false,
           });

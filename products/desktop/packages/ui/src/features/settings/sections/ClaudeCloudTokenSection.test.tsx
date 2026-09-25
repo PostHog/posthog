@@ -8,27 +8,34 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { tokenStore, client, track, setClaudeCloudSubscriptionOn, toast } =
-  vi.hoisted(() => ({
-    tokenStore: {
-      save: vi.fn(),
-      clear: vi.fn(),
-      has: vi.fn(),
-    },
-    client: {
-      getClaudeUserIntegration: vi.fn(),
-      connectClaudeUserIntegration: vi.fn(),
-      disconnectClaudeUserIntegration: vi.fn(),
-    },
-    track: vi.fn(),
-    setClaudeCloudSubscriptionOn: vi.fn(),
-    toast: {
-      success: vi.fn(),
-      error: vi.fn(),
-      info: vi.fn(),
-      warning: vi.fn(),
-    },
-  }));
+const {
+  tokenStore,
+  client,
+  track,
+  setClaudeCloudSubscriptionOn,
+  toast,
+  VALID_TOKEN,
+} = vi.hoisted(() => ({
+  VALID_TOKEN: "sk-ant-oat01-fake-test-token-00000000000000",
+  tokenStore: {
+    save: vi.fn(),
+    clear: vi.fn(),
+    has: vi.fn(),
+  },
+  client: {
+    getClaudeUserIntegration: vi.fn(),
+    connectClaudeUserIntegration: vi.fn(),
+    disconnectClaudeUserIntegration: vi.fn(),
+  },
+  track: vi.fn(),
+  setClaudeCloudSubscriptionOn: vi.fn(),
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    warning: vi.fn(),
+  },
+}));
 
 vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: (selector: (s: unknown) => unknown) =>
@@ -43,18 +50,41 @@ vi.mock("@posthog/ui/primitives/toast", () => ({ toast }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 
+vi.mock("./ClaudeAuthTerminalDialog", () => ({
+  ClaudeAuthTerminalDialog: ({
+    onSaveToken,
+    savingToken,
+  }: {
+    onSaveToken: (token: string) => void;
+    savingToken: boolean;
+  }) => (
+    <div role="dialog">
+      <button
+        type="button"
+        disabled={savingToken}
+        onClick={() => onSaveToken(VALID_TOKEN)}
+      >
+        Save found token
+      </button>
+    </div>
+  ),
+}));
+
 import { ClaudeCloudTokenSection } from "./ClaudeCloudTokenSection";
 
-const onCreateToken = vi.fn();
-
-const VALID_TOKEN = "sk-ant-oat01-fake-test-token-00000000000000";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function integration(
   status: "connected" | "reauth_required" | "not_connected",
+  expiresInMs = 300 * DAY_MS,
 ) {
   return {
     status,
     connected_at: status === "connected" ? "2026-01-01T00:00:00Z" : null,
+    expires_at:
+      status === "connected"
+        ? new Date(Date.now() + expiresInMs).toISOString()
+        : null,
   };
 }
 
@@ -73,10 +103,7 @@ function renderSection(cloudSubscriptionOn = false): ReturnType<typeof render> {
   return render(
     <ServiceProvider container={container}>
       <QueryClientProvider client={queryClient}>
-        <ClaudeCloudTokenSection
-          cloudSubscriptionOn={cloudSubscriptionOn}
-          onCreateToken={onCreateToken}
-        />
+        <ClaudeCloudTokenSection cloudSubscriptionOn={cloudSubscriptionOn} />
       </QueryClientProvider>
     </ServiceProvider>,
   );
@@ -129,8 +156,10 @@ describe("ClaudeCloudTokenSection", () => {
       replacing: true,
       pasted: "\tsk-ant-oat01-fake-\r\n  test-token-\r\n  00000000000000 ",
     },
+    { replacing: false, pasted: null },
+    { replacing: true, pasted: null },
   ])(
-    "sends a pasted token to PostHog and then keeps a local copy for the relay (case %#)",
+    "sends a pasted or terminal token to PostHog and then keeps a local copy for the relay (case %#)",
     async ({ replacing, pasted }) => {
       const user = userEvent.setup();
       client.getClaudeUserIntegration.mockResolvedValue(
@@ -144,13 +173,20 @@ describe("ClaudeCloudTokenSection", () => {
       }
 
       const input = await screen.findByLabelText("Claude setup token");
-      await user.click(screen.getByRole("button", { name: "Create token" }));
-      expect(onCreateToken).toHaveBeenCalledTimes(1);
-      await user.click(input);
-      await user.paste(pasted);
-      await user.click(screen.getByRole("button", { name: "Save token" }));
+      if (pasted === null) {
+        await user.click(screen.getByRole("button", { name: "Create token" }));
+        await user.click(
+          screen.getByRole("button", { name: "Save found token" }),
+        );
+      } else {
+        await user.click(input);
+        await user.paste(pasted);
+        await user.click(screen.getByRole("button", { name: "Save token" }));
+      }
 
       expect(await screen.findByText("Token saved")).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(toast.success).toHaveBeenCalledWith("Token saved");
       expect(
         screen.getByText(/PostHog keeps your Claude token/),
       ).toBeInTheDocument();
@@ -242,7 +278,7 @@ describe("ClaudeCloudTokenSection", () => {
     [
       "reauth_required",
       false,
-      "Your Claude token stopped working. Create a new token, then paste it below.",
+      "Claude does not accept this token. Create a new token, then paste it below.",
     ],
     [
       "not_connected",
@@ -261,6 +297,25 @@ describe("ClaudeCloudTokenSection", () => {
       expect(client.connectClaudeUserIntegration).not.toHaveBeenCalled();
     },
   );
+
+  it("warns about an expiring token and offers a new token", async () => {
+    const user = userEvent.setup();
+    client.getClaudeUserIntegration.mockResolvedValue(
+      integration("connected", 5 * DAY_MS - 60 * 60 * 1000),
+    );
+    renderSection(true);
+
+    expect(
+      await screen.findByText(
+        "Your Claude token expires in about 5 days. Create a new token before this date.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/PostHog keeps your Claude token/),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
 
   it("shows a retryable error when PostHog cannot report the token status", async () => {
     const user = userEvent.setup();

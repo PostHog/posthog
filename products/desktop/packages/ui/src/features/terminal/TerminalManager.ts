@@ -81,6 +81,11 @@ type ExitPayload = {
   persistenceKey: string;
   exitCode?: number;
 };
+type OutputPayload = {
+  sessionId: string;
+  persistenceKey: string;
+  data: string;
+};
 type StateChangePayload = {
   sessionId: string;
   persistenceKey: string;
@@ -90,6 +95,7 @@ type StateChangePayload = {
 type EventPayloadMap = {
   ready: ReadyPayload;
   exit: ExitPayload;
+  output: OutputPayload;
   stateChange: StateChangePayload;
 };
 
@@ -346,6 +352,12 @@ class TerminalManagerImpl {
     if (!instance) {
       return;
     }
+
+    this.emit("output", {
+      sessionId,
+      persistenceKey: instance.persistenceKey,
+      data,
+    });
 
     // Coalesce bursts of pty output into a single term.write() per animation
     // frame instead of one call per IPC chunk, cutting the per-call parse and
