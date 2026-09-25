@@ -22,6 +22,7 @@ from products.cohorts.backend.backfill.runs import (
     check_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
+    judge_team_cohorts,
     person_backfill_ineligibility_reason,
 )
 from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
@@ -219,14 +220,7 @@ class Command(BaseCommand):
         ineligibility_reason: Callable[[Cohort], str | None],
         kind_label: str,
     ) -> list[Cohort]:
-        # Deliberately wider than the run creators, which narrow the SQL-expressible half of
-        # eligibility away before they lock: the dry run's whole job is naming *why* each cohort was
-        # refused, and it takes no locks. Both sides decide with the same predicate.
-        queryset = Cohort.objects.filter(team_id=team_id)
-        if cohort_ids is not None:
-            queryset = queryset.filter(id__in=cohort_ids)
-        candidates = [(cohort, ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
-
+        candidates = judge_team_cohorts(team_id, cohort_ids, ineligibility_reason)
         refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
         if cohort_ids is not None:
             candidate_ids = {cohort.id for cohort, _ in candidates}

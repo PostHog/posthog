@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -158,6 +158,23 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     if not any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties)):
         return NO_BEHAVIORAL_FILTER
     return _catalog_refusal_reason(cohort)
+
+
+def judge_team_cohorts(
+    team_id: int,
+    cohort_ids: list[int] | None,
+    ineligibility_reason: Callable[[Cohort], str | None],
+) -> list[tuple[Cohort, str | None]]:
+    """Every cohort of the team, or of ``cohort_ids``, paired with its refusal or ``None``.
+
+    Deliberately wider than the run creators, which narrow the SQL-expressible half of eligibility
+    away before they lock: a dry run exists to name *why* each cohort was refused, and it takes no
+    locks. Both sides decide with the same predicate.
+    """
+    queryset = Cohort.objects.filter(team_id=team_id)
+    if cohort_ids is not None:
+        queryset = queryset.filter(id__in=cohort_ids)
+    return [(cohort, ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
 
 
 def _run_status(preconditions_missing: list[str]) -> tuple[str, str]:
