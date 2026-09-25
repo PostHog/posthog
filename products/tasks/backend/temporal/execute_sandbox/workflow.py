@@ -1373,6 +1373,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 status=status,
                 error_message=error_message,
                 error_type=error_type,
+                sandbox_backend=self._context.sandbox_backend if self._context else None,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),

@@ -13,17 +13,10 @@ const LOCAL_ONLY_CATEGORIES: ReadonlySet<SettingsCategory> = new Set([
 
 interface SettingsVisibility {
   localWorkspaces: boolean;
-  /**
-   * The quick-ask panel exists on this host and build. Off (web, and packaged
-   * desktop without the prototype gate) hides its settings page, whose only
-   * content otherwise is an "unavailable" message.
-   */
-  quickAskAvailable?: boolean;
 }
 
 export function getHiddenSettingsCategories({
   localWorkspaces,
-  quickAskAvailable = false,
 }: SettingsVisibility): ReadonlySet<SettingsCategory> {
   // SettingsPanel drops these from its nav and its search, and redirects
   // direct navigation to one, so a deep link can't reach them either.
@@ -33,9 +26,6 @@ export function getHiddenSettingsCategories({
     for (const category of LOCAL_ONLY_CATEGORIES) {
       hiddenCategories.add(category);
     }
-  }
-  if (!quickAskAvailable) {
-    hiddenCategories.add("quick-ask");
   }
 
   return hiddenCategories;
