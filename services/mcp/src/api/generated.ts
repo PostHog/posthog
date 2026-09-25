@@ -65275,6 +65275,7 @@ export namespace Schemas {
      * * `implementation_dispatch` - Implementation Dispatch
      * * `implementation_replacement` - Implementation Replacement
      * * `implementation_handover` - Implementation Handover
+     * * `ranking_score` - Ranking Score
      */
     export type SignalReportArtefactArtefactTypeEnum = typeof SignalReportArtefactArtefactTypeEnum[keyof typeof SignalReportArtefactArtefactTypeEnum];
 
@@ -65309,6 +65310,7 @@ export namespace Schemas {
       ImplementationDispatch: 'implementation_dispatch',
       ImplementationReplacement: 'implementation_replacement',
       ImplementationHandover: 'implementation_handover',
+      RankingScore: 'ranking_score',
     } as const;
 
     export type SignalActorKindEnum = typeof SignalActorKindEnum[keyof typeof SignalActorKindEnum];

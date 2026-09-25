@@ -15,6 +15,9 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { writeStableChunks } from './bin/stableChunkNames.mjs'
+import { buildCssGroups } from './bin/stableCss.mjs'
+import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -106,11 +109,34 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
+                let stable = null
                 if (!isDev) {
                     reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
-                    writePreloadManifest(buildResponse.outputs)
+                    const preloadManifest = writePreloadManifest(buildResponse.outputs)
+                    // A throw here must fail the build: it reaches buildInParallel's catch, which
+                    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
+                    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
+                    const cssPlan = planCssGroups(buildResponse)
+                    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
+                    stable = writeStableChunks({
+                        absWorkingDir: __dirname,
+                        outputs: buildResponse.outputs,
+                        chunks,
+                        entrypoints,
+                        preloadManifest,
+                        preludes: new Map(
+                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                file,
+                                cssPrelude(groups, cssPlan.rankOfGroup),
+                            ])
+                        ),
+                        extraImports: Object.fromEntries(
+                            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
+                        ),
+                        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+                    })
                 }
-                writeIndexHtml(chunks, entrypoints)
+                writeIndexHtml(chunks, entrypoints, stable)
             }
 
             if (config.name === 'Exporter') {
@@ -184,6 +210,7 @@ export function writePreloadManifest(outputs = {}) {
         }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
+    return manifest
 }
 
 // EmojiPickerPanel loads frimousse's emoji data from /static/emoji rather than from a CDN. frimousse
@@ -198,9 +225,11 @@ function copyEmojibaseData() {
     }
 }
 
-export function writeIndexHtml(chunks = {}, entrypoints = []) {
-    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints)
-    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints)
+export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
+    copyIndexHtml(__dirname, 'src/index.html', 'dist/index.html', 'index', chunks, entrypoints, stable)
+    // layout.html also gets the {% if stable_chunks %} boot branch, but posthog/utils.py only sets
+    // stable_chunks for "index.html", so this branch never renders here; the {% else %} default runs.
+    copyIndexHtml(__dirname, 'src/layout.html', 'dist/layout.html', 'index', chunks, entrypoints, stable)
 }
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
