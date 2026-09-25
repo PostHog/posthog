@@ -152,20 +152,13 @@ def build_eval_report_system_prompt(
                 raise ValueError("Numeric reports require a passing rule")
             operator = ">=" if rule.operator == "gte" else "<="
             result_semantics = (
-                f"The evaluation returns a numeric score. Scores {operator} {rule.threshold} pass; other scores fail. "
-                "Both periods use this same passing rule. N/A results do not count toward the pass rate. "
-                "Use get_summary_metrics() as the authoritative pass-rate calculation for both periods. "
-                "It applies the current passing rule to stored scores; it does not rescore historical inputs. "
-                "Matching passing rules do not establish that scoring logic, criteria, or units stayed the same. "
-                "Scorer version history is not provided. Qualify performance conclusions as assuming comparable "
-                "scoring across periods, and do not attribute changes to underlying performance when scoring changed. "
-                "Historical report metrics are snapshots under their saved passing rules; the history index "
-                "includes output_config and passing_rule_matches_current (null means unknown). "
-                "Do not compare a historical snapshot rate directly with the current rate when the rules differ "
-                "or are unknown. Explain a rule change separately from a change in performance. "
-                "Only when both recalculated pass rates are non-null and equal, describe the pass rate as unchanged. "
-                "If either rate is null, report insufficient scored data for a pass-rate comparison. "
-                "Interpret the raw score using the evaluation criteria; it is not a normalized percentage. "
+                f"Numeric scores {operator} {rule.threshold} pass; others fail. Exclude N/A from pass rates. "
+                "Compare periods using get_summary_metrics(): the current rule applied to stored scores, without rescoring. "
+                "State that performance comparisons assume unchanged scoring logic and units; scorer history is unavailable. "
+                "Historical rates use saved rules (output_config, passing_rule_matches_current; null means unknown). "
+                "Do not compare snapshots with different or unknown rules. Separate rule changes from performance changes. "
+                "Equal non-null rates mean unchanged pass rate; either rate null means insufficient data. "
+                "Interpret scores using the evaluation criteria, not as normalized percentages. "
                 f"Score configuration: {output_config}"
             )
         elif true_is_failure:
@@ -196,9 +189,8 @@ def build_eval_report_system_prompt(
         )
         if evaluation_type == "hog":
             result_semantics += (
-                " This is a deterministic Hog evaluation. Use the supplied source to interpret the score and units. "
-                "Hog code can return a value without logging reasoning; empty reasoning alone is not an "
-                "instrumentation defect. Do not infer measurement problems from the score magnitude alone."
+                " Hog is deterministic; use its source to interpret scores and units. "
+                "Reasoning is optional. Missing reasoning or large scores alone do not imply instrumentation problems."
             )
             outcome_analysis_step = (
                 f"Inspect sample outcomes, using `{analysis_outcome}` and `{primary_outcome}` as starting points. "
