@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import cleanup_orphan_slots_activity
@@ -12,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 
 pytestmark = pytest.mark.django_db
 
+_ACTIVITIES = "products.warehouse_sources.backend.temporal.data_imports.cdc.activities"
 _BILLING_EXPIRY = "products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry"
 
 
@@ -218,12 +220,20 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
     assert schema.sync_type_config["cdc_broken"]["reason"] == "critical_lag_self_managed"
 
 
-def _billing_blocked_schema(team, source, *, blocked_for):
+def _job(team, source, schema, status, age):
+    job = ExternalDataJob.objects.create(team_id=team.pk, pipeline=source, schema=schema, status=status, rows_synced=0)
+    ExternalDataJob.objects.filter(id=job.id).update(created_at=dt.datetime.now(tz=dt.UTC) - age)
+
+
+def _billing_blocked_schema(team, source, *, blocked_for, last_load_ago=None, other_outcome_ago=None):
     schema = _create_cdc_schema(team, source)
     ExternalDataSchema.objects.filter(id=schema.id).update(
         status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
-        last_synced_at=dt.datetime.now(tz=dt.UTC) - blocked_for,
+        last_synced_at=dt.datetime.now(tz=dt.UTC) - (last_load_ago or blocked_for),
     )
+    if other_outcome_ago is not None:
+        _job(team, source, schema, ExternalDataJob.Status.FAILED, other_outcome_ago)
+    _job(team, source, schema, ExternalDataJob.Status.BILLING_LIMIT_REACHED, blocked_for)
     return schema
 
 
@@ -251,18 +261,21 @@ def test_a_source_blocked_by_billing_past_buffer_retention_is_marked_broken(team
 
 
 @pytest.mark.parametrize(
-    "blocked_for, team_limited, already_broken",
+    "blocked_for, other_outcome_ago, team_limited, already_broken",
     [
-        (dt.timedelta(days=3), True, False),
-        (dt.timedelta(days=15), False, False),
-        (dt.timedelta(days=15), True, True),
+        (dt.timedelta(days=3), None, True, False),
+        (dt.timedelta(days=15), None, False, False),
+        (dt.timedelta(days=15), None, True, True),
+        (dt.timedelta(days=1), dt.timedelta(days=2), True, False),
     ],
 )
 def test_a_source_is_left_running_unless_billing_blocks_it_past_buffer_retention(
-    team, blocked_for, team_limited, already_broken
+    team, blocked_for, other_outcome_ago, team_limited, already_broken
 ):
     source = _create_source(team, job_inputs=_cdc_job_inputs())
-    schema = _billing_blocked_schema(team, source, blocked_for=blocked_for)
+    schema = _billing_blocked_schema(
+        team, source, blocked_for=blocked_for, last_load_ago=dt.timedelta(days=15), other_outcome_ago=other_outcome_ago
+    )
     if already_broken:
         ExternalDataSchema.objects.filter(id=schema.id).update(
             sync_type_config={**schema.sync_type_config, "cdc_broken": {"reason": "auto_dropped_critical_lag"}}
@@ -275,3 +288,16 @@ def test_a_source_is_left_running_unless_billing_blocks_it_past_buffer_retention
     adapter.drop_resources.assert_not_called()
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") != "billing_limit_expired"
+
+
+def test_a_failed_billing_check_still_checks_the_slots_lag(team):
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _create_cdc_schema(team, source)
+    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
+
+    with patch(f"{_ACTIVITIES}.blocked_past_buffer_retention", side_effect=RuntimeError("quota cache down")):
+        _run(adapter)
+
+    adapter.drop_resources.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"

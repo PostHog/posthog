@@ -15,6 +15,7 @@ import datetime as dt
 
 from posthog.models.team.team import Team
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
@@ -40,12 +41,20 @@ _SLOT_KEPT_MESSAGE = (
 )
 
 
-def blocked_past_buffer_retention(source: ExternalDataSource, now: dt.datetime) -> bool:
-    """Whether a CDC table of this source has been blocked by the billing limit longer than the buffer keeps changes.
+# Finished job outcomes other than a billing block. A running job has no outcome yet, so it neither
+# starts nor ends a billing-blocked run.
+_OTHER_OUTCOMES = (
+    ExternalDataJob.Status.COMPLETED,
+    ExternalDataJob.Status.FAILED,
+    ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW,
+)
 
-    A table's first unread change was written just after its last load, so its age is the time since
-    that load. The team must still be over the limit: once the limit lifts, the table's next run loads
-    what the buffer still holds.
+
+def blocked_past_buffer_retention(source: ExternalDataSource, now: dt.datetime) -> bool:
+    """Whether this source's CDC tables have been blocked by the billing limit longer than the buffer keeps changes.
+
+    The team must still be over the limit: once the limit lifts, the tables' next runs load what the
+    buffer still holds.
     """
     cdc_schemas = ExternalDataSchema.objects.filter(
         team_id=source.team_id,
@@ -58,10 +67,36 @@ def blocked_past_buffer_retention(source: ExternalDataSource, now: dt.datetime) 
         return False
     cutoff = now - BUFFER_FILE_RETENTION
     blocked = cdc_schemas.filter(status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED)
+    # A table blocked that long has not loaded since the cutoff either, so this rules out most sources
+    # before the job history is read.
     if not any((schema.last_synced_at or schema.created_at) < cutoff for schema in blocked):
+        return False
+    blocked_since = _billing_blocked_since(source)
+    if blocked_since is None or blocked_since >= cutoff:
         return False
     team = Team.objects.only("api_token").get(id=source.team_id)
     return is_team_limited(team.api_token, QuotaResource.ROWS_SYNCED, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+
+
+def _billing_blocked_since(source: ExternalDataSource) -> dt.datetime | None:
+    """When the source's current run of billing-blocked jobs began.
+
+    The limit applies to the whole team, so every table of the source is blocked from the same moment:
+    the first blocked job after the last job with another outcome. A table can go longer without a load
+    for other reasons, which is why this is not the time since its last load.
+    """
+    jobs = ExternalDataJob.objects.filter(team_id=source.team_id, pipeline_id=source.id)
+    # One ordered lookup per status, because the (team, pipeline, status, created_at) index serves an
+    # equality on status and not an exclusion.
+    latest_by_outcome = [
+        jobs.filter(status=outcome).order_by("-created_at").values_list("created_at", flat=True).first()
+        for outcome in _OTHER_OUTCOMES
+    ]
+    last_other = max((created_at for created_at in latest_by_outcome if created_at is not None), default=None)
+    blocked = jobs.filter(status=ExternalDataJob.Status.BILLING_LIMIT_REACHED)
+    if last_other is not None:
+        blocked = blocked.filter(created_at__gt=last_other)
+    return blocked.order_by("created_at").values_list("created_at", flat=True).first()
 
 
 def stop_cdc_past_billing_retention(

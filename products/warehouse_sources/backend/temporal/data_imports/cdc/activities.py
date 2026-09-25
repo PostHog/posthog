@@ -2117,7 +2117,15 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             # 2. Active sources over the billing limit for longer than the buffer keeps changes
-            if blocked_past_buffer_retention(source, sweep_started):
+            try:
+                past_billing_retention = blocked_past_buffer_retention(source, sweep_started)
+            except Exception:
+                # The lag check below still runs for this source, and the next sweep retries this one.
+                source_log.exception("failed_to_check_billing_retention")
+                metrics.get_sweeper_source_errors_metric().add(1)
+                sources_errored += 1
+                past_billing_retention = False
+            if past_billing_retention:
                 source_log.warning("cdc_stopping_past_billing_retention")
                 try:
                     if stop_cdc_past_billing_retention(source, cdc_config, adapter):
