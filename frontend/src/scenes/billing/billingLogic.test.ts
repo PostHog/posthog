@@ -166,6 +166,7 @@ describe('billingLogic', () => {
                     },
                 ],
             })
+            expect(billingLogic.values.isProductAtOrOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)).toBe(true)
             await expectLogic(billingLogic).toFinishAllListeners()
 
             expect(billingRequestCount).toBe(0)

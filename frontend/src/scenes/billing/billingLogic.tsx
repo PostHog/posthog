@@ -690,7 +690,7 @@ export interface billingLogicMeta {
         startupProgramLabelCurrent: (billing: BillingType | null) => StartupProgramLabel | null
         startupProgramLabelPrevious: (billing: BillingType | null) => StartupProgramLabel | null
         isAnnualPlanCustomer: (billing: BillingType | null) => boolean
-        isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
+        isProductAtOrOverUsageLimit: (billingSummary: BillingSummary | null) => (productKey: ProductKey) => boolean
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
         showCreditCTAHero: (creditOverview: {
@@ -1256,10 +1256,10 @@ export const billingLogic = kea<billingLogicType>([
             (billing: BillingType | null): boolean => billing?.is_annual_plan_customer || false,
         ],
         isProductAtOrOverUsageLimit: [
-            (s) => [s.billing],
-            (billing: BillingType | null): ((productKey: ProductKey) => boolean) =>
+            (s) => [s.billingSummary],
+            (billingSummary: BillingSummary | null): ((productKey: ProductKey) => boolean) =>
                 (productKey: ProductKey): boolean => {
-                    const product = billing?.products?.find((p) => p.type === productKey)
+                    const product = billingSummary?.products.find((p) => p.type === productKey)
                     return isUsageAtOrOverLimit(product?.percentage_usage)
                 },
         ],
