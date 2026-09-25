@@ -57,6 +57,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
+    blocked_past_buffer_retention,
+    stop_cdc_past_billing_retention,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
     SELF_MANAGED_LAG_REASON,
     clear_recovered_self_managed_lag,
@@ -2112,7 +2116,19 @@ def cleanup_orphan_slots_activity() -> None:
                     purge_buffer_prefix(source.team_id, str(schema_id), source_log)
                 continue
 
-            # 2. Active sources — check WAL lag
+            # 2. Active sources over the billing limit for longer than the buffer keeps changes
+            if blocked_past_buffer_retention(source, sweep_started):
+                source_log.warning("cdc_stopping_past_billing_retention")
+                try:
+                    if stop_cdc_past_billing_retention(source, cdc_config, adapter):
+                        slots_dropped += 1
+                except Exception:
+                    source_log.exception("failed_to_stop_cdc_past_billing_retention")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
+                continue
+
+            # 3. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:

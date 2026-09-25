@@ -347,6 +347,15 @@ The only fix is a full `reset_pipeline` re-snapshot for that schema.
 Watch the age of the oldest unconsumed file per schema, not the file count. A schema with few files
 that are all thirteen days old is in trouble; one with thousands of fresh files is fine.
 
+**The billing limit is the usual cause, and the sweeper stops it.** Capture has no billing check, so it
+keeps reading the slot and writing the buffer while the limit blocks every consume run. Once a table
+has been blocked by the billing limit for longer than the buffer keeps files, and the team is still
+over the limit, the slot sweeper (`cleanup_orphan_slots_activity`) marks the source broken with reason
+`billing_limit_expired`. A PostHog-managed slot with auto-drop on is dropped and the schedules are
+paused, on the same terms as the critical-lag safety net. Any other slot is left to its owner and
+capture keeps advancing it, so the customer's WAL does not grow. Once the team is back under the
+limit, Repair CDC recreates the slot and re-snapshots every table.
+
 ## Retried capture attempts
 
 Temporal retries a capture attempt that dies, and the retry re-reads the WAL from the slot's

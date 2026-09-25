@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from contextlib import contextmanager
 
 import pytest
@@ -10,6 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 pytestmark = pytest.mark.django_db
+
+_BILLING_EXPIRY = "products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry"
 
 
 def _create_source(team, *, deleted=False, job_inputs=None):
@@ -73,6 +76,7 @@ def _run(adapter):
         patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
+        patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule"),
         patch("products.notifications.backend.facade.api.create_notification"),
         patch("posthoganalytics.capture"),
     ):
@@ -212,3 +216,62 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
     assert source.status == ExternalDataSource.Status.ERROR
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == "critical_lag_self_managed"
+
+
+def _billing_blocked_schema(team, source, *, blocked_for):
+    schema = _create_cdc_schema(team, source)
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+        last_synced_at=dt.datetime.now(tz=dt.UTC) - blocked_for,
+    )
+    return schema
+
+
+@pytest.mark.parametrize(
+    "job_inputs, dropped, paused",
+    [
+        (_cdc_job_inputs(), True, True),
+        (_cdc_job_inputs(auto_drop_slot=False), False, False),
+        (_cdc_job_inputs(management="self_managed"), False, False),
+    ],
+)
+def test_a_source_blocked_by_billing_past_buffer_retention_is_marked_broken(team, job_inputs, dropped, paused):
+    source = _create_source(team, job_inputs=job_inputs)
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+    adapter = _mock_adapter()
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _, _, mock_pause = _run(adapter)
+
+    assert adapter.drop_resources.called is dropped
+    assert mock_pause.called is paused
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
+    adapter.get_lag_bytes.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "blocked_for, team_limited, already_broken",
+    [
+        (dt.timedelta(days=3), True, False),
+        (dt.timedelta(days=15), False, False),
+        (dt.timedelta(days=15), True, True),
+    ],
+)
+def test_a_source_is_left_running_unless_billing_blocks_it_past_buffer_retention(
+    team, blocked_for, team_limited, already_broken
+):
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _billing_blocked_schema(team, source, blocked_for=blocked_for)
+    if already_broken:
+        ExternalDataSchema.objects.filter(id=schema.id).update(
+            sync_type_config={**schema.sync_type_config, "cdc_broken": {"reason": "auto_dropped_critical_lag"}}
+        )
+    adapter = _mock_adapter()
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=team_limited):
+        _run(adapter)
+
+    adapter.drop_resources.assert_not_called()
+    schema.refresh_from_db()
+    assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") != "billing_limit_expired"

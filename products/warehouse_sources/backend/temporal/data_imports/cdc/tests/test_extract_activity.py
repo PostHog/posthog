@@ -2784,6 +2784,10 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
+        return_value=False,
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
@@ -2791,7 +2795,14 @@ class TestCleanupOrphanSlotsRetentionCap:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     def test_retention_cap_lowers_critical_threshold(
-        self, mock_mark_broken, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+        self,
+        mock_mark_broken,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_adapter,
+        mock_activity,
+        mock_heartbeater,
+        _billing,
     ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
@@ -2803,6 +2814,10 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_adapter.drop_resources.assert_called_once()
         mock_mark_broken.assert_called_once()
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
+        return_value=False,
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.HeartbeaterSync")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
@@ -2810,7 +2825,14 @@ class TestCleanupOrphanSlotsRetentionCap:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.mark_cdc_broken")
     def test_unlimited_retention_keeps_configured_threshold(
-        self, mock_mark_broken, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+        self,
+        mock_mark_broken,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_adapter,
+        mock_activity,
+        mock_heartbeater,
+        _billing,
     ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
