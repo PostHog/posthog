@@ -192,6 +192,31 @@ export function WidgetSection(): JSX.Element {
                                 </div>
                             </LemonCard>
                         </SceneSection>
+                        <SceneSection title="Restore previous conversations" className="mt-8" titleSize="sm">
+                            <LemonCard hoverEffect={false} className="px-4 py-3">
+                                <div className="flex items-center gap-4 py-2 justify-between">
+                                    <div>
+                                        <label className="w-40 shrink-0 font-medium">Allow email restore</label>
+                                        <p className="text-xs text-muted-alt mb-2">
+                                            Let users ask for a link by email to get their previous conversations back
+                                            on a new browser or device. The email is sent in your name. Turn this off to
+                                            hide the option in the widget.
+                                        </p>
+                                    </div>
+                                    <LemonSwitch
+                                        checked={currentTeam?.conversations_settings?.widget_restore_enabled !== false}
+                                        onChange={(checked) => {
+                                            updateCurrentTeam({
+                                                conversations_settings: {
+                                                    ...currentTeam?.conversations_settings,
+                                                    widget_restore_enabled: checked,
+                                                },
+                                            })
+                                        }}
+                                    />
+                                </div>
+                            </LemonCard>
+                        </SceneSection>
                         <SceneSection title="Identification form" className="mt-8" titleSize="sm">
                             <LemonCard hoverEffect={false} className="px-4 py-3">
                                 <div className="flex items-center gap-4 py-2 justify-between">

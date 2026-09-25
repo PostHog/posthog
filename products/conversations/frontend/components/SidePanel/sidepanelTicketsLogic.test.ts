@@ -568,6 +568,26 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.ticketsLoading).toBe(false)
     })
 
+    // A team can turn the email restore flow off, and the endpoint then answers 403. The generic
+    // message invites a retry that can never work.
+    it.each([
+        [403, 'Recovering tickets by email is turned off. Reply to an existing ticket instead.'],
+        [429, 'Too many requests. Please try again later.'],
+        [500, 'Something went wrong. Please try again.'],
+    ])('explains a %s from the restore link request', async (status, expectedMessage) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        ;(posthog as any).conversations.requestRestoreLink = jest.fn().mockRejectedValue({ status })
+
+        await expectLogic(logic, () => {
+            logic.actions.requestRestoreLink('customer@example.com')
+        }).toFinishAllListeners()
+
+        expect(logic.values.restoreState).toBe('error')
+        expect(logic.values.restoreError).toBe(expectedMessage)
+    })
+
     // TicketsList renders filteredTickets, so a broken selector would show the wrong chats
     // (or none) once someone picks a status.
     it.each([

@@ -726,6 +726,43 @@ class TestRestoreAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ["request", "/api/conversations/v1/widget/restore/request"],
+            ["redeem", "/api/conversations/v1/widget/restore"],
+        ]
+    )
+    @patch("products.conversations.backend.api.restore.RestoreRequestThrottle.allow_request", return_value=True)
+    @patch("products.conversations.backend.api.restore.send_conversation_restore_email")
+    def test_restore_rejected_when_team_turned_restore_off(self, _name, url, mock_send_email, mock_throttle):
+        self._enable_allowlist()
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "widget_restore_enabled": False,
+        }
+        self.team.save()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user-1",
+            anonymous_traits={"email": self.customer_email},
+        )
+        _, raw_token = ConversationRestoreToken.create_token(team=self.team, recipient_email=self.customer_email)
+
+        response = self.client.post(
+            url,
+            {
+                "email": self.customer_email,
+                "request_url": "https://example.com/support",
+                "restore_token": raw_token,
+                "widget_session_id": self.widget_session_id,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_send_email.delay.assert_not_called()
+
 
 class TestBuildRestoreUrl(BaseTest):
     """Tests for _build_restore_url helper function."""

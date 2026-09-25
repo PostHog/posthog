@@ -21,6 +21,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WidgetAuthentication
+from posthog.event_usage import report_team_action
 from posthog.models import Team
 from posthog.rate_limit import WIDGET_WRITE_THROTTLES, RestoreRedeemThrottle, RestoreRequestThrottle
 from posthog.tasks.email import send_conversation_restore_email
@@ -31,7 +32,7 @@ from products.conversations.backend.api.serializers import (
     validate_url_matches_request_origin,
 )
 from products.conversations.backend.cache import invalidate_tickets_cache
-from products.conversations.backend.services.restore import RestoreService
+from products.conversations.backend.services.restore import RestoreService, is_restore_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,9 @@ class WidgetRestoreRequestView(APIView):
         if not validate_origin(request, team):
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
+        if not is_restore_enabled(team):
+            return Response({"error": "Restore is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = RestoreRequestSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in RestoreRequestView", extra={"errors": serializer.errors})
@@ -124,6 +128,8 @@ class WidgetRestoreRequestView(APIView):
                 restore_url=restore_url,
             )
 
+        report_team_action(team, "support restore link requested", {"email_sent": bool(raw_token)})
+
         # Always return ok to prevent email enumeration
         return Response({"ok": True})
 
@@ -148,6 +154,9 @@ class WidgetRestoreRedeemView(APIView):
         if not validate_origin(request, team):
             return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
 
+        if not is_restore_enabled(team):
+            return Response({"error": "Restore is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+
         serializer = RestoreRedeemSerializer(data=request.data)
         if not serializer.is_valid():
             logger.warning("Validation error in RestoreRedeemView", extra={"errors": serializer.errors})
@@ -165,6 +174,8 @@ class WidgetRestoreRedeemView(APIView):
             raw_token=raw_token,
             widget_session_id=widget_session_id,
         )
+
+        report_team_action(team, "support restore link redeemed", {"result": result.status})
 
         # Invalidate tickets cache if migration succeeded
         if result.status == "success" and result.migrated_ticket_ids:

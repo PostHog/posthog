@@ -387,7 +387,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             null as string | null,
             {
                 setRestoreError: (_, { error }) => error,
-                setRestoreState: () => null,
+                // Every transition drops the message, except the one into the error state, which the
+                // listener sets alongside the message it must keep.
+                setRestoreState: (error, { state }) => (state === 'error' ? error : null),
             },
         ],
         statusFilter: [
@@ -886,10 +888,12 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 // Someone who lost their tickets and can't get the restore link has no way back to a
                 // conversation they already started, so it's worth the same visibility as a dead panel
                 captureSupportWidgetLoadFailed({ surface: 'restore_form', reason: 'restore_link_failed', error: e })
-                const message =
-                    e?.status === 429
-                        ? 'Too many requests. Please try again later.'
-                        : 'Something went wrong. Please try again.'
+                let message = 'Something went wrong. Please try again.'
+                if (e?.status === 429) {
+                    message = 'Too many requests. Please try again later.'
+                } else if (e?.status === 403) {
+                    message = 'Recovering tickets by email is turned off. Reply to an existing ticket instead.'
+                }
                 actions.setRestoreError(message)
                 actions.setRestoreState('error')
             }
