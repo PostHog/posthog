@@ -61,6 +61,7 @@ cr auth status                   # confirms the session and the organization
    The person runs `cr auth login` themselves; the agent can tell them how to install `cr` from Setup.
    After setup, check `cr auth status --agent` again. If they decline or cannot answer, skip to step 6.
    Do not run `cr review` while signed out. It opens an OAuth browser tab and waits for sign-in.
+
 2. Finish the work and commit.
    The review reads the branch, so uncommitted edits need the matching change-scope flag (`cr review --help` lists them).
 3. Run the review, scoped to the branch's base:
